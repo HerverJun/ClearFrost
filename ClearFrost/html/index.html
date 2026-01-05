@@ -1,0 +1,3355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>清霜 Pro - 汝窑版 (v2.0)</title>
+
+
+
+    <!-- Tailwind Config (Define Config BEFORE Library for Robustness) -->
+    <script>
+        window.tailwind = window.tailwind || {};
+        window.tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        // 经典国风色卡 (Classic Guofeng Palette)
+                        'porcelain': { // 宣纸色 (背景 - 温润牙色)
+                            50: '#fdfbf7',
+                            100: '#fcfcf0',
+                            200: '#faf7e8', // 浅牙色
+                            800: '#5c4b37', // 古墨棕
+                        },
+                        'celadon': { // 黛蓝 & 汝窑 (主色 - 沉稳雅致)
+                            50: '#f0f4f5',
+                            100: '#e1e9eb',
+                            200: '#c3d3d6',
+                            300: '#a5bdc2',
+                            400: '#6a9199',
+                            500: '#2c5a71', // 核心主色 - 黛蓝
+                            600: '#264d61',
+                            700: '#1f3f4f',
+                            800: '#18313e',
+                            900: '#11222b',
+                        },
+                        'ink': { // 松烟墨 (文字 - 纯正水墨)
+                            50: '#f8fafc',
+                            100: '#f1f5f9',
+                            200: '#e2e8f0',
+                            300: '#cbd5e1',
+                            400: '#94a3b8',
+                            500: '#64748b',
+                            600: '#475569',
+                            700: '#334155',
+                            800: '#1a1d21', // 浓墨
+                            900: '#111317', // 焦墨
+                            950: '#000000',
+                        },
+                        'rouge': { // 胭脂 (点缀 - 霁红)
+                            50: '#fff1f2',
+                            100: '#ffe4e6',
+                            400: '#cd5c5c',
+                            500: '#9e2a2b', // 霁红
+                            600: '#8b2323',
+                            700: '#751d1d',
+                            800: '#5e1717',
+                        },
+                        'bamboo': { // 竹青 (自然墨绿)
+                            50: '#f1f5f1',
+                            100: '#e3eae3',
+                            400: '#6d8b6d',
+                            500: '#4f6d3d', // 苍竹
+                            600: '#3d542f',
+                            700: '#2b3b21',
+                        },
+                    },
+                    fontFamily: {
+                        serif: ['"Noto Serif SC"', '"Source Han Serif CN"', '"Microsoft YaHei"', 'serif'],
+                        sans: ['"Inter"', '"Noto Sans SC"', '"Microsoft YaHei"', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'Consolas', 'monospace'],
+                    },
+                    boxShadow: {
+                        'soft': '0 8px 30px -4px rgba(44, 90, 113, 0.15)', // 黛蓝微光
+                        'float': '0 20px 50px -12px rgba(44, 90, 113, 0.25)',
+                        'glass': '0 8px 32px 0 rgba(26, 29, 33, 0.05), inset 0 0 0 1px rgba(255, 255, 255, 0.4)',
+                        'glow': '0 0 15px rgba(44, 90, 113, 0.3), inset 0 0 10px rgba(44, 90, 113, 0.05)',
+                        'inner-glow': 'inset 0 0 30px rgba(255, 255, 255, 0.5)',
+                    },
+                    backgroundImage: {
+                        // 宣纸质感渐变
+                        'frost-gradient': 'linear-gradient(135deg, #fdfbf7 0%, #fcfaf2 100%)',
+                        'card-gradient': 'linear-gradient(180deg, rgba(253, 251, 247, 0.95) 0%, rgba(252, 250, 242, 0.9) 100%)',
+                        'shimmer': 'linear-gradient(45deg, rgba(165, 189, 194, 0.1) 25%, transparent 25%, transparent 50%, rgba(165, 189, 194, 0.1) 50%, rgba(165, 189, 194, 0.1) 75%, transparent 75%, transparent)',
+                    }
+                }
+            }
+        };
+    </script>
+
+    <!-- Tailwind CSS (Load Library AFTER Config) -->
+    <script src="tailwind.min.js"></script>
+
+    <!-- Chart.js -->
+    <script src="chart.min.js"></script>
+    <!-- Cropper.js (本地) -->
+    <link href="cropper.min.css" rel="stylesheet">
+    <script src="cropper.min.js"></script>
+
+    <!-- 字体说明: 使用系统字体回退，无需外网 -->
+    <!-- 如需更好的字体效果，可在系统中安装:
+         - JetBrains Mono (等宽代码字体)
+         - Noto Serif SC / 思源宋体 (中文宋体)
+         - Noto Sans SC / 思源黑体 (中文黑体)
+    -->
+
+    <style>
+        /* CSS Fallbacks for critical Tailwind colors */
+        .bg-celadon-500 {
+            background-color: #06b6d4 !important;
+        }
+
+        .bg-celadon-600 {
+            background-color: #00a3e0 !important;
+        }
+
+        /* Updated */
+        .text-celadon-600 {
+            color: #00a3e0 !important;
+        }
+
+        /* Updated */
+        .text-ink-600 {
+            color: #475569 !important;
+        }
+
+        .text-ink-800 {
+            color: #1e293b !important;
+        }
+
+        /* Fix for invisible buttons */
+        .bg-ink-800 {
+            background-color: #1e293b !important;
+        }
+
+        .bg-ink-900 {
+            background-color: #0f172a !important;
+        }
+
+        .text-white {
+            color: #ffffff !important;
+        }
+
+        .bg-white {
+            background-color: #ffffff !important;
+        }
+
+        .bg-slate-50 {
+            background-color: #f8fafc !important;
+        }
+
+        /* 滚动条 - 更加隐形但精致 */
+        .scroller::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+
+        .scroller::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .scroller::-webkit-scrollbar-thumb {
+            background: rgba(44, 90, 113, 0.2);
+            border-radius: 3px;
+            border: 1px solid transparent;
+            background-clip: content-box;
+        }
+
+        .scroller::-webkit-scrollbar-thumb:hover {
+            background: rgba(44, 90, 113, 0.5);
+        }
+
+        /* 霜白磨砂面板 (Frosted Porcelain) - 科技升级版 */
+        .glass-panel {
+            background: rgba(253, 251, 247, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(165, 189, 194, 0.3);
+            /* 多重暖意阴影 */
+            box-shadow:
+                0 4px 6px -1px rgba(26, 29, 33, 0.03),
+                0 10px 15px -3px rgba(26, 29, 33, 0.03),
+                inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+                inset 0 0 20px rgba(252, 250, 242, 0.5);
+            /* 内部泛温润质感 */
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        .glass-panel:hover {
+            background: rgba(253, 251, 247, 0.95);
+            border-color: rgba(44, 90, 113, 0.4);
+            box-shadow:
+                0 20px 25px -5px rgba(26, 29, 33, 0.08),
+                0 8px 10px -6px rgba(26, 29, 33, 0.08),
+                inset 0 0 0 1px rgba(255, 255, 255, 0.8),
+                inset 0 0 30px rgba(250, 247, 232, 0.6);
+        }
+
+        /* 宣纸风格输入框 - 更加锐利 */
+        .tech-input {
+            background: #faf7e8;
+            border: 1px solid #c3d3d6;
+            color: #1a1d21;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .tech-input:focus {
+            background: #fff;
+            border-color: #2c5a71;
+            box-shadow: 0 0 0 3px rgba(44, 90, 113, 0.15);
+            outline: none;
+        }
+
+        /* 汝窑滑块 - 发光珠 */
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #2c5a71;
+            border: 2px solid #fff;
+            margin-top: -6px;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(44, 90, 113, 0.4);
+            /* 发光 */
+            transition: transform 0.2s;
+        }
+
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            background: #1f3f4f;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: #e1e9eb;
+            border-radius: 2px;
+        }
+
+        /* 按钮风格 - 炫彩升级 */
+        .btn-celadon {
+            /* 沉稳的黛蓝渐变 */
+            background: linear-gradient(135deg, #415065 0%, #2c5a71 100%);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow:
+                0 4px 6px -1px rgba(26, 29, 33, 0.2),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .btn-celadon:hover {
+            background: linear-gradient(135deg, #2c5a71 0%, #1f3f4f 100%);
+            box-shadow:
+                0 10px 15px -3px rgba(26, 29, 33, 0.3),
+                0 0 15px rgba(44, 90, 113, 0.2),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .btn-celadon:active {
+            transform: translateY(0);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-ghost {
+            background: #fdfbf7;
+            border: 1px solid #e1e9eb;
+            color: #475569;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        }
+
+        .btn-ghost:hover {
+            border-color: #a5bdc2;
+            color: #2c5a71;
+            background: #faf7e8;
+            box-shadow: 0 4px 6px -1px rgba(165, 189, 194, 0.2);
+        }
+
+        /* 状态点 - 霓虹 */
+        .status-dot {
+            height: 8px;
+            width: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            transition: all 0.3s ease;
+        }
+
+        .status-on {
+            background-color: #22c55e;
+            box-shadow: 0 0 10px rgba(34, 197, 94, 0.8);
+            animation: pulse-green 2s infinite;
+        }
+
+        .status-off {
+            background-color: #cbd5e1;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        @keyframes pulse-green {
+            0% {
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+            }
+
+            70% {
+                box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+            }
+        }
+
+        /* 扫描线动画 - 增强科技感 */
+        @keyframes scanline-light {
+            0% {
+                transform: translateY(-100%);
+                opacity: 0;
+            }
+
+            20% {
+                opacity: 0.6;
+            }
+
+            80% {
+                opacity: 0.6;
+            }
+
+            100% {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+        }
+
+        .scan-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .scan-overlay .scanline::after {
+            content: "";
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, transparent 0%, rgba(44, 90, 113, 0.2) 50%, transparent 100%);
+            pointer-events: none;
+            animation: scanline-light 2.5s linear infinite;
+        }
+
+        /* Drawer & Dock - 保持逻辑 */
+        .drawer-open {
+            transform: translateX(0) !important;
+            opacity: 1 !important;
+            width: 24rem !important;
+        }
+
+        .drawer-closed-left {
+            transform: translateX(-120%) !important;
+            opacity: 0 !important;
+            width: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+        }
+
+        .drawer-closed-right {
+            transform: translateX(120%) !important;
+            opacity: 0 !important;
+            width: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+        }
+
+        .dock-open {
+            transform: translate(-50%, 0) !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
+        }
+
+        .dock-closed {
+            transform: translate(-50%, 150%) !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+
+        .animate-float {
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-8px);
+            }
+
+            /* 幅度加大 */
+        }
+
+        .btn-press:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+
+<body
+    class="bg-frost-gradient h-screen w-screen overflow-hidden flex flex-col text-ink-600 selection:bg-celadon-100 selection:text-celadon-900">
+
+    <!-- Header: Floating HUD -->
+    <header
+        class="fixed top-6 left-6 right-6 h-16 glass-panel rounded-2xl z-50 flex items-center justify-between px-6 animate-float"
+        style="animation-duration: 8s;" onmousedown="startDrag(event)">
+        <!-- Left: Logo & Title (Draggable) -->
+        <div class="flex items-center gap-4">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-celadon-400 to-celadon-600 flex items-center justify-center text-white shadow-lg shadow-celadon-500/30"
+                style="background: linear-gradient(135deg, #415065 0%, #2c5a71 100%);">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 3v18m0-18l4 4m-4-4l-4 4m4 14l4-4m-4 4l-4-4m9-5H3m18 0l-4-4m4 4l-4 4M3 12l4-4m-4 4l4 4">
+                    </path>
+                </svg>
+            </div>
+            <div class="flex flex-col select-none">
+                <h1
+                    class="text-xl font-serif font-black tracking-widest text-ink-800 bg-clip-text text-transparent bg-gradient-to-r from-ink-900 to-ink-600">
+                    清霜 <span
+                        class="text-xs font-sans font-medium text-celadon-600 align-middle px-1.5 py-0.5 bg-celadon-50 rounded-md border border-celadon-100 ml-1">Pro</span>
+                </h1>
+            </div>
+        </div>
+
+        <!-- Center: Status Pills -->
+        <div class="hidden md:flex items-center gap-3">
+            <div class="px-4 py-1.5 rounded-full bg-white/50 border border-white flex items-center gap-2 shadow-sm">
+                <span id="header-status-cam" class="w-2 h-2 rounded-full bg-slate-300 transition-colors"></span>
+                <span class="text-xs font-bold text-ink-600">Camera</span>
+            </div>
+            <div class="w-px h-4 bg-ink-400/20"></div>
+            <div class="px-4 py-1.5 rounded-full bg-white/50 border border-white flex items-center gap-2 shadow-sm">
+                <span id="header-status-plc" class="w-2 h-2 rounded-full bg-slate-300 transition-colors"></span>
+                <span class="text-xs font-bold text-ink-600">PLC</span>
+            </div>
+        </div>
+
+        <!-- Right: Actions -->
+        <div class="flex items-center gap-2">
+
+
+
+            <button onclick="showPasswordModal()"
+                class="p-2.5 rounded-xl hover:bg-white hover:text-celadon-600 transition-colors text-ink-500 btn-press"
+                title="系统设置">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
+                    </path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+            </button>
+            <div class="w-px h-6 bg-ink-400/20 mx-1"></div>
+            <button
+                class="p-2.5 rounded-xl hover:bg-slate-100 hover:text-ink-800 transition-colors text-ink-500 btn-press"
+                onclick="sendCommand('toggle_maximize')" title="最大化/还原">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4">
+                    </path>
+                </svg>
+            </button>
+            <button
+                class="p-2.5 rounded-xl hover:bg-rose-50 hover:text-rose-600 transition-colors text-ink-500 btn-press"
+                onclick="if(confirm('确认退出系统？')) sendCommand('exit_app')">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1">
+                    </path>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content (New Layout) -->
+    <main id="app-main" class="absolute inset-0 pt-28 pb-6 px-6 flex gap-6 z-10 pointer-events-none">
+
+        <!-- Left Panel: Settings -->
+        <div id="left-panel"
+            class="pointer-events-auto w-96 glass-panel flex flex-col transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] origin-left drawer-open flex-shrink-0 rounded-2xl overflow-hidden shadow-2xl">
+            <!-- Header -->
+            <div class="p-5 border-b border-white/50 flex justify-between items-center bg-white/30 backdrop-blur-md">
+                <h2 class="font-serif font-bold text-ink-800 flex items-center gap-2 text-sm">
+                    <svg class="w-4 h-4 text-celadon-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4">
+                        </path>
+                    </svg>
+                    参数配置
+                </h2>
+                <button onclick="toggleDrawer('left-panel')"
+                    class="text-ink-400 hover:text-ink-600 p-1 hover:bg-white/50 rounded-lg transition-colors"><svg
+                        class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7">
+                        </path>
+                    </svg></button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto scroller p-5 space-y-6">
+                <!-- Mode Switcher -->
+                <div class="bg-white/40 p-1 rounded-xl flex shadow-inner shrink-0">
+                    <button id="mode-tab-yolo" onclick="switchVisionMode(0)"
+                        class="flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 bg-porcelain-100 text-celadon-600 shadow-sm ring-1 ring-celadon-200/50">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z">
+                            </path>
+                        </svg>
+                        深度学习
+                    </button>
+                    <button id="mode-tab-template" onclick="switchVisionMode(1)"
+                        class="flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 text-ink-400 hover:text-ink-600">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z">
+                            </path>
+                        </svg>
+                        传统视觉
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <!-- YOLO Controls (Preserved Structure) -->
+                    <div id="yolo-controls" class="space-y-4">
+                        <!-- Model Card -->
+                        <div class="bg-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-100/50">
+                            <label
+                                class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-3">
+                                <svg class="w-3.5 h-3.5 text-celadon-600" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z">
+                                    </path>
+                                </svg>
+                                主模型
+                            </label>
+                            <select id="model-select" onchange="sendCommand('change_model', this.value)"
+                                class="w-full bg-porcelain-100/50 border border-celadon-200/50 rounded-lg py-2.5 px-3 text-xs font-bold font-mono text-ink-700 focus:ring-2 focus:ring-celadon-100 focus:border-celadon-400 transition-all outline-none cursor-pointer hover:bg-white text-ellipsis overflow-hidden">
+                                <option value="">正在初始化系统...</option>
+                            </select>
+                        </div>
+
+                        <!-- Multi-Model Fallback Card -->
+                        <div
+                            class="bg-gradient-to-br from-celadon-50/80 to-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-200/60">
+                            <div class="flex items-center justify-between mb-3">
+                                <label
+                                    class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest">
+                                    <svg class="w-3.5 h-3.5 text-celadon-600" fill="none" stroke="currentColor"
+                                        viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    模型池
+                                </label>
+                                <!-- Toggle Switch -->
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="enable-multi-model"
+                                        onchange="toggleMultiModel(this.checked)" class="sr-only peer">
+                                    <div
+                                        class="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:bg-celadon-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4">
+                                    </div>
+                                    <span class="ml-2 text-[9px] text-ink-500" id="multi-model-status">自动切换</span>
+                                </label>
+                            </div>
+
+                            <div id="multi-model-config"
+                                class="space-y-3 opacity-50 pointer-events-none transition-all">
+                                <!-- Auxiliary Model 1 -->
+                                <div>
+                                    <div class="flex items-center gap-1.5 mb-1.5">
+                                        <span
+                                            class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-600 text-[9px] font-bold">1</span>
+                                        <span class="text-[10px] font-bold text-ink-600">辅助模型 1</span>
+                                    </div>
+                                    <select id="auxiliary1-select"
+                                        onchange="sendCommand('set_auxiliary1_model', this.value)"
+                                        class="w-full bg-white/80 border border-amber-200/50 rounded-lg py-2 px-2.5 text-[10px] font-mono font-medium text-ink-600 focus:ring-2 focus:ring-amber-100 focus:border-amber-300 transition-all outline-none cursor-pointer hover:bg-white">
+                                        <option value="">不使用</option>
+                                    </select>
+                                </div>
+
+                                <!-- Auxiliary Model 2 -->
+                                <div>
+                                    <div class="flex items-center gap-1.5 mb-1.5">
+                                        <span
+                                            class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-100 text-rose-600 text-[9px] font-bold">2</span>
+                                        <span class="text-[10px] font-bold text-ink-600">辅助模型 2</span>
+                                    </div>
+                                    <select id="auxiliary2-select"
+                                        onchange="sendCommand('set_auxiliary2_model', this.value)"
+                                        class="w-full bg-white/80 border border-rose-200/50 rounded-lg py-2 px-2.5 text-[10px] font-mono font-medium text-ink-600 focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition-all outline-none cursor-pointer hover:bg-white">
+                                        <option value="">不使用</option>
+                                    </select>
+                                </div>
+
+                                <!-- Fallback Indicator -->
+                                <div id="fallback-indicator"
+                                    class="hidden bg-gradient-to-r from-celadon-50 to-amber-50 rounded-lg p-2 border border-celadon-100">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-2 h-2 rounded-full bg-celadon-500 animate-pulse"></div>
+                                        <span class="text-[9px] font-bold text-ink-600">当前激活: <span
+                                                id="active-model-name" class="text-celadon-600">主模型</span></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <p class="mt-2 text-[8px] text-ink-400 italic">主模型未检测到时自动切换辅助模型</p>
+                        </div>
+
+                        <!-- Task Type Selector -->
+                        <div class="bg-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-100/50">
+                            <label
+                                class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-3">
+                                <svg class="w-3.5 h-3.5 text-celadon-600" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4">
+                                    </path>
+                                </svg>
+                                任务类型
+                            </label>
+                            <select id="task-type-select" onchange="updateTaskType(this.value)"
+                                class="w-full bg-porcelain-100/50 border border-celadon-200/50 rounded-lg py-2.5 px-3 text-xs font-bold text-ink-700 focus:ring-2 focus:ring-celadon-100 focus:border-celadon-400 transition-all outline-none cursor-pointer hover:bg-white">
+                                <option value="1" selected>目标检测 (Detect)</option>
+                                <option value="0">图像分类 (Classify)</option>
+                                <option value="3">实例分割 (Segment)</option>
+                                <option value="5">姿态估计 (Pose)</option>
+                                <option value="6">旋转框检测 (OBB)</option>
+                            </select>
+                            <p class="mt-2 text-[9px] text-ink-400 italic">请根据模型实际支持的任务选择</p>
+                        </div>
+
+                        <!-- Conf/IOU Sliders -->
+                        <div class="bg-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-100/50 space-y-4">
+                            <label
+                                class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-1">
+                                <svg class="w-3.5 h-3.5 text-celadon-600" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4">
+                                    </path>
+                                </svg>
+                                检测阈值
+                            </label>
+                            <div>
+                                <div class="flex justify-between items-center mb-1.5"><span
+                                        class="text-[11px] font-bold text-ink-600">Conf.</span><span id="conf-value"
+                                        class="text-[11px] font-mono font-bold text-celadon-600 bg-celadon-50 px-1.5 rounded">0.50</span>
+                                </div>
+                                <input type="range" min="10" max="95" value="50" step="5" id="conf-slider"
+                                    oninput="updateConfidence(this.value)"
+                                    class="w-full accent-celadon-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                            <div>
+                                <div class="flex justify-between items-center mb-1.5"><span
+                                        class="text-[11px] font-bold text-ink-600">IOU</span><span id="iou-value"
+                                        class="text-[11px] font-mono font-bold text-celadon-600 bg-celadon-50 px-1.5 rounded">0.30</span>
+                                </div>
+                                <input type="range" min="10" max="90" value="30" step="5" id="iou-slider"
+                                    oninput="updateIou(this.value)"
+                                    class="w-full accent-celadon-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                        </div>
+
+                        <!-- Performance Metrics -->
+                        <div id="perf-metrics"
+                            class="bg-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-100/50 hidden">
+                            <label
+                                class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-2">
+                                <svg class="w-3.5 h-3.5 text-celadon-600" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                </svg>
+                                性能分析
+                            </label>
+                            <div class="relative h-20">
+                                <canvas id="inferenceChart"></canvas>
+                            </div>
+                            <div class="flex justify-between mt-2 text-[10px] font-mono font-bold text-ink-500">
+                                <span>FPS: <span id="perf-fps" class="text-celadon-600">0.0</span></span>
+                                <span>Total: <span id="perf-total" class="text-celadon-600">0</span>ms</span>
+                            </div>
+                        </div>
+
+                        <!-- Advanced (Simplified) -->
+                        <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100/80 space-y-3">
+                            <h4
+                                class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest">
+                                <svg class="w-3.5 h-3.5 text-celadon-600" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
+                                    </path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                </svg>
+                                高级设定
+                            </h4>
+                            <div class="grid grid-cols-2 gap-2">
+
+
+                            </div>
+
+                            <button onclick="sendCommand('test_yolo')"
+                                class="w-full py-2 bg-ink-800 text-white font-bold text-[10px] rounded-lg hover:bg-ink-900 transition-all uppercase tracking-wider shadow-md">测试推理</button>
+                        </div>
+                    </div>
+
+                    <!-- Template Controls (Cleaned up) -->
+                    <div id="template-controls" class="hidden space-y-4">
+                        <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100/80">
+                            <div class="flex justify-between items-center mb-3">
+                                <label
+                                    class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest">
+                                    <svg class="w-3.5 h-3.5 text-celadon-600" fill="none" stroke="currentColor"
+                                        viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z">
+                                        </path>
+                                    </svg>
+                                    处理流程
+                                </label>
+                                <button onclick="openAddOperatorMenu()"
+                                    class="px-2 py-1 bg-celadon-50 text-celadon-600 hover:bg-celadon-100 text-[10px] font-bold rounded flex items-center gap-1 transition-all"><svg
+                                        class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 4v16m8-8H4"></path>
+                                    </svg>添加</button>
+                            </div>
+                            <div id="operator-list"
+                                class="space-y-2 min-h-[80px] border border-dashed border-celadon-200 rounded-lg p-2 bg-porcelain-100/50 relative">
+                                <div class="absolute inset-0 flex items-center justify-center pointer-events-none"><span
+                                        class="text-[10px] text-celadon-300 italic">点击右上角添加算子...</span></div>
+                            </div>
+                        </div>
+
+                        <div class="bg-porcelain-50 rounded-xl p-4 shadow-sm border border-celadon-100/80 space-y-3">
+                            <label
+                                class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-1">调试与测试</label>
+                            <button onclick="requestPreview()"
+                                class="w-full py-2.5 bg-porcelain-100 text-ink-600 font-bold text-[10px] rounded-lg hover:bg-porcelain-200 transition-all uppercase tracking-wider flex items-center justify-center gap-2">刷新预览</button>
+                            <button onclick="sendCommand('test_template_match')"
+                                class="w-full py-2.5 bg-ink-800 text-white font-bold text-[10px] rounded-lg hover:bg-ink-900 transition-all uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg">上传图片测试</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center: Camera -->
+        <div
+            class="pointer-events-auto flex-1 glass-panel relative overflow-hidden group flex flex-col transition-all duration-500 rounded-2xl shadow-float z-0">
+            <!-- Top Bar (Camera Info) -->
+            <div
+                class="absolute top-0 left-0 right-0 h-10 bg-white/30 backdrop-blur-md flex justify-between items-center px-4 z-20 border-b border-white/20">
+                <div class="flex items-center gap-2">
+                    <span
+                        class="w-1.5 h-1.5 rounded-full bg-celadon-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
+                    <span id="camera-name-display"
+                        class="font-mono text-[10px] font-bold text-ink-600 tracking-wider">CAM-01: ONLINE</span>
+                </div>
+            </div>
+
+            <!-- Image Area -->
+            <div id="camera-container"
+                class="flex-1 relative bg-porcelain-100/50 flex items-center justify-center overflow-hidden">
+                <img id="camera-view"
+                    src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4MCIgaGVpZ2h0PSI3MjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2YxZjVmOSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iJ05vdG8gU2VyaWYgU0MnLCBzZXJpZiIgZm9udC1zaXplPSIyNCIgZmlsbD0iIzk0YTNiOCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgbGV0dGVyLXNwYWNpbmc9IjAuZW0iPuW+heacuuWQr+WKqC4uLjwvdGV4dD48L3N2Zz4="
+                    class="w-full h-full object-contain mix-blend-multiply transition-all duration-300" alt="Camera">
+                <canvas id="roi-canvas" class="absolute inset-0 z-20 cursor-crosshair pointer-events-auto"></canvas>
+
+                <!-- Result Overlay -->
+                <div id="result-overlay"
+                    class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex-col items-center pointer-events-none">
+                    <div
+                        class="bg-porcelain-50/95 backdrop-blur-md border border-celadon-100 px-12 py-8 rounded-2xl shadow-2xl transform transition-all duration-300">
+                        <span id="result-text"
+                            class="font-black text-6xl tracking-widest font-serif text-ink-800">PASS</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Floating Open Buttons (Visible when drawers closed) -->
+            <button id="float-btn-left" onclick="toggleDrawer('left-panel')"
+                class="absolute top-1/2 -translate-y-1/2 left-4 p-3 bg-porcelain-50/80 backdrop-blur rounded-full shadow-lg border border-celadon-100 hover:scale-110 transition-all text-ink-500 hover:text-celadon-600 z-30 opacity-0 pointer-events-none drawer-trigger">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7">
+                    </path>
+                </svg>
+            </button>
+            <button id="float-btn-right" onclick="toggleDrawer('right-panel')"
+                class="absolute top-1/2 -translate-y-1/2 right-4 p-3 bg-porcelain-50/80 backdrop-blur rounded-full shadow-lg border border-celadon-100 hover:scale-110 transition-all text-ink-500 hover:text-celadon-600 z-30 opacity-0 pointer-events-none drawer-trigger">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M11 19l-7-7 7-7M19 19l-7-7 7-7"></path>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Right Panel: Stats & Logs -->
+        <div id="right-panel"
+            class="pointer-events-auto w-96 flex flex-col gap-3 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] origin-right drawer-open flex-shrink-0 pointer-events-auto glass-panel border-l border-white/40 h-full">
+            <!-- Stats Card -->
+            <div class="glass-panel p-5 relative overflow-hidden group rounded-2xl shrink-0 flex flex-col bg-white/40">
+                <div class="flex justify-between items-center mb-2">
+                    <div class="flex items-center gap-2">
+                        <button onclick="toggleDrawer('right-panel')"
+                            class="text-ink-400 hover:text-ink-600 p-1 hover:bg-white/50 rounded-lg transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7">
+                                </path>
+                            </svg>
+                        </button>
+                        <h3 class="font-serif font-bold text-ink-800 text-sm">今日产出</h3>
+                    </div>
+                    <div class="flex gap-1">
+                        <button onclick="openGalleryModal()"
+                            class="p-1.5 rounded-lg bg-white/50 hover:bg-celadon-50 text-ink-400 hover:text-celadon-600 transition-all shadow-sm border border-transparent hover:border-celadon-200"
+                            title="图像追溯库">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z">
+                                </path>
+                            </svg>
+                        </button>
+                        <button onclick="openStatisticsHistoryModal()"
+                            class="p-1.5 rounded-lg bg-porcelain-100/50 hover:bg-porcelain-200 text-ink-400 hover:text-celadon-600 transition-all shadow-sm border border-transparent hover:border-celadon-200"
+                            title="历史统计报表">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z">
+                                </path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="relative w-full aspect-[2/1] min-h-[120px] flex items-center justify-center">
+                    <canvas id="statsChart"></canvas>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-2">
+                        <span class="text-[9px] text-ink-400 uppercase font-bold tracking-widest">Total</span>
+                        <span id="val-total" class="font-mono text-2xl font-bold text-ink-800">0</span>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3 mt-auto">
+                    <div class="bg-bamboo-50 border border-bamboo-100 rounded-lg p-2 text-center">
+                        <div class="text-[9px] text-bamboo-600 font-bold uppercase">Pass</div>
+                        <div id="val-ok" class="text-lg font-mono text-bamboo-600 font-bold">0</div>
+                    </div>
+                    <div class="bg-rouge-50 border border-rouge-100 rounded-lg p-2 text-center">
+                        <div class="text-[9px] text-rouge-600 font-bold uppercase">Fail</div>
+                        <div id="val-ng" class="text-lg font-mono text-rouge-600 font-bold">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logs -->
+            <div class="glass-panel flex-1 flex flex-col overflow-hidden rounded-2xl bg-porcelain-50/40 min-h-0">
+                <div class="p-3 border-b border-white/50 bg-white/30 flex justify-between items-center shrink-0">
+                    <span class="text-xs font-bold text-ink-600">检测流水</span>
+                    <div class="flex gap-1">
+                        <button onclick="openLogHistoryModal()"
+                            class="p-1 rounded-lg hover:bg-porcelain-100 text-ink-400 hover:text-celadon-600 transition-all border border-transparent hover:border-celadon-200"
+                            title="检测历史流水">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </button>
+                        <button onclick="clearDetectionLogs()"
+                            class="p-1 rounded-lg hover:bg-rouge-50 text-ink-400 hover:text-rouge-600 transition-all border border-transparent hover:border-rouge-100"
+                            title="清空流水">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
+                                </path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div id="detection-log-container" class="flex-1 overflow-y-auto scroller p-3 space-y-1"></div>
+            </div>
+
+            <!-- System Log (Mini) -->
+            <div class="glass-panel h-32 flex flex-col overflow-hidden rounded-2xl bg-porcelain-800/10 shrink-0">
+                <div class="px-3 py-1.5 border-b border-white/10 flex justify-between items-center shrink-0">
+                    <span class="text-[10px] font-bold text-ink-500">System</span>
+                    <button onclick="clearLogs()" class="text-[9px] text-ink-400 hover:text-ink-600">Clear</button>
+                </div>
+                <div id="log-container" class="flex-1 p-2 overflow-y-auto scroller space-y-1 font-mono text-[9px]">
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Bottom Dock Container (Separated) -->
+
+    <!-- 1. The Dock Itself -->
+    <div id="bottom-dock"
+        class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-2 glass-panel rounded-2xl shadow-2xl dock-open animate-float transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] origin-bottom"
+        style="animation-duration: 10s; animation-delay: 1s;">
+
+        <!-- Collapse Handle (Added to allows closing since trigger is hidden) -->
+        <button onclick="toggleDock()"
+            class="absolute -top-4 left-1/2 -translate-x-1/2 w-16 h-4 bg-porcelain-100/60 hover:bg-porcelain-200 backdrop-blur rounded-t-xl flex items-center justify-center transition-all cursor-pointer shadow-sm border-t border-l border-r border-celadon-100/30 group">
+            <svg class="w-3.5 h-3.5 text-ink-400 group-hover:text-celadon-600 transition-colors" fill="none"
+                stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path>
+            </svg>
+        </button>
+        <div class="flex items-center gap-2">
+            <button onclick="sendCommand('manual_detect')"
+                class="px-4 py-2.5 rounded-xl bg-celadon-600 text-white shadow-lg shadow-celadon-900/40 hover:scale-105 hover:bg-celadon-700 transition-all active:scale-95 btn-press flex items-center gap-2 font-bold text-xs tracking-wide"
+                title="手动触发">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z">
+                    </path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span>手动拍照</span>
+            </button>
+            <button onclick="sendCommand('manual_release')"
+                class="px-4 py-2.5 rounded-xl bg-white text-gamboge-500 shadow-md border border-gamboge-100 hover:scale-105 hover:text-gamboge-600 transition-all active:scale-95 btn-press flex items-center gap-2 font-bold text-xs tracking-wide"
+                title="强制放行">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
+                <span>强制放行</span>
+            </button>
+        </div>
+        <div class="w-px h-8 bg-ink-900/10"></div>
+        <div class="flex items-center gap-2">
+            <button onclick="sendCommand('open_camera')"
+                class="p-2.5 rounded-xl hover:bg-white/50 text-ink-600 transition-all" title="打开相机">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z">
+                    </path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+            </button>
+            <button onclick="clearRoi()" class="p-2.5 rounded-xl hover:bg-white/50 text-ink-600 transition-all"
+                title="清除ROI">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
+                    </path>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- 2. The Toggle Handle (Separated) - Enhanced Design -->
+    <div id="dock-trigger-container"
+        class="fixed bottom-0 left-1/2 -translate-x-1/2 z-[49] flex justify-center opacity-0 pointer-events-none transition-all duration-300">
+        <button onclick="toggleDock()" id="dock-toggle-btn" class="group px-8 py-3 glass-panel rounded-t-2xl flex items-center justify-center gap-2 
+                   bg-gradient-to-t from-porcelain-100 to-porcelain-50/70 hover:from-porcelain-200 hover:to-porcelain-100
+                   border-t border-l border-r border-celadon-100/60
+                   shadow-[0_-4px_20px_rgba(26,29,33,0.08)] hover:shadow-[0_-8px_30px_rgba(26,29,33,0.12)]
+                   transition-all duration-300 ease-out
+                   transform translate-y-1 hover:translate-y-0 active:scale-95">
+            <!-- Animated Pulse Dot -->
+            <span
+                class="w-2 h-2 rounded-full bg-celadon-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
+            <!-- Text Label -->
+            <span class="text-xs font-bold text-ink-500 group-hover:text-celadon-600 tracking-wide transition-colors">
+                工具栏
+            </span>
+            <!-- Arrow Icon -->
+            <svg id="dock-arrow" class="w-4 h-4 text-ink-400 group-hover:text-celadon-600 transition-all duration-500"
+                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"></path>
+            </svg>
+        </button>
+    </div>
+
+    <!-- MODALS: 瓷感磨砂 -->
+
+    <!-- Settings Modal -->
+    <div id="settings-modal"
+        class="fixed inset-0 bg-ink-900/40 backdrop-blur-sm z-[60] hidden flex items-center justify-center p-4">
+        <div class="glass-panel w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div
+                class="h-16 border-b border-celadon-100 flex justify-between items-center px-8 bg-porcelain-50/50 shrink-0">
+                <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest">系统参数配置 <span
+                        class="text-xs font-sans font-normal text-ink-400 ml-2 italic">Configuration</span></h3>
+                <button onclick="closeSettingsModal()"
+                    class="p-2 hover:bg-red-50 text-ink-400 hover:text-vermilion rounded-full transition-all text-xl">&times;</button>
+            </div>
+            <div class="flex-1 overflow-y-auto scroller p-8 space-y-8 bg-porcelain-100/30">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-bold text-ink-400 uppercase tracking-widest block">数据保存路径 /
+                        Storage
+                        Path</label>
+                    <div class="flex gap-2">
+                        <input id="cfg-storage-path" type="text" readonly
+                            class="flex-1 tech-input px-4 py-2.5 rounded-xl text-xs font-bold" placeholder="未设置路径">
+                        <button onclick="sendCommand('select_storage_folder')"
+                            class="px-6 text-xs font-bold bg-white border border-slate-200 text-ink-600 hover:border-celadon-400 rounded-xl transition-all shadow-sm">浏览</button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-8">
+                    <div class="space-y-4">
+                        <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
+                            PLC
+                            通讯配置</h3>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">物理协议类型</label>
+                                <select id="cfg-plc-protocol"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
+                                    <option value="Mitsubishi_MC_ASCII">Mitsubishi MC (ASCII)</option>
+                                    <option value="Mitsubishi_MC_Binary">Mitsubishi MC (Binary)</option>
+                                    <option value="Modbus_TCP">Modbus TCP</option>
+                                    <option value="Siemens_S7">Siemens S7 (1200/1500)</option>
+                                    <option value="Omron_Fins">Omron Fins TCP</option>
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-[10px] text-ink-400 mb-1 block">IP地址</label>
+                                    <input id="cfg-plc-ip"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] text-ink-400 mb-1 block">端口</label>
+                                    <input id="cfg-plc-port" type="number"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-ink-400 mb-1 block">触发地址</label>
+                                <input id="cfg-plc-trigger"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D100">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-ink-400 mb-1">结果地址</label>
+                                <input id="cfg-plc-result"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
+                            检测逻辑配置
+                        </h3>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">重拍次数 (Max Retries)</label>
+                                <input id="cfg-logic-retry-count" type="number" min="0" max="5"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="1">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">重拍间隔 (Interval ms)</label>
+                                <input id="cfg-logic-retry-interval" type="number" step="100" min="0"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="2000">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">检测目标标签 (Target
+                                    Label)</label>
+                                <input id="cfg-logic-target-label" type="text"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold"
+                                    placeholder="wrapper">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">目标数量 (Target Count)</label>
+                                <input id="cfg-logic-target-count" type="number"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="1">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input id="cfg-yolo-gpu" type="checkbox"
+                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
+                                    <span class="text-[10px] font-bold text-ink-500">启用 GPU 加速 (CUDA)</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
+                            相机参数配置
+                        </h3>
+                        <div class="space-y-3">
+                            <!-- 相机选择 -->
+                            <div>
+                                <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">选择相机</label>
+                                <div class="flex gap-2">
+                                    <select id="cfg-cam-select"
+                                        class="flex-1 tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer"
+                                        onchange="onCameraSelected(this.value)">
+                                        <option value="">正在加载相机列表...</option>
+                                    </select>
+                                    <button onclick="sendCommand('get_camera_list')"
+                                        class="px-3 py-2 bg-celadon-50 text-celadon-600 hover:bg-celadon-100 text-[10px] font-bold rounded-lg transition-all"
+                                        title="刷新相机列表">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                                            </path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">显示名称</label>
+                                <input id="cfg-cam-name"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold"
+                                    placeholder="例: 主检测相机">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">序列号 /
+                                    URI</label>
+                                <input id="cfg-cam-serial"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                                    placeholder="例: EF59632AAK00074">
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">曝光
+                                        (μs)</label>
+                                    <input id="cfg-cam-exposure"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                                        placeholder="50000">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">增益</label>
+                                    <input id="cfg-cam-gain"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                                        placeholder="1.0">
+                                </div>
+                            </div>
+                            <!-- 相机操作按钮 -->
+                            <div class="flex gap-2 mt-3">
+                                <button onclick="addNewCamera()"
+                                    class="flex-1 py-2 bg-celadon-600 hover:bg-celadon-700 text-white text-[10px] font-bold rounded-lg transition-all flex items-center justify-center gap-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 4v16m8-8H4"></path>
+                                    </svg>
+                                    添加/更新相机
+                                </button>
+                                <button onclick="deleteCurrentCamera()"
+                                    class="px-4 py-2 bg-rouge-50 hover:bg-rouge-100 text-rouge-600 text-[10px] font-bold rounded-lg transition-all border border-rouge-100">
+                                    删除
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-8 pt-6 border-t border-slate-100">
+                    <button onclick="if(confirm('确定要清除今日统计数据吗？此操作不可撤销！')) sendCommand('reset_statistics')"
+                        class="w-full py-3 bg-vermilion/5 text-vermilion font-black text-[10px] rounded-xl hover:bg-vermilion/10 transition-all uppercase tracking-widest border border-vermilion/10 flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
+                            </path>
+                        </svg>
+                        重置生产报表 / Reset Stats
+                    </button>
+                </div>
+            </div>
+            <div class="h-16 border-t border-slate-100 bg-white flex justify-end items-center px-8 gap-3 shrink-0">
+                <button onclick="closeSettingsModal()"
+                    class="px-6 py-2 text-xs font-bold text-ink-400 hover:text-ink-600 transition-colors">取消设置</button>
+                <button onclick="saveSettings()"
+                    class="btn-celadon px-10 py-2 rounded-xl text-xs font-bold shadow-float">保存并部署</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Password Modal -->
+    <div id="password-modal"
+        class="fixed inset-0 bg-ink-900/60 backdrop-blur-md z-[100] hidden flex items-center justify-center">
+        <div class="glass-panel w-80 rounded-2xl p-6 shadow-2xl flex flex-col items-center">
+            <div class="w-12 h-12 bg-celadon-50 rounded-full flex items-center justify-center text-celadon-600 mb-4">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 00-2 2zm10-10V7a4 4 0 00-8 0v4h8z">
+                    </path>
+                </svg>
+            </div>
+            <h3 class="text-sm font-bold text-ink-800 mb-1">权限验证</h3>
+            <p class="text-[11px] text-ink-400 mb-6 text-center italic">Admin Access Required</p>
+            <input type="password" id="admin-password"
+                class="w-full tech-input rounded-xl py-3 px-4 text-center text-lg tracking-[0.8em] mb-4 focus:ring-4 focus:ring-celadon-100"
+                autofocus onkeypress="if(event.key==='Enter') verifyPassword()">
+            <div class="flex w-full gap-2 mt-2">
+                <button onclick="closePasswordModal()"
+                    class="flex-1 py-2.5 text-xs font-bold text-ink-400 hover:bg-slate-50 rounded-xl transition-all">取消</button>
+                <button onclick="verifyPassword()"
+                    class="flex-1 py-2.5 bg-ink-800 text-white text-xs font-bold rounded-xl shadow-lg shadow-black/10 hover:bg-ink-950 transition-all">验证许可</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gallery Modal -->
+    <div id="gallery-modal" class="fixed inset-0 bg-ink-900/40 backdrop-blur-sm z-[60] hidden overflow-hidden">
+        <div
+            class="absolute inset-y-0 right-0 w-[80%] bg-white/95 shadow-2xl flex flex-col transform transition-transform duration-500 border-l border-slate-200">
+            <header class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0">
+                <div class="flex items-center gap-4">
+                    <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest capitalize">图像追溯库 <span
+                            class="text-[10px] font-sans font-normal text-ink-400 ml-2 uppercase italic tracking-normal">Recover
+                            Samples</span></h3>
+                    <div class="h-4 w-px bg-slate-200"></div>
+                    <span id="gallery-count"
+                        class="text-xs font-mono text-celadon-600 font-bold bg-celadon-50 px-2 py-0.5 rounded">Samples:
+                        0</span>
+                </div>
+                <button onclick="closeGalleryModal()"
+                    class="p-2 hover:bg-slate-100 rounded-full transition-all text-2xl">&times;</button>
+            </header>
+
+            <div class="flex flex-1 overflow-hidden">
+                <div class="w-60 border-r border-slate-100 flex flex-col bg-slate-50/50 shrink-0">
+                    <div class="p-5 border-b border-slate-100 bg-white">
+                        <label
+                            class="text-[9px] font-bold text-ink-400 uppercase tracking-widest block mb-1.5">日期检索</label>
+                        <input type="date" id="gallery-date-picker"
+                            class="w-full text-xs font-bold text-ink-700 bg-transparent border-none p-0 focus:ring-0"
+                            onchange="updateNGDates()">
+                    </div>
+                    <div id="ng-date-list" class="flex-1 overflow-y-auto scroller p-3 space-y-1"></div>
+                    <div id="ng-hour-list"
+                        class="h-1/2 border-t border-slate-100 overflow-y-auto scroller p-3 space-y-1 bg-white/40">
+                    </div>
+                </div>
+
+                <div id="ng-image-grid"
+                    class="flex-1 grid grid-cols-4 lg:grid-cols-5 2xl:grid-cols-7 gap-4 p-8 overflow-y-auto scroller content-start bg-white/20">
+                    <div
+                        class="col-span-full h-full flex flex-col items-center justify-center text-ink-300 opacity-30 mt-20">
+                        <svg class="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1"
+                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z">
+                            </path>
+                        </svg>
+                        <span class="text-sm font-serif italic">选择左侧目录开始追溯...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="image-viewer"
+            class="hidden absolute inset-0 bg-ink-950/98 z-[100] flex flex-col animate-fade-in backdrop-blur-xl">
+            <div class="absolute top-8 right-8 z-[70]">
+                <button onclick="closeImageViewer()"
+                    class="text-white/30 hover:text-white transition-all bg-white/5 p-4 rounded-full">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        </path>
+                    </svg>
+                </button>
+            </div>
+            <img id="viewer-img" class="flex-1 w-full h-full object-contain p-8" src="">
+            <div id="viewer-info"
+                class="absolute bottom-8 left-1/2 -translate-x-1/2 text-white/80 font-mono text-xs bg-black/40 px-4 py-1.5 rounded-full border border-white/10 backdrop-blur whitespace-nowrap">
+            </div>
+        </div>
+    </div>
+
+    <!-- Log History Modal -->
+    <div id="log-history-modal"
+        class="fixed inset-0 bg-ink-900/40 backdrop-blur-sm z-[60] hidden flex items-center justify-center p-4">
+        <div class="glass-panel w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[85vh]">
+            <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0">
+                <div class="flex items-center gap-4">
+                    <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">检测详单追踪</h3>
+                    <input type="date" id="log-date-picker"
+                        class="tech-input rounded-lg px-4 py-1.5 text-xs font-bold ml-4"
+                        onchange="updateDetectionLogTable()">
+                    <span id="log-count-badge"
+                        class="px-2 py-0.5 text-[10px] font-bold bg-celadon-50 text-celadon-600 rounded-full">0
+                        条</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button onclick="sendCommand('get_detection_logs')"
+                        class="px-4 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">刷新同步</button>
+                    <button onclick="closeLogHistoryModal()"
+                        class="text-2xl text-ink-400 hover:text-vermilion transition-all">&times;</button>
+                </div>
+            </div>
+            <div class="flex-1 overflow-auto p-6 scroller bg-slate-50/30">
+                <div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-soft">
+                    <table class="w-full text-left border-collapse min-w-[900px]">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200">
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">
+                                    时间戳 /
+                                    TIMESTAMP</th>
+                                <th
+                                    class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest text-center">
+                                    结果 / STATUS</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">
+                                    检测详情
+                                    / DETAILS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="log-history-table"
+                            class="text-[11px] text-ink-600 font-mono divide-y divide-slate-100">
+                            <tr>
+                                <td colspan="3" class="px-4 py-10 text-center text-ink-300 italic">点击"刷新"加载历史流水...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
+                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Showing latest 500
+                    records</span>
+                <button onclick="sendCommand('export_log_csv')"
+                    class="px-4 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-ink-600 hover:text-celadon-600 hover:border-celadon-300 transition-all flex items-center gap-2">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg> 导出 CSV
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics History Modal -->
+    <div id="statistics-history-modal"
+        class="fixed inset-0 bg-ink-900/40 backdrop-blur-sm z-[60] hidden flex items-center justify-center p-4">
+        <div class="glass-panel w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[70vh]">
+            <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white/80 shrink-0">
+                <div class="flex items-center gap-4">
+                    <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">历史统计数据对比</h3>
+                    <span
+                        class="px-2 py-0.5 text-[10px] font-bold bg-celadon-50 text-celadon-600 rounded-full">最近7天概览</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button onclick="requestStatisticsHistory()"
+                        class="px-4 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">刷新</button>
+                    <button onclick="closeStatisticsHistoryModal()"
+                        class="text-2xl text-ink-400 hover:text-vermilion transition-all p-1">&times;</button>
+                </div>
+            </div>
+            <div class="flex-1 overflow-auto scroller p-6 bg-white/30">
+                <table class="w-full text-xs border-collapse">
+                    <thead class="sticky top-0 bg-slate-50/95 backdrop-blur z-10">
+                        <tr
+                            class="text-left text-ink-400 font-bold uppercase tracking-widest border-b border-slate-200">
+                            <th class="px-4 py-4">生产日期</th>
+                            <th class="px-4 py-4 text-center">总检测数</th>
+                            <th class="px-4 py-4 text-center">合格 (OK)</th>
+                            <th class="px-4 py-4 text-center">不合格 (NG)</th>
+                            <th class="px-4 py-4 text-center">直通率 (Yield)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="statistics-history-table" class="divide-y divide-slate-100 text-ink-600 font-mono">
+                        <tr>
+                            <td colspan="5" class="px-4 py-10 text-center text-ink-300 italic">同步云端统计中...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="h-14 border-t border-slate-100 bg-white flex justify-end items-center px-8 gap-4 shrink-0">
+                <button onclick="sendCommand('clear_stats_history')"
+                    class="px-6 py-2 text-vermilion hover:bg-red-50 rounded-lg text-xs font-bold border border-red-50 transition-all uppercase">清空历史数据</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Operator Modal -->
+    <div id="add-operator-modal"
+        class="fixed inset-0 bg-ink-900/40 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+        <div
+            class="glass-panel w-[400px] rounded-3xl overflow-hidden shadow-2xl flex flex-col scale-in animate-fade-in bg-white/95">
+            <div class="h-14 border-b border-slate-100 flex justify-between items-center px-6 bg-white/60 shrink-0">
+                <h3 class="text-xs font-bold text-ink-800 uppercase tracking-widest font-serif">添加算子 / Add Operator
+                </h3>
+                <button onclick="closeAddOperatorModal()"
+                    class="text-2xl text-ink-400 hover:text-ink-600 transition-all">&times;</button>
+            </div>
+            <div class="p-6 bg-white/40 flex flex-col gap-3" id="operator-options">
+                <button onclick="addOperator('template_match')"
+                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-all group">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-slate-50 group-hover:bg-celadon-100 flex items-center justify-center text-ink-400 group-hover:text-celadon-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z">
+                            </path>
+                        </svg>
+                    </div>
+                    <div class="text-left">
+                        <div class="text-xs font-bold text-ink-800 tracking-wide">模板匹配 <span
+                                class="text-[9px] text-ink-400 font-mono ml-2 uppercase">Template</span></div>
+                        <div class="text-[10px] text-ink-400 mt-0.5">高精度固定位置校对</div>
+                    </div>
+                </button>
+                <button onclick="addOperator('feature_match')"
+                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-all group">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-slate-50 group-hover:bg-celadon-100 flex items-center justify-center text-ink-400 group-hover:text-celadon-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z">
+                            </path>
+                        </svg>
+                    </div>
+                    <div class="text-left">
+                        <div class="text-xs font-bold text-ink-800 tracking-wide">特征匹配 <span
+                                class="text-[9px] text-ink-400 font-mono ml-2 uppercase">AKAZE</span></div>
+                        <div class="text-[10px] text-ink-400 mt-0.5">抗旋转缩放复杂背景检测</div>
+                    </div>
+                </button>
+                <button onclick="addOperator('orb_match')"
+                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-all group">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-slate-50 group-hover:bg-celadon-100 flex items-center justify-center text-ink-400 group-hover:text-celadon-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                    </div>
+                    <div class="text-left">
+                        <div class="text-xs font-bold text-ink-800 tracking-wide">快速匹配 <span
+                                class="text-[9px] text-ink-400 font-mono ml-2 uppercase">ORB</span></div>
+                        <div class="text-[10px] text-ink-400 mt-0.5">极速实时运动补差</div>
+                    </div>
+                </button>
+                <button onclick="addOperator('pyramid_shape_match')"
+                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-all group">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-slate-50 group-hover:bg-celadon-100 flex items-center justify-center text-ink-400 group-hover:text-celadon-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                        </svg>
+                    </div>
+                    <div class="text-left">
+                        <div class="text-xs font-bold text-ink-800 tracking-wide">形状匹配 <span
+                                class="text-[9px] text-ink-400 font-mono ml-2 uppercase">Pyramid</span></div>
+                        <div class="text-[10px] text-ink-400 mt-0.5">工业级抗光照梯度匹配</div>
+                    </div>
+                </button>
+                <button onclick="addOperator('background_diff')"
+                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-all group">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-slate-50 group-hover:bg-celadon-100 flex items-center justify-center text-ink-400 group-hover:text-celadon-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2">
+                            </path>
+                        </svg>
+                    </div>
+                    <div class="text-left">
+                        <div class="text-xs font-bold text-ink-800 tracking-wide">有无检测 <span
+                                class="text-[9px] text-ink-400 font-mono ml-2 uppercase">Background</span></div>
+                        <div class="text-[10px] text-ink-400 mt-0.5">基于背景差分的工业级有无检测</div>
+                    </div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logic -->
+    <script>
+        let statsChart;
+        let inferenceChart;
+
+        function initInferenceChart() {
+            const ctx = document.getElementById('inferenceChart').getContext('2d');
+            const dataPoints = 60;
+            const labels = new Array(dataPoints).fill('');
+            const data = new Array(dataPoints).fill(0);
+
+            inferenceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'FPS',
+                        data: data,
+                        borderColor: '#2c5a71',
+                        backgroundColor: (context) => {
+                            const ctx = context.chart.ctx;
+                            const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height);
+                            gradient.addColorStop(0, 'rgba(44, 90, 113, 0.2)');
+                            gradient.addColorStop(1, 'rgba(44, 90, 113, 0.0)');
+                            return gradient;
+                        },
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    interaction: { mode: 'none' },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: false }
+                    },
+                    scales: {
+                        x: { display: false },
+                        y: {
+                            display: true,
+                            min: 0,
+                            suggestedMax: 30,
+                            grid: { display: true, color: '#f1f5f9', drawBorder: false },
+                            ticks: { display: true, color: '#94a3b8', maxTicksLimit: 3, font: { size: 9 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        window.onload = function () {
+            // "Ru Kiln" Theme Chart Colors
+            Chart.defaults.font.family = "'Noto Sans SC', sans-serif";
+            Chart.defaults.color = '#5c6b73';
+
+            const ctx = document.getElementById('statsChart').getContext('2d');
+            statsChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['PASS', 'FAIL'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: ['#2d6a4f', '#a4161a'], // Jade-700, Vermilion-800
+                        hoverBackgroundColor: ['#1b4332', '#660708'],
+                        borderWidth: 0,
+                        cutout: '80%',
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                            titleColor: '#2b2d42',
+                            bodyColor: '#5c6b73',
+                            padding: 12,
+                            cornerRadius: 12,
+                            displayColors: true,
+                            boxPadding: 6
+                        }
+                    },
+                    animation: { animateScale: true }
+                }
+            });
+
+            initInferenceChart();
+            sendCommand('app_ready');
+        };
+
+        // 窗口拖动功能 - 在标题栏区域按下鼠标时触发
+        function startDrag(event) {
+            // 如果点击的是按钮或其子元素，不触发拖动
+            if (event.target.closest('button')) return;
+            sendCommand('start_drag');
+        }
+
+        // --- Standard Logic Preserved ---
+        function updateStatus(json) {
+            try {
+                const data = typeof json === 'string' ? JSON.parse(json) : json;
+                if (data.total !== undefined) document.getElementById('val-total').innerText = data.total;
+                if (data.ok !== undefined) document.getElementById('val-ok').innerText = data.ok;
+                if (data.ng !== undefined) document.getElementById('val-ng').innerText = data.ng;
+                if (statsChart && (data.ok !== undefined || data.ng !== undefined)) {
+                    const currentOk = data.ok !== undefined ? data.ok : statsChart.data.datasets[0].data[0];
+                    const currentNg = data.ng !== undefined ? data.ng : statsChart.data.datasets[0].data[1];
+                    statsChart.data.datasets[0].data = [currentOk, currentNg];
+                    statsChart.update();
+                }
+            } catch (e) {
+                console.error("Status Update Error:", e);
+                addLog("Status Parse Error", 'error');
+            }
+        }
+
+        function updateInferenceMetrics(metrics) {
+            const data = typeof metrics === 'string' ? JSON.parse(metrics) : metrics;
+            if (!data) return;
+
+            const perfDiv = document.getElementById('perf-metrics');
+            if (perfDiv && perfDiv.classList.contains('hidden')) {
+                perfDiv.classList.remove('hidden');
+            }
+
+            if (inferenceChart) {
+                const fps = data.FPS || 0;
+                const arr = inferenceChart.data.datasets[0].data;
+                if (arr.length >= 60) arr.shift();
+                arr.push(fps);
+                inferenceChart.update('none');
+            }
+
+            const fpsElem = document.getElementById('perf-fps');
+            if (fpsElem) fpsElem.innerText = (data.FPS || 0).toFixed(1);
+
+            const totalElem = document.getElementById('perf-total');
+            if (totalElem) totalElem.innerText = (data.TotalMs || 0).toFixed(1);
+        }
+
+        function updateImage(base64) {
+            const img = document.getElementById('camera-view');
+            if (!img) return;
+            const src = base64.startsWith('data:image') ? base64 : `data:image/jpeg;base64,${base64}`;
+            img.src = src;
+        }
+
+        function updateResult(isOk) {
+            const el = document.getElementById('result-overlay');
+            if (!el) return;
+            el.classList.remove('hidden');
+            // reset anim
+            el.style.animation = 'none'; el.offsetHeight; el.style.animation = null;
+
+            if (isOk) {
+                el.innerText = "PASS";
+                el.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-12 py-5 rounded-2xl font-black text-6xl shadow-2xl backdrop-blur-md animate-fade-in border-4 border-jade-500 bg-jade-50/95 text-jade-700 tracking-wider z-30 transform -rotate-2 font-serif";
+            } else {
+                el.innerText = "FAIL";
+                el.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-12 py-5 rounded-2xl font-black text-6xl shadow-2xl backdrop-blur-md animate-fade-in border-4 border-vermilion/50 bg-vermilion/90 text-white tracking-wider z-30 transform rotate-2 font-serif";
+            }
+        }
+
+        function updateConnection(type, isConnected) {
+            const el = document.getElementById(type === 'cam' ? 'status-cam' : 'status-plc');
+            if (el) el.className = isConnected ? 'status-dot status-on' : 'status-dot status-off';
+        }
+
+        function addLog(msg, type = 'info') {
+            const container = document.getElementById('log-container');
+            const div = document.createElement('div');
+            const time = new Date().toLocaleTimeString();
+            div.className = "p-1 font-mono text-[10px] border-l-2 " + (type === 'error' ? "border-vermilion text-vermilion bg-vermilion/5" : "border-celadon-300 text-ink-500 hover:bg-slate-50");
+            div.innerText = `${time} ${msg}`;
+            container.prepend(div);
+            if (container.children.length > 50) container.lastChild.remove();
+        }
+
+        function addDetectionLog(msg) {
+            const container = document.getElementById('detection-log-container');
+            const div = document.createElement('div');
+            const time = new Date().toLocaleTimeString();
+            div.className = "pl-2 border-l border-slate-100 text-ink-600 py-1 hover:bg-slate-50 transition-colors font-mono text-[10px]";
+            div.innerText = `[${time}] ${msg}`;
+            container.prepend(div);
+            if (container.children.length > 50) container.lastChild.remove();
+        }
+
+        function clearLogs() { document.getElementById('log-container').innerHTML = ''; }
+        function clearDetectionLogs() { document.getElementById('detection-log-container').innerHTML = ''; }
+
+        function updateConfidence(val) {
+            document.getElementById('conf-value').innerText = (val / 100).toFixed(2);
+            sendCommand('set_confidence', val / 100);
+        }
+
+        function updateIou(val) {
+            document.getElementById('iou-value').innerText = (val / 100).toFixed(2);
+            sendCommand('set_iou', val / 100);
+        }
+
+        function updateTaskType(val) {
+            const taskType = parseInt(val, 10);
+            sendCommand('set_task_type', taskType);
+            // 更新显示友好名称
+            const taskNames = {
+                0: '分类 (Classify)',
+                1: '目标检测 (Detect)',
+                3: '实例分割 (Segment)',
+                5: '姿态估计 (Pose)',
+                6: '旋转框检测 (OBB)'
+            };
+            addLog(`任务类型已设置为: ${taskNames[taskType] || taskType}`);
+        }
+
+        // ================== 多模型切换支持 ==================
+        /**
+         * 切换多模型自动切换功能
+         */
+        function toggleMultiModel(enabled) {
+            const configDiv = document.getElementById('multi-model-config');
+            const statusText = document.getElementById('multi-model-status');
+            const indicator = document.getElementById('fallback-indicator');
+
+            if (configDiv) {
+                if (enabled) {
+                    configDiv.classList.remove('opacity-50', 'pointer-events-none');
+                    if (indicator) indicator.classList.remove('hidden');
+                } else {
+                    configDiv.classList.add('opacity-50', 'pointer-events-none');
+                    if (indicator) indicator.classList.add('hidden');
+                }
+            }
+            if (statusText) {
+                statusText.textContent = enabled ? '已启用' : '自动切换';
+                statusText.className = enabled ? 'ml-2 text-[9px] text-celadon-600 font-bold' : 'ml-2 text-[9px] text-ink-500';
+            }
+
+            sendCommand('toggle_multi_model', enabled);
+            addLog(enabled ? '✓ 多模型自动切换已启用' : '多模型自动切换已禁用', enabled ? 'success' : 'info');
+        }
+
+        /**
+         * 更新当前激活模型显示
+         * 由后端调用来显示当前使用的模型
+         */
+        function updateActiveModelDisplay(modelName, modelRole) {
+            const indicator = document.getElementById('fallback-indicator');
+            const nameSpan = document.getElementById('active-model-name');
+
+            if (indicator && nameSpan) {
+                indicator.classList.remove('hidden');
+                nameSpan.textContent = modelName || '主模型';
+
+                // 根据角色设置颜色
+                nameSpan.className = 'font-bold';
+                if (modelRole === 'Primary') {
+                    nameSpan.classList.add('text-celadon-600');
+                } else if (modelRole === 'Auxiliary1') {
+                    nameSpan.classList.add('text-amber-600');
+                } else if (modelRole === 'Auxiliary2') {
+                    nameSpan.classList.add('text-rose-600');
+                } else {
+                    nameSpan.classList.add('text-ink-500');
+                }
+            }
+        }
+
+        // ================== 多相机支持 ==================
+        let cameraList = []; // 缓存的相机列表
+        let activeCameraId = ''; // 当前活动相机ID
+
+        // 接收相机列表 (由后端调用)
+        function receiveCameraList(data) {
+            try {
+                cameraList = data.cameras || [];
+                activeCameraId = data.activeId || '';
+
+                const select = document.getElementById('cfg-cam-select');
+                if (select) {
+                    select.innerHTML = '';
+                    if (cameraList.length === 0) {
+                        select.innerHTML = '<option value="">无可用相机</option>';
+                    } else {
+                        cameraList.forEach(cam => {
+                            const opt = document.createElement('option');
+                            opt.value = cam.id;
+                            opt.textContent = cam.displayName || cam.id;
+                            if (cam.id === activeCameraId) opt.selected = true;
+                            select.appendChild(opt);
+                        });
+                    }
+                }
+
+                // 更新配置表单
+                const activeCam = cameraList.find(c => c.id === activeCameraId);
+                if (activeCam) {
+                    const nameEl = document.getElementById('cfg-cam-name');
+                    const serialEl = document.getElementById('cfg-cam-serial');
+                    const expEl = document.getElementById('cfg-cam-exposure');
+                    const gainEl = document.getElementById('cfg-cam-gain');
+                    if (nameEl) nameEl.value = activeCam.displayName || '';
+                    if (serialEl) serialEl.value = activeCam.serialNumber || '';
+                    if (expEl) expEl.value = activeCam.exposureTime || '';
+                    if (gainEl) gainEl.value = activeCam.gain || '';
+                }
+
+                appendLog('已更新相机列表 (' + cameraList.length + ' 台)', 'info');
+            } catch (e) {
+                console.error('receiveCameraList error:', e);
+            }
+        }
+
+        // 选择相机时触发
+        function onCameraSelected(cameraId) {
+            if (!cameraId || cameraId === activeCameraId) return;
+            sendCommand('switch_camera', cameraId);
+            appendLog('切换相机: ' + cameraId, 'info');
+        }
+
+        // 添加/更新相机
+        function addNewCamera() {
+            const name = document.getElementById('cfg-cam-name')?.value?.trim() || '';
+            const serial = document.getElementById('cfg-cam-serial')?.value?.trim() || '';
+            const exposure = parseFloat(document.getElementById('cfg-cam-exposure')?.value) || 50000;
+            const gain = parseFloat(document.getElementById('cfg-cam-gain')?.value) || 1.0;
+
+            if (!serial) {
+                alert('请输入相机序列号');
+                return;
+            }
+
+            const camData = {
+                displayName: name || 'CAM-' + serial.slice(-4),
+                serialNumber: serial,
+                exposureTime: exposure,
+                gain: gain
+            };
+
+            sendCommand('add_camera', camData);
+            appendLog('添加/更新相机: ' + camData.displayName, 'info');
+        }
+
+        // 删除当前选中的相机
+        function deleteCurrentCamera() {
+            const select = document.getElementById('cfg-cam-select');
+            const camId = select?.value;
+
+            if (!camId) {
+                alert('请先选择要删除的相机');
+                return;
+            }
+
+            if (!confirm('确定要删除此相机配置吗？')) return;
+
+            sendCommand('delete_camera', camId);
+            appendLog('删除相机: ' + camId, 'info');
+        }
+
+        // ================== 传统视觉模式交互 ==================
+        let currentVisionMode = 0; // 0=YOLO, 1=Template
+        let operatorList = []; // 当前算子列表
+
+        // 切换视觉模式
+        function switchVisionMode(mode) {
+            const isSameMode = (currentVisionMode === mode);
+            currentVisionMode = mode;
+
+            const yoloTab = document.getElementById('mode-tab-yolo');
+            const templateTab = document.getElementById('mode-tab-template');
+            const yoloControls = document.getElementById('yolo-controls');
+            const templateControls = document.getElementById('template-controls');
+
+            // Update Tab Styles
+            if (mode === 0) {
+                if (yoloTab) yoloTab.className = 'flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 bg-white text-celadon-600 shadow-sm ring-1 ring-black/5';
+                if (templateTab) templateTab.className = 'flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 text-ink-400 hover:text-ink-600';
+                if (yoloControls) yoloControls.classList.remove('hidden');
+                if (templateControls) templateControls.classList.add('hidden');
+            } else {
+                if (yoloTab) yoloTab.className = 'flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 text-ink-400 hover:text-ink-600';
+                if (templateTab) templateTab.className = 'flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 bg-white text-celadon-600 shadow-sm ring-1 ring-black/5';
+                if (yoloControls) yoloControls.classList.add('hidden');
+                if (templateControls) templateControls.classList.remove('hidden');
+
+                if (!isSameMode) sendCommand('get_vision_config');
+            }
+
+            // Ensure Left Panel is Open if switching modes
+            const leftPanel = document.getElementById('left-panel');
+            if (leftPanel && !leftPanel.classList.contains('drawer-open') && !isSameMode) {
+                toggleDrawer('left-panel');
+            } else if (isSameMode) {
+                // Toggle if clicking same mode
+                toggleDrawer('left-panel');
+            }
+
+            if (!isSameMode) sendCommand('set_vision_mode', mode);
+        }
+
+        // New Drawer Toggle Logic
+        function toggleDrawer(panelId) {
+            const panel = document.getElementById(panelId);
+            if (!panel) return;
+
+            const isLeft = panelId === 'left-panel';
+            const isOpen = panel.classList.contains('drawer-open');
+
+            if (isOpen) {
+                panel.classList.remove('drawer-open');
+                panel.classList.add(isLeft ? 'drawer-closed-left' : 'drawer-closed-right');
+                // Show floating button
+                const floatBtn = document.getElementById(isLeft ? 'float-btn-left' : 'float-btn-right');
+                if (floatBtn) {
+                    floatBtn.classList.remove('pointer-events-none', 'opacity-0');
+                    floatBtn.classList.add('opacity-100');
+                }
+            } else {
+                panel.classList.remove(isLeft ? 'drawer-closed-left' : 'drawer-closed-right');
+                panel.classList.add('drawer-open');
+                // Hide floating button
+                const floatBtn = document.getElementById(isLeft ? 'float-btn-left' : 'float-btn-right');
+                if (floatBtn) {
+                    floatBtn.classList.add('pointer-events-none', 'opacity-0');
+                    floatBtn.classList.remove('opacity-100');
+                }
+            }
+        }
+
+
+        // Click outside to close drawers (Optional UX)
+        // Click outside to close drawers (Optional UX)
+        document.addEventListener('click', (e) => {
+            const leftPanel = document.getElementById('left-panel');
+            const yoloBtn = document.getElementById('mode-tab-yolo');
+            const templBtn = document.getElementById('mode-tab-template');
+            const addOpModal = document.getElementById('add-operator-modal');
+            const tmModal = document.getElementById('template-manager-modal');
+            const floatBtnLeft = document.getElementById('float-btn-left');
+
+            // Auto-close Left Panel if clicking in Camera area (which is outside panel)
+            if (leftPanel && leftPanel.classList.contains('drawer-open')) {
+                // If click is NOT inside panel, and NOT on toggle buttons/modals
+                if (!leftPanel.contains(e.target) &&
+                    !yoloBtn?.contains(e.target) &&
+                    !templBtn?.contains(e.target) &&
+                    !addOpModal?.contains(e.target) &&
+                    !tmModal?.contains(e.target) &&
+                    !floatBtnLeft?.contains(e.target) &&
+                    !e.target.closest('.drawer-trigger')) { // Added generic trigger class check
+
+                    toggleDrawer('left-panel');
+                }
+            }
+        });
+
+        // 打开添加算子弹窗
+        function openAddOperatorMenu() {
+            document.getElementById('add-operator-modal').classList.remove('hidden');
+        }
+        function closeAddOperatorModal() {
+            document.getElementById('add-operator-modal').classList.add('hidden');
+        }
+
+        // 添加算子
+        function addOperator(typeId) {
+            closeAddOperatorModal();
+            sendCommand('pipeline_update', {
+                action: 'add',
+                typeId: typeId
+            });
+            addLog(`添加算子: ${getOperatorName(typeId)}`);
+        }
+
+        // 获取算子显示名称
+        function getOperatorName(typeId) {
+            const names = {
+                'template_match': '模板匹配',
+                'feature_match': '特征匹配 (AKAZE)',
+                'orb_match': '快速匹配 (ORB)',
+                'pyramid_shape_match': '形状匹配 (金字塔)',
+                'background_diff': '有无检测 (背景差分)'
+            };
+            return names[typeId] || typeId;
+        }
+
+        // 移除算子
+        function removeOperator(instanceId) {
+            sendCommand('pipeline_update', {
+                action: 'remove',
+                instanceId: instanceId
+            });
+        }
+
+        // 更新算子参数
+        function updateOperatorParam(instanceId, paramName, value) {
+            sendCommand('pipeline_update', {
+                action: 'update',
+                instanceId: instanceId,
+                paramName: paramName,
+                paramValue: value
+            });
+        }
+
+        // 更新模板匹配阈值
+        function updateTemplateThreshold(val) {
+            const threshold = val / 100;
+            document.getElementById('template-threshold-value').innerText = threshold.toFixed(2);
+            // 如果有模板匹配算子，更新其阈值
+            operatorList.filter(op => op.typeId === 'template_match').forEach(op => {
+                updateOperatorParam(op.instanceId, 'scoreThreshold', threshold);
+            });
+        }
+
+        // 请求预览
+        function requestPreview() {
+            sendCommand('get_preview');
+            addLog('请求预览...');
+        }
+
+        // 上传模板图像
+        function uploadTemplateImage() {
+            sendCommand('upload_template', 'select');
+            addLog('请选择模板图像...');
+        }
+
+        // 从相机截取模板
+        function captureTemplate() {
+            sendCommand('upload_template', 'capture');
+            addLog('从相机截取模板...');
+        }
+
+        // Dock Logic - 控制工具栏和呼出按钮的显示/隐藏
+        function toggleDock() {
+            const dock = document.getElementById('bottom-dock');
+            const arrow = document.getElementById('dock-arrow');
+            const trigger = document.getElementById('dock-trigger-container');
+
+            if (!dock) return;
+
+            const isOpen = dock.classList.contains('dock-open');
+
+            if (isOpen) {
+                // 收起工具栏 → 显示呼出按钮
+                dock.classList.remove('dock-open');
+                dock.classList.add('dock-closed');
+                if (arrow) arrow.classList.remove('rotate-180');
+                if (trigger) {
+                    trigger.classList.remove('opacity-0', 'pointer-events-none');
+                    trigger.classList.add('opacity-100', 'pointer-events-auto');
+                }
+            } else {
+                // 展开工具栏 → 隐藏呼出按钮
+                dock.classList.remove('dock-closed');
+                dock.classList.add('dock-open');
+                if (arrow) arrow.classList.add('rotate-180');
+                if (trigger) {
+                    trigger.classList.remove('opacity-100', 'pointer-events-auto');
+                    trigger.classList.add('opacity-0', 'pointer-events-none');
+                }
+            }
+        }
+
+        // 接收视觉配置
+        window.receiveVisionConfig = function (config) {
+            if (!config || !config.Config) return;
+            operatorList = config.Config.Operators || [];
+            renderOperatorList();
+
+            // 更新阈值滑块
+            if (config.Config.TemplateThreshold) {
+                const slider = document.getElementById('template-threshold-slider');
+                const value = document.getElementById('template-threshold-value');
+                if (slider && value) {
+                    slider.value = Math.round(config.Config.TemplateThreshold * 100);
+                    value.innerText = config.Config.TemplateThreshold.toFixed(2);
+                }
+            }
+        };
+
+        // 接收流程更新确认
+        window.receivePipelineUpdate = function (config) {
+            console.log('receivePipelineUpdate:', config);
+            operatorList = config.Operators || [];
+            renderOperatorList();
+            addLog(`流程已更新，共 ${operatorList.length} 个步骤`);
+        };
+
+        // 接收可用算子列表
+        window.receiveAvailableOperators = function (operators) {
+            // 可用于动态生成算子选项
+        };
+
+        // 渲染算子列表
+        function renderOperatorList() {
+            const container = document.getElementById('operator-list');
+            if (!container) return;
+
+            if (!operatorList || operatorList.length === 0) {
+                container.innerHTML = '<div class="text-[10px] text-ink-300 text-center py-8 italic font-serif">点击 "添加步骤" 构建检测流程...</div>';
+                return;
+            }
+
+            container.innerHTML = operatorList.map((op, index) => {
+                const name = getOperatorName(op.TypeId || op.typeId);
+                const params = op.Parameters || {};
+
+                // 生成参数控件
+                let paramHtml = '';
+                if (op.TypeId === 'template_match' || op.typeId === 'template_match') {
+                    const scoreThreshold = params.scoreThreshold || 0.8;
+                    const isTrained = params.isTrained === true;
+                    paramHtml = `
+                        <div class="mt-4 space-y-5 px-3">
+                            <div class="flex items-center justify-between text-[9px] font-bold ${isTrained ? 'text-celadon-600 bg-celadon-50' : 'text-vermilion bg-vermilion/5'} p-2 rounded-lg">
+                                <span>${isTrained ? '✓ 已训练模板' : '⚠ 未训练模板'}</span>
+                                <button onclick="openTemplateManager('${op.InstanceId || op.instanceId}', '${name}')" class="drawer-trigger px-2 py-0.5 bg-white border border-celadon-200 hover:border-celadon-500 text-celadon-600 hover:text-celadon-700 rounded text-[9px] font-bold transition-all shadow-sm flex items-center gap-1 whitespace-nowrap">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                    管理模板
+                                </button>
+                            </div>
+                            ${(isTrained && params.templateThumbnail) ? `<div class="mt-1 flex justify-center bg-slate-50 rounded p-1 border border-slate-100"><img src="data:image/png;base64,${params.templateThumbnail}" class="h-10 object-contain rounded"/></div>` : ''}
+                            <div>
+                                <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                    <span>匹配阈值</span>
+                                    <span class="font-mono text-celadon-600">${scoreThreshold.toFixed(2)}</span>
+                                </div>
+                                <input type="range" min="50" max="99" value="${Math.round(scoreThreshold * 100)}" step="1"
+                                    class="w-full h-1 scroller"
+                                    oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'scoreThreshold', this.value/100); this.previousElementSibling.lastElementChild.innerText=(this.value/100).toFixed(2)">
+                            </div>
+                        </div>
+                    `;
+                } else if (op.TypeId === 'feature_match' || op.typeId === 'feature_match') {
+                    const featureCount = params.featureCount || 500;
+                    const scoreThreshold = params.scoreThreshold || 10;
+                    const isTrained = params.isTrained === true;
+                    paramHtml = `
+                        <div class="mt-4 space-y-5 px-3">
+                            <div class="flex items-center justify-between text-[9px] font-bold ${isTrained ? 'text-celadon-600 bg-celadon-50' : 'text-vermilion bg-vermilion/5'} p-2 rounded-lg">
+                                <span>${isTrained ? '✓ 已训练模板' : '⚠ 未训练模板'}</span>
+                                <button onclick="openTemplateManager('${op.InstanceId || op.instanceId}', '${name}')" class="drawer-trigger px-2 py-0.5 bg-white border border-celadon-200 hover:border-celadon-500 text-celadon-600 hover:text-celadon-700 rounded text-[9px] font-bold transition-all shadow-sm flex items-center gap-1 whitespace-nowrap">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                    管理模板
+                                </button>
+                            </div>
+                            ${(isTrained && params.templateThumbnail) ? `<div class="mt-1 flex justify-center bg-slate-50 rounded p-1 border border-slate-100"><img src="data:image/png;base64,${params.templateThumbnail}" class="h-10 object-contain rounded"/></div>` : ''}
+                            <div>
+                                <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                    <span>关键点上限 Keypoints</span>
+                                    <span class="font-mono text-celadon-600">${featureCount}</span>
+                                </div>
+                                <input type="range" min="100" max="2000" value="${featureCount}" step="100" 
+                                    class="w-full h-1" 
+                                    oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'featureCount', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                    <span>最小内点 Inliers</span>
+                                    <span class="font-mono text-celadon-600">${scoreThreshold}</span>
+                                </div>
+                                <input type="range" min="4" max="20" value="${scoreThreshold}" step="1" 
+                                    class="w-full h-1" 
+                                    oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'scoreThreshold', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                            </div>
+                            <div class="flex items-center justify-between text-[9px] text-ink-500 font-bold bg-slate-50 p-2 rounded-lg">
+                                <span>双向交叉验证 (Symmetry)</span>
+                                <input type="checkbox" ${params.useSymmetryTest !== false ? 'checked' : ''} 
+                                    onchange="updateOperatorParam('${op.InstanceId || op.instanceId}', 'useSymmetryTest', this.checked)"
+                                    class="accent-celadon-600 w-3.5 h-3.5">
+                            </div>
+                            <div class="flex items-center justify-between text-[9px] text-ink-500 font-bold bg-slate-50 p-2 rounded-lg">
+                                <span>启用 RANSAC 过滤</span>
+                                <input type="checkbox" ${params.useRansac !== false ? 'checked' : ''} 
+                                    onchange="updateOperatorParam('${op.InstanceId || op.instanceId}', 'useRansac', this.checked)"
+                                    class="accent-celadon-600 w-3.5 h-3.5">
+                            </div>
+                        </div>
+                    `;
+                } else if (op.TypeId === 'orb_match' || op.typeId === 'orb_match') {
+                    const featureCount = params.featureCount || 500;
+                    const scoreThreshold = params.scoreThreshold || 10;
+                    const isTrained = params.isTrained === true;
+                    paramHtml = `
+                        <div class="mt-4 space-y-5 px-3">
+                            <div class="flex items-center justify-between text-[9px] font-bold ${isTrained ? 'text-celadon-600 bg-celadon-50' : 'text-vermilion bg-vermilion/5'} p-2 rounded-lg">
+                                <span>${isTrained ? '✓ 已训练模板' : '⚠ 未训练模板'}</span>
+                                <button onclick="openTemplateManager('${op.InstanceId || op.instanceId}', '${name}')" class="drawer-trigger px-2 py-0.5 bg-white border border-celadon-200 hover:border-celadon-500 text-celadon-600 hover:text-celadon-700 rounded text-[9px] font-bold transition-all shadow-sm flex items-center gap-1 whitespace-nowrap">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                    管理模板
+                                </button>
+                            </div>
+                            ${(isTrained && params.templateThumbnail) ? `<div class="mt-1 flex justify-center bg-slate-50 rounded p-1 border border-slate-100"><img src="data:image/png;base64,${params.templateThumbnail}" class="h-10 object-contain rounded"/></div>` : ''}
+                            <div class="grid grid-cols-2 gap-x-6 gap-y-5">
+                                <div>
+                                    <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                        <span>采样点上限</span>
+                                        <span class="font-mono text-celadon-600">${featureCount}</span>
+                                    </div>
+                                    <input type="range" min="100" max="2000" value="${featureCount}" step="100" class="w-full h-1" 
+                                        oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'featureCount', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                        <span>判别灵敏度</span>
+                                        <span class="font-mono text-celadon-600">${scoreThreshold}</span>
+                                    </div>
+                                    <input type="range" min="4" max="50" value="${scoreThreshold}" step="1" class="w-full h-1" 
+                                        oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'scoreThreshold', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                        <span>金字塔层数</span>
+                                        <span class="font-mono text-celadon-600">${params.nLevels || 8}</span>
+                                    </div>
+                                    <input type="range" min="1" max="12" value="${params.nLevels || 8}" step="1" class="w-full h-1" 
+                                        oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'nLevels', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                        <span>尺度因子</span>
+                                        <span class="font-mono text-celadon-600">${(params.scaleFactor || 1.2).toFixed(1)}</span>
+                                    </div>
+                                    <input type="range" min="10" max="20" value="${Math.round((params.scaleFactor || 1.2) * 10)}" step="1" class="w-full h-1" 
+                                        oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'scaleFactor', this.value/10); this.previousElementSibling.lastElementChild.innerText=(this.value/10).toFixed(1)">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                        <span>FAST 主阈值</span>
+                                        <span class="font-mono text-celadon-600">${params.iniThFast || 20}</span>
+                                    </div>
+                                    <input type="range" min="5" max="50" value="${params.iniThFast || 20}" step="1" class="w-full h-1" 
+                                        oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'iniThFast', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                        <span>FAST 最小阈值</span>
+                                        <span class="font-mono text-celadon-600">${params.minThFast || 7}</span>
+                                    </div>
+                                    <input type="range" min="2" max="20" value="${params.minThFast || 7}" step="1" class="w-full h-1" 
+                                        oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'minThFast', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (op.TypeId === 'pyramid_shape_match' || op.typeId === 'pyramid_shape_match') {
+                    const pyramidLevels = params.pyramidLevels || 3;
+                    const minScore = params.minScore || 80;
+                    const angleRange = params.angleRange || 180;
+                    const isTrained = params.isTrained === true;
+                    paramHtml = `
+                        <div class="mt-4 space-y-5 px-3">
+                            <div class="flex items-center justify-between text-[9px] font-bold ${isTrained ? 'text-celadon-600 bg-celadon-50' : 'text-vermilion bg-vermilion/5'} p-2 rounded-lg">
+                                <span>${isTrained ? '✓ 已训练模板' : '⚠ 未训练模板'}</span>
+                                <button onclick="openTemplateManager('${op.InstanceId || op.instanceId}', '${name}')" class="drawer-trigger px-2 py-0.5 bg-white border border-celadon-200 hover:border-celadon-500 text-celadon-600 hover:text-celadon-700 rounded text-[9px] font-bold transition-all shadow-sm flex items-center gap-1 whitespace-nowrap">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                    管理模板
+                                </button>
+                            </div>
+                            ${(isTrained && params.templateThumbnail) ? `<div class="mt-1 flex justify-center bg-slate-50 rounded p-1 border border-slate-100"><img src="data:image/png;base64,${params.templateThumbnail}" class="h-10 object-contain rounded"/></div>` : ''}
+                            <div>
+                                <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                    <span>金字塔层数</span>
+                                    <span class="font-mono text-celadon-600">${pyramidLevels}</span>
+                                </div>
+                                <input type="range" min="1" max="5" value="${pyramidLevels}" step="1" class="w-full h-1" 
+                                    oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'pyramidLevels', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                    <span>最小匹配分数 (%)</span>
+                                    <span class="font-mono text-celadon-600">${minScore}</span>
+                                </div>
+                                <input type="range" min="50" max="99" value="${minScore}" step="1" class="w-full h-1" 
+                                    oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'minScore', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                    <span>搜索角度范围 (±度)</span>
+                                    <span class="font-mono text-celadon-600">${angleRange}</span>
+                                </div>
+                                <input type="range" min="0" max="180" value="${angleRange}" step="15" class="w-full h-1" 
+                                    oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'angleRange', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                            </div>
+                        </div>
+                    `;
+                } else if (op.TypeId === 'background_diff' || op.typeId === 'background_diff') {
+                    const isTrained = params.isTrained === true;
+                    paramHtml = `
+                        <div class="mt-4 space-y-5 px-3">
+                            <div class="flex items-center justify-between text-[9px] font-bold ${isTrained ? 'text-celadon-600 bg-celadon-50' : 'text-vermilion bg-vermilion/5'} p-2 rounded-lg">
+                                <span>${isTrained ? '✓ 已训练背景' : '⚠ 未训练背景 (请设置空箱图像)'}</span>
+                                <button onclick="openTemplateManager('${op.InstanceId || op.instanceId}', '${name}')" class="drawer-trigger px-2 py-0.5 bg-white border border-celadon-200 hover:border-celadon-500 text-celadon-600 hover:text-celadon-700 rounded text-[9px] font-bold transition-all shadow-sm flex items-center gap-1 whitespace-nowrap">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                    管理背景
+                                </button>
+                            </div>
+                            <div class="grid grid-cols-2 gap-x-6 gap-y-5">
+                                <div>
+                                    <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                        <span>最小面积</span>
+                                        <span class="font-mono text-celadon-600">${params.minArea || 5000}</span>
+                                    </div>
+                                    <input type="range" min="100" max="50000" value="${params.minArea || 5000}" step="100" class="w-full h-1" 
+                                        oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'minArea', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                        <span>最大面积</span>
+                                        <span class="font-mono text-celadon-600">${params.maxArea || 200000}</span>
+                                    </div>
+                                    <input type="range" min="1000" max="1000000" value="${params.maxArea || 200000}" step="1000" class="w-full h-1" 
+                                        oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'maxArea', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                        <span>最小比 (±)</span>
+                                        <span class="font-mono text-celadon-600">${(params.minAspectRatio || 1.5).toFixed(1)}</span>
+                                    </div>
+                                    <input type="range" min="10" max="100" value="${Math.round((params.minAspectRatio || 1.5) * 10)}" step="1" class="w-full h-1" 
+                                        oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'minAspectRatio', this.value/10); this.previousElementSibling.lastElementChild.innerText=(this.value/10).toFixed(1)">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-[9px] font-bold text-ink-400 mb-1">
+                                        <span>差异阈值</span>
+                                        <span class="font-mono text-celadon-600">${params.diffThreshold || 30}</span>
+                                    </div>
+                                    <input type="range" min="1" max="100" value="${params.diffThreshold || 30}" step="1" class="w-full h-1" 
+                                        oninput="updateOperatorParam('${op.InstanceId || op.instanceId}', 'diffThreshold', this.value); this.previousElementSibling.lastElementChild.innerText=this.value">
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between text-[9px] text-ink-500 font-bold bg-slate-50 p-2 rounded-lg">
+                                <span>用边缘算法(抗干扰)</span>
+                                <input type="checkbox" ${params.useEdgeDiff !== false ? 'checked' : ''} 
+                                    onchange="updateOperatorParam('${op.InstanceId || op.instanceId}', 'useEdgeDiff', this.checked)"
+                                    class="accent-celadon-600 w-3.5 h-3.5">
+                            </div>
+                        </div>
+                    `;
+                }
+
+                return `
+                    <div class="bg-white/80 rounded-xl border border-slate-100 p-3 shadow-sm hover:shadow-md transition-all group">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-3">
+                                <span class="w-6 h-6 rounded-lg bg-celadon-50 text-[10px] font-black text-celadon-700 flex items-center justify-center font-serif">${index + 1}</span>
+                                <span class="text-[11px] font-black text-ink-800 tracking-wider">${name}</span>
+                            </div>
+                            <button onclick="removeOperator('${op.InstanceId || op.instanceId}')" 
+                                class="w-6 h-6 rounded-full hover:bg-rouge-50 text-ink-300 hover:text-rouge-600 flex items-center justify-center transition-all opacity-0 group-hover:opacity-100">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>
+                        ${paramHtml}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // 更新预览图像
+        window.updatePreviewImage = function (preview) {
+            if (preview && preview.ImageBase64) {
+                updateImage(preview.ImageBase64);
+                if (preview.ProcessingTimeMs) {
+                    addLog(`预览处理耗时: ${preview.ProcessingTimeMs.toFixed(1)}ms`);
+                }
+            }
+        };
+
+        // 接收检测结果
+        window.receiveDetectionResult = function (result) {
+            if (!result) return;
+            updateResult(result.IsPass);
+            if (result.ResultImageBase64) {
+                updateImage(result.ResultImageBase64);
+            }
+            addDetectionLog(`${result.IsPass ? '✓ 通过' : '✗ 未通过'} - ${result.Message} (${result.ProcessingTimeMs.toFixed(1)}ms)`);
+        };
+
+        // 更新模板预览
+        window.updateTemplatePreview = function (base64) {
+            const container = document.getElementById('template-preview');
+            if (container) {
+                const src = base64.startsWith('data:image') ? base64 : `data:image/jpeg;base64,${base64}`;
+                container.innerHTML = `<img src="${src}" class="w-full h-full object-cover rounded-lg">`;
+            }
+        };
+
+        // ROI Drawing Logic
+        let isDrawingROI = false;
+        let roiStartX = 0;
+        let roiStartY = 0;
+        const roiCanvas = document.getElementById('roi-canvas');
+
+        if (roiCanvas) {
+            const img = document.getElementById('camera-view');
+            const container = document.getElementById('camera-container');
+
+            function updateCanvasLayout() {
+                if (!img) return;
+
+                // Fallback for dimensions if naturalWidth is 0 (e.g. not fully loaded SVG or stream)
+                const iW = img.naturalWidth || img.width || 1280;
+                const iH = img.naturalHeight || img.height || 720;
+
+                if (iW === 0) return;
+
+                const containerRect = container.getBoundingClientRect();
+                const containerW = containerRect.width;
+                const containerH = containerRect.height;
+
+                const containerRatio = containerW / containerH;
+                const imgRatio = iW / iH;
+
+                let renderedW, renderedH, offsetX, offsetY;
+
+                if (containerRatio > imgRatio) {
+                    renderedH = containerH;
+                    renderedW = containerH * imgRatio;
+                    offsetX = (containerW - renderedW) / 2;
+                    offsetY = 0;
+                } else {
+                    renderedW = containerW;
+                    renderedH = containerW / imgRatio;
+                    offsetX = 0;
+                    offsetY = (containerH - renderedH) / 2;
+                }
+
+                roiCanvas.style.width = `${renderedW}px`;
+                roiCanvas.style.height = `${renderedH}px`;
+                roiCanvas.style.left = `${offsetX}px`;
+                roiCanvas.style.top = `${offsetY}px`;
+
+                roiCanvas.width = renderedW;
+                roiCanvas.height = renderedH;
+
+                // console.log(`Canvas Updated: ${renderedW}x${renderedH} at ${offsetX},${offsetY}`);
+            }
+
+            const resizeObserver = new ResizeObserver(() => requestAnimationFrame(updateCanvasLayout));
+            if (container) resizeObserver.observe(container);
+            if (img) img.addEventListener('load', updateCanvasLayout);
+            window.addEventListener('resize', updateCanvasLayout);
+
+            // Force update once initially
+            setTimeout(updateCanvasLayout, 100);
+
+            roiCanvas.addEventListener('mousedown', (e) => {
+                isDrawingROI = true;
+                const rect = roiCanvas.getBoundingClientRect();
+                roiStartX = e.clientX - rect.left;
+                roiStartY = e.clientY - rect.top;
+                // remove log to avoid spam, but keep logic
+            });
+
+            roiCanvas.addEventListener('mousemove', (e) => {
+                if (!isDrawingROI) return;
+                const rect = roiCanvas.getBoundingClientRect();
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+                const ctx = roiCanvas.getContext('2d');
+
+                ctx.clearRect(0, 0, roiCanvas.width, roiCanvas.height);
+
+                const width = currentX - roiStartX;
+                const height = currentY - roiStartY;
+
+                ctx.strokeStyle = '#a4161a';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([8, 4]);
+                ctx.strokeRect(roiStartX, roiStartY, width, height);
+
+                ctx.fillStyle = 'rgba(164, 22, 26, 0.05)';
+                ctx.fillRect(roiStartX, roiStartY, width, height);
+            });
+
+            roiCanvas.addEventListener('mouseup', (e) => {
+                if (!isDrawingROI) return;
+                isDrawingROI = false;
+
+                const rect = roiCanvas.getBoundingClientRect();
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+
+                let x = Math.min(roiStartX, currentX);
+                let y = Math.min(roiStartY, currentY);
+                let w = Math.abs(currentX - roiStartX);
+                let h = Math.abs(currentY - roiStartY);
+
+                if (w < 10 || h < 10) return;
+
+                const normX = x / roiCanvas.width;
+                const normY = y / roiCanvas.height;
+                const normW = w / roiCanvas.width;
+                const normH = h / roiCanvas.height;
+
+                sendCommand('update_roi', { rect: [normX, normY, normW, normH] });
+                addLog(`ROI Set: [${normX.toFixed(2)}, ${normY.toFixed(2)}, ${normW.toFixed(2)}, ${normH.toFixed(2)}]`);
+            });
+
+            roiCanvas.addEventListener('mouseleave', () => { isDrawingROI = false; });
+        }
+
+        function clearRoi() {
+            const canvas = document.getElementById('roi-canvas');
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+            addLog("ROI Cleared");
+            sendCommand('update_roi', { rect: [0, 0, 0, 0] });
+        }
+
+        function sendCommand(cmd, value = null) {
+            const payload = { cmd: cmd, value: value, timestamp: Date.now() };
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(payload);
+                addLog(`CMD: ${cmd} ${value ? '(' + JSON.stringify(value) + ')' : ''}`, 'info');
+            } else {
+                console.log("[Dev] Mock Send:", payload);
+                addLog(`[Mock] Sent: ${cmd}`, 'warning');
+            }
+        }
+
+        // --- Modals ---
+        function openSettingsModal(config) {
+            // 先关闭密码弹窗
+            closePasswordModal();
+            // 打开设置弹窗
+            document.getElementById('settings-modal').classList.remove('hidden');
+            // 如果传入了配置，填充到表单
+            if (config) {
+                // config 可能是字符串或对象
+                const data = typeof config === 'string' ? JSON.parse(config) : config;
+                populateSettings(data);
+            }
+        }
+        function closeSettingsModal() { document.getElementById('settings-modal').classList.add('hidden'); }
+
+        function populateSettings(data) {
+            // 映射后端属性名到前端input id
+            const mapping = {
+                'StoragePath': 'cfg-storage-path',
+                'PlcProtocol': 'cfg-plc-protocol',
+                'PlcIp': 'cfg-plc-ip',
+                'PlcPort': 'cfg-plc-port',
+                'PlcTriggerAddress': 'cfg-plc-trigger',
+                'PlcResultAddress': 'cfg-plc-result',
+                'CameraName': 'cfg-cam-name',
+                'CameraSerialNumber': 'cfg-cam-serial',
+                'ExposureTime': 'cfg-cam-exposure',
+                'GainRaw': 'cfg-cam-gain',
+                'TargetLabel': 'cfg-logic-target-label',
+                'TargetCount': 'cfg-logic-target-count',
+                'MaxRetryCount': 'cfg-logic-retry-count',
+                'RetryIntervalMs': 'cfg-logic-retry-interval',
+                'EnableGpu': 'cfg-yolo-gpu'
+            };
+            for (const key in data) {
+                const inputId = mapping[key];
+                if (!inputId) continue;
+                const el = document.getElementById(inputId);
+                if (el) {
+                    if (el.type === 'checkbox') el.checked = !!data[key];
+                    else el.value = data[key] ?? '';
+                }
+            }
+            // 初始化任务类型下拉框
+            if (data.TaskType !== undefined) {
+                const taskTypeSelect = document.getElementById('task-type-select');
+                if (taskTypeSelect) {
+                    taskTypeSelect.value = data.TaskType.toString();
+                }
+            }
+        }
+
+        function initSettings(config) {
+            const data = typeof config === 'string' ? JSON.parse(config) : config;
+            populateSettings(data);
+            addLog("系统配置已加载", "success");
+        }
+
+        function saveSettingsPartial(inputElement) {
+            const fieldMapping = {
+                'cfg-storage-path': 'StoragePath',
+                'cfg-plc-protocol': 'PlcProtocol',
+                'cfg-plc-ip': 'PlcIp',
+                'cfg-plc-port': 'PlcPort',
+                'cfg-plc-trigger': 'PlcTriggerAddress',
+                'cfg-plc-result': 'PlcResultAddress',
+                'cfg-cam-name': 'CameraName',
+                'cfg-cam-serial': 'CameraSerialNumber',
+                'cfg-cam-exposure': 'ExposureTime',
+                'cfg-cam-gain': 'GainRaw',
+                'cfg-logic-target-label': 'TargetLabel',
+                'cfg-logic-target-count': 'TargetCount',
+                'cfg-logic-retry-count': 'MaxRetryCount',
+                'cfg-logic-retry-interval': 'RetryIntervalMs',
+                'cfg-yolo-gpu': 'EnableGpu'
+            };
+
+            const propName = fieldMapping[inputElement.id];
+            if (!propName) return;
+
+            const data = {};
+            if (inputElement.type === 'checkbox') {
+                data[propName] = inputElement.checked;
+            } else if (inputElement.type === 'number') {
+                const numVal = parseFloat(inputElement.value);
+                data[propName] = isNaN(numVal) ? 0 : numVal;
+            } else {
+                data[propName] = inputElement.value || '';
+            }
+            sendCommand('save_settings', data);
+        }
+
+        function saveSettings() {
+            // 显式映射: 前端 input ID -> AppConfig 属性名
+            const fieldMapping = {
+                'cfg-storage-path': 'StoragePath',
+                'cfg-plc-protocol': 'PlcProtocol',
+                'cfg-plc-ip': 'PlcIp',
+                'cfg-plc-port': 'PlcPort',
+                'cfg-plc-trigger': 'PlcTriggerAddress',
+                'cfg-plc-result': 'PlcResultAddress',
+                'cfg-cam-name': 'CameraName',
+                'cfg-cam-serial': 'CameraSerialNumber',
+                'cfg-cam-exposure': 'ExposureTime',
+                'cfg-cam-gain': 'GainRaw',
+                'cfg-logic-target-label': 'TargetLabel',
+                'cfg-logic-target-count': 'TargetCount',
+                'cfg-logic-retry-count': 'MaxRetryCount',
+                'cfg-logic-retry-interval': 'RetryIntervalMs',
+                'cfg-yolo-gpu': 'EnableGpu'
+            };
+
+            const data = {};
+            // 定义数值型字段
+            const numericFields = ['PlcPort', 'PlcTriggerAddress', 'PlcResultAddress', 'ExposureTime', 'GainRaw', 'TargetCount', 'MaxRetryCount', 'RetryIntervalMs'];
+
+            for (const [inputId, propName] of Object.entries(fieldMapping)) {
+                const el = document.getElementById(inputId);
+                if (!el) continue;
+
+                if (el.type === 'checkbox') {
+                    data[propName] = el.checked;
+                } else if (numericFields.includes(propName) || el.type === 'number') {
+                    // 强制数值类型转换
+                    const numVal = parseFloat(el.value);
+                    data[propName] = isNaN(numVal) ? 0 : numVal;
+                } else {
+                    data[propName] = el.value || '';
+                }
+            }
+
+            // 直接发送对象，让 postMessage 处理序列化
+            sendCommand('save_settings', data);
+            closeSettingsModal();
+        }
+
+        function closePasswordModal() { document.getElementById('password-modal').classList.add('hidden'); }
+        function verifyPassword() {
+            const pwd = document.getElementById('admin-password').value;
+            sendCommand('verify_password', pwd);
+            document.getElementById('admin-password').value = '';
+        }
+        window.showPasswordModal = function () { document.getElementById('password-modal').classList.remove('hidden'); document.getElementById('admin-password').focus(); };
+        window.hidePasswordModal = closePasswordModal;
+        window.openSettings = function () {
+            openSettingsModal();
+            sendCommand('get_camera_list');  // 自动加载相机列表
+        };
+        window.populateSettings = populateSettings;
+
+        // --- Log History Modal ---
+        function openLogHistoryModal() {
+            document.getElementById('log-history-modal').classList.remove('hidden');
+            sendCommand('get_detection_logs');
+        }
+        function closeLogHistoryModal() { document.getElementById('log-history-modal').classList.add('hidden'); }
+
+        // 后端调用 updateDetectionLogTable - logs: Array<{time, result, details}>
+        window.updateDetectionLogTable = function (logs) {
+            const tbody = document.getElementById('log-history-table');
+            const badge = document.getElementById('log-count-badge');
+            if (!tbody) return;
+
+            if (!logs || logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="px-4 py-10 text-center text-slate-400 italic">暂无检测日志</td></tr>';
+                if (badge) badge.textContent = '0 条';
+                return;
+            }
+
+            if (badge) badge.textContent = `${logs.length} 条`;
+
+            tbody.innerHTML = logs.map(log => {
+                const isNG = log.result.includes('不合格') || log.result.includes('NG');
+                const resultClass = isNG
+                    ? 'bg-rouge-50 text-rouge-600 border-rouge-200'
+                    : 'bg-bamboo-50 text-bamboo-600 border-bamboo-200';
+                return `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="px-4 py-3 font-mono text-slate-600 whitespace-nowrap">${log.time || '-'}</td>
+                        <td class="px-4 py-3 text-center">
+                            <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${resultClass}">
+                                ${log.result || '-'}
+                            </span>
+                        </td>
+                        <td class="px-4 py-3 text-slate-500 max-w-md truncate" title="${(log.details || '').replace(/"/g, '&quot;')}">
+                            ${log.details || '-'}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        };
+
+        function openGalleryModal() { document.getElementById('gallery-modal').classList.remove('hidden'); sendCommand('get_ng_dates'); }
+        function closeGalleryModal() { document.getElementById('gallery-modal').classList.add('hidden'); }
+        function closeImageViewer() { document.getElementById('image-viewer').classList.add('hidden'); }
+
+        // Gallery状态变量
+        let currentNGDate = '';
+        let currentNGHour = '';
+
+        // 后端调用 updateNGDates - dates: string[] (日期文件夹名数组)
+        window.updateNGDates = function (dates) {
+            const list = document.getElementById('ng-date-list');
+            if (!list) return;
+            list.innerHTML = '';
+
+            if (!dates || dates.length === 0) {
+                list.innerHTML = '<div class="text-[10px] text-ink-300 p-4 text-center italic font-serif opacity-50">暂无历史存根</div>';
+                return;
+            }
+
+            dates.forEach(d => {
+                const div = document.createElement('div');
+                div.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-all border border-transparent hover:border-celadon-100 mb-1";
+                div.innerText = d;
+                div.onclick = () => {
+                    Array.from(list.children).forEach(c => c.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-all border border-transparent hover:border-celadon-100 mb-1");
+                    div.className = "p-2.5 bg-celadon-50 text-celadon-700 cursor-pointer rounded-xl text-[11px] font-black transition-all shadow-sm border border-celadon-200 mb-1";
+                    currentNGDate = d;
+                    document.getElementById('ng-hour-list').innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
+                    document.getElementById('ng-image-grid').innerHTML = '';
+                    sendCommand('get_ng_hours', d);
+                };
+                list.appendChild(div);
+            });
+        };
+
+        // 后端调用 updateNGHours - hours: string[] (小时文件夹名数组)
+        window.updateNGHours = function (hours) {
+            const list = document.getElementById('ng-hour-list');
+            if (!list) return;
+            list.innerHTML = '';
+
+            if (!hours || hours.length === 0) {
+                list.innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 font-serif opacity-50">无时段数据</div>';
+                return;
+            }
+
+            hours.forEach(h => {
+                const div = document.createElement('div');
+                div.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-all font-bold text-ink-500 shadow-sm flex items-center justify-between group";
+                div.innerHTML = `<span>${h}:00 时段</span> <svg class="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>`;
+                div.onclick = () => {
+                    Array.from(list.children).forEach(c => c.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-all font-bold text-ink-500 shadow-sm flex items-center justify-between group");
+                    div.className = "px-4 py-2 bg-celadon-600 border-celadon-600 text-white rounded-xl text-[11px] cursor-pointer transition-all font-bold shadow-md flex items-center justify-between";
+                    currentNGHour = h;
+                    document.getElementById('ng-image-grid').innerHTML = '<div class="col-span-full h-full flex flex-col items-center justify-center py-20 text-ink-300 opacity-50"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-celadon-500 mb-4"></div><span class="text-xs font-serif italic">正在索引影像档案...</span></div>';
+                    sendCommand('get_ng_images', { date: currentNGDate, hour: h });
+                };
+                list.appendChild(div);
+            });
+        };
+
+        // 后端调用 updateNGImages - images: string[] (文件名数组，不是对象数组)
+        window.updateNGImages = function (images) {
+            const grid = document.getElementById('ng-image-grid');
+            if (!grid) return;
+            grid.innerHTML = '';
+
+            if (!images || images.length === 0) {
+                grid.innerHTML = '<div class="col-span-full h-full flex flex-col items-center justify-center py-20 text-ink-300 opacity-40"><svg class="w-12 h-12 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg><span class="text-xs font-serif italic">此时间段未发现异常影像存根</span></div>';
+                return;
+            }
+
+            // 构建图片URL: http://ng-images.local/Unqualified/{date}/{hour}/{filename}
+            const baseUrl = `http://ng-images.local/Unqualified/${currentNGDate}/${currentNGHour}/`;
+
+            images.forEach(filename => {
+                const url = baseUrl + filename;
+                const div = document.createElement('div');
+                div.className = "relative group aspect-square bg-white rounded-2xl border border-slate-100 cursor-zoom-in overflow-hidden shadow-sm hover:shadow-xl hover:border-celadon-200 transition-all duration-300";
+                div.innerHTML = `<img src="${url}" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" loading="lazy">
+                                  <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink-950/80 to-transparent p-3 pt-8 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <div class="text-[9px] font-mono text-white/90 truncate">${filename}</div>
+                                  </div>`;
+                div.onclick = () => {
+                    document.getElementById('viewer-img').src = url;
+                    document.getElementById('viewer-info').innerText = filename;
+                    document.getElementById('image-viewer').classList.remove('hidden');
+                };
+                grid.appendChild(div);
+            });
+        };
+
+        // === 后端调用的必需函数 (Backend-called Functions) ===
+
+        /**
+         * 初始化模型列表 - 被C#后端 SendModelList() 调用
+         * @param {string[]} files - 模型文件名数组
+         */
+        function initModelList(files) {
+            const select = document.getElementById('model-select');
+            if (!select) return;
+
+            // 清空下拉框
+            select.innerHTML = '';
+
+            // 容错处理
+            if (!files || files.length === 0) {
+                const opt = document.createElement('option');
+                opt.text = "未找到可用模型";
+                opt.value = "";
+                select.add(opt);
+                return;
+            }
+
+            // 遍历数组动态创建选项
+            files.forEach(fileName => {
+                const opt = document.createElement('option');
+                opt.value = fileName;
+                opt.text = fileName;
+                select.add(opt);
+            });
+
+            // 同步填充辅助模型下拉框
+            const aux1Select = document.getElementById('auxiliary1-select');
+            const aux2Select = document.getElementById('auxiliary2-select');
+            if (aux1Select) {
+                aux1Select.innerHTML = '<option value="">不使用</option>';
+                files.forEach(fileName => {
+                    const opt = document.createElement('option');
+                    opt.value = fileName;
+                    opt.text = fileName;
+                    aux1Select.add(opt);
+                });
+            }
+            if (aux2Select) {
+                aux2Select.innerHTML = '<option value="">不使用</option>';
+                files.forEach(fileName => {
+                    const opt = document.createElement('option');
+                    opt.value = fileName;
+                    opt.text = fileName;
+                    aux2Select.add(opt);
+                });
+            }
+
+            // 默认选中第一个并触发一次 change_model 指令告知后端
+            select.selectedIndex = 0;
+            sendCommand('change_model', select.value);
+            addLog(`✓ 成功加载 ${files.length} 个模型`, 'info');
+        }
+
+        /**
+         * 更新相机名称显示 - 被C#后端 UpdateCameraName() 调用
+         * @param {string} name - 相机显示名称
+         */
+        function updateCameraName(name) {
+            const el = document.getElementById('camera-name-display');
+            if (el && name) {
+                el.innerText = name;
+            }
+        }
+
+        /**
+         * 打开密码验证弹窗 - 被C#后端调用
+         */
+        function openPasswordModal() {
+            document.getElementById('password-modal').classList.remove('hidden');
+            const pwdInput = document.getElementById('admin-password');
+            if (pwdInput) {
+                pwdInput.value = '';
+                pwdInput.focus();
+            }
+        }
+
+        /**
+         * 更新存储路径显示 - 被C#后端 UpdateStoragePathInUI() 调用
+         * @param {string} path - 存储路径
+         */
+        function updateStoragePath(path) {
+            const el = document.getElementById('cfg-storage-path');
+            if (el) {
+                el.value = path || '';
+            }
+        }
+
+        // 暴露到全局以便后端调用
+        window.initModelList = initModelList;
+        window.updateCameraName = updateCameraName;
+        window.openPasswordModal = openPasswordModal;
+        window.updateStoragePath = updateStoragePath;
+
+        // ======== 历史统计功能 ========
+        function openStatisticsHistoryModal() {
+            document.getElementById('statistics-history-modal').classList.remove('hidden');
+            requestStatisticsHistory();
+        }
+
+        function closeStatisticsHistoryModal() {
+            document.getElementById('statistics-history-modal').classList.add('hidden');
+        }
+
+        function requestStatisticsHistory() {
+            sendCommand('get_statistics_history');
+        }
+
+        /**
+         * 接收历史统计数据 - 被C#后端 SendStatisticsHistory() 调用
+         * @param {Array} data - 历史记录数组
+         */
+        function receiveStatisticsHistory(data) {
+            const tbody = document.getElementById('statistics-history-table');
+            if (!tbody) return;
+
+            if (!data || data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 italic">暂无历史数据</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = data.map((item, index) => {
+                const isToday = index === 0;
+                const rowClass = isToday ? 'bg-celadon-50/50' : 'hover:bg-slate-50';
+                const dateLabel = isToday ? `${item.date} <span class="text-[9px] text-celadon-600 font-bold">(今日)</span>` : item.date;
+                const rateColor = item.rate >= 95 ? 'text-bamboo-600' : item.rate >= 80 ? 'text-gamboge-500' : 'text-rouge-600';
+
+                return `
+                    <tr class="${rowClass} transition-colors">
+                        <td class="px-4 py-3 font-medium text-slate-700">${dateLabel}</td>
+                        <td class="px-4 py-3 text-center font-mono font-bold text-slate-600">${item.total}</td>
+                        <td class="px-4 py-3 text-center font-mono text-bamboo-600">${item.ok}</td>
+                        <td class="px-4 py-3 text-center font-mono text-rouge-600">${item.ng}</td>
+                        <td class="px-4 py-3 text-center font-mono font-bold ${rateColor}">${item.rate.toFixed(1)}%</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        window.receiveStatisticsHistory = receiveStatisticsHistory;
+
+        // --- Cropper Logic ---
+        let cropper = null;
+
+        function openCropper(imageBase64) {
+            const modal = document.getElementById('cropModal');
+            const image = document.getElementById('cropImage');
+            const preview = document.getElementById('cropPreview');
+
+            image.src = `data:image/jpeg;base64,${imageBase64}`;
+            modal.classList.remove('hidden');
+
+            if (cropper) {
+                cropper.destroy();
+            }
+
+            cropper = new Cropper(image, {
+                aspectRatio: 1, // 1:1 ratio
+                viewMode: 1,
+                dragMode: 'move',
+                autoCropArea: 0.8,
+                restore: false,
+                guides: true,
+                center: true,
+                highlight: false,
+                cropBoxMovable: true,
+                cropBoxResizable: true,
+                toggleDragModeOnDblclick: false,
+                preview: preview,
+                zoomable: false, // Disabled zoom as requested
+                ready: function () {
+                    // Cropper ready
+                }
+            });
+        }
+
+        function closeCropper() {
+            const modal = document.getElementById('cropModal');
+            modal.classList.add('hidden');
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
+        }
+
+        function confirmCrop() {
+            if (!cropper) return;
+            // 获取裁剪数据 (相对于当前显示的图片)
+            const data = cropper.getData(); // {x, y, width, height, rotate, scaleX, scaleY}
+
+            // 发送给后端
+            sendCommand('save_cropped_template_data', JSON.stringify(data));
+
+            closeCropper();
+            addLog('正在后台裁剪高分辨率模板...');
+        }
+
+        // --- Template Manager Logic (New) ---
+        let tmCropper = null;
+        let currentOperatorId = null;
+
+        function openTemplateManager(opId, opName) {
+            currentOperatorId = opId;
+            const opNameEl = document.getElementById('tm-op-name');
+            if (opNameEl) opNameEl.innerText = opName || (opId ? opId.substring(0, 8) + '...' : 'Unknown');
+            document.getElementById('template-manager-modal').classList.remove('hidden');
+            tmResetUI();
+        }
+
+        function closeTemplateManager() {
+            document.getElementById('template-manager-modal').classList.add('hidden');
+            if (tmCropper) {
+                tmCropper.destroy();
+                tmCropper = null;
+            }
+        }
+
+        function tmResetUI() {
+            document.getElementById('tm-placeholder').classList.remove('hidden');
+            document.getElementById('tm-editor-container').classList.add('hidden');
+            if (tmCropper) {
+                tmCropper.destroy();
+                tmCropper = null;
+            }
+        }
+
+        function initTmCropper(src) {
+            const img = document.getElementById('tm-image');
+            img.src = src;
+
+            document.getElementById('tm-placeholder').classList.add('hidden');
+            document.getElementById('tm-editor-container').classList.remove('hidden');
+
+            if (tmCropper) tmCropper.destroy();
+
+            tmCropper = new Cropper(img, {
+                viewMode: 1,
+                dragMode: 'move',
+                autoCropArea: 0.8,
+                restore: false,
+                guides: true,
+                center: true,
+                highlight: false,
+                cropBoxMovable: true,
+                cropBoxResizable: true, // Allow aspect ratio change
+                toggleDragModeOnDblclick: false,
+            });
+        }
+
+        function captureTemplateFrame() {
+            addLog('正在截取相机画面...');
+            sendCommand('get_frame_for_template');
+        }
+
+        // Backend callback for frame
+        window.receiveTemplateFrame = function (base64) {
+            const src = base64.startsWith('data:image') ? base64 : `data:image/jpeg;base64,${base64}`;
+            initTmCropper(src);
+        }
+
+        function loadTemplateFile(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    initTmCropper(e.target.result);
+                }
+                reader.readAsDataURL(input.files[0]);
+                input.value = ''; // Reset input
+            }
+        }
+
+        function tmRotate(deg) {
+            if (tmCropper) tmCropper.rotate(deg);
+        }
+
+        function tmReset() {
+            if (tmCropper) tmCropper.reset();
+        }
+
+        function saveTemplate() {
+            if (!tmCropper) {
+                alert("请先加载图像并选择区域");
+                return;
+            }
+            if (!currentOperatorId) return;
+
+            // Get cropped canvas
+            try {
+                const canvas = tmCropper.getCroppedCanvas();
+                if (!canvas) return;
+
+                const base64 = canvas.toDataURL('image/jpeg');
+
+                // Send to backend
+                sendCommand('train_operator', {
+                    instanceId: currentOperatorId,
+                    imageBase64: base64.split(',')[1] // remove header
+                });
+
+                addLog('正在训练算子...');
+                closeTemplateManager();
+            } catch (e) {
+                console.error(e);
+                addLog("保存模板失败: " + e.message, 'error');
+            }
+        }
+    </script>
+    <!-- Crop Modal -->
+    <div id="cropModal" class="fixed inset-0 z-[110] hidden" aria-labelledby="modal-title" role="dialog"
+        aria-modal="true">
+        <div class="fixed inset-0 bg-ink-950/80 backdrop-blur-md transition-opacity"></div>
+        <div class="fixed inset-0 z-10 overflow-y-auto">
+            <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+                <div
+                    class="glass-panel relative transform overflow-hidden rounded-3xl bg-white/90 text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-4xl border border-white/20">
+                    <!-- Header -->
+                    <div class="px-8 pt-6 pb-5 border-b border-slate-100 flex justify-between items-center bg-white/60">
+                        <div>
+                            <h3
+                                class="text-lg font-serif font-black text-ink-800 tracking-widest flex items-center gap-3">
+                                <svg class="w-6 h-6 text-celadon-600" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z">
+                                    </path>
+                                </svg>
+                                模板精准裁剪器 <span
+                                    class="text-[10px] font-sans font-normal text-ink-400 uppercase tracking-widest ml-2 italic">Precision
+                                    Cropper</span>
+                            </h3>
+                            <p class="mt-1 text-xs text-ink-400 italic font-serif">请定义检测基准区域，系统将自动锁定 1:1 特征比例</p>
+                        </div>
+                        <button onclick="closeCropper()"
+                            class="p-2 hover:bg-rouge-50 text-ink-300 hover:text-rouge-600 rounded-full transition-all text-2xl">&times;</button>
+                    </div>
+
+                    <!-- Body -->
+                    <div class="p-8 flex gap-8 bg-slate-50/20">
+                        <!-- Image Container -->
+                        <div
+                            class="flex-1 bg-ink-950 rounded-2xl overflow-hidden relative border-4 border-white shadow-inner h-[500px]">
+                            <img id="cropImage" src="" alt="Source" class="max-w-full block">
+                        </div>
+
+                        <!-- Toolbar -->
+                        <div class="w-56 flex flex-col gap-5">
+                            <div class="glass-panel p-5 rounded-2xl border border-white shadow-soft">
+                                <span
+                                    class="text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-3 block">实时采样预览</span>
+                                <div class="w-full aspect-square bg-white rounded-xl overflow-hidden border border-slate-100 shadow-inner"
+                                    id="cropPreview"></div>
+                            </div>
+
+                            <div class="glass-panel p-5 rounded-2xl border border-white shadow-soft space-y-3">
+                                <div class="grid grid-cols-2 gap-2">
+                                    <button onclick="cropper.rotate(-90)"
+                                        class="py-2.5 text-[10px] font-bold text-ink-600 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 flex flex-col items-center gap-1 transition-all">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path>
+                                        </svg>
+                                        左旋
+                                    </button>
+                                    <button onclick="cropper.rotate(90)"
+                                        class="py-2.5 text-[10px] font-bold text-ink-600 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 flex flex-col items-center gap-1 transition-all">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"></path>
+                                        </svg>
+                                        右旋
+                                    </button>
+                                </div>
+                                <button onclick="if(cropper) cropper.reset()"
+                                    class="w-full py-2.5 text-[10px] font-bold text-ink-400 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center gap-2 transition-all">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                                        </path>
+                                    </svg>
+                                    重置视图
+                                </button>
+                                <button onclick="captureTemplate()"
+                                    class="w-full py-3 text-[10px] font-bold text-vermilion bg-red-50 hover:bg-red-100 rounded-xl border border-red-100 flex items-center justify-center gap-2 transition-all shadow-sm shadow-red-500/10">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z">
+                                        </path>
+                                    </svg>
+                                    重新采样
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div
+                        class="px-8 py-5 flex justify-end items-center border-t border-slate-100 bg-white/80 gap-4 shrink-0">
+                        <button type="button" onclick="closeCropper()"
+                            class="px-8 py-2.5 text-xs font-bold text-ink-400 hover:text-ink-600 transition-all">放弃采样</button>
+                        <button type="button" onclick="confirmCrop()"
+                            class="btn-celadon px-12 py-2.5 rounded-xl text-xs font-bold shadow-float flex items-center gap-2 scale-105">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            确认基准模板
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template Manager Modal -->
+    <div id="template-manager-modal"
+        class="fixed inset-0 z-[100] hidden bg-ink-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+            class="glass-panel w-full max-w-5xl h-[85vh] rounded-2xl overflow-hidden shadow-2xl flex flex-col bg-slate-50">
+            <!-- Header -->
+            <div class="h-16 border-b border-slate-100 flex justify-between items-center px-6 bg-white shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 bg-celadon-50 rounded-lg text-celadon-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z">
+                            </path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-ink-800 uppercase tracking-widest font-serif">模板管理器 /
+                            Template
+                            Manager</h3>
+                        <p class="text-[10px] text-ink-400 mt-0.5">为算子 <span id="tm-op-name"
+                                class="font-mono font-bold text-celadon-600">-</span> 配置基准图像</p>
+                    </div>
+                </div>
+                <button onclick="closeTemplateManager()"
+                    class="p-2 text-ink-300 hover:text-rouge-600 transition-colors rounded-full hover:bg-rouge-50">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        </path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Content -->
+            <div class="flex-1 flex overflow-hidden">
+                <!-- Sidebar -->
+                <div class="w-64 bg-white border-r border-slate-100 p-4 flex flex-col gap-4 shrink-0">
+                    <div class="space-y-2">
+                        <div class="text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-2">图像来源 / Source
+                        </div>
+                        <button onclick="captureTemplateFrame()"
+                            class="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50 hover:border-celadon-300 hover:bg-celadon-50 text-ink-600 hover:text-celadon-700 transition-all group">
+                            <div
+                                class="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-ink-400 group-hover:text-celadon-500 shadow-sm">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z">
+                                    </path>
+                                </svg>
+                            </div>
+                            <div class="text-left">
+                                <div class="text-xs font-bold">相机截取</div>
+                                <div class="text-[9px] text-ink-400">Capture Frame</div>
+                            </div>
+                        </button>
+                        <button onclick="document.getElementById('tm-file-input').click()"
+                            class="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50 hover:border-celadon-300 hover:bg-celadon-50 text-ink-600 hover:text-celadon-700 transition-all group">
+                            <div
+                                class="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-ink-400 group-hover:text-celadon-500 shadow-sm">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12"></path>
+                                </svg>
+                            </div>
+                            <div class="text-left">
+                                <div class="text-xs font-bold">本地文件</div>
+                                <div class="text-[9px] text-ink-400">Load File</div>
+                            </div>
+                            <input type="file" id="tm-file-input" class="hidden" accept="image/*"
+                                onchange="loadTemplateFile(this)">
+                        </button>
+                    </div>
+
+                    <div class="h-px bg-porcelain-200 my-2"></div>
+
+                    <div class="space-y-2">
+                        <div class="text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-2">微调 / Adjust
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="tmRotate(-90)"
+                                class="p-2 border border-celadon-200 rounded-lg hover:bg-porcelain-100 text-xs font-bold text-ink-500">↺
+                                左旋</button>
+                            <button onclick="tmRotate(90)"
+                                class="p-2 border border-celadon-200 rounded-lg hover:bg-porcelain-100 text-xs font-bold text-ink-500">↻
+                                右旋</button>
+                        </div>
+                        <button onclick="tmReset()"
+                            class="w-full p-2 border border-celadon-200 rounded-lg hover:bg-porcelain-100 text-xs font-bold text-ink-500">重置视图</button>
+                    </div>
+
+                    <div class="mt-auto">
+                        <button onclick="saveTemplate()"
+                            class="w-full py-3 bg-celadon-600 hover:bg-celadon-700 text-white rounded-xl shadow-lg shadow-celadon-900/20 text-xs font-bold flex items-center justify-center gap-2 transition-all">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            应用到算子
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Editor Area -->
+                <div class="flex-1 bg-porcelain-100/50 p-8 flex items-center justify-center overflow-hidden relative">
+                    <!-- Placeholder / Loading -->
+                    <div id="tm-placeholder" class="text-center">
+                        <div
+                            class="w-16 h-16 bg-porcelain-200 rounded-2xl mx-auto mb-4 flex items-center justify-center text-celadon-300">
+                            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z">
+                                </path>
+                            </svg>
+                        </div>
+                        <p class="text-sm font-bold text-ink-400">请选择左侧来源导入图像</p>
+                    </div>
+
+                    <!-- Image Container -->
+                    <div id="tm-editor-container" class="hidden w-full h-full">
+                        <img id="tm-image" src="" alt="Template Source" class="max-w-full max-h-full block">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+</html>
