@@ -1,0 +1,58 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 修复1: 移除了嵌套的PropertyGroup -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>清霜视觉</AssemblyName>
+    <ApplicationIcon>icon.ico</ApplicationIcon>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <!-- 修复2: 强制指定平台目标 -->
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- 修复3: 精简平台配置 -->
+    <Platforms>x64</Platforms>
+    <StartupObject>YOLO.Program</StartupObject>
+    <!-- 修复4: 修复警告处理设置 -->
+    <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>Error</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
+    <SupportedOSPlatformVersion>8.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <!-- 修复5: 移除所有AnyCPU和x86配置 -->
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Optimize>False</Optimize>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Optimize>True</Optimize>
+  </PropertyGroup>
+
+  <!-- 修复6: 修正路径引用 -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.16.3" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3650.58" />
+    <PackageReference Include="OpenCvSharp4.Windows" Version="4.8.0.20230708" />
+    <PackageReference Include="OpenCvSharp4.Extensions" Version="4.8.0.20230708" />
+    <!-- Replaced local references with NuGet packages -->
+    <PackageReference Include="HslCommunication" Version="11.6.1" />
+    <PackageReference Include="MVSDK" Version="2.4.1.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="html\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="ONNX\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="DLL\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="config.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <!-- Removed x64 deps copy as source is missing -->
+  </ItemGroup>
+</Project>

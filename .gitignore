@@ -1,0 +1,75 @@
+# Visual Studio
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.opensdf
+*.sdf
+*.cache
+*.pdb
+
+# VS Code
+.vscode/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Logs and temporary files
+*.log
+*.tmp
+build_output.txt
+build_errors_*.txt
+msbuild.log
+
+# specific logs found
+output.txt
+
+# ONNX Models (训练好的模型文件，不应提交到Git)
+*.onnx
+ClearFrost/ONNX/
+YOLO/
+
+# Third-party Dependencies (第三方依赖库)
+x64依赖包/
+ClearFrost/DLL/
+
+# Archives / Backups / Published Files
+*.zip
+*.rar
+*.7z
+清霜V2.2/
+清霜V2.2.zip
+
+# Documentation Files (文档文件)
+*.docx
+*.doc
+*.pdf
+
+# OS generated
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# C++ files (非必要的C++源码)
+*.cc
+*.cpp
+*.h
+*.hpp
+
+# Old project directories (旧项目目录)
+W5screw*/
+ClearFrost_V1.*/
+PublishOutput/
+
+# Executable and binary files (可执行文件和二进制文件)
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Batch and PowerShell scripts (可选：如果不需要发布脚本)
+# publish.bat
+# publish.ps1
