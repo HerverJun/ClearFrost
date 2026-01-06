@@ -50,7 +50,7 @@ namespace YOLO
         public float IouThreshold { get; set; } = 0.3f;
         public bool EnableGlobalIou { get; set; } = false;
         public int ModelVersion { get; set; } = 0;
-        public int TaskType { get; set; } = 0;
+        public int TaskType { get; set; } = 1;
         public bool EnablePreprocessing { get; set; } = true;
         public bool EnableGpu { get; set; } = false;
         public int GpuIndex { get; set; } = 0;

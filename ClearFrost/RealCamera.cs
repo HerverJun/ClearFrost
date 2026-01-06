@@ -10,7 +10,7 @@ namespace YOLO
     /// </summary>
     public class RealCamera : ICamera
     {
-        private const string DLL_NAME = "MVSDK.dll";
+        private const string DLL_NAME = "MVSDKmd.dll";
 
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IMV_EnumDevices(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType);
