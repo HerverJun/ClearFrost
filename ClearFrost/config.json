@@ -15,7 +15,7 @@
     "IouThreshold": 0.3,
     "EnableGlobalIou": false,
     "ModelVersion": 0,
-    "TaskType": 0,
+    "TaskType": 1,
     "EnablePreprocessing": true,
     "EnableGpu": false,
     "GpuIndex": 0,

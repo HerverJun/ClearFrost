@@ -53,6 +53,13 @@
     <None Update="config.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <!-- Removed x64 deps copy as source is missing -->
+  </ItemGroup>
+
+  <!-- x64 相机 SDK 依赖 DLL 自动复制 -->
+  <ItemGroup>
+    <None Include="..\x64依赖包\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
   </ItemGroup>
 </Project>

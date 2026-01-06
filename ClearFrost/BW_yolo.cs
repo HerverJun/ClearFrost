@@ -134,7 +134,7 @@ namespace YoloDetection
         /// </summary>
         private readonly SemaphoreSlim _inferenceSemaphore = new SemaphoreSlim(1, 1);
 
-        private YoloTaskType _executionTaskMode = YoloTaskType.Classify;
+        private YoloTaskType _executionTaskMode = YoloTaskType.Detect;
 
         /// <summary>
         /// Yolo Model Version (5, 6, 8, etc.)
@@ -328,7 +328,7 @@ namespace YoloDetection
                     throw new Exception("Model not supported yet");
                 }
             }
-            TaskMode = YoloTaskType.Classify; // Default, will be set by logic
+            TaskMode = YoloTaskType.Detect; // Default, will be set by logic
             _yoloVersion = DetermineModelVersion(yoloVersion);
             _tensorWidth = _inputTensorInfo[3];
             _tensorHeight = _inputTensorInfo[2];
