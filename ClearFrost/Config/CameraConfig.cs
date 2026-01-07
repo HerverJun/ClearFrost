@@ -39,6 +39,12 @@ namespace YOLO
         public bool IsEnabled { get; set; } = true;
 
         /// <summary>
+        /// 相机制造商 (MindVision / Hikvision)
+        /// 默认为 MindVision 以保持向后兼容
+        /// </summary>
+        public string Manufacturer { get; set; } = "MindVision";
+
+        /// <summary>
         /// 相机型号 (可选，枚举时填充)
         /// </summary>
         [JsonIgnore]
@@ -57,6 +63,7 @@ namespace YOLO
                 ExposureTime = this.ExposureTime,
                 Gain = this.Gain,
                 IsEnabled = this.IsEnabled,
+                Manufacturer = this.Manufacturer,
                 ModelName = this.ModelName
             };
         }

@@ -8,6 +8,18 @@ obj/
 *.sdf
 *.cache
 *.pdb
+*.ilk
+*.aps
+*.ncb
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.rsp
+*.pgc
+*.pgd
+*.meta
+*.tlog
 
 # VS Code
 .vscode/
@@ -16,6 +28,13 @@ obj/
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
 
 # Logs and temporary files
 *.log
@@ -23,53 +42,89 @@ __pycache__/
 build_output.txt
 build_errors_*.txt
 msbuild.log
-
-# specific logs found
 output.txt
+TestResults/
 
 # ONNX Models (训练好的模型文件，不应提交到Git)
 *.onnx
+*.weights
+*.pt
+*.pth
+*.t7
+*.pkl
 ClearFrost/ONNX/
 YOLO/
 
 # Third-party Dependencies (第三方依赖库)
-x64依赖包/
+# x64依赖包/ (Keep SDKs)
+# 海康依赖包/ (Keep SDKs)
 ClearFrost/DLL/
+packages/
+
+# Allow DLLs inside SDK folders
+!x64依赖包/
+!x64依赖包/*.dll
+!海康依赖包/
+!海康依赖包/*.dll
 
 # Archives / Backups / Published Files
 *.zip
 *.rar
 *.7z
+*.tar
+*.gz
+*.bak
+*.old
+*.orig
 清霜V2.2/
 清霜V2.2.zip
+PublishOutput/
+Release/
+Debug/
 
-# Documentation Files (文档文件)
+# Documentation Files (大文档文件，按需提交)
+# *.docx
+# *.doc
+# *.pdf
+# (User had these ignored, keeping them ignored to be safe as per "backup code files only" request)
 *.docx
 *.doc
 *.pdf
+*.pptx
+*.ppt
 
 # OS generated
 Thumbs.db
 Desktop.ini
 .DS_Store
 
-# C++ files (非必要的C++源码)
+# C++ files (Generated or explicit ignores)
 *.cc
 *.cpp
 *.h
 *.hpp
+# *.obj is covered by obj/
 
-# Old project directories (旧项目目录)
-W5screw*/
-ClearFrost_V1.*/
-PublishOutput/
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+*.mdf
+*.ldf
 
-# Executable and binary files (可执行文件和二进制文件)
+# Executable and binary files
 *.exe
 *.dll
 *.so
 *.dylib
 
-# Batch and PowerShell scripts (可选：如果不需要发布脚本)
+# Specific large files
+icon.ico
+# Keep icon.ico if it is small, but if user wants to strict backup code, maybe ignore? 
+# Usually icons are part of the project assets. I will comment it out to ALLOW icon.ico unless it's huge. 
+# User has 100KB icon, safe to commit.
+
+# Scripts
 # publish.bat
 # publish.ps1

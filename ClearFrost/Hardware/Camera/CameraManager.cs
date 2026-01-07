@@ -151,7 +151,8 @@ namespace YOLO
         }
 
         /// <summary>
-        /// 枚举系统中连接的相机 (简化版：返回序列号列表)
+        /// 枚举系统中连接的相机 (简化版：返回序列号列表，仅迈德威视)
+        /// 保留此方法以保持向后兼容
         /// </summary>
         public List<string> DiscoverCameras()
         {
@@ -193,6 +194,38 @@ namespace YOLO
         }
 
         /// <summary>
+        /// 枚举所有支持品牌的相机 (新版：返回完整设备信息)
+        /// </summary>
+        public List<CameraDeviceInfo> DiscoverAllCameras()
+        {
+            if (_isDebugMode)
+            {
+                return new List<CameraDeviceInfo>
+                {
+                    new CameraDeviceInfo
+                    {
+                        SerialNumber = "MOCK_CAM_001",
+                        Manufacturer = "Mock",
+                        Model = "Virtual Camera",
+                        UserDefinedName = "Mock Camera 1",
+                        InterfaceType = "Virtual"
+                    },
+                    new CameraDeviceInfo
+                    {
+                        SerialNumber = "MOCK_CAM_002",
+                        Manufacturer = "Mock",
+                        Model = "Virtual Camera",
+                        UserDefinedName = "Mock Camera 2",
+                        InterfaceType = "Virtual"
+                    }
+                };
+            }
+
+            // 使用工厂类发现所有品牌的相机
+            return CameraProviderFactory.DiscoverAll();
+        }
+
+        /// <summary>
         /// 添加相机
         /// </summary>
         public bool AddCamera(CameraConfig config)
@@ -215,39 +248,57 @@ namespace YOLO
                 {
                     try
                     {
-                        camera = new RealCamera();
-
-                        // 查找相机索引
-                        var deviceList = new IMVDefine.IMV_DeviceList();
-                        RealCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
-
-                        int deviceIndex = -1;
-                        int structSize = Marshal.SizeOf<IMVDefine.IMV_DeviceInfo>();
-
-                        for (int i = 0; i < deviceList.nDevNum; i++)
+                        // 根据制造商选择不同的相机实现
+                        if (config.Manufacturer == "Hikvision")
                         {
-                            IntPtr ptr = deviceList.pDevInfo + i * structSize;
-                            var devInfo = Marshal.PtrToStructure<IMVDefine.IMV_DeviceInfo>(ptr);
-                            if (devInfo.serialNumber == config.SerialNumber)
+                            // 海康威视相机：使用新的 ICameraProvider + 适配器
+                            var hikCamera = new HikvisionCamera();
+                            if (!hikCamera.Open(config.SerialNumber))
                             {
-                                deviceIndex = i;
-                                break;
+                                Debug.WriteLine($"[CameraManager] Failed to open Hikvision camera: {config.SerialNumber}");
+                                hikCamera.Dispose();
+                                return false;
                             }
+                            camera = new CameraProviderAdapter(hikCamera);
+                            Debug.WriteLine($"[CameraManager] Hikvision camera connected: {config.SerialNumber}");
                         }
-
-                        if (deviceIndex < 0)
+                        else
                         {
-                            Debug.WriteLine($"[CameraManager] Camera {config.SerialNumber} not found");
-                            camera.Dispose();
-                            return false;
-                        }
+                            // 迈德威视相机 (默认)：使用原有的 RealCamera 实现
+                            camera = new RealCamera();
 
-                        int result = camera.IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode.modeByIndex, deviceIndex);
-                        if (result != IMVDefine.IMV_OK)
-                        {
-                            Debug.WriteLine($"[CameraManager] Failed to create handle for {config.SerialNumber}");
-                            camera.Dispose();
-                            return false;
+                            // 查找相机索引
+                            var deviceList = new IMVDefine.IMV_DeviceList();
+                            RealCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
+
+                            int deviceIndex = -1;
+                            int structSize = Marshal.SizeOf<IMVDefine.IMV_DeviceInfo>();
+
+                            for (int i = 0; i < deviceList.nDevNum; i++)
+                            {
+                                IntPtr ptr = deviceList.pDevInfo + i * structSize;
+                                var devInfo = Marshal.PtrToStructure<IMVDefine.IMV_DeviceInfo>(ptr);
+                                if (devInfo.serialNumber == config.SerialNumber)
+                                {
+                                    deviceIndex = i;
+                                    break;
+                                }
+                            }
+
+                            if (deviceIndex < 0)
+                            {
+                                Debug.WriteLine($"[CameraManager] MindVision camera {config.SerialNumber} not found");
+                                camera.Dispose();
+                                return false;
+                            }
+
+                            int result = camera.IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode.modeByIndex, deviceIndex);
+                            if (result != IMVDefine.IMV_OK)
+                            {
+                                Debug.WriteLine($"[CameraManager] Failed to create handle for {config.SerialNumber}");
+                                camera.Dispose();
+                                return false;
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -268,7 +319,7 @@ namespace YOLO
                 }
 
                 CameraListChanged?.Invoke(this, EventArgs.Empty);
-                Debug.WriteLine($"[CameraManager] Added camera: {config.DisplayName} ({config.Id})");
+                Debug.WriteLine($"[CameraManager] Added camera: {config.DisplayName} ({config.Id}) - {config.Manufacturer}");
                 return true;
             }
         }

@@ -59,6 +59,13 @@
   <ItemGroup>
     <None Include="..\x64依赖包\**\*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- 海康威视 SDK 依赖 DLL 自动复制 -->
+  <ItemGroup>
+    <None Include="..\海康依赖包\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
     </None>
   </ItemGroup>
