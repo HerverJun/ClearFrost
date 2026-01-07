@@ -25,19 +25,25 @@ namespace YOLO
     {
         #region 4. 相机控制逻辑
 
-        /// <summary>
-        /// 查找并返回目标相机的索引，找不到返回-1
-        /// </summary>
         private int FindTargetCamera()
         {
             try
             {
+                var config = _appConfig.ActiveCamera;
+                if (config == null || string.IsNullOrEmpty(config.SerialNumber))
+                {
+                    SafeFireAndForget(_uiController.LogToFrontend("✗ 未配置活动相机序列号", "error"), "查找相机");
+                    return -1;
+                }
+
+                string targetSn = config.SerialNumber;
+
                 IMVDefine.IMV_DeviceList deviceList = new IMVDefine.IMV_DeviceList();
                 int res = cam.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
 
                 if (res != IMVDefine.IMV_OK || deviceList.nDevNum == 0)
                 {
-                    _uiController.LogToFrontend("✗ 未找到任何相机设备", "error");
+                    SafeFireAndForget(_uiController.LogToFrontend("✗ 未找到任何相机设备", "error"), "查找相机");
                     return -1;
                 }
 
@@ -48,25 +54,25 @@ namespace YOLO
                     if (infoObj == null) continue;
                     var info = (IMVDefine.IMV_DeviceInfo)infoObj;
 
-                    if (info.serialNumber.Equals(_appConfig.CameraSerialNumber, StringComparison.OrdinalIgnoreCase))
+                    if (info.serialNumber.Equals(targetSn, StringComparison.OrdinalIgnoreCase))
                     {
                         return i;
                     }
                 }
 
                 // 未找到匹配的序列号
-                _uiController.LogToFrontend($"✗ 未找到序列号为 {_appConfig.CameraSerialNumber} 的相机", "error");
-                _uiController.LogToFrontend($"请检查相机连接或在设置中修改序列号", "warning");
+                SafeFireAndForget(_uiController.LogToFrontend($"✗ 未找到序列号为 {targetSn} 的相机", "error"), "查找相机");
+                SafeFireAndForget(_uiController.LogToFrontend($"请检查相机连接或在设置中修改序列号", "warning"), "查找相机提示");
                 return -1;
             }
             catch (DllNotFoundException dllEx)
             {
-                _uiController.LogToFrontend($"相机驱动缺失: {dllEx.Message}", "error");
+                SafeFireAndForget(_uiController.LogToFrontend($"相机驱动缺失: {dllEx.Message}", "error"), "驱动检查");
                 return -1;
             }
             catch (Exception ex)
             {
-                _uiController.LogToFrontend($"查找相机异常: {ex.Message}", "error");
+                SafeFireAndForget(_uiController.LogToFrontend($"查找相机异常: {ex.Message}", "error"), "查找相机异常");
                 return -1;
             }
         }
@@ -114,15 +120,20 @@ namespace YOLO
             catch (Exception ex)
             {
                 ReleaseCameraResources();
-                _uiController.LogToFrontend($"相机开启异常: {ex.Message}", "error");
+                SafeFireAndForget(_uiController.LogToFrontend($"相机开启异常: {ex.Message}", "error"), "开启相机异常");
             }
         }
 
         private void getParam()
         {
             cam.IMV_SetEnumFeatureSymbol("PixelFormat", "Mono8");
-            cam.IMV_SetDoubleFeatureValue("ExposureTime", _appConfig.ExposureTime);
-            cam.IMV_SetDoubleFeatureValue("GainRaw", _appConfig.GainRaw);
+
+            var config = _appConfig.ActiveCamera;
+            if (config != null)
+            {
+                cam.IMV_SetDoubleFeatureValue("ExposureTime", config.ExposureTime);
+                cam.IMV_SetDoubleFeatureValue("GainRaw", config.Gain);
+            }
         }
 
         private void DisplayThread()
