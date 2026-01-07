@@ -933,7 +933,7 @@ namespace YOLO
                 {
                     await _uiController.LogToFrontend("✓ WebUI已就绪");
                     await _uiController.LogToFrontend("系统初始化完成");
-                    await _uiController.UpdateCameraName(_appConfig.CameraName);
+                    await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
 
                     // 初始化前端设置 (Sidebar Controls)
                     await _uiController.InitSettings(_appConfig);
@@ -1089,10 +1089,29 @@ namespace YOLO
                         if (root.TryGetProperty("PlcPort", out var pp)) _appConfig.PlcPort = pp.TryGetInt32(out int ppVal) ? ppVal : _appConfig.PlcPort;
                         if (root.TryGetProperty("PlcTriggerAddress", out var pt)) _appConfig.PlcTriggerAddress = pt.TryGetInt16(out short ptVal) ? ptVal : _appConfig.PlcTriggerAddress;
                         if (root.TryGetProperty("PlcResultAddress", out var pr)) _appConfig.PlcResultAddress = pr.TryGetInt16(out short prVal) ? prVal : _appConfig.PlcResultAddress;
-                        if (root.TryGetProperty("CameraName", out var cn)) _appConfig.CameraName = cn.GetString() ?? _appConfig.CameraName;
-                        if (root.TryGetProperty("CameraSerialNumber", out var cs)) _appConfig.CameraSerialNumber = cs.GetString() ?? _appConfig.CameraSerialNumber;
-                        if (root.TryGetProperty("ExposureTime", out var et)) _appConfig.ExposureTime = et.TryGetDouble(out double etVal) ? etVal : _appConfig.ExposureTime;
-                        if (root.TryGetProperty("GainRaw", out var gr)) _appConfig.GainRaw = gr.TryGetDouble(out double grVal) ? grVal : _appConfig.GainRaw;
+#pragma warning disable CS0618
+                        var activeCam = _appConfig.ActiveCamera;
+                        if (root.TryGetProperty("CameraName", out var cn))
+                        {
+                            _appConfig.CameraName = cn.GetString() ?? _appConfig.CameraName;
+                            if (activeCam != null) activeCam.DisplayName = _appConfig.CameraName;
+                        }
+                        if (root.TryGetProperty("CameraSerialNumber", out var cs))
+                        {
+                            _appConfig.CameraSerialNumber = cs.GetString() ?? _appConfig.CameraSerialNumber;
+                            if (activeCam != null) activeCam.SerialNumber = _appConfig.CameraSerialNumber;
+                        }
+                        if (root.TryGetProperty("ExposureTime", out var et))
+                        {
+                            _appConfig.ExposureTime = et.TryGetDouble(out double etVal) ? etVal : _appConfig.ExposureTime;
+                            if (activeCam != null) activeCam.ExposureTime = _appConfig.ExposureTime;
+                        }
+                        if (root.TryGetProperty("GainRaw", out var gr))
+                        {
+                            _appConfig.GainRaw = gr.TryGetDouble(out double grVal) ? grVal : _appConfig.GainRaw;
+                            if (activeCam != null) activeCam.Gain = _appConfig.GainRaw;
+                        }
+#pragma warning restore CS0618
                         if (root.TryGetProperty("TargetLabel", out var tl)) _appConfig.TargetLabel = tl.GetString() ?? _appConfig.TargetLabel;
                         if (root.TryGetProperty("TargetCount", out var tc)) _appConfig.TargetCount = tc.TryGetInt32(out int tcVal) ? tcVal : _appConfig.TargetCount;
                         if (root.TryGetProperty("MaxRetryCount", out var mrc)) _appConfig.MaxRetryCount = mrc.TryGetInt32(out int mrcVal) ? mrcVal : _appConfig.MaxRetryCount;
@@ -1115,7 +1134,7 @@ namespace YOLO
                         _ = ConnectPlcViaServiceAsync();
 
                         await _uiController.ExecuteScriptAsync("closeSettingsModal();");
-                        await _uiController.UpdateCameraName(_appConfig.CameraName);
+                        await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
                         await _uiController.LogToFrontend("✓ 系统设置已更新", "success");
                     }
                 }
