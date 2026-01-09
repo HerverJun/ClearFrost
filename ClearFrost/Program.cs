@@ -13,15 +13,40 @@ namespace YOLO
         [STAThread]
         static void Main()
         {
-            // 设置全局异常处理，阻止闪退
-            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-            Application.ThreadException += Application_ThreadException;
-            AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+            // 启动调试日志
+            string logPath = @"C:\Users\11234\Desktop\debug_startup.log";
+            try
+            {
+                // 确保工作目录正确（修复从 IDE 启动时工作目录不对的问题）
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                Environment.CurrentDirectory = baseDir;
 
-            // To customize application configuration such as set high DPI settings or default font,
-            // see https://aka.ms/applicationconfiguration.
-            ApplicationConfiguration.Initialize();
-            Application.Run(new 主窗口());
+                File.WriteAllText(logPath, $"[{DateTime.Now}] Starting...\n");
+                File.AppendAllText(logPath, $"Working Directory: {Environment.CurrentDirectory}\n");
+                File.AppendAllText(logPath, $"Base Directory: {baseDir}\n");
+
+                // 设置全局异常处理，阻止闪退
+                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+                Application.ThreadException += Application_ThreadException;
+                AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+
+                File.AppendAllText(logPath, "Exception handlers registered\n");
+
+                // To customize application configuration such as set high DPI settings or default font,
+                // see https://aka.ms/applicationconfiguration.
+                ApplicationConfiguration.Initialize();
+                File.AppendAllText(logPath, "ApplicationConfiguration initialized\n");
+
+                Application.Run(new 主窗口());
+                File.AppendAllText(logPath, "Application exited normally\n");
+            }
+            catch (Exception ex)
+            {
+                File.AppendAllText(logPath, $"CRASH: {ex.Message}\n{ex.StackTrace}\n");
+                if (ex.InnerException != null)
+                    File.AppendAllText(logPath, $"Inner: {ex.InnerException.Message}\n{ex.InnerException.StackTrace}\n");
+                throw;
+            }
         }
 
         /// <summary>
