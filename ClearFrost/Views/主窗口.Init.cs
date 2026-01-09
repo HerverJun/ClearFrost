@@ -40,6 +40,8 @@ namespace YOLO
             };
             _plcService.TriggerReceived += () =>
             {
+                // 闪烁触发指示灯
+                SafeFireAndForget(_uiController.FlashPlcTrigger(), "PLC触发指示灯");
                 // 触发检测
                 InvokeOnUIThread(() => HandlePlcTrigger());
             };

@@ -277,6 +277,16 @@ namespace YOLO
         }
 
         /// <summary>
+        /// Flashes the PLC trigger indicator on the frontend.
+        /// Called when a trigger signal is received from PLC.
+        /// </summary>
+        public async Task FlashPlcTrigger()
+        {
+            if (_webView?.CoreWebView2 == null) return;
+            await _webView.ExecuteScriptAsync("flashPlcTrigger()");
+        }
+
+        /// <summary>
         /// Sends current config to frontend to open settings modal
         /// </summary>
         public async Task SendCurrentConfig(AppConfig config)
