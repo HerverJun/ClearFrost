@@ -336,6 +336,31 @@
             }
         }
 
+        /* PLC触发信号闪烁动画 - 橙色闪烁 */
+        @keyframes pulse-trigger {
+            0% {
+                background-color: #f59e0b;
+                box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.9);
+                transform: scale(1);
+            }
+
+            50% {
+                background-color: #fbbf24;
+                box-shadow: 0 0 15px 4px rgba(245, 158, 11, 0.5);
+                transform: scale(1.3);
+            }
+
+            100% {
+                background-color: #cbd5e1;
+                box-shadow: none;
+                transform: scale(1);
+            }
+        }
+
+        .status-trigger-flash {
+            animation: pulse-trigger 0.6s ease-out forwards;
+        }
+
         /* 扫描线动画 - 增强科技感 */
         @keyframes scanline-light {
             0% {
@@ -473,6 +498,12 @@
             <div class="px-4 py-1.5 rounded-full bg-white/50 border border-white flex items-center gap-2 shadow-sm">
                 <span id="header-status-plc" class="w-2 h-2 rounded-full bg-slate-300 transition-colors"></span>
                 <span class="text-xs font-bold text-ink-600">PLC</span>
+            </div>
+            <div class="w-px h-4 bg-ink-400/20"></div>
+            <div class="px-4 py-1.5 rounded-full bg-white/50 border border-white flex items-center gap-2 shadow-sm"
+                title="PLC触发信号监控">
+                <span id="header-status-trigger" class="w-2 h-2 rounded-full bg-slate-300 transition-all"></span>
+                <span class="text-xs font-bold text-ink-600">触发</span>
             </div>
         </div>
 
@@ -2923,11 +2954,28 @@
             }
         }
 
+        /**
+         * PLC触发信号闪烁 - 被C#后端 FlashPlcTrigger() 调用
+         * 当接收到PLC触发信号时，指示灯闪烁一次
+         */
+        function flashPlcTrigger() {
+            const el = document.getElementById('header-status-trigger');
+            if (el) {
+                // 移除之前的动画类以便重新触发
+                el.classList.remove('status-trigger-flash');
+                // 强制重排以重置动画
+                void el.offsetWidth;
+                // 添加动画类
+                el.classList.add('status-trigger-flash');
+            }
+        }
+
         // 暴露到全局以便后端调用
         window.initModelList = initModelList;
         window.updateCameraName = updateCameraName;
         window.openPasswordModal = openPasswordModal;
         window.updateStoragePath = updateStoragePath;
+        window.flashPlcTrigger = flashPlcTrigger;
 
         // ======== 历史统计功能 ========
         function openStatisticsHistoryModal() {
