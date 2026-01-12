@@ -13,8 +13,8 @@ namespace YOLO
         [STAThread]
         static void Main()
         {
-            // 启动调试日志
-            string logPath = @"C:\Users\11234\Desktop\debug_startup.log";
+            // 启动调试日志 - 使用程序目录，确保任何机器都能写入
+            string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "startup.log");
             try
             {
                 // 确保工作目录正确（修复从 IDE 启动时工作目录不对的问题）
