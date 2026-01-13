@@ -314,6 +314,32 @@ namespace YOLO
             // 更新 WebUI (StatisticsUpdated 事件会自动更新 UI)
             _statisticsService.RecordDetection(isQualified);
 
+            // 保存检测记录到数据库
+            try
+            {
+                var record = new DetectionRecord
+                {
+                    Timestamp = DateTime.Now,
+                    IsQualified = isQualified,
+                    TargetLabel = _appConfig.TargetLabel,
+                    ExpectedCount = _appConfig.TargetCount,
+                    ActualCount = results?.Count ?? 0,
+                    InferenceMs = (int)_detectionService.LastInferenceMs,
+                    ModelName = _detectionService.CurrentModelName,
+                    CameraId = _appConfig.ActiveCamera?.Id ?? "",
+                    ResultJson = results != null ? JsonSerializer.Serialize(results.Select(r => new
+                    {
+                        Label = r.BasicData[5],
+                        Confidence = r.BasicData[4]
+                    })) : ""
+                };
+                await _databaseService.SaveDetectionRecordAsync(record);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[UpdateUIAndPLC] Database save error: {ex.Message}");
+            }
+
             // 可以在html添加 showResultOverlay(bool) 接口，这里先不传
             // 若 WebUIController 支持，可调用 _uiController.ShowResult(isQualified);
 

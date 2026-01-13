@@ -36,7 +36,7 @@ namespace YOLO
                     return -1;
                 }
 
-                string targetSn = config.SerialNumber;
+                string targetSn = config.SerialNumber?.Trim() ?? "";
 
                 IMVDefine.IMV_DeviceList deviceList = new IMVDefine.IMV_DeviceList();
                 int res = cam.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
@@ -47,6 +47,8 @@ namespace YOLO
                     return -1;
                 }
 
+                Debug.WriteLine($"[FindTargetCamera] Looking for '{targetSn}' in {deviceList.nDevNum} devices");
+
                 for (int i = 0; i < deviceList.nDevNum; i++)
                 {
                     var infoPtr = deviceList.pDevInfo + Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo)) * i;
@@ -54,7 +56,10 @@ namespace YOLO
                     if (infoObj == null) continue;
                     var info = (IMVDefine.IMV_DeviceInfo)infoObj;
 
-                    if (info.serialNumber.Equals(targetSn, StringComparison.OrdinalIgnoreCase))
+                    string foundSn = info.serialNumber?.Trim() ?? "";
+                    Debug.WriteLine($"[FindTargetCamera] Device[{i}] SerialNumber: '{foundSn}'");
+
+                    if (foundSn.Equals(targetSn, StringComparison.OrdinalIgnoreCase))
                     {
                         return i;
                     }

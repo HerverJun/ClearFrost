@@ -65,6 +65,10 @@ namespace YOLO
             // Statistics 服务
             _statisticsService = new StatisticsService(_storageService.SystemPath.Replace("\\System", ""));
 
+            // Database 服务 (SQLite)
+            _databaseService = new SqliteDatabaseService();
+            SafeFireAndForget(_databaseService.InitializeAsync(), "数据库初始化");
+
             // 注册所有事件监听 (实现位于 主窗口.Init.cs)
             RegisterEvents();
         }
