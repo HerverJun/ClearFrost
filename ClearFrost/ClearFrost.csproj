@@ -31,6 +31,7 @@
 
   <!-- 修复6: 修正路径引用 -->
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.1" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.16.3" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3650.58" />
     <PackageReference Include="OpenCvSharp4.Windows" Version="4.8.0.20230708" />

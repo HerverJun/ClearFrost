@@ -271,14 +271,24 @@ namespace YOLO
                             var deviceList = new IMVDefine.IMV_DeviceList();
                             RealCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
 
+                            Debug.WriteLine($"[CameraManager] Enumerated {deviceList.nDevNum} MindVision devices");
+
                             int deviceIndex = -1;
                             int structSize = Marshal.SizeOf<IMVDefine.IMV_DeviceInfo>();
+
+                            // 用户输入的序列号，清理空格
+                            string targetSerial = config.SerialNumber?.Trim() ?? "";
 
                             for (int i = 0; i < deviceList.nDevNum; i++)
                             {
                                 IntPtr ptr = deviceList.pDevInfo + i * structSize;
                                 var devInfo = Marshal.PtrToStructure<IMVDefine.IMV_DeviceInfo>(ptr);
-                                if (devInfo.serialNumber == config.SerialNumber)
+                                string foundSerial = devInfo.serialNumber?.Trim() ?? "";
+
+                                Debug.WriteLine($"[CameraManager] Device[{i}] SerialNumber: '{foundSerial}'");
+
+                                // 忽略大小写比较
+                                if (string.Equals(foundSerial, targetSerial, StringComparison.OrdinalIgnoreCase))
                                 {
                                     deviceIndex = i;
                                     break;
@@ -287,7 +297,7 @@ namespace YOLO
 
                             if (deviceIndex < 0)
                             {
-                                Debug.WriteLine($"[CameraManager] MindVision camera {config.SerialNumber} not found");
+                                Debug.WriteLine($"[CameraManager] MindVision camera '{targetSerial}' not found in {deviceList.nDevNum} devices");
                                 camera.Dispose();
                                 return false;
                             }

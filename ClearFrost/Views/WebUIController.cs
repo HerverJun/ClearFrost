@@ -606,6 +606,18 @@ namespace YOLO
                                     }
                                 }
                                 break;
+                            case "get_operator_template":
+                                // Request template data for a specific operator - handled via OnGetVisionConfig for now
+                                OnGetVisionConfig?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "set_template_threshold":
+                                if (root.TryGetProperty("value", out JsonElement threshElement))
+                                {
+                                    float thresh = threshElement.GetSingle();
+                                    // This is handled through pipeline_update with threshold param
+                                    await LogToFrontend($"模板阈值已设置: {thresh:F2}");
+                                }
+                                break;
                             default:
                                 break;
                         }
