@@ -22,12 +22,12 @@ using ClearFrost.Services;
 
 namespace ClearFrost
 {
-    public partial class Ö÷´°¿Ú
+    public partial class ä¸»çª—å£
     {
-        #region 3. PLC¿ØÖÆÂß¼­ (PLC Control) - Î¯ÍĞ¸ø PlcService
+        #region 3. PLCæ§åˆ¶é€»è¾‘ (PLC Control) - å§”æ‰˜ç»™ PlcService
 
         /// <summary>
-        /// Í¨¹ı·şÎñ²ãÁ¬½Ó PLC
+        /// é€šè¿‡æœåŠ¡å±‚è¿æ¥ PLC
         /// </summary>
         private async Task ConnectPlcViaServiceAsync()
         {
@@ -35,77 +35,91 @@ namespace ClearFrost
             string ip = _appConfig.PlcIp;
             int port = _appConfig.PlcPort;
 
-            await _uiController.LogToFrontend($"ÕıÔÚÁ¬½Ó PLC: {protocol} @ {ip}:{port}", "info");
+            await _uiController.LogToFrontend($"æ­£åœ¨è¿æ¥ PLC: {protocol} @ {ip}:{port}", "info");
 
             bool success = await _plcService.ConnectAsync(protocol, ip, port);
 
             if (success)
             {
-                // Æô¶¯´¥·¢¼à¿Ø
+                // å¯åŠ¨è§¦å‘ç›‘æ§
                 _plcService.StartMonitoring(_appConfig.PlcTriggerAddress, 500);
             }
         }
 
         /// <summary>
-        /// PLC ´¥·¢ĞÅºÅ´¦Àí
+        /// PLC è§¦å‘ä¿¡å·å¤„ç†
         /// </summary>
-        private async void HandlePlcTrigger()
+        private async Task HandlePlcTriggerAsync()
         {
-            int maxRetries = _appConfig.MaxRetryCount;
-            int retryInterval = _appConfig.RetryIntervalMs;
-            DetectionResult? lastResult = null;
-
-            for (int attempt = 0; attempt <= maxRetries; attempt++)
+            // ä½¿ç”¨ä¿¡å·é‡é˜²æ­¢å¹¶å‘æ£€æµ‹
+            if (!await _detectionSemaphore.WaitAsync(0))
             {
-                if (attempt > 0)
-                {
-                    await _uiController.LogToFrontend($"´¥·¢ÖØÅÄ ({attempt}/{maxRetries})", "warning");
-                    await Task.Delay(retryInterval);
-                }
-
-                lastResult = await RunDetectionOnceAsync();
-
-                if (lastResult != null && lastResult.IsQualified)
-                {
-                    break;
-                }
-                else if (lastResult != null && !lastResult.IsQualified && attempt < maxRetries)
-                {
-                    // ÏÔÊ¾ÖĞ¼ä½á¹û
-                    DisplayImageOnly(lastResult.OriginalBitmap, lastResult.Results, lastResult.UsedModelLabels);
-                    lastResult.OriginalBitmap?.Dispose();
-                }
+                await _uiController.LogToFrontend("æ£€æµ‹è¿›è¡Œä¸­ï¼Œè·³è¿‡æœ¬æ¬¡è§¦å‘", "warning");
+                return;
             }
 
-            if (lastResult != null)
+            try
             {
-                ProcessFinalResult(lastResult);
+                int maxRetries = _appConfig.MaxRetryCount;
+                int retryInterval = _appConfig.RetryIntervalMs;
+                DetectionResult? lastResult = null;
+
+                for (int attempt = 0; attempt <= maxRetries; attempt++)
+                {
+                    if (attempt > 0)
+                    {
+                        await _uiController.LogToFrontend($"è§¦å‘é‡æ‹ ({attempt}/{maxRetries})", "warning");
+                        await Task.Delay(retryInterval);
+                    }
+
+                    lastResult = await RunDetectionOnceAsync();
+
+                    if (lastResult != null && lastResult.IsQualified)
+                    {
+                        break;
+                    }
+                    else if (lastResult != null && !lastResult.IsQualified && attempt < maxRetries)
+                    {
+                        // æ˜¾ç¤ºä¸­é—´ç»“æœ
+                        DisplayImageOnly(lastResult.OriginalBitmap, lastResult.Results, lastResult.UsedModelLabels);
+                        lastResult.OriginalBitmap?.Dispose();
+                    }
+                }
+
+                if (lastResult != null)
+                {
+                    ProcessFinalResult(lastResult);
+                }
+            }
+            finally
+            {
+                _detectionSemaphore.Release();
             }
         }
 
         /// <summary>
-        /// Ğ´Èë¼ì²â½á¹ûµ½ PLC
+        /// å†™å…¥æ£€æµ‹ç»“æœåˆ° PLC
         /// </summary>
         public async Task WriteDetectionResult(bool isQualified)
         {
             if (!plcConnected) return;
             await _plcService.WriteResultAsync(_appConfig.PlcResultAddress, isQualified);
-            await _uiController.LogToFrontend($"PLCĞ´Èë½á¹û: {(isQualified ? "ºÏ¸ñ" : "²»ºÏ¸ñ")}", "info");
+            await _uiController.LogToFrontend($"PLCå†™å…¥ç»“æœ: {(isQualified ? "åˆæ ¼" : "ä¸åˆæ ¼")}", "info");
         }
 
         /// <summary>
-        /// ÊÖ¶¯·ÅĞĞ
+        /// æ‰‹åŠ¨æ”¾è¡Œ
         /// </summary>
-        private async void fx_btn_Logic()
+        private async Task fx_btn_LogicAsync()
         {
             try
             {
                 await _plcService.WriteReleaseSignalAsync(_appConfig.PlcResultAddress);
-                await _uiController.LogToFrontend("ÊÖ¶¯·ÅĞĞĞÅºÅÒÑ·¢ËÍ", "success");
+                await _uiController.LogToFrontend("æ‰‹åŠ¨æ”¾è¡Œä¿¡å·å·²å‘é€", "success");
             }
             catch (Exception ex)
             {
-                await _uiController.LogToFrontend($"·ÅĞĞÊ§°Ü: {ex.Message}", "error");
+                await _uiController.LogToFrontend($"æ”¾è¡Œå¤±è´¥: {ex.Message}", "error");
             }
         }
 

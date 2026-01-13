@@ -74,7 +74,7 @@ namespace ClearFrost
             }
         }
 
-        private async void TestYolo_Handler(object? sender, EventArgs e)
+        private async Task TestYolo_HandlerAsync()
         {
             try
             {
@@ -170,7 +170,7 @@ namespace ClearFrost
         }
 
         // ∂‘”¶‘≠ btnCapture_Click_1
-        private async void btnCapture_Logic()
+        private async Task btnCapture_LogicAsync()
         {
             try
             {
