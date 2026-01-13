@@ -13,11 +13,11 @@ namespace ClearFrost
         [STAThread]
         static void Main()
         {
-            // Æô¶¯µ÷ÊÔÈÕÖ¾ - Ê¹ÓÃ³ÌĞòÄ¿Â¼£¬È·±£ÈÎºÎ»úÆ÷¶¼ÄÜĞ´Èë
+            // å¯åŠ¨è°ƒè¯•æ—¥å¿— - ä½¿ç”¨ç¨‹åºç›®å½•ï¼Œç¡®ä¿ä»»ä½•æœºå™¨éƒ½èƒ½å†™å…¥
             string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "startup.log");
             try
             {
-                // È·±£¹¤×÷Ä¿Â¼ÕıÈ·£¨ĞŞ¸´´Ó IDE Æô¶¯Ê±¹¤×÷Ä¿Â¼²»¶ÔµÄÎÊÌâ£©
+                // ç¡®ä¿å·¥ä½œç›®å½•æ­£ç¡®ï¼ˆä¿®å¤ä» IDE å¯åŠ¨æ—¶å·¥ä½œç›®å½•ä¸å¯¹çš„é—®é¢˜ï¼‰
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory;
                 Environment.CurrentDirectory = baseDir;
 
@@ -25,7 +25,7 @@ namespace ClearFrost
                 File.AppendAllText(logPath, $"Working Directory: {Environment.CurrentDirectory}\n");
                 File.AppendAllText(logPath, $"Base Directory: {baseDir}\n");
 
-                // ÉèÖÃÈ«¾ÖÒì³£´¦Àí£¬×èÖ¹ÉÁÍË
+                // è®¾ç½®å…¨å±€å¼‚å¸¸å¤„ç†ï¼Œé˜»æ­¢é—ªé€€
                 Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
                 Application.ThreadException += Application_ThreadException;
                 AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
@@ -37,7 +37,7 @@ namespace ClearFrost
                 ApplicationConfiguration.Initialize();
                 File.AppendAllText(logPath, "ApplicationConfiguration initialized\n");
 
-                Application.Run(new Ö÷´°¿Ú());
+                Application.Run(new ä¸»çª—å£());
                 File.AppendAllText(logPath, "Application exited normally\n");
             }
             catch (Exception ex)
@@ -50,30 +50,30 @@ namespace ClearFrost
         }
 
         /// <summary>
-        /// ´¦Àí UI Ïß³ÌÒì³£
+        /// å¤„ç† UI çº¿ç¨‹å¼‚å¸¸
         /// </summary>
         private static void Application_ThreadException(object sender, System.Threading.ThreadExceptionEventArgs e)
         {
             LogException("UI Thread Exception", e.Exception);
-            MessageBox.Show($"·¢Éú´íÎó£¬³ÌĞòÒÑ¼ÇÂ¼ÈÕÖ¾:\n{e.Exception.Message}", "´íÎó",
+            MessageBox.Show($"å‘ç”Ÿé”™è¯¯ï¼Œç¨‹åºå·²è®°å½•æ—¥å¿—:\n{e.Exception.Message}", "é”™è¯¯",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
         /// <summary>
-        /// ´¦Àí·Ç UI Ïß³ÌÒì³£
+        /// å¤„ç†é UI çº¿ç¨‹å¼‚å¸¸
         /// </summary>
         private static void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
         {
             if (e.ExceptionObject is Exception ex)
             {
                 LogException("Unhandled Exception", ex);
-                MessageBox.Show($"·¢ÉúÑÏÖØ´íÎó£¬³ÌĞò¼´½«ÍË³ö:\n{ex.Message}", "ÑÏÖØ´íÎó",
+                MessageBox.Show($"å‘ç”Ÿä¸¥é‡é”™è¯¯ï¼Œç¨‹åºå³å°†é€€å‡º:\n{ex.Message}", "ä¸¥é‡é”™è¯¯",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
         /// <summary>
-        /// ¼ÇÂ¼Òì³£µ½ÈÕÖ¾ÎÄ¼ş
+        /// è®°å½•å¼‚å¸¸åˆ°æ—¥å¿—æ–‡ä»¶
         /// </summary>
         private static void LogException(string type, Exception ex)
         {
@@ -96,7 +96,7 @@ namespace ClearFrost
 
                 File.AppendAllText(logFile, sb.ToString(), Encoding.UTF8);
             }
-            catch { /* ÈÕÖ¾Ğ´ÈëÊ§°ÜÊ±¾²Ä¬´¦Àí */ }
+            catch (Exception logEx) { System.Diagnostics.Debug.WriteLine($"[Program] æ—¥å¿—å†™å…¥å¤±è´¥: {logEx.Message}"); }
         }
     }
 }
