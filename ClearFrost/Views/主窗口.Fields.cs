@@ -23,22 +23,22 @@ using ClearFrost.Services;
 
 namespace ClearFrost
 {
-    public partial class Ö÷´°¿Ú : Form
+    public partial class ä¸»çª—å£ : Form
     {
-        #region 1. È«¾Ö±äÁ¿ÓëÅäÖÃ¶¨Òå (Global Definitions)
+        #region 1. å…¨å±€å˜é‡ä¸é…ç½®å®šä¹‰ (Global Definitions)
 
-        // ====================== ·şÎñ²ã ======================
+        // ====================== æœåŠ¡å±‚ ======================
         private readonly IPlcService _plcService;
         private readonly IDetectionService _detectionService;
         private readonly IStorageService _storageService;
         private readonly IStatisticsService _statisticsService;
         private readonly IDatabaseService _databaseService;
 
-        // WebUI ¿ØÖÆÆ÷
+        // WebUI æ§åˆ¶å™¨
         private WebUIController _uiController;
 
-        // ====================== ROIÅäÖÃ ======================
-        // ×¢Òâ£ºÓÉÓÚÒÆ³ı PictureBox£¬Êó±ê»æÖÆ ROI Âß¼­ÔİÊ±Ê§Ğ§£¬½ö±£Áô²ÎÊı¹©ºó¶Ë¼ÆËã
+        // ====================== ROIé…ç½® ======================
+        // æ³¨æ„ï¼šç”±äºç§»é™¤ PictureBoxï¼Œé¼ æ ‡ç»˜åˆ¶ ROI é€»è¾‘æš‚æ—¶å¤±æ•ˆï¼Œä»…ä¿ç•™å‚æ•°ä¾›åç«¯è®¡ç®—
         private int roiX = 100;
         private int roiY = 100;
         private int roiWidth = 400;
@@ -48,7 +48,7 @@ namespace ClearFrost
         private float overlapThreshold = 0.1f;
         private double _currentCropScale = 1.0;
 
-        // ====================== ÎÄ¼ş´æ´¢ÅäÖÃ ======================
+        // ====================== æ–‡ä»¶å­˜å‚¨é…ç½® ======================
         private string BaseStoragePath
         {
             get
@@ -71,7 +71,7 @@ namespace ClearFrost
                 }
                 catch (Exception ex)
                 {
-                    // ºöÂÔÇı¶¯Æ÷¼ì²éÒì³££¬Ö±½Ó»ØÍËÄ¬ÈÏÂ·¾¶
+                    // å¿½ç•¥é©±åŠ¨å™¨æ£€æŸ¥å¼‚å¸¸ï¼Œç›´æ¥å›é€€é»˜è®¤è·¯å¾„
                     Debug.WriteLine($"Error checking drive: {ex.Message}");
                     return @"C:\GreeVisionData";
                 }
@@ -84,43 +84,48 @@ namespace ClearFrost
         private string Path_System => Path.Combine(BaseStoragePath, "System");
         private string StartupLogPath => Path.Combine(Path_Logs, "SoftwareStartLog.txt");
 
-        // ====================== Í³¼Æ (ÓÉ _statisticsService ¹ÜÀí) ======================
+        // ====================== ç»Ÿè®¡ (ç”± _statisticsService ç®¡ç†) ======================
 
-        // ====================== Ó²¼şÉè±¸¶ÔÏó (¼æÈİ¾É´úÂë) ======================
-        // PLC - Í¨¹ı·şÎñ²ã¹ÜÀí
+        // ====================== ç¡¬ä»¶è®¾å¤‡å¯¹è±¡ (å…¼å®¹æ—§ä»£ç ) ======================
+        // PLC - é€šè¿‡æœåŠ¡å±‚ç®¡ç†
         private bool plcConnected => _plcService?.IsConnected ?? false;
 
-        // ====================== Ïà»ú¹ÜÀí ======================
-        // ¼Ü¹¹ËµÃ÷:
-        // - _cameraManager: ¶àÏà»úÅäÖÃ¹ÜÀíÆ÷,¸ºÔğÏà»úÁĞ±íºÍÇĞ»»
-        // - cam: µ±Ç°»î¶¯Ïà»úµÄ SDK ¾ä±ú,ÓÃÓÚÖ±½ÓÓ²¼ş²Ù×÷
-        // TODO: ºóĞø°æ±¾¿¼ÂÇ½« cam µÄ SDK µ÷ÓÃ·â×°µ½ ICameraService
+        // ====================== ç›¸æœºç®¡ç† ======================
+        // æ¶æ„è¯´æ˜:
+        // - _cameraManager: å¤šç›¸æœºé…ç½®ç®¡ç†å™¨,è´Ÿè´£ç›¸æœºåˆ—è¡¨å’Œåˆ‡æ¢
+        // - cam: å½“å‰æ´»åŠ¨ç›¸æœºçš„ SDK å¥æŸ„,ç”¨äºç›´æ¥ç¡¬ä»¶æ“ä½œ
+        // TODO: åç»­ç‰ˆæœ¬è€ƒè™‘å°† cam çš„ SDK è°ƒç”¨å°è£…åˆ° ICameraService
         private CameraManager _cameraManager;
-        private ICamera cam; // »î¶¯Ïà»ú SDK ¾ä±ú (ÓÉ _cameraManager.ActiveCamera Ìá¹©)
+        private ICamera cam; // æ´»åŠ¨ç›¸æœº SDK å¥æŸ„ (ç”± _cameraManager.ActiveCamera æä¾›)
         private int _targetCameraIndex = -1;
         private Thread? renderThread = null;
         private BlockingCollection<IMVDefine.IMV_Frame> m_frameQueue = new BlockingCollection<IMVDefine.IMV_Frame>(10);
         private CancellationTokenSource m_cts = new CancellationTokenSource();
 
-        // YOLO (ÓÉ _detectionService ¹ÜÀí)
-        // ¶àÄ£ĞÍ¹ÜÀíÆ÷ (ÓÉ _detectionService ¹ÜÀí)
-        string Ä£ĞÍÂ·¾¶ = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ONNX");
-        string Ä£ĞÍÃû = "";
-        bool Í£Ö¹ = false;
+        // YOLO (ç”± _detectionService ç®¡ç†)
+        // å¤šæ¨¡å‹ç®¡ç†å™¨ (ç”± _detectionService ç®¡ç†)
+        string æ¨¡å‹è·¯å¾„ = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ONNX");
+        string æ¨¡å‹å = "";
+        bool åœæ­¢ = false;
         private AppConfig _appConfig = AppConfig.Load();
 
-        // ROI¹éÒ»»¯×ø±ê [x, y, w, h] (0.0~1.0)
+        // ROIå½’ä¸€åŒ–åæ ‡ [x, y, w, h] (0.0~1.0)
         private float[]? _currentROI = null;
 
-        // ´«Í³ÊÓ¾õ´¦ÀíÆ÷
+        // ä¼ ç»Ÿè§†è§‰å¤„ç†å™¨
         private PipelineProcessor? _pipelineProcessor;
 
-        // ====================== Ïß³Ì°²È« ======================
+        // ====================== çº¿ç¨‹å®‰å…¨ ======================
         /// <summary>
-        /// ÓÃÓÚ±£»¤ _lastCapturedFrame µÄÏß³ÌÍ¬²½Ëø
+        /// ç”¨äºä¿æŠ¤ _lastCapturedFrame çš„çº¿ç¨‹åŒæ­¥é”
         /// </summary>
         private readonly object _frameLock = new object();
-        private Mat? _lastCapturedFrame; // ÓÃÓÚÔ¤ÀÀµÄ×îºóÒ»Ö¡
+        private Mat? _lastCapturedFrame; // ç”¨äºé¢„è§ˆçš„æœ€åä¸€å¸§
+
+        /// <summary>
+        /// æ£€æµ‹æ“ä½œä¿¡å·é‡ï¼Œé˜²æ­¢å¹¶å‘æ£€æµ‹ï¼ˆå¦‚ PLC å¿«é€Ÿè§¦å‘ï¼‰
+        /// </summary>
+        private readonly SemaphoreSlim _detectionSemaphore = new SemaphoreSlim(1, 1);
 
         // Helper for safe fire-and-forget
         private void SafeFireAndForget(Task task, string name, Action<Exception>? onError = null)
@@ -131,7 +136,7 @@ namespace ClearFrost
                 {
                     Exception ex = t.Exception?.InnerException ?? new Exception("Unknown error");
                     if (onError != null) onError(ex);
-                    else if (_uiController != null) await _uiController.LogToFrontend($"{name} Òì³£: {ex.Message}", "error");
+                    else if (_uiController != null) await _uiController.LogToFrontend($"{name} å¼‚å¸¸: {ex.Message}", "error");
                 }
             }, TaskScheduler.Default);
         }

@@ -46,7 +46,7 @@ namespace ClearFrost
                 // 闪烁触发指示灯
                 SafeFireAndForget(_uiController.FlashPlcTrigger(), "PLC触发指示灯");
                 // 触发检测
-                InvokeOnUIThread(() => HandlePlcTrigger());
+                InvokeOnUIThread(() => SafeFireAndForget(HandlePlcTriggerAsync(), "PLC触发"));
             };
             _plcService.ErrorOccurred += (error) =>
             {
@@ -126,8 +126,8 @@ namespace ClearFrost
 
             // 绑定 WebUI 事件
             _uiController.OnOpenCamera += (s, e) => InvokeOnUIThread(() => btnOpenCamera_Logic());
-            _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => btnCapture_Logic());
-            _uiController.OnManualRelease += (s, e) => fx_btn_Logic(); // Async void handler
+            _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(btnCapture_LogicAsync(), "手动检测"));
+            _uiController.OnManualRelease += (s, e) => SafeFireAndForget(fx_btn_LogicAsync(), "手动放行"); // Async void handler
             _uiController.OnOpenSettings += (s, e) => InvokeOnUIThread(() => btnSettings_Logic());
             _uiController.OnChangeModel += (s, modelName) => InvokeOnUIThread(() => ChangeModel_Logic(modelName));
             _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC手动连接");
@@ -982,7 +982,7 @@ namespace ClearFrost
             };
 
             // 订阅测试YOLO事件
-            _uiController.OnTestYolo += TestYolo_Handler;
+            _uiController.OnTestYolo += (s, e) => SafeFireAndForget(TestYolo_HandlerAsync(), "YOLO测试");
 
             // 订阅ROI更新事件
             _uiController.OnUpdateROI += (sender, normalizedRect) =>
