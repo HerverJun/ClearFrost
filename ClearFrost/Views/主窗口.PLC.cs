@@ -1,4 +1,5 @@
 using MVSDK_Net;
+using ClearFrost.Config;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 using System.IO;
@@ -13,20 +14,20 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using YoloDetection;
-using YOLO.Vision;
-using YOLO.Helpers;
-using YOLO.Interfaces;
-using YOLO.Services;
+using ClearFrost.Yolo;
+using ClearFrost.Vision;
+using ClearFrost.Helpers;
+using ClearFrost.Interfaces;
+using ClearFrost.Services;
 
-namespace YOLO
+namespace ClearFrost
 {
-    public partial class ä¸»çª—å£
+    public partial class Ö÷´°¿Ú
     {
-        #region 3. PLCæ§åˆ¶é€»è¾‘ (PLC Control) - å§”æ‰˜ç»™ PlcService
+        #region 3. PLC¿ØÖÆÂß¼­ (PLC Control) - Î¯ÍĞ¸ø PlcService
 
         /// <summary>
-        /// é€šè¿‡æœåŠ¡å±‚è¿æ¥ PLC
+        /// Í¨¹ı·şÎñ²ãÁ¬½Ó PLC
         /// </summary>
         private async Task ConnectPlcViaServiceAsync()
         {
@@ -34,19 +35,19 @@ namespace YOLO
             string ip = _appConfig.PlcIp;
             int port = _appConfig.PlcPort;
 
-            await _uiController.LogToFrontend($"æ­£åœ¨è¿æ¥ PLC: {protocol} @ {ip}:{port}", "info");
+            await _uiController.LogToFrontend($"ÕıÔÚÁ¬½Ó PLC: {protocol} @ {ip}:{port}", "info");
 
             bool success = await _plcService.ConnectAsync(protocol, ip, port);
 
             if (success)
             {
-                // å¯åŠ¨è§¦å‘ç›‘æ§
+                // Æô¶¯´¥·¢¼à¿Ø
                 _plcService.StartMonitoring(_appConfig.PlcTriggerAddress, 500);
             }
         }
 
         /// <summary>
-        /// PLC è§¦å‘ä¿¡å·å¤„ç†
+        /// PLC ´¥·¢ĞÅºÅ´¦Àí
         /// </summary>
         private async void HandlePlcTrigger()
         {
@@ -58,7 +59,7 @@ namespace YOLO
             {
                 if (attempt > 0)
                 {
-                    await _uiController.LogToFrontend($"è§¦å‘é‡æ‹ ({attempt}/{maxRetries})", "warning");
+                    await _uiController.LogToFrontend($"´¥·¢ÖØÅÄ ({attempt}/{maxRetries})", "warning");
                     await Task.Delay(retryInterval);
                 }
 
@@ -70,7 +71,7 @@ namespace YOLO
                 }
                 else if (lastResult != null && !lastResult.IsQualified && attempt < maxRetries)
                 {
-                    // æ˜¾ç¤ºä¸­é—´ç»“æœ
+                    // ÏÔÊ¾ÖĞ¼ä½á¹û
                     DisplayImageOnly(lastResult.OriginalBitmap, lastResult.Results, lastResult.UsedModelLabels);
                     lastResult.OriginalBitmap?.Dispose();
                 }
@@ -83,31 +84,33 @@ namespace YOLO
         }
 
         /// <summary>
-        /// å†™å…¥æ£€æµ‹ç»“æœåˆ° PLC
+        /// Ğ´Èë¼ì²â½á¹ûµ½ PLC
         /// </summary>
         public async Task WriteDetectionResult(bool isQualified)
         {
             if (!plcConnected) return;
             await _plcService.WriteResultAsync(_appConfig.PlcResultAddress, isQualified);
-            await _uiController.LogToFrontend($"PLCå†™å…¥ç»“æœ: {(isQualified ? "åˆæ ¼" : "ä¸åˆæ ¼")}", "info");
+            await _uiController.LogToFrontend($"PLCĞ´Èë½á¹û: {(isQualified ? "ºÏ¸ñ" : "²»ºÏ¸ñ")}", "info");
         }
 
         /// <summary>
-        /// æ‰‹åŠ¨æ”¾è¡Œ
+        /// ÊÖ¶¯·ÅĞĞ
         /// </summary>
         private async void fx_btn_Logic()
         {
             try
             {
                 await _plcService.WriteReleaseSignalAsync(_appConfig.PlcResultAddress);
-                await _uiController.LogToFrontend("æ‰‹åŠ¨æ”¾è¡Œä¿¡å·å·²å‘é€", "success");
+                await _uiController.LogToFrontend("ÊÖ¶¯·ÅĞĞĞÅºÅÒÑ·¢ËÍ", "success");
             }
             catch (Exception ex)
             {
-                await _uiController.LogToFrontend($"æ”¾è¡Œå¤±è´¥: {ex.Message}", "error");
+                await _uiController.LogToFrontend($"·ÅĞĞÊ§°Ü: {ex.Message}", "error");
             }
         }
 
         #endregion
     }
 }
+
+

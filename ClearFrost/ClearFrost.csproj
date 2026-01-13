@@ -14,7 +14,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <!-- 修复3: 精简平台配置 -->
     <Platforms>x64</Platforms>
-    <StartupObject>YOLO.Program</StartupObject>
+    <StartupObject>ClearFrost.Program</StartupObject>
     <!-- 修复4: 修复警告处理设置 -->
     <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>Error</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
     <SupportedOSPlatformVersion>8.0</SupportedOSPlatformVersion>

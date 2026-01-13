@@ -1,4 +1,6 @@
-ï»¿using MVSDK_Net;
+using MVSDK_Net;
+using ClearFrost.Config;
+using ClearFrost.Hardware;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 using System.IO;
@@ -13,27 +15,27 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using YoloDetection;
-using YOLO.Vision;
-using YOLO.Helpers;
-using YOLO.Interfaces;
-using YOLO.Services;
+using ClearFrost.Yolo;
+using ClearFrost.Vision;
+using ClearFrost.Helpers;
+using ClearFrost.Interfaces;
+using ClearFrost.Services;
 
-namespace YOLO
+namespace ClearFrost
 {
-    public partial class ä¸»çª—å£ : Form
+    public partial class Ö÷´°¿Ú : Form
     {
-        #region 2. åˆå§‹åŒ–ä¸ç”Ÿå‘½å‘¨æœŸ (Initialization)
+        #region 2. ³õÊ¼»¯ÓëÉúÃüÖÜÆÚ (Initialization)
 
-        public ä¸»çª—å£()
+        public Ö÷´°¿Ú()
         {
             InitializeComponent();
 
-            // åˆå§‹åŒ–ç›¸æœºç®¡ç†å™¨
+            // ³õÊ¼»¯Ïà»ú¹ÜÀíÆ÷
             _cameraManager = new CameraManager(_appConfig.IsDebugMode);
             _cameraManager.LoadFromConfig(_appConfig);
 
-            // å‘åå…¼å®¹ï¼šä» CameraManager è·å–æ´»åŠ¨ç›¸æœº
+            // Ïòºó¼æÈİ£º´Ó CameraManager »ñÈ¡»î¶¯Ïà»ú
             var activeCam = _cameraManager.ActiveCamera;
             if (activeCam != null)
             {
@@ -41,38 +43,39 @@ namespace YOLO
             }
             else
             {
-                // å¦‚æœæ²¡æœ‰é…ç½®ç›¸æœºï¼Œåˆ›å»ºé»˜è®¤ç›¸æœº
+                // Èç¹ûÃ»ÓĞÅäÖÃÏà»ú£¬´´½¨Ä¬ÈÏÏà»ú
                 cam = _appConfig.IsDebugMode ? new MockCamera() : new RealCamera();
             }
 
-            // è®¾ç½®æ— è¾¹æ¡†å…¨å±
+            // ÉèÖÃÎŞ±ß¿òÈ«ÆÁ
             this.FormBorderStyle = FormBorderStyle.None;
             this.WindowState = FormWindowState.Maximized;
 
-            // åˆå§‹åŒ– WebUI æ§åˆ¶å™¨
+            // ³õÊ¼»¯ WebUI ¿ØÖÆÆ÷
             _uiController = new WebUIController();
 
-            // ====================== åˆå§‹åŒ–æœåŠ¡å±‚ ======================
-            // PLC æœåŠ¡
+            // ====================== ³õÊ¼»¯·şÎñ²ã ======================
+            // PLC ·şÎñ
             _plcService = new PlcService();
 
-            // Detection æœåŠ¡
+            // Detection ·şÎñ
             _detectionService = new DetectionService(_appConfig.EnableGpu);
 
-            // Storage æœåŠ¡
+            // Storage ·şÎñ
             _storageService = new StorageService(_appConfig?.StoragePath);
 
-            // Statistics æœåŠ¡
+            // Statistics ·şÎñ
             _statisticsService = new StatisticsService(_storageService.SystemPath.Replace("\\System", ""));
 
-            // Database æœåŠ¡ (SQLite)
+            // Database ·şÎñ (SQLite)
             _databaseService = new SqliteDatabaseService();
-            SafeFireAndForget(_databaseService.InitializeAsync(), "æ•°æ®åº“åˆå§‹åŒ–");
+            SafeFireAndForget(_databaseService.InitializeAsync(), "Êı¾İ¿â³õÊ¼»¯");
 
-            // æ³¨å†Œæ‰€æœ‰äº‹ä»¶ç›‘å¬ (å®ç°ä½äº ä¸»çª—å£.Init.cs)
+            // ×¢²áËùÓĞÊÂ¼ş¼àÌı (ÊµÏÖÎ»ÓÚ Ö÷´°¿Ú.Init.cs)
             RegisterEvents();
         }
 
         #endregion
     }
 }
+

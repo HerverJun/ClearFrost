@@ -1,12 +1,13 @@
-ï»¿using System;
+using System;
+using ClearFrost.Models;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 
-namespace YOLO
+namespace ClearFrost.Models
 {
     /// <summary>
-    /// æ£€æµ‹ç»Ÿè®¡æ•°æ®ç±»ï¼Œæ”¯æŒæŒä¹…åŒ–å­˜å‚¨å’Œè·¨æ—¥é‡ç½®
+    /// ¼ì²âÍ³¼ÆÊı¾İÀà£¬Ö§³Ö³Ö¾Ã»¯´æ´¢ºÍ¿çÈÕÖØÖÃ
     /// </summary>
     public class DetectionStatistics
     {
@@ -15,21 +16,21 @@ namespace YOLO
         public int UnqualifiedCount { get; set; }
 
         /// <summary>
-        /// å½“å‰æ•°æ®å¯¹åº”çš„æ—¥æœŸ (yyyy-MM-dd æ ¼å¼)
+        /// µ±Ç°Êı¾İ¶ÔÓ¦µÄÈÕÆÚ (yyyy-MM-dd ¸ñÊ½)
         /// </summary>
         public string CurrentDate { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
 
-        // è®¡ç®—åˆæ ¼ç‡
+        // ¼ÆËãºÏ¸ñÂÊ
         public double QualifiedPercentage => TotalCount > 0 ? (double)QualifiedCount / TotalCount * 100 : 0;
 
-        // è®¡ç®—ä¸åˆæ ¼ç‡
+        // ¼ÆËã²»ºÏ¸ñÂÊ
         public double UnqualifiedPercentage => TotalCount > 0 ? (double)UnqualifiedCount / TotalCount * 100 : 0;
 
-        // æŒä¹…åŒ–æ–‡ä»¶è·¯å¾„ (ç”±å¤–éƒ¨è®¾ç½®)
+        // ³Ö¾Ã»¯ÎÄ¼şÂ·¾¶ (ÓÉÍâ²¿ÉèÖÃ)
         private string _savePath = "";
 
         /// <summary>
-        /// æœ€åä¸€æ¬¡æ“ä½œçš„é”™è¯¯ä¿¡æ¯
+        /// ×îºóÒ»´Î²Ù×÷µÄ´íÎóĞÅÏ¢
         /// </summary>
         [System.Text.Json.Serialization.JsonIgnore]
         public string? LastError { get; private set; }
@@ -40,7 +41,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// è®¾ç½®ä¿å­˜è·¯å¾„
+        /// ÉèÖÃ±£´æÂ·¾¶
         /// </summary>
         public void SetSavePath(string basePath)
         {
@@ -50,7 +51,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// æ·»åŠ æ£€æµ‹ç»“æœ
+        /// Ìí¼Ó¼ì²â½á¹û
         /// </summary>
         public void AddRecord(bool isQualified)
         {
@@ -60,12 +61,12 @@ namespace YOLO
             else
                 UnqualifiedCount++;
 
-            // æ¯æ¬¡æ£€æµ‹åè‡ªåŠ¨ä¿å­˜
+            // Ã¿´Î¼ì²âºó×Ô¶¯±£´æ
             Save();
         }
 
         /// <summary>
-        /// é‡ç½®ç»Ÿè®¡æ•°æ®
+        /// ÖØÖÃÍ³¼ÆÊı¾İ
         /// </summary>
         public void Reset()
         {
@@ -76,16 +77,16 @@ namespace YOLO
         }
 
         /// <summary>
-        /// æ£€æµ‹æ˜¯å¦è·¨æ—¥ï¼Œå¦‚æœæ˜¯åˆ™ä¿å­˜å†å²å¹¶é‡ç½®
+        /// ¼ì²âÊÇ·ñ¿çÈÕ£¬Èç¹ûÊÇÔò±£´æÀúÊ·²¢ÖØÖÃ
         /// </summary>
-        /// <param name="history">å†å²è®°å½•å¯¹è±¡</param>
-        /// <returns>true è¡¨ç¤ºå‘ç”Ÿäº†è·¨æ—¥é‡ç½®</returns>
+        /// <param name="history">ÀúÊ·¼ÇÂ¼¶ÔÏó</param>
+        /// <returns>true ±íÊ¾·¢ÉúÁË¿çÈÕÖØÖÃ</returns>
         public bool CheckAndResetForNewDay(StatisticsHistory history)
         {
             string today = DateTime.Now.ToString("yyyy-MM-dd");
             if (CurrentDate != today)
             {
-                // ä¿å­˜æ˜¨æ—¥æ•°æ®åˆ°å†å²
+                // ±£´æ×òÈÕÊı¾İµ½ÀúÊ·
                 if (TotalCount > 0)
                 {
                     history.AddRecord(new DailyStatisticsRecord
@@ -97,7 +98,7 @@ namespace YOLO
                     });
                 }
 
-                // é‡ç½®å½“æ—¥æ•°æ®
+                // ÖØÖÃµ±ÈÕÊı¾İ
                 Reset();
                 Save();
                 return true;
@@ -106,7 +107,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// ä»æ–‡ä»¶åŠ è½½ç»Ÿè®¡æ•°æ®
+        /// ´ÓÎÄ¼ş¼ÓÔØÍ³¼ÆÊı¾İ
         /// </summary>
         public static DetectionStatistics Load(string basePath)
         {
@@ -131,14 +132,14 @@ namespace YOLO
                 LogError("Load", ex);
             }
 
-            // è¿”å›æ–°å®ä¾‹
+            // ·µ»ØĞÂÊµÀı
             var newStats = new DetectionStatistics();
             newStats.SetSavePath(basePath);
             return newStats;
         }
 
         /// <summary>
-        /// ä¿å­˜ç»Ÿè®¡æ•°æ®åˆ°æ–‡ä»¶
+        /// ±£´æÍ³¼ÆÊı¾İµ½ÎÄ¼ş
         /// </summary>
         public bool Save()
         {
@@ -160,4 +161,6 @@ namespace YOLO
         }
     }
 }
+
+
 

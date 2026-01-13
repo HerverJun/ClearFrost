@@ -1,4 +1,6 @@
 using MVSDK_Net;
+using ClearFrost.Config;
+using ClearFrost.Hardware;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 using System.IO;
@@ -13,30 +15,30 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using YoloDetection;
-using YOLO.Vision;
-using YOLO.Helpers;
-using YOLO.Interfaces;
-using YOLO.Services;
+using ClearFrost.Yolo;
+using ClearFrost.Vision;
+using ClearFrost.Helpers;
+using ClearFrost.Interfaces;
+using ClearFrost.Services;
 
-namespace YOLO
+namespace ClearFrost
 {
-    public partial class ä¸»çª—å£ : Form
+    public partial class Ö÷´°¿Ú : Form
     {
-        #region 1. å…¨å±€å˜é‡ä¸é…ç½®å®šä¹‰ (Global Definitions)
+        #region 1. È«¾Ö±äÁ¿ÓëÅäÖÃ¶¨Òå (Global Definitions)
 
-        // ====================== æœåŠ¡å±‚ ======================
+        // ====================== ·şÎñ²ã ======================
         private readonly IPlcService _plcService;
         private readonly IDetectionService _detectionService;
         private readonly IStorageService _storageService;
         private readonly IStatisticsService _statisticsService;
         private readonly IDatabaseService _databaseService;
 
-        // WebUI æ§åˆ¶å™¨
+        // WebUI ¿ØÖÆÆ÷
         private WebUIController _uiController;
 
-        // ====================== ROIé…ç½® ======================
-        // æ³¨æ„ï¼šç”±äºç§»é™¤ PictureBoxï¼Œé¼ æ ‡ç»˜åˆ¶ ROI é€»è¾‘æš‚æ—¶å¤±æ•ˆï¼Œä»…ä¿ç•™å‚æ•°ä¾›åç«¯è®¡ç®—
+        // ====================== ROIÅäÖÃ ======================
+        // ×¢Òâ£ºÓÉÓÚÒÆ³ı PictureBox£¬Êó±ê»æÖÆ ROI Âß¼­ÔİÊ±Ê§Ğ§£¬½ö±£Áô²ÎÊı¹©ºó¶Ë¼ÆËã
         private int roiX = 100;
         private int roiY = 100;
         private int roiWidth = 400;
@@ -46,7 +48,7 @@ namespace YOLO
         private float overlapThreshold = 0.1f;
         private double _currentCropScale = 1.0;
 
-        // ====================== æ–‡ä»¶å­˜å‚¨é…ç½® ======================
+        // ====================== ÎÄ¼ş´æ´¢ÅäÖÃ ======================
         private string BaseStoragePath
         {
             get
@@ -69,7 +71,7 @@ namespace YOLO
                 }
                 catch (Exception ex)
                 {
-                    // å¿½ç•¥é©±åŠ¨å™¨æ£€æŸ¥å¼‚å¸¸ï¼Œç›´æ¥å›é€€é»˜è®¤è·¯å¾„
+                    // ºöÂÔÇı¶¯Æ÷¼ì²éÒì³££¬Ö±½Ó»ØÍËÄ¬ÈÏÂ·¾¶
                     Debug.WriteLine($"Error checking drive: {ex.Message}");
                     return @"C:\GreeVisionData";
                 }
@@ -82,43 +84,43 @@ namespace YOLO
         private string Path_System => Path.Combine(BaseStoragePath, "System");
         private string StartupLogPath => Path.Combine(Path_Logs, "SoftwareStartLog.txt");
 
-        // ====================== ç»Ÿè®¡ (ç”± _statisticsService ç®¡ç†) ======================
+        // ====================== Í³¼Æ (ÓÉ _statisticsService ¹ÜÀí) ======================
 
-        // ====================== ç¡¬ä»¶è®¾å¤‡å¯¹è±¡ (å…¼å®¹æ—§ä»£ç ) ======================
-        // PLC - é€šè¿‡æœåŠ¡å±‚ç®¡ç†
+        // ====================== Ó²¼şÉè±¸¶ÔÏó (¼æÈİ¾É´úÂë) ======================
+        // PLC - Í¨¹ı·şÎñ²ã¹ÜÀí
         private bool plcConnected => _plcService?.IsConnected ?? false;
 
-        // ====================== ç›¸æœºç®¡ç† ======================
-        // æ¶æ„è¯´æ˜:
-        // - _cameraManager: å¤šç›¸æœºé…ç½®ç®¡ç†å™¨,è´Ÿè´£ç›¸æœºåˆ—è¡¨å’Œåˆ‡æ¢
-        // - cam: å½“å‰æ´»åŠ¨ç›¸æœºçš„ SDK å¥æŸ„,ç”¨äºç›´æ¥ç¡¬ä»¶æ“ä½œ
-        // TODO: åç»­ç‰ˆæœ¬è€ƒè™‘å°† cam çš„ SDK è°ƒç”¨å°è£…åˆ° ICameraService
+        // ====================== Ïà»ú¹ÜÀí ======================
+        // ¼Ü¹¹ËµÃ÷:
+        // - _cameraManager: ¶àÏà»úÅäÖÃ¹ÜÀíÆ÷,¸ºÔğÏà»úÁĞ±íºÍÇĞ»»
+        // - cam: µ±Ç°»î¶¯Ïà»úµÄ SDK ¾ä±ú,ÓÃÓÚÖ±½ÓÓ²¼ş²Ù×÷
+        // TODO: ºóĞø°æ±¾¿¼ÂÇ½« cam µÄ SDK µ÷ÓÃ·â×°µ½ ICameraService
         private CameraManager _cameraManager;
-        private ICamera cam; // æ´»åŠ¨ç›¸æœº SDK å¥æŸ„ (ç”± _cameraManager.ActiveCamera æä¾›)
+        private ICamera cam; // »î¶¯Ïà»ú SDK ¾ä±ú (ÓÉ _cameraManager.ActiveCamera Ìá¹©)
         private int _targetCameraIndex = -1;
         private Thread? renderThread = null;
         private BlockingCollection<IMVDefine.IMV_Frame> m_frameQueue = new BlockingCollection<IMVDefine.IMV_Frame>(10);
         private CancellationTokenSource m_cts = new CancellationTokenSource();
 
-        // YOLO (ç”± _detectionService ç®¡ç†)
-        // å¤šæ¨¡å‹ç®¡ç†å™¨ (ç”± _detectionService ç®¡ç†)
-        string æ¨¡å‹è·¯å¾„ = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ONNX");
-        string æ¨¡å‹å = "";
-        bool åœæ­¢ = false;
+        // YOLO (ÓÉ _detectionService ¹ÜÀí)
+        // ¶àÄ£ĞÍ¹ÜÀíÆ÷ (ÓÉ _detectionService ¹ÜÀí)
+        string Ä£ĞÍÂ·¾¶ = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ONNX");
+        string Ä£ĞÍÃû = "";
+        bool Í£Ö¹ = false;
         private AppConfig _appConfig = AppConfig.Load();
 
-        // ROIå½’ä¸€åŒ–åæ ‡ [x, y, w, h] (0.0~1.0)
+        // ROI¹éÒ»»¯×ø±ê [x, y, w, h] (0.0~1.0)
         private float[]? _currentROI = null;
 
-        // ä¼ ç»Ÿè§†è§‰å¤„ç†å™¨
+        // ´«Í³ÊÓ¾õ´¦ÀíÆ÷
         private PipelineProcessor? _pipelineProcessor;
 
-        // ====================== çº¿ç¨‹å®‰å…¨ ======================
+        // ====================== Ïß³Ì°²È« ======================
         /// <summary>
-        /// ç”¨äºä¿æŠ¤ _lastCapturedFrame çš„çº¿ç¨‹åŒæ­¥é”
+        /// ÓÃÓÚ±£»¤ _lastCapturedFrame µÄÏß³ÌÍ¬²½Ëø
         /// </summary>
         private readonly object _frameLock = new object();
-        private Mat? _lastCapturedFrame; // ç”¨äºé¢„è§ˆçš„æœ€åä¸€å¸§
+        private Mat? _lastCapturedFrame; // ÓÃÓÚÔ¤ÀÀµÄ×îºóÒ»Ö¡
 
         // Helper for safe fire-and-forget
         private void SafeFireAndForget(Task task, string name, Action<Exception>? onError = null)
@@ -129,7 +131,7 @@ namespace YOLO
                 {
                     Exception ex = t.Exception?.InnerException ?? new Exception("Unknown error");
                     if (onError != null) onError(ex);
-                    else if (_uiController != null) await _uiController.LogToFrontend($"{name} å¼‚å¸¸: {ex.Message}", "error");
+                    else if (_uiController != null) await _uiController.LogToFrontend($"{name} Òì³£: {ex.Message}", "error");
                 }
             }, TaskScheduler.Default);
         }
@@ -137,3 +139,5 @@ namespace YOLO
         #endregion
     }
 }
+
+

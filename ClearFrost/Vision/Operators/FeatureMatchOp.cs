@@ -1,15 +1,15 @@
 // ============================================================================
-// æ–‡ä»¶å: FeatureMatchOp.cs
-// æè¿°:   AKAZE ç‰¹å¾åŒ¹é…ç®—å­ - å·¥ä¸šå¢å¼ºç‰ˆï¼Œæ”¯æŒåŒå‘éªŒè¯
+// ÎÄ¼şÃû: FeatureMatchOp.cs
+// ÃèÊö:   AKAZE ÌØÕ÷Æ¥ÅäËã×Ó - ¹¤ÒµÔöÇ¿°æ£¬Ö§³ÖË«ÏòÑéÖ¤
 // ============================================================================
 using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 
-namespace YOLO.Vision
+namespace ClearFrost.Vision
 {
     /// <summary>
-    /// AKAZE ç‰¹å¾åŒ¹é…ç®—å­ (å·¥ä¸šå¢å¼ºç‰ˆ)
+    /// AKAZE ÌØÕ÷Æ¥ÅäËã×Ó (¹¤ÒµÔöÇ¿°æ)
     /// </summary>
     public class FeatureMatchOp : FeatureMatchOpBase<AKAZE>
     {
@@ -144,11 +144,12 @@ namespace YOLO.Vision
 
         public override List<OperatorParameterInfo> GetParameterInfo() => new()
         {
-            new OperatorParameterInfo { Name = "featureCount", DisplayName = "ç‰¹å¾ç‚¹ä¸Šé™", Type = "slider", Min = 100, Max = 2000, Step = 100, DefaultValue = 500, CurrentValue = _featureCount },
-            new OperatorParameterInfo { Name = "scoreThreshold", DisplayName = "è¯„åˆ†é˜ˆå€¼", Type = "slider", Min = 4, Max = 20, Step = 1, DefaultValue = 10, CurrentValue = _scoreThreshold },
-            new OperatorParameterInfo { Name = "akazeThreshold", DisplayName = "æ£€æµ‹çµæ•åº¦", Type = "slider", Min = 0.0001, Max = 0.01, Step = 0.0001, DefaultValue = 0.001, CurrentValue = _akazeThreshold },
-            new OperatorParameterInfo { Name = "useSymmetryTest", DisplayName = "å¯ç”¨åŒå‘éªŒè¯", Type = "checkbox", DefaultValue = true, CurrentValue = _useSymmetryTest },
-            new OperatorParameterInfo { Name = "useRansac", DisplayName = "å¯ç”¨RANSAC", Type = "checkbox", DefaultValue = true, CurrentValue = _useRansac }
+            new OperatorParameterInfo { Name = "featureCount", DisplayName = "ÌØÕ÷µãÉÏÏŞ", Type = "slider", Min = 100, Max = 2000, Step = 100, DefaultValue = 500, CurrentValue = _featureCount },
+            new OperatorParameterInfo { Name = "scoreThreshold", DisplayName = "ÆÀ·ÖãĞÖµ", Type = "slider", Min = 4, Max = 20, Step = 1, DefaultValue = 10, CurrentValue = _scoreThreshold },
+            new OperatorParameterInfo { Name = "akazeThreshold", DisplayName = "¼ì²âÁéÃô¶È", Type = "slider", Min = 0.0001, Max = 0.01, Step = 0.0001, DefaultValue = 0.001, CurrentValue = _akazeThreshold },
+            new OperatorParameterInfo { Name = "useSymmetryTest", DisplayName = "ÆôÓÃË«ÏòÑéÖ¤", Type = "checkbox", DefaultValue = true, CurrentValue = _useSymmetryTest },
+            new OperatorParameterInfo { Name = "useRansac", DisplayName = "ÆôÓÃRANSAC", Type = "checkbox", DefaultValue = true, CurrentValue = _useRansac }
         };
     }
 }
+

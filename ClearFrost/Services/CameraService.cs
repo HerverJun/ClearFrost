@@ -1,11 +1,13 @@
+using ClearFrost.Config;
+using ClearFrost.Hardware;
 // ============================================================================
-// æ–‡ä»¶å: CameraService.cs
-// æè¿°:   ç›¸æœºæœåŠ¡å®ç°
+// ÎÄ¼şÃû: CameraService.cs
+// ÃèÊö:   Ïà»ú·şÎñÊµÏÖ
 //
-// åŠŸèƒ½:
-//   - å°è£… CameraManager æä¾›ç»Ÿä¸€çš„ç›¸æœºæ§åˆ¶
-//   - å¼‚æ­¥å¸§é‡‡é›†å’Œäº‹ä»¶é€šçŸ¥
-//   - æ”¯æŒå¤šå“ç‰Œç›¸æœº (MindVision, Hikvision)
+// ¹¦ÄÜ:
+//   - ·â×° CameraManager Ìá¹©Í³Ò»µÄÏà»ú¿ØÖÆ
+//   - Òì²½Ö¡²É¼¯ºÍÊÂ¼şÍ¨Öª
+//   - Ö§³Ö¶àÆ·ÅÆÏà»ú (MindVision, Hikvision)
 // ============================================================================
 
 using System;
@@ -14,16 +16,16 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using OpenCvSharp;
-using YOLO.Interfaces;
+using ClearFrost.Interfaces;
 
-namespace YOLO.Services
+namespace ClearFrost.Services
 {
     /// <summary>
-    /// ç›¸æœºæœåŠ¡å®ç°
+    /// Ïà»ú·şÎñÊµÏÖ
     /// </summary>
     public class CameraService : ICameraService
     {
-        #region ç§æœ‰å­—æ®µ
+        #region Ë½ÓĞ×Ö¶Î
 
         private readonly CameraManager _cameraManager;
         private CancellationTokenSource? _captureCts;
@@ -34,7 +36,7 @@ namespace YOLO.Services
 
         #endregion
 
-        #region äº‹ä»¶
+        #region ÊÂ¼ş
 
         public event Action<Mat>? FrameCaptured;
         public event Action<bool>? ConnectionChanged;
@@ -42,10 +44,10 @@ namespace YOLO.Services
 
         #endregion
 
-        #region å±æ€§
+        #region ÊôĞÔ
 
         public bool IsOpen => _cameraManager.ActiveCamera?.IsOpen ?? false;
-        public string CameraName => _cameraManager.ActiveCamera?.Config.DisplayName ?? "æœªè¿æ¥";
+        public string CameraName => _cameraManager.ActiveCamera?.Config.DisplayName ?? "Î´Á¬½Ó";
 
         public Mat? LastFrame
         {
@@ -60,7 +62,7 @@ namespace YOLO.Services
 
         #endregion
 
-        #region æ„é€ å‡½æ•°
+        #region ¹¹Ôìº¯Êı
 
         public CameraService(bool debugMode = false)
         {
@@ -74,18 +76,18 @@ namespace YOLO.Services
 
         #endregion
 
-        #region æ‰“å¼€/å…³é—­
+        #region ´ò¿ª/¹Ø±Õ
 
         public bool Open(string serialNumber, string manufacturer)
         {
             try
             {
-                // æŸ¥æ‰¾åŒ¹é…çš„ç›¸æœºé…ç½®
+                // ²éÕÒÆ¥ÅäµÄÏà»úÅäÖÃ
                 var instance = _cameraManager.Cameras.FirstOrDefault(c => c.Config.SerialNumber == serialNumber);
 
                 if (instance == null)
                 {
-                    // åˆ›å»ºæ–°é…ç½®
+                    // ´´½¨ĞÂÅäÖÃ
                     var newConfig = new CameraConfig
                     {
                         SerialNumber = serialNumber,
@@ -99,37 +101,37 @@ namespace YOLO.Services
 
                 if (instance == null)
                 {
-                    ErrorOccurred?.Invoke("æ— æ³•åˆ›å»ºç›¸æœºé…ç½®");
+                    ErrorOccurred?.Invoke("ÎŞ·¨´´½¨Ïà»úÅäÖÃ");
                     return false;
                 }
 
-                // å°è¯•é€šè¿‡ ICameraProvider æ¥å£æ‰“å¼€
+                // ³¢ÊÔÍ¨¹ı ICameraProvider ½Ó¿Ú´ò¿ª
                 if (instance.Camera is ICameraProvider provider)
                 {
                     bool opened = provider.Open(serialNumber);
                     if (opened)
                     {
                         ConnectionChanged?.Invoke(true);
-                        Debug.WriteLine($"[CameraService] ç›¸æœºå·²æ‰“å¼€: {serialNumber}");
+                        Debug.WriteLine($"[CameraService] Ïà»úÒÑ´ò¿ª: {serialNumber}");
                         return true;
                     }
                 }
 
-                // å°è¯•ä½¿ç”¨ä¼ ç»Ÿ SDK æ¥å£æ‰“å¼€
+                // ³¢ÊÔÊ¹ÓÃ´«Í³ SDK ½Ó¿Ú´ò¿ª
                 bool success = instance.Open();
                 if (success)
                 {
                     ConnectionChanged?.Invoke(true);
-                    Debug.WriteLine($"[CameraService] ç›¸æœºå·²æ‰“å¼€ (SDK): {serialNumber}");
+                    Debug.WriteLine($"[CameraService] Ïà»úÒÑ´ò¿ª (SDK): {serialNumber}");
                     return true;
                 }
 
-                ErrorOccurred?.Invoke("æ‰“å¼€ç›¸æœºå¤±è´¥");
+                ErrorOccurred?.Invoke("´ò¿ªÏà»úÊ§°Ü");
                 return false;
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"æ‰“å¼€ç›¸æœºå¼‚å¸¸: {ex.Message}");
+                ErrorOccurred?.Invoke($"´ò¿ªÏà»úÒì³£: {ex.Message}");
                 return false;
             }
         }
@@ -155,18 +157,18 @@ namespace YOLO.Services
                     }
 
                     ConnectionChanged?.Invoke(false);
-                    Debug.WriteLine("[CameraService] ç›¸æœºå·²å…³é—­");
+                    Debug.WriteLine("[CameraService] Ïà»úÒÑ¹Ø±Õ");
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[CameraService] å…³é—­ç›¸æœºå¼‚å¸¸: {ex.Message}");
+                Debug.WriteLine($"[CameraService] ¹Ø±ÕÏà»úÒì³£: {ex.Message}");
             }
         }
 
         #endregion
 
-        #region é‡‡é›†æ§åˆ¶
+        #region ²É¼¯¿ØÖÆ
 
         public void StartCapture()
         {
@@ -183,7 +185,7 @@ namespace YOLO.Services
             };
             _captureThread.Start();
 
-            Debug.WriteLine("[CameraService] å¼€å§‹é‡‡é›†");
+            Debug.WriteLine("[CameraService] ¿ªÊ¼²É¼¯");
         }
 
         public void StopCapture()
@@ -199,7 +201,7 @@ namespace YOLO.Services
             _captureCts = null;
             _captureThread = null;
 
-            Debug.WriteLine("[CameraService] åœæ­¢é‡‡é›†");
+            Debug.WriteLine("[CameraService] Í£Ö¹²É¼¯");
         }
 
         public void TriggerOnce()
@@ -220,7 +222,7 @@ namespace YOLO.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"è§¦å‘é‡‡é›†å¤±è´¥: {ex.Message}");
+                ErrorOccurred?.Invoke($"´¥·¢²É¼¯Ê§°Ü: {ex.Message}");
             }
         }
 
@@ -240,7 +242,7 @@ namespace YOLO.Services
                         using var cameraFrame = provider.GetFrame(500);
                         if (cameraFrame != null && cameraFrame.DataPtr != IntPtr.Zero && cameraFrame.Width > 0 && cameraFrame.Height > 0)
                         {
-                            // å°† CameraFrame è½¬æ¢ä¸º Mat
+                            // ½« CameraFrame ×ª»»Îª Mat
                             var matType = cameraFrame.PixelFormat == CameraPixelFormat.Mono8
                                 ? MatType.CV_8UC1
                                 : MatType.CV_8UC3;
@@ -264,7 +266,7 @@ namespace YOLO.Services
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[CameraService] é‡‡é›†å¼‚å¸¸: {ex.Message}");
+                    Debug.WriteLine($"[CameraService] ²É¼¯Òì³£: {ex.Message}");
                     Thread.Sleep(100);
                 }
             }
@@ -272,7 +274,7 @@ namespace YOLO.Services
 
         #endregion
 
-        #region å‚æ•°è®¾ç½®
+        #region ²ÎÊıÉèÖÃ
 
         public void SetExposure(double exposureUs)
         {
@@ -292,7 +294,7 @@ namespace YOLO.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"è®¾ç½®æ›å…‰å¤±è´¥: {ex.Message}");
+                ErrorOccurred?.Invoke($"ÉèÖÃÆØ¹âÊ§°Ü: {ex.Message}");
             }
         }
 
@@ -314,7 +316,7 @@ namespace YOLO.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"è®¾ç½®å¢ç›Šå¤±è´¥: {ex.Message}");
+                ErrorOccurred?.Invoke($"ÉèÖÃÔöÒæÊ§°Ü: {ex.Message}");
             }
         }
 
@@ -342,3 +344,4 @@ namespace YOLO.Services
         #endregion
     }
 }
+

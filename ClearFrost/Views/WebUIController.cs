@@ -1,24 +1,26 @@
+using ClearFrost.Config;
+using ClearFrost.Models;
 // ============================================================================
-// æ–‡ä»¶å: WebUIController.cs
-// æè¿°:   WebView2 å‰åç«¯é€šä¿¡æ§åˆ¶å™¨ - C# ä¸ HTML/JS å‰ç«¯çš„æ¡¥æ¢
+// ÎÄ¼şÃû: WebUIController.cs
+// ÃèÊö:   WebView2 Ç°ºó¶ËÍ¨ĞÅ¿ØÖÆÆ÷ - C# Óë HTML/JS Ç°¶ËµÄÇÅÁº
 //
-// åŠŸèƒ½æ¦‚è¿°:
-//   - åˆå§‹åŒ– WebView2 ç¯å¢ƒå¹¶åŠ è½½ HTML å‰ç«¯
-//   - æä¾› C# â†’ JS çš„æ–¹æ³•è°ƒç”¨ (ExecuteScriptAsync)
-//   - å¤„ç† JS â†’ C# çš„æ¶ˆæ¯æ¥æ”¶ (WebMessageReceived)
-//   - æ”¯æŒå¼€å‘æ¨¡å¼çƒ­æ›´æ–° (è‡ªåŠ¨æŸ¥æ‰¾æºç ç›®å½•)
+// ¹¦ÄÜ¸ÅÊö:
+//   - ³õÊ¼»¯ WebView2 »·¾³²¢¼ÓÔØ HTML Ç°¶Ë
+//   - Ìá¹© C# ¡ú JS µÄ·½·¨µ÷ÓÃ (ExecuteScriptAsync)
+//   - ´¦Àí JS ¡ú C# µÄÏûÏ¢½ÓÊÕ (WebMessageReceived)
+//   - Ö§³Ö¿ª·¢Ä£Ê½ÈÈ¸üĞÂ (×Ô¶¯²éÕÒÔ´ÂëÄ¿Â¼)
 //
-// äº‹ä»¶å®šä¹‰:
-//   - OnOpenCamera, OnManualDetect, OnConnectPlc, ...  (æ“ä½œäº‹ä»¶)
-//   - OnVisionModeChanged, OnPipelineUpdate, ...      (ä¼ ç»Ÿè§†è§‰äº‹ä»¶)
-//   - OnSaveSettings, OnVerifyPassword, ...           (é…ç½®äº‹ä»¶)
+// ÊÂ¼ş¶¨Òå:
+//   - OnOpenCamera, OnManualDetect, OnConnectPlc, ...  (²Ù×÷ÊÂ¼ş)
+//   - OnVisionModeChanged, OnPipelineUpdate, ...      (´«Í³ÊÓ¾õÊÂ¼ş)
+//   - OnSaveSettings, OnVerifyPassword, ...           (ÅäÖÃÊÂ¼ş)
 //
-// å‰ç«¯é€šä¿¡:
-//   - å‘é€: UpdateUI(), UpdateImage(), LogToFrontend(), SendVisionConfig(), ...
-//   - æ¥æ”¶: é€šè¿‡ { "cmd": "xxx", "value": ... } JSON æ ¼å¼è§£æ
+// Ç°¶ËÍ¨ĞÅ:
+//   - ·¢ËÍ: UpdateUI(), UpdateImage(), LogToFrontend(), SendVisionConfig(), ...
+//   - ½ÓÊÕ: Í¨¹ı { "cmd": "xxx", "value": ... } JSON ¸ñÊ½½âÎö
 //
-// ä½œè€…: ClearFrost Team
-// åˆ›å»ºæ—¥æœŸ: 2024
+// ×÷Õß: ClearFrost Team
+// ´´½¨ÈÕÆÚ: 2024
 // ============================================================================
 using System;
 using System.IO;
@@ -30,9 +32,9 @@ using System.Text.Json;
 using System.Text;
 using System.Linq;
 using System.Collections.Generic;
-using YOLO.Vision;
+using ClearFrost.Vision;
 
-namespace YOLO
+namespace ClearFrost
 {
     /// <summary>
     /// Manages the WebView2 control and communication between C# and the Web frontend.
@@ -59,14 +61,14 @@ namespace YOLO
         public event EventHandler<float[]>? OnUpdateROI;
         public event EventHandler<float>? OnSetConfidence;
         public event EventHandler<float>? OnSetIou;
-        public event EventHandler<int>? OnSetTaskType;  // YOLOä»»åŠ¡ç±»å‹è®¾ç½®äº‹ä»¶
+        public event EventHandler<int>? OnSetTaskType;  // YOLOÈÎÎñÀàĞÍÉèÖÃÊÂ¼ş
         public event EventHandler<string>? OnVerifyPassword;
         public event EventHandler<string>? OnSaveSettings;
         public event EventHandler? OnSelectStorageFolder;
         public event EventHandler? OnGetStatisticsHistory;
         public event EventHandler? OnResetStatistics;
 
-        // ================== ä¼ ç»Ÿè§†è§‰æ¨¡å¼äº‹ä»¶ ==================
+        // ================== ´«Í³ÊÓ¾õÄ£Ê½ÊÂ¼ş ==================
         public event EventHandler<int>? OnVisionModeChanged;
         public event EventHandler<PipelineUpdateRequest>? OnPipelineUpdate;
         public event EventHandler? OnGetVisionConfig;
@@ -77,13 +79,13 @@ namespace YOLO
         public event EventHandler? OnGetFrameForTemplate;
         public event EventHandler<TrainOperatorRequest>? OnTrainOperator;
 
-        // ================== å¤šç›¸æœºäº‹ä»¶ ==================
+        // ================== ¶àÏà»úÊÂ¼ş ==================
         public event EventHandler? OnGetCameraList;
         public event EventHandler<string>? OnSwitchCamera;
-        public event EventHandler<string>? OnAddCamera;  // JSONæ ¼å¼çš„ç›¸æœºæ•°æ®
-        public event EventHandler<string>? OnDeleteCamera;  // ç›¸æœºID
+        public event EventHandler<string>? OnAddCamera;  // JSON¸ñÊ½µÄÏà»úÊı¾İ
+        public event EventHandler<string>? OnDeleteCamera;  // Ïà»úID
 
-        // ================== å¤šæ¨¡å‹åˆ‡æ¢äº‹ä»¶ ==================
+        // ================== ¶àÄ£ĞÍÇĞ»»ÊÂ¼ş ==================
         public event EventHandler<string>? OnSetAuxiliary1Model;
         public event EventHandler<string>? OnSetAuxiliary2Model;
         public event EventHandler<bool>? OnToggleMultiModelFallback;
@@ -359,11 +361,11 @@ namespace YOLO
                             case "app_ready":
                                 OnAppReady?.Invoke(this, EventArgs.Empty);
                                 // Debug log
-                                await LogToFrontend("æ”¶åˆ° app_ready æŒ‡ä»¤");
+                                await LogToFrontend("ÊÕµ½ app_ready Ö¸Áî");
                                 break;
                             case "test_yolo":
                                 OnTestYolo?.Invoke(this, EventArgs.Empty);
-                                await LogToFrontend("æ”¶åˆ° test_yolo æŒ‡ä»¤");
+                                await LogToFrontend("ÊÕµ½ test_yolo Ö¸Áî");
                                 break;
                             case "update_roi":
                                 if (root.TryGetProperty("value", out JsonElement valueElement) &&
@@ -375,17 +377,17 @@ namespace YOLO
                                         if (rectArray != null && rectArray.Length == 4)
                                         {
                                             OnUpdateROI?.Invoke(this, rectArray);
-                                            await LogToFrontend($"ROIå·²æ›´æ–°: [{string.Join(", ", rectArray.Select(v => v.ToString("F3")))}]");
+                                            await LogToFrontend($"ROIÒÑ¸üĞÂ: [{string.Join(", ", rectArray.Select(v => v.ToString("F3")))}]");
                                         }
                                     }
                                     catch (Exception ex)
                                     {
-                                        await LogToFrontend($"ROIè§£æé”™è¯¯: {ex.Message}", "error");
+                                        await LogToFrontend($"ROI½âÎö´íÎó: {ex.Message}", "error");
                                     }
                                 }
                                 break;
                             case "exit_app":
-                                await LogToFrontend("æ”¶åˆ° exit_app æŒ‡ä»¤, æ­£åœ¨é€€å‡º...");
+                                await LogToFrontend("ÊÕµ½ exit_app Ö¸Áî, ÕıÔÚÍË³ö...");
                                 OnExitApp?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "minimize_app":
@@ -405,7 +407,7 @@ namespace YOLO
                                 {
                                     float conf = confElement.GetSingle();
                                     OnSetConfidence?.Invoke(this, conf);
-                                    await LogToFrontend($"ç½®ä¿¡åº¦å·²è®¾ç½®: {conf:F2}");
+                                    await LogToFrontend($"ÖÃĞÅ¶ÈÒÑÉèÖÃ: {conf:F2}");
                                 }
                                 break;
                             case "set_iou":
@@ -413,7 +415,7 @@ namespace YOLO
                                 {
                                     float iou = iouElement.GetSingle();
                                     OnSetIou?.Invoke(this, iou);
-                                    await LogToFrontend($"IOUé˜ˆå€¼å·²è®¾ç½®: {iou:F2}");
+                                    await LogToFrontend($"IOUãĞÖµÒÑÉèÖÃ: {iou:F2}");
                                 }
                                 break;
                             case "set_task_type":
@@ -423,14 +425,14 @@ namespace YOLO
                                     OnSetTaskType?.Invoke(this, taskType);
                                     string taskName = taskType switch
                                     {
-                                        0 => "åˆ†ç±» (Classify)",
-                                        1 => "ç›®æ ‡æ£€æµ‹ (Detect)",
-                                        3 => "å®ä¾‹åˆ†å‰² (Segment)",
-                                        5 => "å§¿æ€ä¼°è®¡ (Pose)",
-                                        6 => "æ—‹è½¬æ¡†æ£€æµ‹ (OBB)",
-                                        _ => $"æœªçŸ¥ ({taskType})"
+                                        0 => "·ÖÀà (Classify)",
+                                        1 => "Ä¿±ê¼ì²â (Detect)",
+                                        3 => "ÊµÀı·Ö¸î (Segment)",
+                                        5 => "×ËÌ¬¹À¼Æ (Pose)",
+                                        6 => "Ğı×ª¿ò¼ì²â (OBB)",
+                                        _ => $"Î´Öª ({taskType})"
                                     };
-                                    await LogToFrontend($"ä»»åŠ¡ç±»å‹å·²è®¾ç½®: {taskName}");
+                                    await LogToFrontend($"ÈÎÎñÀàĞÍÒÑÉèÖÃ: {taskName}");
                                 }
                                 break;
                             case "verify_password":
@@ -442,7 +444,7 @@ namespace YOLO
                             case "save_settings":
                                 if (root.TryGetProperty("value", out JsonElement settingsElement))
                                 {
-                                    // value ç°åœ¨æ˜¯JSONå¯¹è±¡ï¼Œç”¨ GetRawText() è·å–å…¶JSONå­—ç¬¦ä¸²
+                                    // value ÏÖÔÚÊÇJSON¶ÔÏó£¬ÓÃ GetRawText() »ñÈ¡ÆäJSON×Ö·û´®
                                     string jsonStr = settingsElement.GetRawText();
                                     OnSaveSettings?.Invoke(this, jsonStr);
                                 }
@@ -487,7 +489,7 @@ namespace YOLO
                                 OnResetStatistics?.Invoke(this, EventArgs.Empty);
                                 break;
 
-                            // ================== å¤šç›¸æœºå‘½ä»¤ ==================
+                            // ================== ¶àÏà»úÃüÁî ==================
                             case "get_camera_list":
                                 OnGetCameraList?.Invoke(this, EventArgs.Empty);
                                 break;
@@ -519,7 +521,7 @@ namespace YOLO
                                 }
                                 break;
 
-                            // ================== å¤šæ¨¡å‹åˆ‡æ¢å‘½ä»¤ ==================
+                            // ================== ¶àÄ£ĞÍÇĞ»»ÃüÁî ==================
                             case "set_auxiliary1_model":
                                 if (root.TryGetProperty("value", out JsonElement aux1Element))
                                 {
@@ -539,13 +541,13 @@ namespace YOLO
                                 }
                                 break;
 
-                            // ================== ä¼ ç»Ÿè§†è§‰æ¨¡å¼å‘½ä»¤ ==================
+                            // ================== ´«Í³ÊÓ¾õÄ£Ê½ÃüÁî ==================
                             case "set_vision_mode":
                                 if (root.TryGetProperty("value", out JsonElement modeElement))
                                 {
                                     int mode = modeElement.GetInt32();
                                     OnVisionModeChanged?.Invoke(this, mode);
-                                    await LogToFrontend($"è§†è§‰æ¨¡å¼å·²åˆ‡æ¢ä¸º: {(mode == 0 ? "YOLO" : "ä¼ ç»Ÿè§†è§‰")}");
+                                    await LogToFrontend($"ÊÓ¾õÄ£Ê½ÒÑÇĞ»»Îª: {(mode == 0 ? "YOLO" : "´«Í³ÊÓ¾õ")}");
                                 }
                                 break;
                             case "get_vision_config":
@@ -564,7 +566,7 @@ namespace YOLO
                                     }
                                     catch (Exception ex)
                                     {
-                                        await LogToFrontend($"æµç¨‹æ›´æ–°è§£æé”™è¯¯: {ex.Message}", "error");
+                                        await LogToFrontend($"Á÷³Ì¸üĞÂ½âÎö´íÎó: {ex.Message}", "error");
                                     }
                                 }
                                 break;
@@ -602,7 +604,7 @@ namespace YOLO
                                     }
                                     catch (Exception ex)
                                     {
-                                        await LogToFrontend($"è§£æè®­ç»ƒè¯·æ±‚å¤±è´¥: {ex.Message}", "error");
+                                        await LogToFrontend($"½âÎöÑµÁ·ÇëÇóÊ§°Ü: {ex.Message}", "error");
                                     }
                                 }
                                 break;
@@ -615,7 +617,7 @@ namespace YOLO
                                 {
                                     float thresh = threshElement.GetSingle();
                                     // This is handled through pipeline_update with threshold param
-                                    await LogToFrontend($"æ¨¡æ¿é˜ˆå€¼å·²è®¾ç½®: {thresh:F2}");
+                                    await LogToFrontend($"Ä£°åãĞÖµÒÑÉèÖÃ: {thresh:F2}");
                                 }
                                 break;
                             default:
@@ -677,7 +679,7 @@ namespace YOLO
             }
             catch (Exception ex)
             {
-                await LogToFrontend($"è·å–æ—¥æœŸåˆ—è¡¨å¤±è´¥: {ex.Message}", "error");
+                await LogToFrontend($"»ñÈ¡ÈÕÆÚÁĞ±íÊ§°Ü: {ex.Message}", "error");
             }
         }
 
@@ -782,7 +784,7 @@ namespace YOLO
                                 var entry = entries[i].Trim();
                                 if (string.IsNullOrEmpty(entry)) continue;
 
-                                // Parse entry: "æ£€æµ‹æ—¶é—´: {time}\r\nç»“æœ: {result}\r\n{details}"
+                                // Parse entry: "¼ì²âÊ±¼ä: {time}\r\n½á¹û: {result}\r\n{details}"
                                 var lines = entry.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
 
                                 string time = "";
@@ -791,10 +793,10 @@ namespace YOLO
 
                                 foreach (var line in lines)
                                 {
-                                    if (line.StartsWith("æ£€æµ‹æ—¶é—´:"))
-                                        time = line.Substring("æ£€æµ‹æ—¶é—´:".Length).Trim();
-                                    else if (line.StartsWith("ç»“æœ:"))
-                                        result = line.Substring("ç»“æœ:".Length).Trim();
+                                    if (line.StartsWith("¼ì²âÊ±¼ä:"))
+                                        time = line.Substring("¼ì²âÊ±¼ä:".Length).Trim();
+                                    else if (line.StartsWith("½á¹û:"))
+                                        result = line.Substring("½á¹û:".Length).Trim();
                                     else if (!string.IsNullOrWhiteSpace(line))
                                         details += (details.Length > 0 ? "; " : "") + line.Trim();
                                 }
@@ -823,7 +825,7 @@ namespace YOLO
             }
             catch (Exception ex)
             {
-                await LogToFrontend($"è¯»å–æ£€æµ‹æ—¥å¿—å¤±è´¥: {ex.Message}", "error");
+                await LogToFrontend($"¶ÁÈ¡¼ì²âÈÕÖ¾Ê§°Ü: {ex.Message}", "error");
                 await _webView.ExecuteScriptAsync("updateDetectionLogTable([])");
             }
         }
@@ -867,14 +869,14 @@ namespace YOLO
             }
             catch (Exception ex)
             {
-                await LogToFrontend($"è·å–å†å²ç»Ÿè®¡å¤±è´¥: {ex.Message}", "error");
+                await LogToFrontend($"»ñÈ¡ÀúÊ·Í³¼ÆÊ§°Ü: {ex.Message}", "error");
             }
         }
 
-        // ================== ä¼ ç»Ÿè§†è§‰æ¨¡å¼æ–¹æ³• ==================
+        // ================== ´«Í³ÊÓ¾õÄ£Ê½·½·¨ ==================
 
         /// <summary>
-        /// å‘é€è§†è§‰é…ç½®åˆ°å‰ç«¯
+        /// ·¢ËÍÊÓ¾õÅäÖÃµ½Ç°¶Ë
         /// </summary>
         public async Task SendVisionConfig(VisionConfigResponse config)
         {
@@ -884,7 +886,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// å‘é€é¢„è§ˆå›¾åƒåˆ°å‰ç«¯
+        /// ·¢ËÍÔ¤ÀÀÍ¼Ïñµ½Ç°¶Ë
         /// </summary>
         public async Task SendPreviewImage(PreviewResponse preview)
         {
@@ -894,7 +896,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// å‘é€å¯ç”¨ç®—å­åˆ—è¡¨åˆ°å‰ç«¯
+        /// ·¢ËÍ¿ÉÓÃËã×ÓÁĞ±íµ½Ç°¶Ë
         /// </summary>
         public async Task SendAvailableOperators()
         {
@@ -905,7 +907,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// å‘é€æµç¨‹æ›´æ–°ç¡®è®¤
+        /// ·¢ËÍÁ÷³Ì¸üĞÂÈ·ÈÏ
         /// </summary>
         public async Task SendPipelineUpdated(VisionConfig config)
         {
@@ -915,7 +917,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// å‘é€æ£€æµ‹ç»“æœåˆ°å‰ç«¯
+        /// ·¢ËÍ¼ì²â½á¹ûµ½Ç°¶Ë
         /// </summary>
         public async Task SendDetectionResult(DetectionResponse result)
         {
@@ -933,10 +935,10 @@ namespace YOLO
             await _webView.ExecuteScriptAsync($"receiveTemplateFrame('{base64}')");
         }
 
-        // ================== å¤šç›¸æœºæ–¹æ³• ==================
+        // ================== ¶àÏà»ú·½·¨ ==================
 
         /// <summary>
-        /// å‘é€ç›¸æœºåˆ—è¡¨åˆ°å‰ç«¯
+        /// ·¢ËÍÏà»úÁĞ±íµ½Ç°¶Ë
         /// </summary>
         public async Task SendCameraList(IEnumerable<object> cameras, string activeCameraId)
         {
@@ -947,4 +949,6 @@ namespace YOLO
         }
     }
 }
+
+
 

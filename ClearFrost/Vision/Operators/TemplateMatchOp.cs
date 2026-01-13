@@ -1,21 +1,21 @@
 // ============================================================================
-// æ–‡ä»¶å: TemplateMatchOp.cs
-// æè¿°:   æ¨¡æ¿åŒ¹é…ç®—å­ - ä½¿ç”¨ OpenCV matchTemplate æŸ¥æ‰¾ç›®æ ‡
+// ÎÄ¼şÃû: TemplateMatchOp.cs
+// ÃèÊö:   Ä£°åÆ¥ÅäËã×Ó - Ê¹ÓÃ OpenCV matchTemplate ²éÕÒÄ¿±ê
 // ============================================================================
 using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using System.IO;
 
-namespace YOLO.Vision
+namespace ClearFrost.Vision
 {
     /// <summary>
-    /// æ¨¡æ¿åŒ¹é…ç®—å­
-    /// ä½¿ç”¨æ¨¡æ¿åŒ¹é…æŸ¥æ‰¾ç›®æ ‡
+    /// Ä£°åÆ¥ÅäËã×Ó
+    /// Ê¹ÓÃÄ£°åÆ¥Åä²éÕÒÄ¿±ê
     /// </summary>
     public class TemplateMatchOp : IImageOperator, ITemplateTrainable
     {
-        public string Name => "æ¨¡æ¿åŒ¹é…";
+        public string Name => "Ä£°åÆ¥Åä";
         public string TypeId => "template_match";
 
         public bool IsTrained => _templateImage != null && !_templateImage.Empty();
@@ -47,7 +47,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// æ¨¡æ¿å›¾åƒ
+        /// Ä£°åÍ¼Ïñ
         /// </summary>
         public Mat? TemplateImage
         {
@@ -63,7 +63,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// åŒ¹é…åˆ†æ•°é˜ˆå€¼
+        /// Æ¥Åä·ÖÊıãĞÖµ
         /// </summary>
         public double ScoreThreshold
         {
@@ -72,7 +72,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// åŒ¹é…æ–¹æ³•
+        /// Æ¥Åä·½·¨
         /// </summary>
         public TemplateMatchModes MatchMethod
         {
@@ -81,7 +81,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// æœ€åä¸€æ¬¡åŒ¹é…çš„ç»“æœ
+        /// ×îºóÒ»´ÎÆ¥ÅäµÄ½á¹û
         /// </summary>
         public TemplateMatchResult? LastMatchResult { get; private set; }
 
@@ -185,7 +185,7 @@ namespace YOLO.Vision
                     new OperatorParameterInfo
                     {
                         Name = "scoreThreshold",
-                        DisplayName = "åŒ¹é…é˜ˆå€¼",
+                        DisplayName = "Æ¥ÅäãĞÖµ",
                         Type = "slider",
                         Min = 0.1,
                         Max = 1.0,
@@ -196,7 +196,7 @@ namespace YOLO.Vision
                     new OperatorParameterInfo
                     {
                         Name = "templatePath",
-                        DisplayName = "æ¨¡æ¿å›¾åƒ",
+                        DisplayName = "Ä£°åÍ¼Ïñ",
                         Type = "file",
                         DefaultValue = "",
                         CurrentValue = _templatePath
@@ -206,7 +206,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// åŠ è½½æ¨¡æ¿å›¾åƒ
+        /// ¼ÓÔØÄ£°åÍ¼Ïñ
         /// </summary>
         private void LoadTemplate(string path)
         {
@@ -221,12 +221,12 @@ namespace YOLO.Vision
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[TemplateMatchOp] åŠ è½½æ¨¡æ¿å¤±è´¥: {ex.Message}");
+                Console.WriteLine($"[TemplateMatchOp] ¼ÓÔØÄ£°åÊ§°Ü: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// ä» Mat è®¾ç½®æ¨¡æ¿
+        /// ´Ó Mat ÉèÖÃÄ£°å
         /// </summary>
         public void SetTemplateFromMat(Mat template)
         {
@@ -239,3 +239,4 @@ namespace YOLO.Vision
         }
     }
 }
+

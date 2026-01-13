@@ -1,26 +1,27 @@
+using ClearFrost.Models;
 // ============================================================================
-// æ–‡ä»¶å: StatisticsService.cs
-// æè¿°:   ç»Ÿè®¡æœåŠ¡å®ç°
+// ÎÄ¼şÃû: StatisticsService.cs
+// ÃèÊö:   Í³¼Æ·şÎñÊµÏÖ
 //
-// åŠŸèƒ½:
-//   - å°è£… DetectionStatistics å’Œ StatisticsHistory
-//   - æä¾›ç»Ÿä¸€çš„ç»Ÿè®¡ç®¡ç† API
-//   - äº‹ä»¶é©±åŠ¨çš„ UI æ›´æ–°
+// ¹¦ÄÜ:
+//   - ·â×° DetectionStatistics ºÍ StatisticsHistory
+//   - Ìá¹©Í³Ò»µÄÍ³¼Æ¹ÜÀí API
+//   - ÊÂ¼şÇı¶¯µÄ UI ¸üĞÂ
 // ============================================================================
 
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using YOLO.Interfaces;
+using ClearFrost.Interfaces;
 
-namespace YOLO.Services
+namespace ClearFrost.Services
 {
     /// <summary>
-    /// ç»Ÿè®¡æœåŠ¡å®ç°
+    /// Í³¼Æ·şÎñÊµÏÖ
     /// </summary>
     public class StatisticsService : IStatisticsService
     {
-        #region ç§æœ‰å­—æ®µ
+        #region Ë½ÓĞ×Ö¶Î
 
         private readonly string _basePath;
         private DetectionStatistics _detectionStats;
@@ -30,14 +31,14 @@ namespace YOLO.Services
 
         #endregion
 
-        #region äº‹ä»¶
+        #region ÊÂ¼ş
 
         public event Action<StatisticsSnapshot>? StatisticsUpdated;
         public event Action? DayReset;
 
         #endregion
 
-        #region å±æ€§
+        #region ÊôĞÔ
 
         public StatisticsSnapshot Current => new StatisticsSnapshot
         {
@@ -57,40 +58,40 @@ namespace YOLO.Services
 
         #endregion
 
-        #region æ„é€ å‡½æ•°
+        #region ¹¹Ôìº¯Êı
 
         public StatisticsService(string basePath)
         {
             _basePath = basePath ?? throw new ArgumentNullException(nameof(basePath));
 
-            // åŠ è½½ç°æœ‰æ•°æ®
+            // ¼ÓÔØÏÖÓĞÊı¾İ
             _detectionStats = DetectionStatistics.Load(_basePath);
             _statisticsHistory = StatisticsHistory.Load(_basePath);
 
-            // åˆå§‹åŒ–å®šæ—¶å™¨ï¼Œæ¯60ç§’æ£€æŸ¥ä¸€æ¬¡è·¨æ—¥
+            // ³õÊ¼»¯¶¨Ê±Æ÷£¬Ã¿60Ãë¼ì²éÒ»´Î¿çÈÕ
             _checkDayTimer = new System.Timers.Timer(60000);
             _checkDayTimer.Elapsed += (s, e) => CheckAndResetForNewDay();
             _checkDayTimer.AutoReset = true;
             _checkDayTimer.Start();
 
-            Debug.WriteLine($"[StatisticsService] åˆå§‹åŒ–å®Œæˆ - ä»Šæ—¥: {TodayTotal} æ¡, å†å²: {_statisticsHistory.Records.Count} å¤©");
+            Debug.WriteLine($"[StatisticsService] ³õÊ¼»¯Íê³É - ½ñÈÕ: {TodayTotal} Ìõ, ÀúÊ·: {_statisticsHistory.Records.Count} Ìì");
         }
 
         #endregion
 
-        #region è®°å½•æ–¹æ³•
+        #region ¼ÇÂ¼·½·¨
 
         public void RecordDetection(bool isQualified)
         {
-            // è®°å½•å‰å…ˆæ£€æŸ¥æ˜¯å¦è·¨æ—¥ï¼Œé˜²æ­¢æ•°æ®è®°å…¥é”™è¯¯æ—¥æœŸ
+            // ¼ÇÂ¼Ç°ÏÈ¼ì²éÊÇ·ñ¿çÈÕ£¬·ÀÖ¹Êı¾İ¼ÇÈë´íÎóÈÕÆÚ
             CheckAndResetForNewDay();
 
             _detectionStats.AddRecord(isQualified);
 
-            // è§¦å‘æ›´æ–°äº‹ä»¶
+            // ´¥·¢¸üĞÂÊÂ¼ş
             StatisticsUpdated?.Invoke(Current);
 
-            Debug.WriteLine($"[StatisticsService] è®°å½•æ£€æµ‹: {(isQualified ? "åˆæ ¼" : "ä¸åˆæ ¼")} (æ€»è®¡: {TodayTotal})");
+            Debug.WriteLine($"[StatisticsService] ¼ÇÂ¼¼ì²â: {(isQualified ? "ºÏ¸ñ" : "²»ºÏ¸ñ")} (×Ü¼Æ: {TodayTotal})");
         }
 
         public void ResetToday()
@@ -99,7 +100,7 @@ namespace YOLO.Services
             _detectionStats.Save();
 
             StatisticsUpdated?.Invoke(Current);
-            Debug.WriteLine("[StatisticsService] ä»Šæ—¥ç»Ÿè®¡å·²é‡ç½®");
+            Debug.WriteLine("[StatisticsService] ½ñÈÕÍ³¼ÆÒÑÖØÖÃ");
         }
 
         public bool CheckAndResetForNewDay()
@@ -110,7 +111,7 @@ namespace YOLO.Services
             {
                 DayReset?.Invoke();
                 StatisticsUpdated?.Invoke(Current);
-                Debug.WriteLine("[StatisticsService] æ£€æµ‹åˆ°è·¨æ—¥ï¼Œå·²è‡ªåŠ¨é‡ç½®");
+                Debug.WriteLine("[StatisticsService] ¼ì²âµ½¿çÈÕ£¬ÒÑ×Ô¶¯ÖØÖÃ");
             }
 
             return wasReset;
@@ -118,7 +119,7 @@ namespace YOLO.Services
 
         #endregion
 
-        #region æŒä¹…åŒ–
+        #region ³Ö¾Ã»¯
 
         public void SaveAll()
         {
@@ -126,11 +127,11 @@ namespace YOLO.Services
             {
                 _detectionStats.Save();
                 _statisticsHistory.Save();
-                Debug.WriteLine("[StatisticsService] æ‰€æœ‰æ•°æ®å·²ä¿å­˜");
+                Debug.WriteLine("[StatisticsService] ËùÓĞÊı¾İÒÑ±£´æ");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[StatisticsService] ä¿å­˜å¤±è´¥: {ex.Message}");
+                Debug.WriteLine($"[StatisticsService] ±£´æÊ§°Ü: {ex.Message}");
             }
         }
 
@@ -141,25 +142,25 @@ namespace YOLO.Services
                 _detectionStats = DetectionStatistics.Load(_basePath);
                 _statisticsHistory = StatisticsHistory.Load(_basePath);
                 StatisticsUpdated?.Invoke(Current);
-                Debug.WriteLine("[StatisticsService] æ‰€æœ‰æ•°æ®å·²åŠ è½½");
+                Debug.WriteLine("[StatisticsService] ËùÓĞÊı¾İÒÑ¼ÓÔØ");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[StatisticsService] åŠ è½½å¤±è´¥: {ex.Message}");
+                Debug.WriteLine($"[StatisticsService] ¼ÓÔØÊ§°Ü: {ex.Message}");
             }
         }
 
         #endregion
 
-        #region å…¼å®¹æ€§æ–¹æ³•
+        #region ¼æÈİĞÔ·½·¨
 
         /// <summary>
-        /// è·å–åº•å±‚ DetectionStatistics (å‘åå…¼å®¹)
+        /// »ñÈ¡µ×²ã DetectionStatistics (Ïòºó¼æÈİ)
         /// </summary>
         public DetectionStatistics GetDetectionStats() => _detectionStats;
 
         /// <summary>
-        /// è·å–åº•å±‚ StatisticsHistory (å‘åå…¼å®¹)
+        /// »ñÈ¡µ×²ã StatisticsHistory (Ïòºó¼æÈİ)
         /// </summary>
         public StatisticsHistory GetStatisticsHistory() => _statisticsHistory;
 
@@ -172,14 +173,14 @@ namespace YOLO.Services
             if (_disposed) return;
             _disposed = true;
 
-            // åœæ­¢å®šæ—¶å™¨
+            // Í£Ö¹¶¨Ê±Æ÷
             if (_checkDayTimer != null)
             {
                 _checkDayTimer.Stop();
                 _checkDayTimer.Dispose();
             }
 
-            // ä¿å­˜æ•°æ®
+            // ±£´æÊı¾İ
             SaveAll();
 
             GC.SuppressFinalize(this);
@@ -188,3 +189,4 @@ namespace YOLO.Services
         #endregion
     }
 }
+

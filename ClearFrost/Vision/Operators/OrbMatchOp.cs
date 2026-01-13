@@ -1,16 +1,16 @@
 // ============================================================================
-// æ–‡ä»¶å: OrbMatchOp.cs
-// æè¿°:   ORB ç‰¹å¾åŒ¹é…ç®—å­ - åŸºäº RobustOrbExtractor çš„é«˜é€ŸåŒ¹é…
+// ÎÄ¼şÃû: OrbMatchOp.cs
+// ÃèÊö:   ORB ÌØÕ÷Æ¥ÅäËã×Ó - »ùÓÚ RobustOrbExtractor µÄ¸ßËÙÆ¥Åä
 // ============================================================================
 using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using ClearFrost.Vision;
 
-namespace YOLO.Vision
+namespace ClearFrost.Vision
 {
     /// <summary>
-    /// ORBç‰¹å¾åŒ¹é…ç®—å­ (åŒæ­¥å¢å¼ºç‰ˆ)
+    /// ORBÌØÕ÷Æ¥ÅäËã×Ó (Í¬²½ÔöÇ¿°æ)
     /// </summary>
     public class OrbMatchOp : FeatureMatchOpBase<RobustOrbExtractor>
     {
@@ -75,12 +75,13 @@ namespace YOLO.Vision
 
         public override List<OperatorParameterInfo> GetParameterInfo() => new()
         {
-            new OperatorParameterInfo { Name = "featureCount", DisplayName = "ç‰¹å¾ç‚¹ä¸Šé™", Type = "slider", Min = 100, Max = 2000, Step = 100, DefaultValue = 500, CurrentValue = _featureCount },
-            new OperatorParameterInfo { Name = "scoreThreshold", DisplayName = "æœ€å°å†…ç‚¹æ•°", Type = "slider", Min = 4, Max = 100, Step = 1, DefaultValue = 10, CurrentValue = _scoreThreshold },
-            new OperatorParameterInfo { Name = "nLevels", DisplayName = "é‡‘å­—å¡”å±‚æ•°", Type = "slider", Min = 1, Max = 12, Step = 1, DefaultValue = 8, CurrentValue = _nLevels },
-            new OperatorParameterInfo { Name = "scaleFactor", DisplayName = "å°ºåº¦å› å­", Type = "slider", Min = 1.0, Max = 2.0, Step = 0.1, DefaultValue = 1.2, CurrentValue = _scaleFactor },
-            new OperatorParameterInfo { Name = "iniThFast", DisplayName = "FASTä¸»é˜ˆå€¼", Type = "slider", Min = 5, Max = 50, Step = 1, DefaultValue = 20, CurrentValue = _iniThFast },
-            new OperatorParameterInfo { Name = "minThFast", DisplayName = "FASTæœ€å°é˜ˆå€¼", Type = "slider", Min = 2, Max = 20, Step = 1, DefaultValue = 7, CurrentValue = _minThFast }
+            new OperatorParameterInfo { Name = "featureCount", DisplayName = "ÌØÕ÷µãÉÏÏŞ", Type = "slider", Min = 100, Max = 2000, Step = 100, DefaultValue = 500, CurrentValue = _featureCount },
+            new OperatorParameterInfo { Name = "scoreThreshold", DisplayName = "×îĞ¡ÄÚµãÊı", Type = "slider", Min = 4, Max = 100, Step = 1, DefaultValue = 10, CurrentValue = _scoreThreshold },
+            new OperatorParameterInfo { Name = "nLevels", DisplayName = "½ğ×ÖËş²ãÊı", Type = "slider", Min = 1, Max = 12, Step = 1, DefaultValue = 8, CurrentValue = _nLevels },
+            new OperatorParameterInfo { Name = "scaleFactor", DisplayName = "³ß¶ÈÒò×Ó", Type = "slider", Min = 1.0, Max = 2.0, Step = 0.1, DefaultValue = 1.2, CurrentValue = _scaleFactor },
+            new OperatorParameterInfo { Name = "iniThFast", DisplayName = "FASTÖ÷ãĞÖµ", Type = "slider", Min = 5, Max = 50, Step = 1, DefaultValue = 20, CurrentValue = _iniThFast },
+            new OperatorParameterInfo { Name = "minThFast", DisplayName = "FAST×îĞ¡ãĞÖµ", Type = "slider", Min = 2, Max = 20, Step = 1, DefaultValue = 7, CurrentValue = _minThFast }
         };
     }
 }
+

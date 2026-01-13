@@ -3,28 +3,28 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-namespace YOLO
+namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// æµ·åº·å¨è§†ç›¸æœºå®ç°
+    /// º£¿µÍşÊÓÏà»úÊµÏÖ
     /// </summary>
     public class HikvisionCamera : ICameraProvider
     {
-        #region æµ·åº· SDK å¸¸é‡å’Œç»“æ„
+        #region º£¿µ SDK ³£Á¿ºÍ½á¹¹
 
         private const uint MV_OK = 0x00000000;
         private const uint MV_E_HANDLE = 0x80000000;
         private const uint MV_E_NETER = 0x80000006;
 
-        // è®¾å¤‡ç±»å‹
+        // Éè±¸ÀàĞÍ
         private const uint MV_GIGE_DEVICE = 0x00000001;
         private const uint MV_USB_DEVICE = 0x00000004;
         private const uint MV_CAMERALINK_DEVICE = 0x00000008;
 
-        // è®¿é—®æ¨¡å¼
+        // ·ÃÎÊÄ£Ê½
         private const uint MV_ACCESS_Exclusive = 1;
 
-        // åƒç´ æ ¼å¼
+        // ÏñËØ¸ñÊ½
         private const uint PixelType_Gvsp_Mono8 = 0x01080001;
         private const uint PixelType_Gvsp_RGB8 = 0x02180014;
         private const uint PixelType_Gvsp_BGR8 = 0x02180015;
@@ -100,7 +100,7 @@ namespace YOLO
 
         #endregion
 
-        #region P/Invoke å£°æ˜
+        #region P/Invoke ÉùÃ÷
 
         [DllImport("MvCameraControl.dll", EntryPoint = "MV_CC_EnumDevices")]
         private static extern int MV_CC_EnumDevices(uint nTLayerType, ref MV_CC_DEVICE_INFO_LIST pstDevList);
@@ -207,13 +207,13 @@ namespace YOLO
 
         private string ExtractSerialNumber(MV_CC_DEVICE_INFO deviceInfo)
         {
-            // ä» SpecialInfo ä¸­æå–åºåˆ—å· (æ ¹æ®è®¾å¤‡ç±»å‹ä¸åŒï¼Œä½ç½®ä¸åŒ)
+            // ´Ó SpecialInfo ÖĞÌáÈ¡ĞòÁĞºÅ (¸ù¾İÉè±¸ÀàĞÍ²»Í¬£¬Î»ÖÃ²»Í¬)
             try
             {
                 if (deviceInfo.SpecialInfo != null && deviceInfo.SpecialInfo.Length > 0)
                 {
-                    // GigE è®¾å¤‡åºåˆ—å·åœ¨åç§» 16 å¤„ï¼Œé•¿åº¦ 16 å­—èŠ‚
-                    // USB è®¾å¤‡åºåˆ—å·åœ¨åç§» 64 å¤„ï¼Œé•¿åº¦ 64 å­—èŠ‚
+                    // GigE Éè±¸ĞòÁĞºÅÔÚÆ«ÒÆ 16 ´¦£¬³¤¶È 16 ×Ö½Ú
+                    // USB Éè±¸ĞòÁĞºÅÔÚÆ«ÒÆ 64 ´¦£¬³¤¶È 64 ×Ö½Ú
                     int offset = deviceInfo.nTLayerType == MV_GIGE_DEVICE ? 16 : 64;
                     int length = deviceInfo.nTLayerType == MV_GIGE_DEVICE ? 16 : 64;
 
@@ -223,7 +223,7 @@ namespace YOLO
             }
             catch { }
 
-            // å›é€€ï¼šç”Ÿæˆå”¯ä¸€æ ‡è¯†
+            // »ØÍË£ºÉú³ÉÎ¨Ò»±êÊ¶
             return $"HIK-{deviceInfo.nMacAddrLow:X8}";
         }
 
@@ -233,11 +233,11 @@ namespace YOLO
 
             try
             {
-                // ç¡®ä¿è®¾å¤‡åˆ—è¡¨å­˜åœ¨
+                // È·±£Éè±¸ÁĞ±í´æÔÚ
                 if (_cachedDevices.Count == 0)
                     EnumerateDevices();
 
-                // æŸ¥æ‰¾è®¾å¤‡ç´¢å¼•
+                // ²éÕÒÉè±¸Ë÷Òı
                 _targetDeviceIndex = -1;
                 for (int i = 0; i < _cachedDevices.Count; i++)
                 {
@@ -254,7 +254,7 @@ namespace YOLO
                     return false;
                 }
 
-                // åˆ›å»ºå¥æŸ„
+                // ´´½¨¾ä±ú
                 int result = MV_CC_CreateHandle(ref _handle, _deviceList.pDeviceInfo[_targetDeviceIndex]);
                 if (result != MV_OK)
                 {
@@ -262,7 +262,7 @@ namespace YOLO
                     return false;
                 }
 
-                // æ‰“å¼€è®¾å¤‡
+                // ´ò¿ªÉè±¸
                 result = MV_CC_OpenDevice(_handle, MV_ACCESS_Exclusive, 0);
                 if (result != MV_OK)
                 {
@@ -272,7 +272,7 @@ namespace YOLO
                     return false;
                 }
 
-                // åˆ†é…å¸§ç¼“å†²åŒº (é¢„ä¼° 4K åˆ†è¾¨ç‡ * 3 é€šé“)
+                // ·ÖÅäÖ¡»º³åÇø (Ô¤¹À 4K ·Ö±æÂÊ * 3 Í¨µÀ)
                 int bufferSize = 4096 * 3000 * 3;
                 _frameBuffer = new byte[bufferSize];
                 _frameBufferHandle = GCHandle.Alloc(_frameBuffer, GCHandleType.Pinned);
@@ -367,7 +367,7 @@ namespace YOLO
                     PixelFormat = ConvertPixelFormat(frameInfo.enPixelType),
                     FrameNumber = frameInfo.nFrameNum,
                     Timestamp = (ulong)frameInfo.nHostTimeStamp,
-                    NeedsNativeRelease = false  // ä½¿ç”¨é¢„åˆ†é…ç¼“å†²åŒºï¼Œæ— éœ€å•ç‹¬é‡Šæ”¾
+                    NeedsNativeRelease = false  // Ê¹ÓÃÔ¤·ÖÅä»º³åÇø£¬ÎŞĞèµ¥¶ÀÊÍ·Å
                 };
             }
             catch (Exception ex)
@@ -456,3 +456,5 @@ namespace YOLO
         #endregion
     }
 }
+
+

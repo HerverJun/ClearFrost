@@ -7,32 +7,32 @@ using HslCommunication.Profinet.Siemens;
 using HslCommunication.Profinet.Omron;
 using HslCommunication.ModBus;
 
-namespace YOLO
+namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// PLCåè®®ç±»å‹æšä¸¾
+    /// PLCĞ­ÒéÀàĞÍÃ¶¾Ù
     /// </summary>
     public enum PlcProtocolType
     {
-        /// <summary>ä¸‰è±MC ASCIIåè®®</summary>
+        /// <summary>ÈıÁâMC ASCIIĞ­Òé</summary>
         Mitsubishi_MC_ASCII,
-        /// <summary>ä¸‰è±MC Binaryåè®®</summary>
+        /// <summary>ÈıÁâMC BinaryĞ­Òé</summary>
         Mitsubishi_MC_Binary,
-        /// <summary>Modbus TCPåè®®</summary>
+        /// <summary>Modbus TCPĞ­Òé</summary>
         Modbus_TCP,
-        /// <summary>è¥¿é—¨å­S7åè®® (S7-1200/1500)</summary>
+        /// <summary>Î÷ÃÅ×ÓS7Ğ­Òé (S7-1200/1500)</summary>
         Siemens_S7,
-        /// <summary>æ¬§å§†é¾™Fins TCPåè®®</summary>
+        /// <summary>Å·Ä·ÁúFins TCPĞ­Òé</summary>
         Omron_Fins
     }
 
     /// <summary>
-    /// PLCè®¾å¤‡å·¥å‚ç±»
+    /// PLCÉè±¸¹¤³§Àà
     /// </summary>
     public static class PlcFactory
     {
         /// <summary>
-        /// æ ¹æ®åè®®ç±»å‹åˆ›å»ºå¯¹åº”çš„PLCè®¾å¤‡é€‚é…å™¨
+        /// ¸ù¾İĞ­ÒéÀàĞÍ´´½¨¶ÔÓ¦µÄPLCÉè±¸ÊÊÅäÆ÷
         /// </summary>
         public static IPlcDevice Create(PlcProtocolType protocol, string ip, int port)
         {
@@ -43,23 +43,23 @@ namespace YOLO
                 PlcProtocolType.Modbus_TCP => new ModbusTcpAdapter(ip, port),
                 PlcProtocolType.Siemens_S7 => new SiemensS7Adapter(ip, port),
                 PlcProtocolType.Omron_Fins => new OmronFinsAdapter(ip, port),
-                _ => throw new NotSupportedException($"ä¸æ”¯æŒçš„åè®®ç±»å‹: {protocol}")
+                _ => throw new NotSupportedException($"²»Ö§³ÖµÄĞ­ÒéÀàĞÍ: {protocol}")
             };
         }
 
         /// <summary>
-        /// ä»å­—ç¬¦ä¸²è§£æåè®®ç±»å‹
+        /// ´Ó×Ö·û´®½âÎöĞ­ÒéÀàĞÍ
         /// </summary>
         public static PlcProtocolType ParseProtocol(string protocolStr)
         {
             if (Enum.TryParse<PlcProtocolType>(protocolStr, true, out var result))
                 return result;
-            return PlcProtocolType.Mitsubishi_MC_ASCII; // é»˜è®¤å€¼
+            return PlcProtocolType.Mitsubishi_MC_ASCII; // Ä¬ÈÏÖµ
         }
     }
 
     /// <summary>
-    /// ä¸‰è±MC ASCIIåè®®é€‚é…å™¨ï¼ˆåŸæœ‰å®ç°ï¼‰
+    /// ÈıÁâMC ASCIIĞ­ÒéÊÊÅäÆ÷£¨Ô­ÓĞÊµÏÖ£©
     /// </summary>
     public class MitsubishiMcAsciiAdapter : IPlcDevice
     {
@@ -68,7 +68,7 @@ namespace YOLO
 
         public string LastError { get; private set; } = string.Empty;
         public bool IsConnected => _isConnected;
-        public string ProtocolName => "ä¸‰è±MC ASCII";
+        public string ProtocolName => "ÈıÁâMC ASCII";
 
         public MitsubishiMcAsciiAdapter(string ip, int port)
         {
@@ -145,7 +145,7 @@ namespace YOLO
     }
 
     /// <summary>
-    /// ä¸‰è±MC Binaryåè®®é€‚é…å™¨
+    /// ÈıÁâMC BinaryĞ­ÒéÊÊÅäÆ÷
     /// </summary>
     public class MitsubishiMcBinaryAdapter : IPlcDevice
     {
@@ -154,7 +154,7 @@ namespace YOLO
 
         public string LastError { get; private set; } = string.Empty;
         public bool IsConnected => _isConnected;
-        public string ProtocolName => "ä¸‰è±MC Binary";
+        public string ProtocolName => "ÈıÁâMC Binary";
 
         public MitsubishiMcBinaryAdapter(string ip, int port)
         {
@@ -231,7 +231,7 @@ namespace YOLO
     }
 
     /// <summary>
-    /// Modbus TCPåè®®é€‚é…å™¨
+    /// Modbus TCPĞ­ÒéÊÊÅäÆ÷
     /// </summary>
     public class ModbusTcpAdapter : IPlcDevice
     {
@@ -245,7 +245,7 @@ namespace YOLO
         public ModbusTcpAdapter(string ip, int port)
         {
             _plc = new ModbusTcpNet(ip, port);
-            // Modbusé»˜è®¤ç«™å·ä¸º1
+            // ModbusÄ¬ÈÏÕ¾ºÅÎª1
             _plc.Station = 1;
         }
 
@@ -286,7 +286,7 @@ namespace YOLO
         {
             try
             {
-                // Modbusåœ°å€æ ¼å¼ï¼šç›´æ¥ä½¿ç”¨æ•°å­—åœ°å€
+                // ModbusµØÖ·¸ñÊ½£ºÖ±½ÓÊ¹ÓÃÊı×ÖµØÖ·
                 var result = await Task.Run(() => _plc.ReadInt16(address));
                 if (!result.IsSuccess)
                 {
@@ -320,7 +320,7 @@ namespace YOLO
     }
 
     /// <summary>
-    /// è¥¿é—¨å­S7åè®®é€‚é…å™¨ (æ”¯æŒS7-1200/1500)
+    /// Î÷ÃÅ×ÓS7Ğ­ÒéÊÊÅäÆ÷ (Ö§³ÖS7-1200/1500)
     /// </summary>
     public class SiemensS7Adapter : IPlcDevice
     {
@@ -329,13 +329,13 @@ namespace YOLO
 
         public string LastError { get; private set; } = string.Empty;
         public bool IsConnected => _isConnected;
-        public string ProtocolName => "è¥¿é—¨å­S7";
+        public string ProtocolName => "Î÷ÃÅ×ÓS7";
 
         public SiemensS7Adapter(string ip, int port)
         {
-            // é»˜è®¤ä½¿ç”¨S7-1200ï¼Œç«¯å£é€šå¸¸ä¸º102
+            // Ä¬ÈÏÊ¹ÓÃS7-1200£¬¶Ë¿ÚÍ¨³£Îª102
             _plc = new SiemensS7Net(SiemensPLCS.S1200, ip);
-            if (port != 102) // éé»˜è®¤ç«¯å£æ—¶è®¾ç½®
+            if (port != 102) // ·ÇÄ¬ÈÏ¶Ë¿ÚÊ±ÉèÖÃ
             {
                 _plc.Port = port;
             }
@@ -378,7 +378,7 @@ namespace YOLO
         {
             try
             {
-                // è¥¿é—¨å­åœ°å€æ ¼å¼ï¼šDB1.0, M0, I0, Q0 ç­‰
+                // Î÷ÃÅ×ÓµØÖ·¸ñÊ½£ºDB1.0, M0, I0, Q0 µÈ
                 var result = await Task.Run(() => _plc.ReadInt16(address));
                 if (!result.IsSuccess)
                 {
@@ -412,7 +412,7 @@ namespace YOLO
     }
 
     /// <summary>
-    /// æ¬§å§†é¾™Fins TCPåè®®é€‚é…å™¨
+    /// Å·Ä·ÁúFins TCPĞ­ÒéÊÊÅäÆ÷
     /// </summary>
     public class OmronFinsAdapter : IPlcDevice
     {
@@ -421,14 +421,14 @@ namespace YOLO
 
         public string LastError { get; private set; } = string.Empty;
         public bool IsConnected => _isConnected;
-        public string ProtocolName => "æ¬§å§†é¾™Fins";
+        public string ProtocolName => "Å·Ä·ÁúFins";
 
         public OmronFinsAdapter(string ip, int port)
         {
             _plc = new OmronFinsNet(ip, port);
-            // é»˜è®¤èŠ‚ç‚¹åœ°å€
-            _plc.SA1 = 0x00; // æºèŠ‚ç‚¹
-            _plc.DA1 = 0x00; // ç›®æ ‡èŠ‚ç‚¹
+            // Ä¬ÈÏ½ÚµãµØÖ·
+            _plc.SA1 = 0x00; // Ô´½Úµã
+            _plc.DA1 = 0x00; // Ä¿±ê½Úµã
         }
 
         public async Task<bool> ConnectAsync()
@@ -468,7 +468,7 @@ namespace YOLO
         {
             try
             {
-                // æ¬§å§†é¾™åœ°å€æ ¼å¼ï¼šD100, W100, H100 ç­‰
+                // Å·Ä·ÁúµØÖ·¸ñÊ½£ºD100, W100, H100 µÈ
                 var result = await Task.Run(() => _plc.ReadInt16(address));
                 if (!result.IsSuccess)
                 {
@@ -501,3 +501,5 @@ namespace YOLO
         }
     }
 }
+
+

@@ -2,20 +2,20 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
-namespace YOLO
+namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// ç›¸æœºæä¾›è€…å·¥å‚
+    /// Ïà»úÌá¹©Õß¹¤³§
     /// </summary>
     public static class CameraProviderFactory
     {
         /// <summary>
-        /// æ”¯æŒçš„ç›¸æœºåˆ¶é€ å•†åˆ—è¡¨
+        /// Ö§³ÖµÄÏà»úÖÆÔìÉÌÁĞ±í
         /// </summary>
         public static readonly string[] SupportedManufacturers = { "MindVision", "Hikvision" };
 
         /// <summary>
-        /// æ ¹æ®åˆ¶é€ å•†åˆ›å»ºç›¸æœºå®ä¾‹
+        /// ¸ù¾İÖÆÔìÉÌ´´½¨Ïà»úÊµÀı
         /// </summary>
         public static ICameraProvider Create(string manufacturer)
         {
@@ -28,19 +28,19 @@ namespace YOLO
         }
 
         /// <summary>
-        /// åˆ›å»ºæ¨¡æ‹Ÿç›¸æœº
+        /// ´´½¨Ä£ÄâÏà»ú
         /// </summary>
         public static ICameraProvider CreateMock() => new MockCameraProvider();
 
         /// <summary>
-        /// æ¢æµ‹æ‰€æœ‰æ”¯æŒå“ç‰Œçš„ç›¸æœº
+        /// Ì½²âËùÓĞÖ§³ÖÆ·ÅÆµÄÏà»ú
         /// </summary>
-        /// <returns>æ‰€æœ‰å‘ç°çš„ç›¸æœºè®¾å¤‡åˆ—è¡¨</returns>
+        /// <returns>ËùÓĞ·¢ÏÖµÄÏà»úÉè±¸ÁĞ±í</returns>
         public static List<CameraDeviceInfo> DiscoverAll()
         {
             var allDevices = new List<CameraDeviceInfo>();
 
-            // å°è¯•è¿ˆå¾·å¨è§†
+            // ³¢ÊÔÂõµÂÍşÊÓ
             try
             {
                 using var mv = new MindVisionCamera();
@@ -53,7 +53,7 @@ namespace YOLO
                 Debug.WriteLine($"[CameraProviderFactory] MindVision enum failed: {ex.Message}");
             }
 
-            // å°è¯•æµ·åº·å¨è§†
+            // ³¢ÊÔº£¿µÍşÊÓ
             try
             {
                 using var hik = new HikvisionCamera();
@@ -70,11 +70,11 @@ namespace YOLO
         }
 
         /// <summary>
-        /// å°è¯•è‡ªåŠ¨æ£€æµ‹ç›¸æœºå¹¶è¿”å›å¯¹åº”çš„æä¾›è€…
+        /// ³¢ÊÔ×Ô¶¯¼ì²âÏà»ú²¢·µ»Ø¶ÔÓ¦µÄÌá¹©Õß
         /// </summary>
         public static ICameraProvider? AutoDetect(string serialNumber)
         {
-            // å…ˆå°è¯•è¿ˆå¾·å¨è§†
+            // ÏÈ³¢ÊÔÂõµÂÍşÊÓ
             try
             {
                 var mv = new MindVisionCamera();
@@ -87,7 +87,7 @@ namespace YOLO
             }
             catch { }
 
-            // å†å°è¯•æµ·åº·å¨è§†
+            // ÔÙ³¢ÊÔº£¿µÍşÊÓ
             try
             {
                 var hik = new HikvisionCamera();
@@ -105,7 +105,7 @@ namespace YOLO
     }
 
     /// <summary>
-    /// æ¨¡æ‹Ÿç›¸æœºæä¾›è€… (ç”¨äºè°ƒè¯•)
+    /// Ä£ÄâÏà»úÌá¹©Õß (ÓÃÓÚµ÷ÊÔ)
     /// </summary>
     public class MockCameraProvider : ICameraProvider
     {
@@ -140,7 +140,7 @@ namespace YOLO
         {
             if (_disposed) return false;
 
-            // åˆ›å»ºæµ‹è¯•å›¾åƒ (1280x1024 ç°åº¦æ¸å˜)
+            // ´´½¨²âÊÔÍ¼Ïñ (1280x1024 »Ò¶È½¥±ä)
             int w = 1280, h = 1024;
             _dummyBuffer = new byte[w * h];
             for (int y = 0; y < h; y++)
@@ -186,7 +186,7 @@ namespace YOLO
         {
             if (!_isConnected || !_isGrabbing || _dummyBuffer == null) return null;
 
-            System.Threading.Thread.Sleep(50); // æ¨¡æ‹Ÿé‡‡é›†å»¶è¿Ÿ
+            System.Threading.Thread.Sleep(50); // Ä£Äâ²É¼¯ÑÓ³Ù
 
             return new CameraFrame
             {
@@ -213,3 +213,5 @@ namespace YOLO
         }
     }
 }
+
+

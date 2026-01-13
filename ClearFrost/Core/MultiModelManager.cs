@@ -1,15 +1,15 @@
 // ============================================================================
-// æ–‡ä»¶å: MultiModelManager.cs
-// æè¿°:   YOLO å¤šæ¨¡å‹ç®¡ç†å™¨ - å®ç°ä¸»æ¨¡å‹ + è¾…åŠ©æ¨¡å‹çš„è‡ªåŠ¨åˆ‡æ¢æ£€æµ‹
+// ÎÄ¼şÃû: MultiModelManager.cs
+// ÃèÊö:   YOLO ¶àÄ£ĞÍ¹ÜÀíÆ÷ - ÊµÏÖÖ÷Ä£ĞÍ + ¸¨ÖúÄ£ĞÍµÄ×Ô¶¯ÇĞ»»¼ì²â
 //
-// åŠŸèƒ½æ¦‚è¿°:
-//   - ç®¡ç†1ä¸ªä¸»æ¨¡å‹ + 2ä¸ªè¾…åŠ©æ¨¡å‹
-//   - å½“ä¸»æ¨¡å‹æœªæ£€æµ‹åˆ°ç›®æ ‡æ—¶ï¼Œè‡ªåŠ¨åˆ‡æ¢åˆ°è¾…åŠ©æ¨¡å‹
-//   - çº§è”æ£€æµ‹ï¼šä¸»æ¨¡å‹ â†’ è¾…åŠ©æ¨¡å‹1 â†’ è¾…åŠ©æ¨¡å‹2
-//   - æ¯æ¬¡æ£€æµ‹åè‡ªåŠ¨åˆ‡å›ä¸»æ¨¡å‹ä¼˜å…ˆ
+// ¹¦ÄÜ¸ÅÊö:
+//   - ¹ÜÀí1¸öÖ÷Ä£ĞÍ + 2¸ö¸¨ÖúÄ£ĞÍ
+//   - µ±Ö÷Ä£ĞÍÎ´¼ì²âµ½Ä¿±êÊ±£¬×Ô¶¯ÇĞ»»µ½¸¨ÖúÄ£ĞÍ
+//   - ¼¶Áª¼ì²â£ºÖ÷Ä£ĞÍ ¡ú ¸¨ÖúÄ£ĞÍ1 ¡ú ¸¨ÖúÄ£ĞÍ2
+//   - Ã¿´Î¼ì²âºó×Ô¶¯ÇĞ»ØÖ÷Ä£ĞÍÓÅÏÈ
 //
-// ä½œè€…: ClearFrost Team
-// åˆ›å»ºæ—¥æœŸ: 2026-01-05
+// ×÷Õß: ClearFrost Team
+// ´´½¨ÈÕÆÚ: 2026-01-05
 // ============================================================================
 using System;
 using System.Collections.Generic;
@@ -17,53 +17,53 @@ using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace YoloDetection
+namespace ClearFrost.Yolo
 {
     /// <summary>
-    /// æ¨¡å‹è§’è‰²æšä¸¾
+    /// Ä£ĞÍ½ÇÉ«Ã¶¾Ù
     /// </summary>
     public enum ModelRole
     {
-        /// <summary>ä¸»æ¨¡å‹</summary>
+        /// <summary>Ö÷Ä£ĞÍ</summary>
         Primary,
-        /// <summary>è¾…åŠ©æ¨¡å‹1</summary>
+        /// <summary>¸¨ÖúÄ£ĞÍ1</summary>
         Auxiliary1,
-        /// <summary>è¾…åŠ©æ¨¡å‹2</summary>
+        /// <summary>¸¨ÖúÄ£ĞÍ2</summary>
         Auxiliary2,
-        /// <summary>æ²¡æœ‰æ¨¡å‹å¯ç”¨</summary>
+        /// <summary>Ã»ÓĞÄ£ĞÍ¿ÉÓÃ</summary>
         None
     }
 
     /// <summary>
-    /// å¤šæ¨¡å‹æ¨ç†ç»“æœ
+    /// ¶àÄ£ĞÍÍÆÀí½á¹û
     /// </summary>
     public class MultiModelInferenceResult
     {
-        /// <summary>æ£€æµ‹ç»“æœåˆ—è¡¨</summary>
+        /// <summary>¼ì²â½á¹ûÁĞ±í</summary>
         public List<YoloResult> Results { get; set; } = new List<YoloResult>();
 
-        /// <summary>ä½¿ç”¨çš„æ¨¡å‹è§’è‰²</summary>
+        /// <summary>Ê¹ÓÃµÄÄ£ĞÍ½ÇÉ«</summary>
         public ModelRole UsedModel { get; set; } = ModelRole.None;
 
-        /// <summary>ä½¿ç”¨çš„æ¨¡å‹åç§°</summary>
+        /// <summary>Ê¹ÓÃµÄÄ£ĞÍÃû³Æ</summary>
         public string UsedModelName { get; set; } = "";
 
-        /// <summary>ä½¿ç”¨çš„æ¨¡å‹çš„æ ‡ç­¾åˆ—è¡¨ï¼ˆå…³é”®ï¼ç”¨äºæ­£ç¡®æ˜¾ç¤ºæ£€æµ‹ç»“æœï¼‰</summary>
+        /// <summary>Ê¹ÓÃµÄÄ£ĞÍµÄ±êÇ©ÁĞ±í£¨¹Ø¼ü£¡ÓÃÓÚÕıÈ·ÏÔÊ¾¼ì²â½á¹û£©</summary>
         public string[] UsedModelLabels { get; set; } = Array.Empty<string>();
 
-        /// <summary>æ˜¯å¦ç»è¿‡äº†æ¨¡å‹åˆ‡æ¢</summary>
+        /// <summary>ÊÇ·ñ¾­¹ıÁËÄ£ĞÍÇĞ»»</summary>
         public bool WasFallback { get; set; } = false;
 
-        /// <summary>æ£€æµ‹åˆ°ç›®æ ‡æ•°é‡</summary>
+        /// <summary>¼ì²âµ½Ä¿±êÊıÁ¿</summary>
         public int DetectionCount => Results.Count;
     }
 
     /// <summary>
-    /// YOLO å¤šæ¨¡å‹ç®¡ç†å™¨ - å®ç°ä¸»æ¨¡å‹ + è¾…åŠ©æ¨¡å‹çš„è‡ªåŠ¨åˆ‡æ¢æ£€æµ‹
+    /// YOLO ¶àÄ£ĞÍ¹ÜÀíÆ÷ - ÊµÏÖÖ÷Ä£ĞÍ + ¸¨ÖúÄ£ĞÍµÄ×Ô¶¯ÇĞ»»¼ì²â
     /// </summary>
     public class MultiModelManager : IDisposable
     {
-        #region ç§æœ‰å­—æ®µ
+        #region Ë½ÓĞ×Ö¶Î
 
         private YoloDetector? _primaryModel;
         private YoloDetector? _auxiliary1Model;
@@ -81,59 +81,59 @@ namespace YoloDetection
 
         #endregion
 
-        #region å…¬å…±å±æ€§
+        #region ¹«¹²ÊôĞÔ
 
-        /// <summary>ä¸»æ¨¡å‹è·¯å¾„</summary>
+        /// <summary>Ö÷Ä£ĞÍÂ·¾¶</summary>
         public string PrimaryModelPath => _primaryModelPath;
 
-        /// <summary>è¾…åŠ©æ¨¡å‹1è·¯å¾„</summary>
+        /// <summary>¸¨ÖúÄ£ĞÍ1Â·¾¶</summary>
         public string Auxiliary1ModelPath => _auxiliary1ModelPath;
 
-        /// <summary>è¾…åŠ©æ¨¡å‹2è·¯å¾„</summary>
+        /// <summary>¸¨ÖúÄ£ĞÍ2Â·¾¶</summary>
         public string Auxiliary2ModelPath => _auxiliary2ModelPath;
 
-        /// <summary>ä¸»æ¨¡å‹æ˜¯å¦å·²åŠ è½½</summary>
+        /// <summary>Ö÷Ä£ĞÍÊÇ·ñÒÑ¼ÓÔØ</summary>
         public bool IsPrimaryLoaded => _primaryModel != null;
 
-        /// <summary>è¾…åŠ©æ¨¡å‹1æ˜¯å¦å·²åŠ è½½</summary>
+        /// <summary>¸¨ÖúÄ£ĞÍ1ÊÇ·ñÒÑ¼ÓÔØ</summary>
         public bool IsAuxiliary1Loaded => _auxiliary1Model != null;
 
-        /// <summary>è¾…åŠ©æ¨¡å‹2æ˜¯å¦å·²åŠ è½½</summary>
+        /// <summary>¸¨ÖúÄ£ĞÍ2ÊÇ·ñÒÑ¼ÓÔØ</summary>
         public bool IsAuxiliary2Loaded => _auxiliary2Model != null;
 
-        /// <summary>æ˜¯å¦å¯ç”¨å¤šæ¨¡å‹åˆ‡æ¢</summary>
+        /// <summary>ÊÇ·ñÆôÓÃ¶àÄ£ĞÍÇĞ»»</summary>
         public bool EnableFallback { get; set; } = true;
 
-        /// <summary>ä¸»æ¨¡å‹å‘½ä¸­æ¬¡æ•°</summary>
+        /// <summary>Ö÷Ä£ĞÍÃüÖĞ´ÎÊı</summary>
         public int PrimaryHitCount { get; private set; }
 
-        /// <summary>è¾…åŠ©æ¨¡å‹1å‘½ä¸­æ¬¡æ•°</summary>
+        /// <summary>¸¨ÖúÄ£ĞÍ1ÃüÖĞ´ÎÊı</summary>
         public int Auxiliary1HitCount { get; private set; }
 
-        /// <summary>è¾…åŠ©æ¨¡å‹2å‘½ä¸­æ¬¡æ•°</summary>
+        /// <summary>¸¨ÖúÄ£ĞÍ2ÃüÖĞ´ÎÊı</summary>
         public int Auxiliary2HitCount { get; private set; }
 
-        /// <summary>æ€»æ¨ç†æ¬¡æ•°</summary>
+        /// <summary>×ÜÍÆÀí´ÎÊı</summary>
         public int TotalInferenceCount { get; private set; }
 
-        /// <summary>æœ€åä½¿ç”¨çš„æ¨¡å‹</summary>
+        /// <summary>×îºóÊ¹ÓÃµÄÄ£ĞÍ</summary>
         public ModelRole LastUsedModel { get; private set; } = ModelRole.None;
 
-        /// <summary>è·å–ä¸»æ¨¡å‹çš„æ ‡ç­¾åˆ—è¡¨</summary>
+        /// <summary>»ñÈ¡Ö÷Ä£ĞÍµÄ±êÇ©ÁĞ±í</summary>
         public string[] PrimaryLabels => _primaryModel?.Labels ?? Array.Empty<string>();
 
-        /// <summary>è·å–ä¸»æ¨¡å‹å®ä¾‹ï¼ˆç”¨äºè¯»å–å±æ€§ï¼Œä»…é™å†…éƒ¨è®¿é—®ï¼‰</summary>
+        /// <summary>»ñÈ¡Ö÷Ä£ĞÍÊµÀı£¨ÓÃÓÚ¶ÁÈ¡ÊôĞÔ£¬½öÏŞÄÚ²¿·ÃÎÊ£©</summary>
         internal YoloDetector? PrimaryDetector => _primaryModel;
 
         #endregion
 
-        #region æ„é€ å‡½æ•°
+        #region ¹¹Ôìº¯Êı
 
         /// <summary>
-        /// åˆ›å»ºå¤šæ¨¡å‹ç®¡ç†å™¨
+        /// ´´½¨¶àÄ£ĞÍ¹ÜÀíÆ÷
         /// </summary>
-        /// <param name="useGpu">æ˜¯å¦ä½¿ç”¨GPU</param>
-        /// <param name="gpuDeviceId">GPUè®¾å¤‡ID</param>
+        /// <param name="useGpu">ÊÇ·ñÊ¹ÓÃGPU</param>
+        /// <param name="gpuDeviceId">GPUÉè±¸ID</param>
         public MultiModelManager(bool useGpu = true, int gpuDeviceId = 0)
         {
             _useGpu = useGpu;
@@ -142,10 +142,10 @@ namespace YoloDetection
 
         #endregion
 
-        #region æ¨¡å‹åŠ è½½
+        #region Ä£ĞÍ¼ÓÔØ
 
         /// <summary>
-        /// åŠ è½½ä¸»æ¨¡å‹
+        /// ¼ÓÔØÖ÷Ä£ĞÍ
         /// </summary>
         public void LoadPrimaryModel(string modelPath)
         {
@@ -153,7 +153,7 @@ namespace YoloDetection
 
             lock (_lock)
             {
-                // é‡Šæ”¾æ—§æ¨¡å‹
+                // ÊÍ·Å¾ÉÄ£ĞÍ
                 _primaryModel?.Dispose();
                 _primaryModel = null;
                 _primaryModelPath = "";
@@ -162,18 +162,18 @@ namespace YoloDetection
                 {
                     _primaryModel = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
                     _primaryModelPath = modelPath;
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ä¸»æ¨¡å‹åŠ è½½æˆåŠŸ: {System.IO.Path.GetFileName(modelPath)}");
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] Ö÷Ä£ĞÍ¼ÓÔØ³É¹¦: {System.IO.Path.GetFileName(modelPath)}");
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ä¸»æ¨¡å‹åŠ è½½å¤±è´¥: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] Ö÷Ä£ĞÍ¼ÓÔØÊ§°Ü: {ex.Message}");
                     throw;
                 }
             }
         }
 
         /// <summary>
-        /// åŠ è½½è¾…åŠ©æ¨¡å‹1
+        /// ¼ÓÔØ¸¨ÖúÄ£ĞÍ1
         /// </summary>
         public void LoadAuxiliary1Model(string modelPath)
         {
@@ -181,7 +181,7 @@ namespace YoloDetection
 
             lock (_lock)
             {
-                // é‡Šæ”¾æ—§æ¨¡å‹
+                // ÊÍ·Å¾ÉÄ£ĞÍ
                 _auxiliary1Model?.Dispose();
                 _auxiliary1Model = null;
                 _auxiliary1ModelPath = "";
@@ -190,18 +190,18 @@ namespace YoloDetection
                 {
                     _auxiliary1Model = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
                     _auxiliary1ModelPath = modelPath;
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] è¾…åŠ©æ¨¡å‹1åŠ è½½æˆåŠŸ: {System.IO.Path.GetFileName(modelPath)}");
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ¸¨ÖúÄ£ĞÍ1¼ÓÔØ³É¹¦: {System.IO.Path.GetFileName(modelPath)}");
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] è¾…åŠ©æ¨¡å‹1åŠ è½½å¤±è´¥: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ¸¨ÖúÄ£ĞÍ1¼ÓÔØÊ§°Ü: {ex.Message}");
                     throw;
                 }
             }
         }
 
         /// <summary>
-        /// åŠ è½½è¾…åŠ©æ¨¡å‹2
+        /// ¼ÓÔØ¸¨ÖúÄ£ĞÍ2
         /// </summary>
         public void LoadAuxiliary2Model(string modelPath)
         {
@@ -209,7 +209,7 @@ namespace YoloDetection
 
             lock (_lock)
             {
-                // é‡Šæ”¾æ—§æ¨¡å‹
+                // ÊÍ·Å¾ÉÄ£ĞÍ
                 _auxiliary2Model?.Dispose();
                 _auxiliary2Model = null;
                 _auxiliary2ModelPath = "";
@@ -218,18 +218,18 @@ namespace YoloDetection
                 {
                     _auxiliary2Model = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
                     _auxiliary2ModelPath = modelPath;
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] è¾…åŠ©æ¨¡å‹2åŠ è½½æˆåŠŸ: {System.IO.Path.GetFileName(modelPath)}");
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ¸¨ÖúÄ£ĞÍ2¼ÓÔØ³É¹¦: {System.IO.Path.GetFileName(modelPath)}");
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] è¾…åŠ©æ¨¡å‹2åŠ è½½å¤±è´¥: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ¸¨ÖúÄ£ĞÍ2¼ÓÔØÊ§°Ü: {ex.Message}");
                     throw;
                 }
             }
         }
 
         /// <summary>
-        /// å¸è½½è¾…åŠ©æ¨¡å‹1
+        /// Ğ¶ÔØ¸¨ÖúÄ£ĞÍ1
         /// </summary>
         public void UnloadAuxiliary1Model()
         {
@@ -242,7 +242,7 @@ namespace YoloDetection
         }
 
         /// <summary>
-        /// å¸è½½è¾…åŠ©æ¨¡å‹2
+        /// Ğ¶ÔØ¸¨ÖúÄ£ĞÍ2
         /// </summary>
         public void UnloadAuxiliary2Model()
         {
@@ -256,12 +256,12 @@ namespace YoloDetection
 
         #endregion
 
-        #region æ¨ç†æ–¹æ³•
+        #region ÍÆÀí·½·¨
 
         /// <summary>
-        /// å¸¦è‡ªåŠ¨åˆ‡æ¢çš„æ¨ç† (æ ¸å¿ƒæ–¹æ³•)
-        /// çº§è”æ£€æµ‹ï¼šä¸»æ¨¡å‹ â†’ è¾…åŠ©æ¨¡å‹1 â†’ è¾…åŠ©æ¨¡å‹2
-        /// æ— è®ºç»“æœå¦‚ä½•ï¼Œä¸‹æ¬¡è°ƒç”¨æ—¶æ€»æ˜¯ä»ä¸»æ¨¡å‹å¼€å§‹
+        /// ´ø×Ô¶¯ÇĞ»»µÄÍÆÀí (ºËĞÄ·½·¨)
+        /// ¼¶Áª¼ì²â£ºÖ÷Ä£ĞÍ ¡ú ¸¨ÖúÄ£ĞÍ1 ¡ú ¸¨ÖúÄ£ĞÍ2
+        /// ÎŞÂÛ½á¹ûÈçºÎ£¬ÏÂ´Îµ÷ÓÃÊ±×ÜÊÇ´ÓÖ÷Ä£ĞÍ¿ªÊ¼
         /// </summary>
         public MultiModelInferenceResult InferenceWithFallback(
             Bitmap image,
@@ -277,7 +277,7 @@ namespace YoloDetection
 
             lock (_lock)
             {
-                // 1. å°è¯•ä¸»æ¨¡å‹
+                // 1. ³¢ÊÔÖ÷Ä£ĞÍ
                 if (_primaryModel != null)
                 {
                     try
@@ -297,11 +297,11 @@ namespace YoloDetection
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ä¸»æ¨¡å‹æ¨ç†å¼‚å¸¸: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] Ö÷Ä£ĞÍÍÆÀíÒì³£: {ex.Message}");
                     }
                 }
 
-                // å¦‚æœä¸å¯ç”¨åˆ‡æ¢ï¼Œç›´æ¥è¿”å›ç©ºç»“æœ
+                // Èç¹û²»ÆôÓÃÇĞ»»£¬Ö±½Ó·µ»Ø¿Õ½á¹û
                 if (!EnableFallback)
                 {
                     result.UsedModel = ModelRole.Primary;
@@ -310,7 +310,7 @@ namespace YoloDetection
                     return result;
                 }
 
-                // 2. å°è¯•è¾…åŠ©æ¨¡å‹1
+                // 2. ³¢ÊÔ¸¨ÖúÄ£ĞÍ1
                 if (_auxiliary1Model != null)
                 {
                     try
@@ -330,11 +330,11 @@ namespace YoloDetection
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] è¾…åŠ©æ¨¡å‹1æ¨ç†å¼‚å¸¸: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ¸¨ÖúÄ£ĞÍ1ÍÆÀíÒì³£: {ex.Message}");
                     }
                 }
 
-                // 3. å°è¯•è¾…åŠ©æ¨¡å‹2ï¼ˆæ— è®ºç»“æœå¦‚ä½•éƒ½è¿”å›ï¼‰
+                // 3. ³¢ÊÔ¸¨ÖúÄ£ĞÍ2£¨ÎŞÂÛ½á¹ûÈçºÎ¶¼·µ»Ø£©
                 if (_auxiliary2Model != null)
                 {
                     try
@@ -351,17 +351,17 @@ namespace YoloDetection
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] è¾…åŠ©æ¨¡å‹2æ¨ç†å¼‚å¸¸: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ¸¨ÖúÄ£ĞÍ2ÍÆÀíÒì³£: {ex.Message}");
                     }
                 }
 
-                // æ²¡æœ‰ä»»ä½•æ¨¡å‹å¯ç”¨
+                // Ã»ÓĞÈÎºÎÄ£ĞÍ¿ÉÓÃ
                 return result;
             }
         }
 
         /// <summary>
-        /// å¼‚æ­¥ç‰ˆæœ¬çš„å¸¦è‡ªåŠ¨åˆ‡æ¢æ¨ç†
+        /// Òì²½°æ±¾µÄ´ø×Ô¶¯ÇĞ»»ÍÆÀí
         /// </summary>
         public async Task<MultiModelInferenceResult> InferenceWithFallbackAsync(
             Bitmap image,
@@ -374,12 +374,12 @@ namespace YoloDetection
             ThrowIfDisposed();
             cancellationToken.ThrowIfCancellationRequested();
 
-            // åœ¨çº¿ç¨‹æ± ä¸­æ‰§è¡Œ
+            // ÔÚÏß³Ì³ØÖĞÖ´ĞĞ
             return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode), cancellationToken);
         }
 
         /// <summary>
-        /// ä»…ä½¿ç”¨ä¸»æ¨¡å‹æ¨ç†ï¼ˆä¸ä½¿ç”¨åˆ‡æ¢ï¼‰
+        /// ½öÊ¹ÓÃÖ÷Ä£ĞÍÍÆÀí£¨²»Ê¹ÓÃÇĞ»»£©
         /// </summary>
         public List<YoloResult> InferencePrimaryOnly(
             Bitmap image,
@@ -398,10 +398,10 @@ namespace YoloDetection
 
         #endregion
 
-        #region ç»Ÿè®¡
+        #region Í³¼Æ
 
         /// <summary>
-        /// é‡ç½®ç»Ÿè®¡ä¿¡æ¯
+        /// ÖØÖÃÍ³¼ÆĞÅÏ¢
         /// </summary>
         public void ResetStatistics()
         {
@@ -412,26 +412,26 @@ namespace YoloDetection
         }
 
         /// <summary>
-        /// è·å–ä¸»æ¨¡å‹å‘½ä¸­ç‡
+        /// »ñÈ¡Ö÷Ä£ĞÍÃüÖĞÂÊ
         /// </summary>
         public double PrimaryHitRate => TotalInferenceCount > 0 ? (double)PrimaryHitCount / TotalInferenceCount : 0;
 
         /// <summary>
-        /// è·å–è¾…åŠ©æ¨¡å‹1å‘½ä¸­ç‡
+        /// »ñÈ¡¸¨ÖúÄ£ĞÍ1ÃüÖĞÂÊ
         /// </summary>
         public double Auxiliary1HitRate => TotalInferenceCount > 0 ? (double)Auxiliary1HitCount / TotalInferenceCount : 0;
 
         /// <summary>
-        /// è·å–è¾…åŠ©æ¨¡å‹2å‘½ä¸­ç‡
+        /// »ñÈ¡¸¨ÖúÄ£ĞÍ2ÃüÖĞÂÊ
         /// </summary>
         public double Auxiliary2HitRate => TotalInferenceCount > 0 ? (double)Auxiliary2HitCount / TotalInferenceCount : 0;
 
         #endregion
 
-        #region ä»»åŠ¡ç±»å‹è®¾ç½®
+        #region ÈÎÎñÀàĞÍÉèÖÃ
 
         /// <summary>
-        /// è®¾ç½®æ‰€æœ‰æ¨¡å‹çš„ä»»åŠ¡ç±»å‹
+        /// ÉèÖÃËùÓĞÄ£ĞÍµÄÈÎÎñÀàĞÍ
         /// </summary>
         public void SetTaskMode(YoloTaskType taskType)
         {
@@ -488,3 +488,4 @@ namespace YoloDetection
         #endregion
     }
 }
+

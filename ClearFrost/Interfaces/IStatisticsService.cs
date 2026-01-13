@@ -1,20 +1,21 @@
+using ClearFrost.Models;
 // ============================================================================
-// æ–‡ä»¶å: IStatisticsService.cs
-// æè¿°:   ç»Ÿè®¡æœåŠ¡æ¥å£
+// ÎÄ¼şÃû: IStatisticsService.cs
+// ÃèÊö:   Í³¼Æ·şÎñ½Ó¿Ú
 //
-// åŠŸèƒ½:
-//   - æ£€æµ‹ç»Ÿè®¡ç®¡ç†
-//   - å†å²è®°å½•ç®¡ç†
-//   - è·¨æ—¥è‡ªåŠ¨é‡ç½®
+// ¹¦ÄÜ:
+//   - ¼ì²âÍ³¼Æ¹ÜÀí
+//   - ÀúÊ·¼ÇÂ¼¹ÜÀí
+//   - ¿çÈÕ×Ô¶¯ÖØÖÃ
 // ============================================================================
 
 using System;
 using System.Collections.Generic;
 
-namespace YOLO.Interfaces
+namespace ClearFrost.Interfaces
 {
     /// <summary>
-    /// ç»Ÿè®¡æ•°æ®å¿«ç…§
+    /// Í³¼ÆÊı¾İ¿ìÕÕ
     /// </summary>
     public class StatisticsSnapshot
     {
@@ -26,81 +27,82 @@ namespace YOLO.Interfaces
     }
 
     /// <summary>
-    /// ç»Ÿè®¡æœåŠ¡æ¥å£
+    /// Í³¼Æ·şÎñ½Ó¿Ú
     /// </summary>
     public interface IStatisticsService : IDisposable
     {
-        #region äº‹ä»¶
+        #region ÊÂ¼ş
 
         /// <summary>
-        /// ç»Ÿè®¡æ•°æ®æ›´æ–°äº‹ä»¶
+        /// Í³¼ÆÊı¾İ¸üĞÂÊÂ¼ş
         /// </summary>
         event Action<StatisticsSnapshot>? StatisticsUpdated;
 
         /// <summary>
-        /// è·¨æ—¥é‡ç½®äº‹ä»¶
+        /// ¿çÈÕÖØÖÃÊÂ¼ş
         /// </summary>
         event Action? DayReset;
 
         #endregion
 
-        #region å±æ€§
+        #region ÊôĞÔ
 
         /// <summary>
-        /// å½“å‰ç»Ÿè®¡æ•°æ®å¿«ç…§
+        /// µ±Ç°Í³¼ÆÊı¾İ¿ìÕÕ
         /// </summary>
         StatisticsSnapshot Current { get; }
 
         /// <summary>
-        /// ä»Šæ—¥åˆæ ¼æ•°
+        /// ½ñÈÕºÏ¸ñÊı
         /// </summary>
         int TodayQualified { get; }
 
         /// <summary>
-        /// ä»Šæ—¥ä¸åˆæ ¼æ•°
+        /// ½ñÈÕ²»ºÏ¸ñÊı
         /// </summary>
         int TodayUnqualified { get; }
 
         /// <summary>
-        /// ä»Šæ—¥æ€»æ£€æµ‹æ•°
+        /// ½ñÈÕ×Ü¼ì²âÊı
         /// </summary>
         int TodayTotal { get; }
 
         /// <summary>
-        /// å†å²è®°å½• (æœ€è¿‘7å¤©)
+        /// ÀúÊ·¼ÇÂ¼ (×î½ü7Ìì)
         /// </summary>
         IReadOnlyList<DailyStatisticsRecord> History { get; }
 
         #endregion
 
-        #region æ–¹æ³•
+        #region ·½·¨
 
         /// <summary>
-        /// è®°å½•æ£€æµ‹ç»“æœ
+        /// ¼ÇÂ¼¼ì²â½á¹û
         /// </summary>
         void RecordDetection(bool isQualified);
 
         /// <summary>
-        /// é‡ç½®ä»Šæ—¥ç»Ÿè®¡
+        /// ÖØÖÃ½ñÈÕÍ³¼Æ
         /// </summary>
         void ResetToday();
 
         /// <summary>
-        /// æ£€æŸ¥å¹¶å¤„ç†è·¨æ—¥
+        /// ¼ì²é²¢´¦Àí¿çÈÕ
         /// </summary>
-        /// <returns>æ˜¯å¦å‘ç”Ÿè·¨æ—¥é‡ç½®</returns>
+        /// <returns>ÊÇ·ñ·¢Éú¿çÈÕÖØÖÃ</returns>
         bool CheckAndResetForNewDay();
 
         /// <summary>
-        /// ä¿å­˜æ‰€æœ‰æ•°æ®
+        /// ±£´æËùÓĞÊı¾İ
         /// </summary>
         void SaveAll();
 
         /// <summary>
-        /// åŠ è½½æ‰€æœ‰æ•°æ®
+        /// ¼ÓÔØËùÓĞÊı¾İ
         /// </summary>
         void LoadAll();
 
         #endregion
     }
 }
+

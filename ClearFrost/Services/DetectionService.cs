@@ -1,11 +1,11 @@
 // ============================================================================
-// æ–‡ä»¶å: DetectionService.cs
-// æè¿°:   æ£€æµ‹æœåŠ¡å®ç°
+// ÎÄ¼şÃû: DetectionService.cs
+// ÃèÊö:   ¼ì²â·şÎñÊµÏÖ
 //
-// åŠŸèƒ½:
-//   - å°è£… YOLO æ¨ç†é€»è¾‘
-//   - å¤šæ¨¡å‹ç®¡ç†å’Œè‡ªåŠ¨åˆ‡æ¢
-//   - æ£€æµ‹ç»“æœç”Ÿæˆ
+// ¹¦ÄÜ:
+//   - ·â×° YOLO ÍÆÀíÂß¼­
+//   - ¶àÄ£ĞÍ¹ÜÀíºÍ×Ô¶¯ÇĞ»»
+//   - ¼ì²â½á¹ûÉú³É
 // ============================================================================
 
 using System;
@@ -17,28 +17,28 @@ using System.Linq;
 using System.Threading.Tasks;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
-using YOLO.Interfaces;
-using YoloDetection;
+using ClearFrost.Interfaces;
+using ClearFrost.Yolo;
 
-namespace YOLO.Services
+namespace ClearFrost.Services
 {
     /// <summary>
-    /// æ£€æµ‹æœåŠ¡å®ç°
+    /// ¼ì²â·şÎñÊµÏÖ
     /// </summary>
     public class DetectionService : IDetectionService
     {
-        #region ç§æœ‰å­—æ®µ
+        #region Ë½ÓĞ×Ö¶Î
 
         private YoloDetector? _yolo;
         private MultiModelManager? _modelManager;
         private readonly bool _useGpu;
         private readonly List<string> _availableModels = new List<string>();
-        private string _currentModelName = "æœªåŠ è½½";
+        private string _currentModelName = "Î´¼ÓÔØ";
         private bool _disposed;
 
         #endregion
 
-        #region äº‹ä»¶
+        #region ÊÂ¼ş
 
         public event Action<DetectionResultData>? DetectionCompleted;
         public event Action<string>? ModelLoaded;
@@ -46,7 +46,7 @@ namespace YOLO.Services
 
         #endregion
 
-        #region å±æ€§
+        #region ÊôĞÔ
 
         public bool IsModelLoaded => _modelManager?.IsPrimaryLoaded ?? _yolo != null;
         public string CurrentModelName => _currentModelName;
@@ -55,7 +55,7 @@ namespace YOLO.Services
 
         #endregion
 
-        #region æ„é€ å‡½æ•°
+        #region ¹¹Ôìº¯Êı
 
         public DetectionService(bool useGpu = true)
         {
@@ -64,7 +64,7 @@ namespace YOLO.Services
 
         #endregion
 
-        #region æ¨¡å‹ç®¡ç†
+        #region Ä£ĞÍ¹ÜÀí
 
         public async Task<bool> LoadModelAsync(string modelPath, bool useGpu)
         {
@@ -72,7 +72,7 @@ namespace YOLO.Services
             {
                 if (!File.Exists(modelPath))
                 {
-                    ErrorOccurred?.Invoke($"æ¨¡å‹æ–‡ä»¶ä¸å­˜åœ¨: {modelPath}");
+                    ErrorOccurred?.Invoke($"Ä£ĞÍÎÄ¼ş²»´æÔÚ: {modelPath}");
                     return false;
                 }
 
@@ -89,12 +89,12 @@ namespace YOLO.Services
 
                 _currentModelName = modelName;
                 ModelLoaded?.Invoke(modelName);
-                Debug.WriteLine($"[DetectionService] æ¨¡å‹å·²åŠ è½½: {modelName}");
+                Debug.WriteLine($"[DetectionService] Ä£ĞÍÒÑ¼ÓÔØ: {modelName}");
                 return true;
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"åŠ è½½æ¨¡å‹å¤±è´¥: {ex.Message}");
+                ErrorOccurred?.Invoke($"¼ÓÔØÄ£ĞÍÊ§°Ü: {ex.Message}");
                 return false;
             }
         }
@@ -105,7 +105,7 @@ namespace YOLO.Services
             {
                 if (!Directory.Exists(modelsDirectory))
                 {
-                    Debug.WriteLine($"[DetectionService] æ¨¡å‹ç›®å½•ä¸å­˜åœ¨: {modelsDirectory}");
+                    Debug.WriteLine($"[DetectionService] Ä£ĞÍÄ¿Â¼²»´æÔÚ: {modelsDirectory}");
                     return false;
                 }
 
@@ -119,14 +119,14 @@ namespace YOLO.Services
 
                 if (_availableModels.Count == 0)
                 {
-                    Debug.WriteLine("[DetectionService] æœªæ‰¾åˆ°ä»»ä½•æ¨¡å‹æ–‡ä»¶");
+                    Debug.WriteLine("[DetectionService] Î´ÕÒµ½ÈÎºÎÄ£ĞÍÎÄ¼ş");
                     return false;
                 }
 
-                // åˆå§‹åŒ–å¤šæ¨¡å‹ç®¡ç†å™¨
+                // ³õÊ¼»¯¶àÄ£ĞÍ¹ÜÀíÆ÷
                 _modelManager = new MultiModelManager(useGpu);
 
-                // åŠ è½½ä¸»æ¨¡å‹ (ç¬¬ä¸€ä¸ªæ‰¾åˆ°çš„æ¨¡å‹)
+                // ¼ÓÔØÖ÷Ä£ĞÍ (µÚÒ»¸öÕÒµ½µÄÄ£ĞÍ)
                 string primaryModelPath = modelFiles[0];
                 await Task.Run(() => _modelManager.LoadPrimaryModel(primaryModelPath));
 
@@ -135,7 +135,7 @@ namespace YOLO.Services
                     string loadedName = System.IO.Path.GetFileNameWithoutExtension(_modelManager.PrimaryModelPath);
                     _currentModelName = loadedName;
                     ModelLoaded?.Invoke(loadedName);
-                    Debug.WriteLine($"[DetectionService] å¤šæ¨¡å‹ç®¡ç†å™¨åˆå§‹åŒ–å®Œæˆ: {_modelManager.PrimaryModelPath}");
+                    Debug.WriteLine($"[DetectionService] ¶àÄ£ĞÍ¹ÜÀíÆ÷³õÊ¼»¯Íê³É: {_modelManager.PrimaryModelPath}");
                     return true;
                 }
 
@@ -143,7 +143,7 @@ namespace YOLO.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"æ‰«ææ¨¡å‹å¤±è´¥: {ex.Message}");
+                ErrorOccurred?.Invoke($"É¨ÃèÄ£ĞÍÊ§°Ü: {ex.Message}");
                 return false;
             }
         }
@@ -157,7 +157,7 @@ namespace YOLO.Services
 
                 if (_modelManager != null)
                 {
-                    // é‡æ–°åŠ è½½ä¸»æ¨¡å‹
+                    // ÖØĞÂ¼ÓÔØÖ÷Ä£ĞÍ
                     await Task.Run(() => _modelManager.LoadPrimaryModel(modelPath));
 
                     if (_modelManager.IsPrimaryLoaded)
@@ -173,14 +173,14 @@ namespace YOLO.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"åˆ‡æ¢æ¨¡å‹å¤±è´¥: {ex.Message}");
+                ErrorOccurred?.Invoke($"ÇĞ»»Ä£ĞÍÊ§°Ü: {ex.Message}");
                 return false;
             }
         }
 
         #endregion
 
-        #region æ£€æµ‹æ–¹æ³•
+        #region ¼ì²â·½·¨
 
         public async Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold)
         {
@@ -197,7 +197,7 @@ namespace YOLO.Services
 
             if (!IsModelLoaded)
             {
-                ErrorOccurred?.Invoke("æ¨¡å‹æœªåŠ è½½");
+                ErrorOccurred?.Invoke("Ä£ĞÍÎ´¼ÓÔØ");
                 result.IsQualified = false;
                 return result;
             }
@@ -211,7 +211,7 @@ namespace YOLO.Services
                 string[] usedModelLabels = Array.Empty<string>();
                 bool wasFallback = false;
 
-                // ä½¿ç”¨å¤šæ¨¡å‹ç®¡ç†å™¨è¿›è¡Œæ¨ç†
+                // Ê¹ÓÃ¶àÄ£ĞÍ¹ÜÀíÆ÷½øĞĞÍÆÀí
                 if (_modelManager != null && _modelManager.IsPrimaryLoaded)
                 {
                     var inferenceResult = await _modelManager.InferenceWithFallbackAsync(
@@ -224,20 +224,20 @@ namespace YOLO.Services
                 }
                 else if (_yolo != null)
                 {
-                    // å‘åå…¼å®¹ï¼šä½¿ç”¨å•æ¨¡å‹æ¨ç†
+                    // Ïòºó¼æÈİ£ºÊ¹ÓÃµ¥Ä£ĞÍÍÆÀí
                     allResults = await Task.Run(() =>
                         _yolo.Inference(image, confidence, iouThreshold, false, 0));
                     usedModelLabels = _yolo.Labels;
                 }
                 else
                 {
-                    throw new InvalidOperationException("æ²¡æœ‰å¯ç”¨çš„æ£€æµ‹æ¨¡å‹");
+                    throw new InvalidOperationException("Ã»ÓĞ¿ÉÓÃµÄ¼ì²âÄ£ĞÍ");
                 }
 
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
 
-                // ç®€å•åˆ¤å®šï¼šæ— æ£€æµ‹ç»“æœè§†ä¸ºåˆæ ¼
+                // ¼òµ¥ÅĞ¶¨£ºÎŞ¼ì²â½á¹ûÊÓÎªºÏ¸ñ
                 bool isQualified = allResults.Count == 0;
 
                 result.IsQualified = isQualified;
@@ -253,7 +253,7 @@ namespace YOLO.Services
             catch (Exception ex)
             {
                 sw.Stop();
-                ErrorOccurred?.Invoke($"æ£€æµ‹å¤±è´¥: {ex.Message}");
+                ErrorOccurred?.Invoke($"¼ì²âÊ§°Ü: {ex.Message}");
                 result.IsQualified = false;
                 result.ElapsedMs = sw.ElapsedMilliseconds;
                 return result;
@@ -262,13 +262,13 @@ namespace YOLO.Services
 
         #endregion
 
-        #region ç»“æœå¯è§†åŒ–
+        #region ½á¹û¿ÉÊÓ»¯
 
         public Bitmap GenerateResultImage(Bitmap original, List<YoloResult> results, string[] labels)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
-                // ä½¿ç”¨ MultiModelManager çš„ GenerateImage æ–¹æ³•
+                // Ê¹ÓÃ MultiModelManager µÄ GenerateImage ·½·¨
                 var detector = _modelManager.PrimaryDetector;
                 if (detector != null)
                 {
@@ -281,13 +281,13 @@ namespace YOLO.Services
                 return (Bitmap)_yolo.GenerateImage(original, results, labels);
             }
 
-            // è¿”å›åŸå›¾çš„å‰¯æœ¬
+            // ·µ»ØÔ­Í¼µÄ¸±±¾
             return new Bitmap(original);
         }
 
         #endregion
 
-        #region å¤šæ¨¡å‹ç®¡ç†
+        #region ¶àÄ£ĞÍ¹ÜÀí
 
         public void SetTaskMode(int taskType)
         {
@@ -314,12 +314,12 @@ namespace YOLO.Services
             try
             {
                 await Task.Run(() => _modelManager.LoadAuxiliary1Model(modelPath));
-                Debug.WriteLine($"[DetectionService] è¾…åŠ©æ¨¡å‹1å·²åŠ è½½: {Path.GetFileName(modelPath)}");
+                Debug.WriteLine($"[DetectionService] ¸¨ÖúÄ£ĞÍ1ÒÑ¼ÓÔØ: {Path.GetFileName(modelPath)}");
                 return true;
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"åŠ è½½è¾…åŠ©æ¨¡å‹1å¤±è´¥: {ex.Message}");
+                ErrorOccurred?.Invoke($"¼ÓÔØ¸¨ÖúÄ£ĞÍ1Ê§°Ü: {ex.Message}");
                 return false;
             }
         }
@@ -332,12 +332,12 @@ namespace YOLO.Services
             try
             {
                 await Task.Run(() => _modelManager.LoadAuxiliary2Model(modelPath));
-                Debug.WriteLine($"[DetectionService] è¾…åŠ©æ¨¡å‹2å·²åŠ è½½: {Path.GetFileName(modelPath)}");
+                Debug.WriteLine($"[DetectionService] ¸¨ÖúÄ£ĞÍ2ÒÑ¼ÓÔØ: {Path.GetFileName(modelPath)}");
                 return true;
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"åŠ è½½è¾…åŠ©æ¨¡å‹2å¤±è´¥: {ex.Message}");
+                ErrorOccurred?.Invoke($"¼ÓÔØ¸¨ÖúÄ£ĞÍ2Ê§°Ü: {ex.Message}");
                 return false;
             }
         }
@@ -383,3 +383,4 @@ namespace YOLO.Services
         #endregion
     }
 }
+

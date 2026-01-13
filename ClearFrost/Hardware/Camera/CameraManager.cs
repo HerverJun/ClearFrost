@@ -1,14 +1,16 @@
 using System;
+using ClearFrost.Config;
+using ClearFrost.Hardware;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using MVSDK_Net;
 
-namespace YOLO
+namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// ç›¸æœºå®ä¾‹ï¼Œå°è£…å•ä¸ªç›¸æœºçš„æ“ä½œ
+    /// Ïà»úÊµÀı£¬·â×°µ¥¸öÏà»úµÄ²Ù×÷
     /// </summary>
     public class CameraInstance : IDisposable
     {
@@ -35,7 +37,7 @@ namespace YOLO
 
             if (IsOpen)
             {
-                // åº”ç”¨é…ç½®
+                // Ó¦ÓÃÅäÖÃ
                 Camera.IMV_SetDoubleFeatureValue("ExposureTime", Config.ExposureTime);
                 Camera.IMV_SetDoubleFeatureValue("GainRaw", Config.Gain);
                 Camera.IMV_SetEnumFeatureSymbol("TriggerMode", "On");
@@ -84,7 +86,7 @@ namespace YOLO
     }
 
     /// <summary>
-    /// ç›¸æœºç®¡ç†å™¨ï¼Œæ”¯æŒå¤šç›¸æœºçš„å‘ç°ã€ç®¡ç†å’Œåˆ‡æ¢
+    /// Ïà»ú¹ÜÀíÆ÷£¬Ö§³Ö¶àÏà»úµÄ·¢ÏÖ¡¢¹ÜÀíºÍÇĞ»»
     /// </summary>
     public class CameraManager : IDisposable
     {
@@ -103,7 +105,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// è·å–æ‰€æœ‰ç›¸æœºå®ä¾‹
+        /// »ñÈ¡ËùÓĞÏà»úÊµÀı
         /// </summary>
         public IReadOnlyList<CameraInstance> Cameras
         {
@@ -117,7 +119,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// è·å–å½“å‰æ´»åŠ¨ç›¸æœº
+        /// »ñÈ¡µ±Ç°»î¶¯Ïà»ú
         /// </summary>
         public CameraInstance? ActiveCamera
         {
@@ -132,7 +134,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// æ´»åŠ¨ç›¸æœº ID
+        /// »î¶¯Ïà»ú ID
         /// </summary>
         public string ActiveCameraId
         {
@@ -151,8 +153,8 @@ namespace YOLO
         }
 
         /// <summary>
-        /// æšä¸¾ç³»ç»Ÿä¸­è¿æ¥çš„ç›¸æœº (ç®€åŒ–ç‰ˆï¼šè¿”å›åºåˆ—å·åˆ—è¡¨ï¼Œä»…è¿ˆå¾·å¨è§†)
-        /// ä¿ç•™æ­¤æ–¹æ³•ä»¥ä¿æŒå‘åå…¼å®¹
+        /// Ã¶¾ÙÏµÍ³ÖĞÁ¬½ÓµÄÏà»ú (¼ò»¯°æ£º·µ»ØĞòÁĞºÅÁĞ±í£¬½öÂõµÂÍşÊÓ)
+        /// ±£Áô´Ë·½·¨ÒÔ±£³ÖÏòºó¼æÈİ
         /// </summary>
         public List<string> DiscoverCameras()
         {
@@ -160,7 +162,7 @@ namespace YOLO
 
             if (_isDebugMode)
             {
-                // è°ƒè¯•æ¨¡å¼ï¼šè¿”å›æ¨¡æ‹Ÿç›¸æœº
+                // µ÷ÊÔÄ£Ê½£º·µ»ØÄ£ÄâÏà»ú
                 result.Add("MOCK_CAM_001");
                 result.Add("MOCK_CAM_002");
                 return result;
@@ -194,7 +196,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// æšä¸¾æ‰€æœ‰æ”¯æŒå“ç‰Œçš„ç›¸æœº (æ–°ç‰ˆï¼šè¿”å›å®Œæ•´è®¾å¤‡ä¿¡æ¯)
+        /// Ã¶¾ÙËùÓĞÖ§³ÖÆ·ÅÆµÄÏà»ú (ĞÂ°æ£º·µ»ØÍêÕûÉè±¸ĞÅÏ¢)
         /// </summary>
         public List<CameraDeviceInfo> DiscoverAllCameras()
         {
@@ -221,12 +223,12 @@ namespace YOLO
                 };
             }
 
-            // ä½¿ç”¨å·¥å‚ç±»å‘ç°æ‰€æœ‰å“ç‰Œçš„ç›¸æœº
+            // Ê¹ÓÃ¹¤³§Àà·¢ÏÖËùÓĞÆ·ÅÆµÄÏà»ú
             return CameraProviderFactory.DiscoverAll();
         }
 
         /// <summary>
-        /// æ·»åŠ ç›¸æœº
+        /// Ìí¼ÓÏà»ú
         /// </summary>
         public bool AddCamera(CameraConfig config)
         {
@@ -241,17 +243,17 @@ namespace YOLO
                 ICamera camera;
                 if (_isDebugMode)
                 {
-                    // è°ƒè¯•æ¨¡å¼ï¼šä½¿ç”¨æ¨¡æ‹Ÿç›¸æœºï¼Œä¸è°ƒç”¨ä»»ä½•çœŸå® SDK
+                    // µ÷ÊÔÄ£Ê½£ºÊ¹ÓÃÄ£ÄâÏà»ú£¬²»µ÷ÓÃÈÎºÎÕæÊµ SDK
                     camera = new MockCamera();
                 }
                 else
                 {
                     try
                     {
-                        // æ ¹æ®åˆ¶é€ å•†é€‰æ‹©ä¸åŒçš„ç›¸æœºå®ç°
+                        // ¸ù¾İÖÆÔìÉÌÑ¡Ôñ²»Í¬µÄÏà»úÊµÏÖ
                         if (config.Manufacturer == "Hikvision")
                         {
-                            // æµ·åº·å¨è§†ç›¸æœºï¼šä½¿ç”¨æ–°çš„ ICameraProvider + é€‚é…å™¨
+                            // º£¿µÍşÊÓÏà»ú£ºÊ¹ÓÃĞÂµÄ ICameraProvider + ÊÊÅäÆ÷
                             var hikCamera = new HikvisionCamera();
                             if (!hikCamera.Open(config.SerialNumber))
                             {
@@ -264,10 +266,10 @@ namespace YOLO
                         }
                         else
                         {
-                            // è¿ˆå¾·å¨è§†ç›¸æœº (é»˜è®¤)ï¼šä½¿ç”¨åŸæœ‰çš„ RealCamera å®ç°
+                            // ÂõµÂÍşÊÓÏà»ú (Ä¬ÈÏ)£ºÊ¹ÓÃÔ­ÓĞµÄ RealCamera ÊµÏÖ
                             camera = new RealCamera();
 
-                            // æŸ¥æ‰¾ç›¸æœºç´¢å¼•
+                            // ²éÕÒÏà»úË÷Òı
                             var deviceList = new IMVDefine.IMV_DeviceList();
                             RealCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
 
@@ -276,7 +278,7 @@ namespace YOLO
                             int deviceIndex = -1;
                             int structSize = Marshal.SizeOf<IMVDefine.IMV_DeviceInfo>();
 
-                            // ç”¨æˆ·è¾“å…¥çš„åºåˆ—å·ï¼Œæ¸…ç†ç©ºæ ¼
+                            // ÓÃ»§ÊäÈëµÄĞòÁĞºÅ£¬ÇåÀí¿Õ¸ñ
                             string targetSerial = config.SerialNumber?.Trim() ?? "";
 
                             for (int i = 0; i < deviceList.nDevNum; i++)
@@ -287,7 +289,7 @@ namespace YOLO
 
                                 Debug.WriteLine($"[CameraManager] Device[{i}] SerialNumber: '{foundSerial}'");
 
-                                // å¿½ç•¥å¤§å°å†™æ¯”è¾ƒ
+                                // ºöÂÔ´óĞ¡Ğ´±È½Ï
                                 if (string.Equals(foundSerial, targetSerial, StringComparison.OrdinalIgnoreCase))
                                 {
                                     deviceIndex = i;
@@ -313,7 +315,7 @@ namespace YOLO
                     }
                     catch (Exception ex)
                     {
-                        // SDK DLL ç¼ºå¤±æˆ–åŠ è½½å¤±è´¥æ—¶ï¼Œå›é€€åˆ°æ¨¡æ‹Ÿç›¸æœº
+                        // SDK DLL È±Ê§»ò¼ÓÔØÊ§°ÜÊ±£¬»ØÍËµ½Ä£ÄâÏà»ú
                         Debug.WriteLine($"[CameraManager] SDK error, falling back to MockCamera: {ex.Message}");
                         camera = new MockCamera();
                     }
@@ -322,7 +324,7 @@ namespace YOLO
                 var instance = new CameraInstance(config.Id, config, camera);
                 _cameras[config.Id] = instance;
 
-                // å¦‚æœæ˜¯ç¬¬ä¸€ä¸ªç›¸æœºï¼Œè®¾ä¸ºæ´»åŠ¨ç›¸æœº
+                // Èç¹ûÊÇµÚÒ»¸öÏà»ú£¬ÉèÎª»î¶¯Ïà»ú
                 if (_cameras.Count == 1)
                 {
                     _activeCameraId = config.Id;
@@ -335,7 +337,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// ç§»é™¤ç›¸æœº
+        /// ÒÆ³ıÏà»ú
         /// </summary>
         public bool RemoveCamera(string id)
         {
@@ -347,7 +349,7 @@ namespace YOLO
                 instance.Dispose();
                 _cameras.Remove(id);
 
-                // å¦‚æœç§»é™¤çš„æ˜¯æ´»åŠ¨ç›¸æœºï¼Œåˆ‡æ¢åˆ°ç¬¬ä¸€ä¸ª
+                // Èç¹ûÒÆ³ıµÄÊÇ»î¶¯Ïà»ú£¬ÇĞ»»µ½µÚÒ»¸ö
                 if (_activeCameraId == id)
                 {
                     _activeCameraId = _cameras.Keys.FirstOrDefault() ?? "";
@@ -362,7 +364,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// è·å–æŒ‡å®šç›¸æœº
+        /// »ñÈ¡Ö¸¶¨Ïà»ú
         /// </summary>
         public CameraInstance? GetCamera(string id)
         {
@@ -373,7 +375,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// ä»é…ç½®åŠ è½½ç›¸æœº
+        /// ´ÓÅäÖÃ¼ÓÔØÏà»ú
         /// </summary>
         public void LoadFromConfig(AppConfig config)
         {
@@ -389,7 +391,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// ä¿å­˜åˆ°é…ç½®
+        /// ±£´æµ½ÅäÖÃ
         /// </summary>
         public void SaveToConfig(AppConfig config)
         {
@@ -427,3 +429,5 @@ namespace YOLO
         }
     }
 }
+
+

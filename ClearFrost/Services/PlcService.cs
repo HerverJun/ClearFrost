@@ -1,27 +1,28 @@
+using ClearFrost.Hardware;
 // ============================================================================
-// æ–‡ä»¶å: PlcService.cs
-// æè¿°:   PLC é€šè®¯æœåŠ¡å®ç°
+// ÎÄ¼şÃû: PlcService.cs
+// ÃèÊö:   PLC Í¨Ñ¶·şÎñÊµÏÖ
 //
-// åŠŸèƒ½:
-//   - å¤šåè®® PLC è¿æ¥ç®¡ç† (Mitsubishi, Siemens, Omron, Modbus)
-//   - è§¦å‘ä¿¡å·ç›‘æ§å¾ªç¯
-//   - æ£€æµ‹ç»“æœå†™å…¥
+// ¹¦ÄÜ:
+//   - ¶àĞ­Òé PLC Á¬½Ó¹ÜÀí (Mitsubishi, Siemens, Omron, Modbus)
+//   - ´¥·¢ĞÅºÅ¼à¿ØÑ­»·
+//   - ¼ì²â½á¹ûĞ´Èë
 // ============================================================================
 
 using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using YOLO.Interfaces;
+using ClearFrost.Interfaces;
 
-namespace YOLO.Services
+namespace ClearFrost.Services
 {
     /// <summary>
-    /// PLC é€šè®¯æœåŠ¡å®ç°
+    /// PLC Í¨Ñ¶·şÎñÊµÏÖ
     /// </summary>
     public class PlcService : IPlcService
     {
-        #region ç§æœ‰å­—æ®µ
+        #region Ë½ÓĞ×Ö¶Î
 
         private IPlcDevice? _plcDevice;
         private CancellationTokenSource? _monitoringCts;
@@ -30,7 +31,7 @@ namespace YOLO.Services
 
         #endregion
 
-        #region äº‹ä»¶
+        #region ÊÂ¼ş
 
         public event Action<bool>? ConnectionChanged;
         public event Action? TriggerReceived;
@@ -38,15 +39,15 @@ namespace YOLO.Services
 
         #endregion
 
-        #region å±æ€§
+        #region ÊôĞÔ
 
         public bool IsConnected { get; private set; }
-        public string ProtocolName => _plcDevice?.ProtocolName ?? "æœªè¿æ¥";
+        public string ProtocolName => _plcDevice?.ProtocolName ?? "Î´Á¬½Ó";
         public string? LastError { get; private set; }
 
         #endregion
 
-        #region è¿æ¥ç®¡ç†
+        #region Á¬½Ó¹ÜÀí
 
         public async Task<bool> ConnectAsync(string protocol, string ip, int port)
         {
@@ -58,14 +59,14 @@ namespace YOLO.Services
 
             try
             {
-                // åœæ­¢æ—§çš„ç›‘æ§
+                // Í£Ö¹¾ÉµÄ¼à¿Ø
                 await StopMonitoringAsync();
 
-                // æ–­å¼€æ—§è¿æ¥
+                // ¶Ï¿ª¾ÉÁ¬½Ó
                 Disconnect();
 
                 var protocolType = PlcFactory.ParseProtocol(protocol);
-                Debug.WriteLine($"[PlcService] æ­£åœ¨è¿æ¥ {protocolType} @ {ip}:{port}");
+                Debug.WriteLine($"[PlcService] ÕıÔÚÁ¬½Ó {protocolType} @ {ip}:{port}");
 
                 for (int i = 0; i < maxRetries; i++)
                 {
@@ -77,12 +78,12 @@ namespace YOLO.Services
                         IsConnected = true;
                         LastError = null;
                         ConnectionChanged?.Invoke(true);
-                        Debug.WriteLine($"[PlcService] è¿æ¥æˆåŠŸ: {_plcDevice.ProtocolName}");
+                        Debug.WriteLine($"[PlcService] Á¬½Ó³É¹¦: {_plcDevice.ProtocolName}");
                         return true;
                     }
 
-                    LastError = _plcDevice?.LastError ?? "æœªçŸ¥é”™è¯¯";
-                    Debug.WriteLine($"[PlcService] è¿æ¥å¤±è´¥: {LastError}");
+                    LastError = _plcDevice?.LastError ?? "Î´Öª´íÎó";
+                    Debug.WriteLine($"[PlcService] Á¬½ÓÊ§°Ü: {LastError}");
 
                     if (i < maxRetries - 1)
                     {
@@ -96,7 +97,7 @@ namespace YOLO.Services
             catch (Exception ex)
             {
                 LastError = ex.Message;
-                ErrorOccurred?.Invoke($"è¿æ¥å¼‚å¸¸: {ex.Message}");
+                ErrorOccurred?.Invoke($"Á¬½ÓÒì³£: {ex.Message}");
                 ConnectionChanged?.Invoke(false);
                 return false;
             }
@@ -114,7 +115,7 @@ namespace YOLO.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[PlcService] æ–­å¼€è¿æ¥å¼‚å¸¸: {ex.Message}");
+                Debug.WriteLine($"[PlcService] ¶Ï¿ªÁ¬½ÓÒì³£: {ex.Message}");
             }
             finally
             {
@@ -125,7 +126,7 @@ namespace YOLO.Services
 
         #endregion
 
-        #region ç›‘æ§ç®¡ç†
+        #region ¼à¿Ø¹ÜÀí
 
         public void StartMonitoring(short triggerAddress, int pollingIntervalMs = 500)
         {
@@ -139,7 +140,7 @@ namespace YOLO.Services
                 await MonitoringLoop(triggerAddress, pollingIntervalMs, token);
             });
 
-            Debug.WriteLine($"[PlcService] å¼€å§‹ç›‘æ§è§¦å‘åœ°å€: {triggerAddress}");
+            Debug.WriteLine($"[PlcService] ¿ªÊ¼¼à¿Ø´¥·¢µØÖ·: {triggerAddress}");
         }
 
         public void StopMonitoring()
@@ -149,7 +150,7 @@ namespace YOLO.Services
                 _monitoringCts.Cancel();
                 _monitoringCts.Dispose();
                 _monitoringCts = null;
-                Debug.WriteLine("[PlcService] åœæ­¢ç›‘æ§");
+                Debug.WriteLine("[PlcService] Í£Ö¹¼à¿Ø");
             }
         }
 
@@ -158,7 +159,7 @@ namespace YOLO.Services
             if (_monitoringCts != null && !_monitoringCts.IsCancellationRequested)
             {
                 _monitoringCts.Cancel();
-                await Task.Delay(100); // ç»™å¾ªç¯æ—¶é—´é€€å‡º
+                await Task.Delay(100); // ¸øÑ­»·Ê±¼äÍË³ö
             }
             _monitoringCts?.Dispose();
             _monitoringCts = null;
@@ -179,11 +180,11 @@ namespace YOLO.Services
 
                     if (success && value == 1)
                     {
-                        // æ”¶åˆ°è§¦å‘ä¿¡å·ï¼Œæ¸…é›¶
+                        // ÊÕµ½´¥·¢ĞÅºÅ£¬ÇåÁã
                         await _plcDevice.WriteInt16Async(address, 0);
                         await Task.Delay(triggerDelay);
 
-                        // å‘å‡ºäº‹ä»¶é€šçŸ¥
+                        // ·¢³öÊÂ¼şÍ¨Öª
                         TriggerReceived?.Invoke();
                     }
 
@@ -196,7 +197,7 @@ namespace YOLO.Services
                 catch (Exception ex)
                 {
                     LastError = ex.Message;
-                    ErrorOccurred?.Invoke($"ç›‘æ§å¼‚å¸¸: {ex.Message}");
+                    ErrorOccurred?.Invoke($"¼à¿ØÒì³£: {ex.Message}");
                     break;
                 }
             }
@@ -204,7 +205,7 @@ namespace YOLO.Services
 
         #endregion
 
-        #region ç»“æœå†™å…¥
+        #region ½á¹ûĞ´Èë
 
         public async Task WriteResultAsync(short resultAddress, bool isQualified)
         {
@@ -217,13 +218,13 @@ namespace YOLO.Services
                 if (!success)
                 {
                     LastError = _plcDevice.LastError;
-                    ErrorOccurred?.Invoke($"å†™å…¥å¤±è´¥: {LastError}");
+                    ErrorOccurred?.Invoke($"Ğ´ÈëÊ§°Ü: {LastError}");
                 }
             }
             catch (Exception ex)
             {
                 LastError = ex.Message;
-                ErrorOccurred?.Invoke($"å†™å…¥å¼‚å¸¸: {ex.Message}");
+                ErrorOccurred?.Invoke($"Ğ´ÈëÒì³£: {ex.Message}");
             }
         }
 
@@ -238,19 +239,19 @@ namespace YOLO.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"æ”¾è¡Œå¤±è´¥: {ex.Message}");
+                ErrorOccurred?.Invoke($"·ÅĞĞÊ§°Ü: {ex.Message}");
             }
         }
 
         #endregion
 
-        #region è¾…åŠ©æ–¹æ³•
+        #region ¸¨Öú·½·¨
 
         private string GetPlcAddress(short address)
         {
             if (_plcDevice == null) return $"D{address}";
 
-            // æ ¹æ®åè®®åç§°åˆ¤æ–­åœ°å€æ ¼å¼
+            // ¸ù¾İĞ­ÒéÃû³ÆÅĞ¶ÏµØÖ·¸ñÊ½
             string protocol = _plcDevice.ProtocolName?.ToLower() ?? "";
 
             if (protocol.Contains("modbus"))
@@ -279,3 +280,4 @@ namespace YOLO.Services
         #endregion
     }
 }
+
