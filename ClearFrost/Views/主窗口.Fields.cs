@@ -30,6 +30,7 @@ namespace YOLO
         private readonly IDetectionService _detectionService;
         private readonly IStorageService _storageService;
         private readonly IStatisticsService _statisticsService;
+        private readonly IDatabaseService _databaseService;
 
         // WebUI 控制器
         private WebUIController _uiController;

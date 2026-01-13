@@ -33,6 +33,7 @@ namespace YOLO.Services
         private MultiModelManager? _modelManager;
         private readonly bool _useGpu;
         private readonly List<string> _availableModels = new List<string>();
+        private string _currentModelName = "未加载";
         private bool _disposed;
 
         #endregion
@@ -48,9 +49,7 @@ namespace YOLO.Services
         #region 属性
 
         public bool IsModelLoaded => _modelManager?.IsPrimaryLoaded ?? _yolo != null;
-        public string CurrentModelName => _modelManager != null && _modelManager.IsPrimaryLoaded
-            ? System.IO.Path.GetFileNameWithoutExtension(_modelManager.PrimaryModelPath)
-            : "未加载";
+        public string CurrentModelName => _currentModelName;
         public IReadOnlyList<string> AvailableModels => _availableModels.AsReadOnly();
         public long LastInferenceMs { get; private set; }
 
@@ -88,6 +87,7 @@ namespace YOLO.Services
                     _availableModels.Add(modelName);
                 }
 
+                _currentModelName = modelName;
                 ModelLoaded?.Invoke(modelName);
                 Debug.WriteLine($"[DetectionService] 模型已加载: {modelName}");
                 return true;
@@ -132,7 +132,9 @@ namespace YOLO.Services
 
                 if (_modelManager.IsPrimaryLoaded)
                 {
-                    ModelLoaded?.Invoke(System.IO.Path.GetFileNameWithoutExtension(_modelManager.PrimaryModelPath));
+                    string loadedName = System.IO.Path.GetFileNameWithoutExtension(_modelManager.PrimaryModelPath);
+                    _currentModelName = loadedName;
+                    ModelLoaded?.Invoke(loadedName);
                     Debug.WriteLine($"[DetectionService] 多模型管理器初始化完成: {_modelManager.PrimaryModelPath}");
                     return true;
                 }
@@ -157,8 +159,14 @@ namespace YOLO.Services
                 {
                     // 重新加载主模型
                     await Task.Run(() => _modelManager.LoadPrimaryModel(modelPath));
-                    ModelLoaded?.Invoke(modelName);
-                    return _modelManager.IsPrimaryLoaded;
+
+                    if (_modelManager.IsPrimaryLoaded)
+                    {
+                        _currentModelName = modelName;
+                        ModelLoaded?.Invoke(modelName);
+                        return true;
+                    }
+                    return false;
                 }
 
                 return await LoadModelAsync(modelPath, _useGpu);

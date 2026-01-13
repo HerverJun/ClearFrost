@@ -290,10 +290,23 @@ namespace YOLO
                 config.TemplatePath = _appConfig.TemplateImagePath;
                 config.TemplateThreshold = _appConfig.TemplateThreshold;
 
+                // Build OperatorParameters dictionary from each operator's GetParameterInfo()
+                var operatorParams = new Dictionary<string, List<OperatorParameterInfo>>();
+                foreach (var opNode in _pipelineProcessor.Operators)
+                {
+                    try
+                    {
+                        var paramInfo = opNode.Operator.GetParameterInfo();
+                        operatorParams[opNode.InstanceId] = paramInfo;
+                    }
+                    catch { }
+                }
+
                 var response = new VisionConfigResponse
                 {
                     Config = config,
-                    AvailableOperators = OperatorFactory.GetAvailableOperators()
+                    AvailableOperators = OperatorFactory.GetAvailableOperators(),
+                    OperatorParameters = operatorParams
                 };
                 await _uiController.SendVisionConfig(response);
             };
@@ -707,8 +720,8 @@ namespace YOLO
                     using var doc = JsonDocument.Parse(json);
                     var r = doc.RootElement;
 
-                    string displayName = r.TryGetProperty("displayName", out var dn) ? dn.GetString() ?? "" : "";
-                    string serialNumber = r.TryGetProperty("serialNumber", out var sn) ? sn.GetString() ?? "" : "";
+                    string displayName = r.TryGetProperty("displayName", out var dn) ? dn.GetString()?.Trim() ?? "" : "";
+                    string serialNumber = r.TryGetProperty("serialNumber", out var sn) ? sn.GetString()?.Trim() ?? "" : "";
                     string manufacturer = r.TryGetProperty("manufacturer", out var mf) ? mf.GetString() ?? "MindVision" : "MindVision";
                     double exposure = r.TryGetProperty("exposureTime", out var exp) ? exp.GetDouble() : 50000;
                     double gain = r.TryGetProperty("gain", out var g) ? g.GetDouble() : 1.0;
@@ -742,8 +755,17 @@ namespace YOLO
                             IsEnabled = true
                         };
                         _appConfig.Cameras.Add(newConfig);
-                        _cameraManager.AddCamera(newConfig);
-                        await _uiController.LogToFrontend($"✓ 已添加新相机: {displayName} ({manufacturer})");
+
+                        // 尝试添加到相机管理器（可能失败如果相机未连接）
+                        bool added = _cameraManager.AddCamera(newConfig);
+                        if (added)
+                        {
+                            await _uiController.LogToFrontend($"✓ 已添加新相机: {displayName} ({manufacturer})");
+                        }
+                        else
+                        {
+                            await _uiController.LogToFrontend($"⚠ 相机配置已保存，但设备未连接或SDK加载失败: {displayName}", "warning");
+                        }
                     }
 
                     _appConfig.Save();
@@ -1095,12 +1117,12 @@ namespace YOLO
                         var activeCam = _appConfig.ActiveCamera;
                         if (root.TryGetProperty("CameraName", out var cn))
                         {
-                            _appConfig.CameraName = cn.GetString() ?? _appConfig.CameraName;
+                            _appConfig.CameraName = cn.GetString()?.Trim() ?? _appConfig.CameraName;
                             if (activeCam != null) activeCam.DisplayName = _appConfig.CameraName;
                         }
                         if (root.TryGetProperty("CameraSerialNumber", out var cs))
                         {
-                            _appConfig.CameraSerialNumber = cs.GetString() ?? _appConfig.CameraSerialNumber;
+                            _appConfig.CameraSerialNumber = cs.GetString()?.Trim() ?? _appConfig.CameraSerialNumber;
                             if (activeCam != null) activeCam.SerialNumber = _appConfig.CameraSerialNumber;
                         }
                         if (root.TryGetProperty("ExposureTime", out var et))

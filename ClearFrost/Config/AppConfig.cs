@@ -138,8 +138,8 @@ namespace YOLO
                 var legacyCam = new CameraConfig
                 {
                     Id = "legacy_cam",
-                    SerialNumber = CameraSerialNumber,
-                    DisplayName = CameraName,
+                    SerialNumber = CameraSerialNumber?.Trim() ?? "",
+                    DisplayName = CameraName?.Trim() ?? "",
                     ExposureTime = ExposureTime,
                     Gain = GainRaw,
                     IsEnabled = true
