@@ -3,7 +3,7 @@ using System.Windows.Forms;
 using System.IO;
 using System.Text;
 
-namespace YOLO
+namespace ClearFrost
 {
     internal static class Program
     {
@@ -13,11 +13,11 @@ namespace YOLO
         [STAThread]
         static void Main()
         {
-            // å¯åŠ¨è°ƒè¯•æ—¥å¿— - ä½¿ç”¨ç¨‹åºç›®å½•ï¼Œç¡®ä¿ä»»ä½•æœºå™¨éƒ½èƒ½å†™å…¥
+            // Æô¶¯µ÷ÊÔÈÕÖ¾ - Ê¹ÓÃ³ÌĞòÄ¿Â¼£¬È·±£ÈÎºÎ»úÆ÷¶¼ÄÜĞ´Èë
             string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "startup.log");
             try
             {
-                // ç¡®ä¿å·¥ä½œç›®å½•æ­£ç¡®ï¼ˆä¿®å¤ä» IDE å¯åŠ¨æ—¶å·¥ä½œç›®å½•ä¸å¯¹çš„é—®é¢˜ï¼‰
+                // È·±£¹¤×÷Ä¿Â¼ÕıÈ·£¨ĞŞ¸´´Ó IDE Æô¶¯Ê±¹¤×÷Ä¿Â¼²»¶ÔµÄÎÊÌâ£©
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory;
                 Environment.CurrentDirectory = baseDir;
 
@@ -25,7 +25,7 @@ namespace YOLO
                 File.AppendAllText(logPath, $"Working Directory: {Environment.CurrentDirectory}\n");
                 File.AppendAllText(logPath, $"Base Directory: {baseDir}\n");
 
-                // è®¾ç½®å…¨å±€å¼‚å¸¸å¤„ç†ï¼Œé˜»æ­¢é—ªé€€
+                // ÉèÖÃÈ«¾ÖÒì³£´¦Àí£¬×èÖ¹ÉÁÍË
                 Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
                 Application.ThreadException += Application_ThreadException;
                 AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
@@ -37,7 +37,7 @@ namespace YOLO
                 ApplicationConfiguration.Initialize();
                 File.AppendAllText(logPath, "ApplicationConfiguration initialized\n");
 
-                Application.Run(new ä¸»çª—å£());
+                Application.Run(new Ö÷´°¿Ú());
                 File.AppendAllText(logPath, "Application exited normally\n");
             }
             catch (Exception ex)
@@ -50,30 +50,30 @@ namespace YOLO
         }
 
         /// <summary>
-        /// å¤„ç† UI çº¿ç¨‹å¼‚å¸¸
+        /// ´¦Àí UI Ïß³ÌÒì³£
         /// </summary>
         private static void Application_ThreadException(object sender, System.Threading.ThreadExceptionEventArgs e)
         {
             LogException("UI Thread Exception", e.Exception);
-            MessageBox.Show($"å‘ç”Ÿé”™è¯¯ï¼Œç¨‹åºå·²è®°å½•æ—¥å¿—:\n{e.Exception.Message}", "é”™è¯¯",
+            MessageBox.Show($"·¢Éú´íÎó£¬³ÌĞòÒÑ¼ÇÂ¼ÈÕÖ¾:\n{e.Exception.Message}", "´íÎó",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
         /// <summary>
-        /// å¤„ç†é UI çº¿ç¨‹å¼‚å¸¸
+        /// ´¦Àí·Ç UI Ïß³ÌÒì³£
         /// </summary>
         private static void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
         {
             if (e.ExceptionObject is Exception ex)
             {
                 LogException("Unhandled Exception", ex);
-                MessageBox.Show($"å‘ç”Ÿä¸¥é‡é”™è¯¯ï¼Œç¨‹åºå³å°†é€€å‡º:\n{ex.Message}", "ä¸¥é‡é”™è¯¯",
+                MessageBox.Show($"·¢ÉúÑÏÖØ´íÎó£¬³ÌĞò¼´½«ÍË³ö:\n{ex.Message}", "ÑÏÖØ´íÎó",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
         /// <summary>
-        /// è®°å½•å¼‚å¸¸åˆ°æ—¥å¿—æ–‡ä»¶
+        /// ¼ÇÂ¼Òì³£µ½ÈÕÖ¾ÎÄ¼ş
         /// </summary>
         private static void LogException(string type, Exception ex)
         {
@@ -96,7 +96,7 @@ namespace YOLO
 
                 File.AppendAllText(logFile, sb.ToString(), Encoding.UTF8);
             }
-            catch { /* æ—¥å¿—å†™å…¥å¤±è´¥æ—¶é™é»˜å¤„ç† */ }
+            catch { /* ÈÕÖ¾Ğ´ÈëÊ§°ÜÊ±¾²Ä¬´¦Àí */ }
         }
     }
 }

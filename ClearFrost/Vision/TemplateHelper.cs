@@ -1,7 +1,7 @@
 using OpenCvSharp;
 using System;
 
-namespace YOLO.Vision
+namespace ClearFrost.Vision
 {
     public static class TemplateHelper
     {
@@ -22,3 +22,4 @@ namespace YOLO.Vision
         }
     }
 }
+

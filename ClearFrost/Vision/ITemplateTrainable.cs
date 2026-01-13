@@ -1,20 +1,21 @@
 using OpenCvSharp;
 
-namespace YOLO.Vision
+namespace ClearFrost.Vision
 {
     /// <summary>
-    /// æ”¯æŒæ¨¡æ¿è®­ç»ƒçš„ç®—å­æ¥å£
+    /// Ö§³ÖÄ£°åÑµÁ·µÄËã×Ó½Ó¿Ú
     /// </summary>
     public interface ITemplateTrainable
     {
         /// <summary>
-        /// ä½¿ç”¨Matå›¾åƒè®¾ç½®æ¨¡æ¿
+        /// Ê¹ÓÃMatÍ¼ÏñÉèÖÃÄ£°å
         /// </summary>
         void SetTemplateFromMat(Mat template);
 
         /// <summary>
-        /// æ˜¯å¦å·²è®­ç»ƒ
+        /// ÊÇ·ñÒÑÑµÁ·
         /// </summary>
         bool IsTrained { get; }
     }
 }
+

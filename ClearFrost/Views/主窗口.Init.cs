@@ -1,4 +1,7 @@
 using MVSDK_Net;
+using ClearFrost.Config;
+using ClearFrost.Models;
+using ClearFrost.Hardware;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 using System.IO;
@@ -13,85 +16,85 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using YoloDetection;
-using YOLO.Vision;
-using YOLO.Helpers;
-using YOLO.Interfaces;
-using YOLO.Services;
+using ClearFrost.Yolo;
+using ClearFrost.Vision;
+using ClearFrost.Helpers;
+using ClearFrost.Interfaces;
+using ClearFrost.Services;
 
-namespace YOLO
+namespace ClearFrost
 {
-    public partial class ä¸»çª—å£
+    public partial class Ö÷´°¿Ú
     {
-        #region 2. åˆå§‹åŒ–ä¸ç”Ÿå‘½å‘¨æœŸ (Initialization)
+        #region 2. ³õÊ¼»¯ÓëÉúÃüÖÜÆÚ (Initialization)
 
         private void RegisterEvents()
         {
-            // PLC æœåŠ¡äº‹ä»¶
+            // PLC ·şÎñÊÂ¼ş
             _plcService.ConnectionChanged += (connected) =>
             {
                 InvokeOnUIThread(() =>
                 {
-                    SafeFireAndForget(_uiController.UpdateConnection("plc", connected), "æ›´æ–°PLCçŠ¶æ€");
+                    SafeFireAndForget(_uiController.UpdateConnection("plc", connected), "¸üĞÂPLC×´Ì¬");
                     SafeFireAndForget(_uiController.LogToFrontend(
-                        connected ? $"PLC: å·²è¿æ¥ ({_plcService.ProtocolName})" : "PLC: å·²æ–­å¼€",
-                        connected ? "success" : "error"), "PLCçŠ¶æ€æ—¥å¿—");
+                        connected ? $"PLC: ÒÑÁ¬½Ó ({_plcService.ProtocolName})" : "PLC: ÒÑ¶Ï¿ª",
+                        connected ? "success" : "error"), "PLC×´Ì¬ÈÕÖ¾");
                 });
             };
             _plcService.TriggerReceived += () =>
             {
-                // é—ªçƒè§¦å‘æŒ‡ç¤ºç¯
-                SafeFireAndForget(_uiController.FlashPlcTrigger(), "PLCè§¦å‘æŒ‡ç¤ºç¯");
-                // è§¦å‘æ£€æµ‹
+                // ÉÁË¸´¥·¢Ö¸Ê¾µÆ
+                SafeFireAndForget(_uiController.FlashPlcTrigger(), "PLC´¥·¢Ö¸Ê¾µÆ");
+                // ´¥·¢¼ì²â
                 InvokeOnUIThread(() => HandlePlcTrigger());
             };
             _plcService.ErrorOccurred += (error) =>
             {
-                SafeFireAndForget(_uiController.LogToFrontend($"PLCé”™è¯¯: {error}", "error"), "PLCé”™è¯¯æ—¥å¿—");
+                SafeFireAndForget(_uiController.LogToFrontend($"PLC´íÎó: {error}", "error"), "PLC´íÎóÈÕÖ¾");
             };
 
-            // Detection æœåŠ¡äº‹ä»¶
+            // Detection ·şÎñÊÂ¼ş
             _detectionService.DetectionCompleted += (result) =>
             {
-                // æ£€æµ‹å®Œæˆåçš„ UI æ›´æ–°
+                // ¼ì²âÍê³ÉºóµÄ UI ¸üĞÂ
                 SafeFireAndForget(_uiController.LogToFrontend(
-                    $"æ£€æµ‹å®Œæˆ: {(result.IsQualified ? "åˆæ ¼" : "ä¸åˆæ ¼")} ({result.ElapsedMs}ms)",
-                    result.IsQualified ? "success" : "error"), "æ£€æµ‹ç»“æœæ—¥å¿—");
+                    $"¼ì²âÍê³É: {(result.IsQualified ? "ºÏ¸ñ" : "²»ºÏ¸ñ")} ({result.ElapsedMs}ms)",
+                    result.IsQualified ? "success" : "error"), "¼ì²â½á¹ûÈÕÖ¾");
             };
             _detectionService.ModelLoaded += (modelName) =>
             {
-                SafeFireAndForget(_uiController.LogToFrontend($"æ¨¡å‹å·²åŠ è½½: {modelName}", "success"), "æ¨¡å‹åŠ è½½æ—¥å¿—");
+                SafeFireAndForget(_uiController.LogToFrontend($"Ä£ĞÍÒÑ¼ÓÔØ: {modelName}", "success"), "Ä£ĞÍ¼ÓÔØÈÕÖ¾");
             };
             _detectionService.ErrorOccurred += (error) =>
             {
-                SafeFireAndForget(_uiController.LogToFrontend($"æ£€æµ‹é”™è¯¯: {error}", "error"), "æ£€æµ‹é”™è¯¯æ—¥å¿—");
+                SafeFireAndForget(_uiController.LogToFrontend($"¼ì²â´íÎó: {error}", "error"), "¼ì²â´íÎóÈÕÖ¾");
             };
 
-            // Statistics æœåŠ¡äº‹ä»¶
+            // Statistics ·şÎñÊÂ¼ş
             _statisticsService.StatisticsUpdated += (snapshot) =>
             {
-                SafeFireAndForget(_uiController.UpdateUI(snapshot.TotalCount, snapshot.QualifiedCount, snapshot.UnqualifiedCount), "ç»Ÿè®¡æ›´æ–°");
+                SafeFireAndForget(_uiController.UpdateUI(snapshot.TotalCount, snapshot.QualifiedCount, snapshot.UnqualifiedCount), "Í³¼Æ¸üĞÂ");
             };
             _statisticsService.DayReset += () =>
             {
-                SafeFireAndForget(_uiController.LogToFrontend("æ£€æµ‹åˆ°è·¨æ—¥ï¼Œç»Ÿè®¡å·²è‡ªåŠ¨é‡ç½®", "info"), "è·¨æ—¥é‡ç½®æ—¥å¿—");
+                SafeFireAndForget(_uiController.LogToFrontend("¼ì²âµ½¿çÈÕ£¬Í³¼ÆÒÑ×Ô¶¯ÖØÖÃ", "info"), "¿çÈÕÖØÖÃÈÕÖ¾");
             };
 
-            // è®¢é˜…é€€å‡ºäº‹ä»¶
+            // ¶©ÔÄÍË³öÊÂ¼ş
             _uiController.OnExitApp += (s, e) =>
             {
                 this.Invoke((MethodInvoker)delegate
                 {
-                    // åœæ­¢æ‰€æœ‰åå°ä»»åŠ¡
-                    this.åœæ­¢ = true;
-                    // ä¿å­˜é…ç½®
+                    // Í£Ö¹ËùÓĞºóÌ¨ÈÎÎñ
+                    this.Í£Ö¹ = true;
+                    // ±£´æÅäÖÃ
                     _appConfig?.Save();
-                    // å¼ºåˆ¶é€€å‡º
+                    // Ç¿ÖÆÍË³ö
                     Application.Exit();
                 });
             };
 
-            // è®¢é˜…æœ€å°åŒ–äº‹ä»¶
+            // ¶©ÔÄ×îĞ¡»¯ÊÂ¼ş
             _uiController.OnMinimizeApp += (s, e) =>
             {
                 this.Invoke((MethodInvoker)delegate
@@ -100,7 +103,7 @@ namespace YOLO
                 });
             };
 
-            // è®¢é˜…æœ€å¤§åŒ–/è¿˜åŸäº‹
+            // ¶©ÔÄ×î´ó»¯/»¹Ô­ÊÂ
             _uiController.OnToggleMaximize += (s, e) =>
             {
                 this.Invoke((MethodInvoker)delegate
@@ -112,7 +115,7 @@ namespace YOLO
                 });
             };
 
-            // è®¢é˜…æ‹–åŠ¨çª—å£äº‹ä»¶
+            // ¶©ÔÄÍÏ¶¯´°¿ÚÊÂ¼ş
             _uiController.OnStartDrag += (s, e) =>
             {
                 this.Invoke((MethodInvoker)delegate
@@ -121,20 +124,20 @@ namespace YOLO
                 });
             };
 
-            // ç»‘å®š WebUI äº‹ä»¶
+            // °ó¶¨ WebUI ÊÂ¼ş
             _uiController.OnOpenCamera += (s, e) => InvokeOnUIThread(() => btnOpenCamera_Logic());
             _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => btnCapture_Logic());
             _uiController.OnManualRelease += (s, e) => fx_btn_Logic(); // Async void handler
             _uiController.OnOpenSettings += (s, e) => InvokeOnUIThread(() => btnSettings_Logic());
             _uiController.OnChangeModel += (s, modelName) => InvokeOnUIThread(() => ChangeModel_Logic(modelName));
-            _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLCæ‰‹åŠ¨è¿æ¥");
+            _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLCÊÖ¶¯Á¬½Ó");
             _uiController.OnThresholdChanged += (s, val) =>
             {
                 overlapThreshold = val / 100f;
             };
             _uiController.OnGetStatisticsHistory += async (s, e) =>
             {
-                // ä½¿ç”¨ StatisticsService è·å–åº•å±‚æ•°æ®
+                // Ê¹ÓÃ StatisticsService »ñÈ¡µ×²ãÊı¾İ
                 var stats = ((StatisticsService)_statisticsService).GetDetectionStats();
                 var history = ((StatisticsService)_statisticsService).GetStatisticsHistory();
                 await _uiController.SendStatisticsHistory(history, stats);
@@ -143,10 +146,10 @@ namespace YOLO
             {
                 _statisticsService.ResetToday();
                 await _uiController.UpdateUI(0, 0, 0);
-                await _uiController.LogToFrontend("âœ“ ä»Šæ—¥ç»Ÿè®¡å·²æ¸…é™¤", "success");
+                await _uiController.LogToFrontend("? ½ñÈÕÍ³¼ÆÒÑÇå³ı", "success");
             };
 
-            // ================== æ¨¡æ¿ç®¡ç†å™¨äº‹ä»¶ ==================
+            // ================== Ä£°å¹ÜÀíÆ÷ÊÂ¼ş ==================
             _uiController.OnGetFrameForTemplate += async (s, e) =>
             {
                 Mat? frameClone = null;
@@ -163,7 +166,7 @@ namespace YOLO
                     try
                     {
                         using var clone = frameClone;
-                        // ç¼©æ”¾ä»¥åŠ å¿«ä¼ è¾“
+                        // Ëõ·ÅÒÔ¼Ó¿ì´«Êä
                         int maxDim = 1200;
                         if (clone.Width > maxDim || clone.Height > maxDim)
                         {
@@ -180,12 +183,12 @@ namespace YOLO
                     }
                     catch (Exception ex)
                     {
-                        await _uiController.LogToFrontend($"è·å–æ¨¡æ¿å¸§å¤±è´¥: {ex.Message}", "error");
+                        await _uiController.LogToFrontend($"»ñÈ¡Ä£°åÖ¡Ê§°Ü: {ex.Message}", "error");
                     }
                 }
                 else
                 {
-                    await _uiController.LogToFrontend("è¯·å…ˆæ‰“å¼€ç›¸æœºå¹¶ç¡®ä¿æœ‰ç”»é¢", "warning");
+                    await _uiController.LogToFrontend("ÇëÏÈ´ò¿ªÏà»ú²¢È·±£ÓĞ»­Ãæ", "warning");
                 }
             };
 
@@ -198,41 +201,41 @@ namespace YOLO
                     var opNode = _pipelineProcessor.GetOperator(request.InstanceId);
                     if (opNode == null)
                     {
-                        await _uiController.LogToFrontend($"æ‰¾ä¸åˆ°ç®—å­ InstanceId={request.InstanceId}", "error");
+                        await _uiController.LogToFrontend($"ÕÒ²»µ½Ëã×Ó InstanceId={request.InstanceId}", "error");
                         return;
                     }
 
                     byte[] imageBytes = Convert.FromBase64String(request.ImageBase64);
                     using var mat = Cv2.ImDecode(imageBytes, ImreadModes.Color);
-                    if (mat.Empty()) throw new Exception("è§£ç å›¾åƒä¸ºç©º");
+                    if (mat.Empty()) throw new Exception("½âÂëÍ¼ÏñÎª¿Õ");
 
                     if (opNode.Operator is ITemplateTrainable trainable)
                     {
-                        // ç»Ÿä¸€ä¿å­˜æ¨¡æ¿å›¾åƒåˆ°æœ¬åœ°ä½œä¸ºå¤‡ä»½
+                        // Í³Ò»±£´æÄ£°åÍ¼Ïñµ½±¾µØ×÷Îª±¸·İ
                         string templateDir = Path.Combine(BaseStoragePath, "Templates");
                         if (!Directory.Exists(templateDir)) Directory.CreateDirectory(templateDir);
                         string templatePath = Path.Combine(templateDir, $"template_{request.InstanceId}_{DateTime.Now:yyyyMMdd_HHmmss}.png");
                         Cv2.ImWrite(templatePath, mat);
 
-                        // è®­ç»ƒ/è®¾ç½®æ¨¡æ¿
-                        // 1. å…ˆæ›´æ–° templatePath (é¿å… FeatureMatchOp ç­‰ç®—å­å› ä¸ºè®¾ç½®è·¯å¾„è€Œæ¸…ç©ºå†…å­˜ä¸­çš„æ¨¡æ¿)
+                        // ÑµÁ·/ÉèÖÃÄ£°å
+                        // 1. ÏÈ¸üĞÂ templatePath (±ÜÃâ FeatureMatchOp µÈËã×ÓÒòÎªÉèÖÃÂ·¾¶¶øÇå¿ÕÄÚ´æÖĞµÄÄ£°å)
                         if (opNode.Operator is IImageOperator op && op.Parameters.ContainsKey("templatePath"))
                         {
                             op.SetParameter("templatePath", templatePath);
                         }
 
-                        // 2. è®­ç»ƒ/è®¾ç½®æ¨¡æ¿ (ç¡®ä¿è¿™æ˜¯æœ€åä¸€æ­¥ï¼Œä¿è¯ _templateImage ä¼šè¢«æ­£ç¡®èµ‹å€¼ä¸” IsTrained ä¸º true)
+                        // 2. ÑµÁ·/ÉèÖÃÄ£°å (È·±£ÕâÊÇ×îºóÒ»²½£¬±£Ö¤ _templateImage »á±»ÕıÈ·¸³ÖµÇÒ IsTrained Îª true)
                         trainable.SetTemplateFromMat(mat);
 
-                        await _uiController.LogToFrontend($"âœ“ ç®—å­ [{opNode.Operator.Name}] æ¨¡æ¿å·²æ›´æ–°å¹¶è®­ç»ƒ");
+                        await _uiController.LogToFrontend($"? Ëã×Ó [{opNode.Operator.Name}] Ä£°åÒÑ¸üĞÂ²¢ÑµÁ·");
                     }
                     else
                     {
-                        await _uiController.LogToFrontend($"âš  ç®—å­ [{opNode.Operator.Name}] ä¸æ”¯æŒæ¨¡æ¿è®­ç»ƒ", "warning");
+                        await _uiController.LogToFrontend($"? Ëã×Ó [{opNode.Operator.Name}] ²»Ö§³ÖÄ£°åÑµÁ·", "warning");
                     }
 
-                    // åˆ·æ–°UIå‚æ•°ï¼ˆé€šçŸ¥å‰ç«¯æ›´æ–° isTrained çŠ¶æ€ï¼‰
-                    // æ›´æ–°é…ç½®å¹¶åˆ·æ–°UI
+                    // Ë¢ĞÂUI²ÎÊı£¨Í¨ÖªÇ°¶Ë¸üĞÂ isTrained ×´Ì¬£©
+                    // ¸üĞÂÅäÖÃ²¢Ë¢ĞÂUI
                     var config = _pipelineProcessor.ExportConfig();
                     _appConfig.VisionPipelineJson = JsonSerializer.Serialize(config);
                     _appConfig.Save();
@@ -241,22 +244,22 @@ namespace YOLO
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.LogToFrontend($"è®­ç»ƒå¤±è´¥: {ex.Message}", "error");
+                    await _uiController.LogToFrontend($"ÑµÁ·Ê§°Ü: {ex.Message}", "error");
                 }
             };
 
-            // ================== ä¼ ç»Ÿè§†è§‰äº‹ä»¶è®¢é˜… ==================
+            // ================== ´«Í³ÊÓ¾õÊÂ¼ş¶©ÔÄ ==================
             _uiController.OnVisionModeChanged += async (s, mode) =>
             {
                 _appConfig.VisionMode = mode;
                 _appConfig.Save();
-                await _uiController.LogToFrontend($"è§†è§‰æ¨¡å¼åˆ‡æ¢ä¸º: {(mode == 0 ? "YOLO" : "ä¼ ç»Ÿè§†è§‰")}");
+                await _uiController.LogToFrontend($"ÊÓ¾õÄ£Ê½ÇĞ»»Îª: {(mode == 0 ? "YOLO" : "´«Í³ÊÓ¾õ")}");
 
-                // åˆå§‹åŒ–ä¼ ç»Ÿè§†è§‰æµç¨‹å¤„ç†å™¨
+                // ³õÊ¼»¯´«Í³ÊÓ¾õÁ÷³Ì´¦ÀíÆ÷
                 if (mode == 1 && _pipelineProcessor == null)
                 {
                     _pipelineProcessor = new PipelineProcessor();
-                    // å°è¯•ä»é…ç½®åŠ è½½
+                    // ³¢ÊÔ´ÓÅäÖÃ¼ÓÔØ
                     if (!string.IsNullOrEmpty(_appConfig.VisionPipelineJson) && _appConfig.VisionPipelineJson != "[]")
                     {
                         try
@@ -270,13 +273,13 @@ namespace YOLO
                                 }
                                 catch (Exception ex)
                                 {
-                                    await _uiController.LogToFrontend($"æµç¨‹åŠ è½½å¤±è´¥: {ex.Message}", "error");
+                                    await _uiController.LogToFrontend($"Á÷³Ì¼ÓÔØÊ§°Ü: {ex.Message}", "error");
                                 }
                             }
                         }
                         catch (Exception ex)
                         {
-                            System.Diagnostics.Debug.WriteLine($"[ä¸»çª—å£] Pipeline init error: {ex.Message}");
+                            System.Diagnostics.Debug.WriteLine($"[Ö÷´°¿Ú] Pipeline init error: {ex.Message}");
                         }
                     }
                 }
@@ -320,12 +323,12 @@ namespace YOLO
                     switch (request.Action?.ToLower())
                     {
                         case "add":
-                            await _uiController.LogToFrontend($"[DEBUG] å‡†å¤‡æ·»åŠ ç®—å­, TypeId={request.TypeId}");
-                            await _uiController.LogToFrontend($"[DEBUG] æ·»åŠ å‰ç®—å­æ•°: {_pipelineProcessor.Operators.Count}");
+                            await _uiController.LogToFrontend($"[DEBUG] ×¼±¸Ìí¼ÓËã×Ó, TypeId={request.TypeId}");
+                            await _uiController.LogToFrontend($"[DEBUG] Ìí¼ÓÇ°Ëã×ÓÊı: {_pipelineProcessor.Operators.Count}");
                             var newOp = OperatorFactory.Create(request.TypeId ?? "");
                             if (newOp != null)
                             {
-                                // å¦‚æœæ˜¯åŒ¹é…ç®—å­ï¼Œè‡ªåŠ¨è®¾ç½®å½“å‰çš„æ¨¡æ¿è·¯å¾„
+                                // Èç¹ûÊÇÆ¥ÅäËã×Ó£¬×Ô¶¯ÉèÖÃµ±Ç°µÄÄ£°åÂ·¾¶
                                 if (!string.IsNullOrEmpty(_appConfig.TemplateImagePath))
                                 {
                                     if (newOp is TemplateMatchOp tmOp)
@@ -338,24 +341,24 @@ namespace YOLO
                                     }
                                 }
                                 var instanceId = _pipelineProcessor.AddOperator(newOp);
-                                await _uiController.LogToFrontend($"[DEBUG] æ·»åŠ åç®—å­æ•°: {_pipelineProcessor.Operators.Count}, InstanceId={instanceId}");
-                                await _uiController.LogToFrontend($"âœ“ å·²æ·»åŠ ç®—å­: {newOp.Name}");
+                                await _uiController.LogToFrontend($"[DEBUG] Ìí¼ÓºóËã×ÓÊı: {_pipelineProcessor.Operators.Count}, InstanceId={instanceId}");
+                                await _uiController.LogToFrontend($"? ÒÑÌí¼ÓËã×Ó: {newOp.Name}");
                             }
                             else
                             {
-                                await _uiController.LogToFrontend($"[DEBUG] OperatorFactory.Create è¿”å› null, TypeId={request.TypeId}", "error");
+                                await _uiController.LogToFrontend($"[DEBUG] OperatorFactory.Create ·µ»Ø null, TypeId={request.TypeId}", "error");
                             }
                             break;
                         case "remove":
                             if (_pipelineProcessor.RemoveOperator(request.InstanceId ?? ""))
                             {
-                                await _uiController.LogToFrontend($"âœ“ å·²ç§»é™¤ç®—å­");
+                                await _uiController.LogToFrontend($"? ÒÑÒÆ³ıËã×Ó");
                             }
                             break;
                         case "update":
                             if (!string.IsNullOrEmpty(request.InstanceId) && !string.IsNullOrEmpty(request.ParamName))
                             {
-                                // å¤„ç† JsonElement ç±»å‹çš„å‚æ•°å€¼
+                                // ´¦Àí JsonElement ÀàĞÍµÄ²ÎÊıÖµ
                                 object actualValue = request.ParamValue ?? 0;
                                 if (actualValue is JsonElement jsonElement)
                                 {
@@ -373,21 +376,21 @@ namespace YOLO
                             break;
                     }
 
-                    // ä¿å­˜é…ç½®
+                    // ±£´æÅäÖÃ
                     var config = _pipelineProcessor.ExportConfig();
                     _appConfig.VisionPipelineJson = JsonSerializer.Serialize(config);
                     _appConfig.Save();
 
-                    // è°ƒè¯•æ—¥å¿—
-                    await _uiController.LogToFrontend($"[DEBUG] å¤„ç†å™¨ä¸­æœ‰ {_pipelineProcessor.Operators.Count} ä¸ªç®—å­");
-                    await _uiController.LogToFrontend($"[DEBUG] å¯¼å‡ºé…ç½®æœ‰ {config.Operators.Count} ä¸ªç®—å­");
+                    // µ÷ÊÔÈÕÖ¾
+                    await _uiController.LogToFrontend($"[DEBUG] ´¦ÀíÆ÷ÖĞÓĞ {_pipelineProcessor.Operators.Count} ¸öËã×Ó");
+                    await _uiController.LogToFrontend($"[DEBUG] µ¼³öÅäÖÃÓĞ {config.Operators.Count} ¸öËã×Ó");
 
-                    // å‘é€æ›´æ–°åçš„é…ç½®
+                    // ·¢ËÍ¸üĞÂºóµÄÅäÖÃ
                     await _uiController.SendPipelineUpdated(config);
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.LogToFrontend($"æµç¨‹æ›´æ–°å¤±è´¥: {ex.Message}", "error");
+                    await _uiController.LogToFrontend($"Á÷³Ì¸üĞÂÊ§°Ü: {ex.Message}", "error");
                 }
             };
 
@@ -404,7 +407,7 @@ namespace YOLO
 
                 if (_pipelineProcessor == null || frameClone == null)
                 {
-                    await _uiController.LogToFrontend("æ— å¯ç”¨å›¾åƒè¿›è¡Œé¢„è§ˆ", "warning");
+                    await _uiController.LogToFrontend("ÎŞ¿ÉÓÃÍ¼Ïñ½øĞĞÔ¤ÀÀ", "warning");
                     return;
                 }
 
@@ -415,7 +418,7 @@ namespace YOLO
                     using var preview = await _pipelineProcessor.GetPreviewAsync(inputFrame);
                     sw.Stop();
 
-                    // è½¬æ¢ä¸º Base64
+                    // ×ª»»Îª Base64
                     using var bitmap = preview.ToBitmap();
                     using var ms = new MemoryStream();
                     bitmap.Save(ms, ImageFormat.Jpeg);
@@ -430,7 +433,7 @@ namespace YOLO
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.LogToFrontend($"é¢„è§ˆå¤±è´¥: {ex.Message}", "error");
+                    await _uiController.LogToFrontend($"Ô¤ÀÀÊ§°Ü: {ex.Message}", "error");
                 }
             };
 
@@ -438,19 +441,19 @@ namespace YOLO
             {
                 if (action == "select")
                 {
-                    // æ–‡ä»¶é€‰æ‹©å¯¹è¯æ¡†
+                    // ÎÄ¼şÑ¡Ôñ¶Ô»°¿ò
                     InvokeOnUIThread(async () =>
                     {
                         using var ofd = new OpenFileDialog();
-                        ofd.Filter = "å›¾åƒæ–‡ä»¶|*.jpg;*.jpeg;*.png;*.bmp";
-                        ofd.Title = "é€‰æ‹©æ¨¡æ¿å›¾åƒ";
+                        ofd.Filter = "Í¼ÏñÎÄ¼ş|*.jpg;*.jpeg;*.png;*.bmp";
+                        ofd.Title = "Ñ¡ÔñÄ£°åÍ¼Ïñ";
 
                         if (ofd.ShowDialog() == DialogResult.OK)
                         {
                             _appConfig.TemplateImagePath = ofd.FileName;
                             _appConfig.Save();
 
-                            // æ›´æ–°æ‰€æœ‰ TemplateMatchOp å’Œ FeatureMatchOp ç®—å­
+                            // ¸üĞÂËùÓĞ TemplateMatchOp ºÍ FeatureMatchOp Ëã×Ó
                             if (_pipelineProcessor != null)
                             {
                                 foreach (var op in _pipelineProcessor.Operators)
@@ -473,15 +476,15 @@ namespace YOLO
                                 _appConfig.Save();
                             }
 
-                            await _uiController.LogToFrontend($"âœ“ æ¨¡æ¿å·²åŠ è½½: {Path.GetFileName(ofd.FileName)}");
+                            await _uiController.LogToFrontend($"? Ä£°åÒÑ¼ÓÔØ: {Path.GetFileName(ofd.FileName)}");
 
-                            // å‘é€æ¨¡æ¿é¢„è§ˆåˆ°å‰ç«¯
+                            // ·¢ËÍÄ£°åÔ¤ÀÀµ½Ç°¶Ë
                             try
                             {
                                 using var templateMat = Cv2.ImRead(ofd.FileName, ImreadModes.Color);
                                 if (!templateMat.Empty())
                                 {
-                                    // ç¼©æ”¾åˆ°åˆé€‚å¤§å°
+                                    // Ëõ·Åµ½ºÏÊÊ´óĞ¡
                                     using var resized = new Mat();
                                     double scale = Math.Min(128.0 / templateMat.Width, 128.0 / templateMat.Height);
                                     Cv2.Resize(templateMat, resized, new OpenCvSharp.Size(0, 0), scale, scale);
@@ -499,7 +502,7 @@ namespace YOLO
                 }
                 else if (action == "capture")
                 {
-                    // ä»å½“å‰å¸§æˆªå– -> æ‰“å¼€å‰ç«¯è£å‰ªå¼¹çª—
+                    // ´Óµ±Ç°Ö¡½ØÈ¡ -> ´ò¿ªÇ°¶Ë²Ã¼ôµ¯´°
                     Mat? frameClone = null;
                     lock (_frameLock)
                     {
@@ -514,7 +517,7 @@ namespace YOLO
                         try
                         {
                             using var clone = frameClone;
-                            // ç¼©å°åŠè®¡ç®—æ¯”ä¾‹
+                            // ËõĞ¡¼°¼ÆËã±ÈÀı
                             int targetWidth = 1200;
                             double scale = 1.0;
                             Mat displayMat = clone;
@@ -539,28 +542,28 @@ namespace YOLO
 
                             if (resizedMat != null) resizedMat.Dispose();
 
-                            // è°ƒç”¨å‰ç«¯ openCropper
+                            // µ÷ÓÃÇ°¶Ë openCropper
                             await _uiController.ExecuteScriptAsync($"openCropper('{base64}')");
-                            await _uiController.LogToFrontend("è¯·åœ¨å¼¹çª—ä¸­è£å‰ªæ¨¡æ¿åŒºåŸŸ", "info");
+                            await _uiController.LogToFrontend("ÇëÔÚµ¯´°ÖĞ²Ã¼ôÄ£°åÇøÓò", "info");
                         }
                         catch (Exception ex)
                         {
-                            await _uiController.LogToFrontend($"æ‰“å¼€è£å‰ªå¤±è´¥: {ex.Message}", "error");
+                            await _uiController.LogToFrontend($"´ò¿ª²Ã¼ôÊ§°Ü: {ex.Message}", "error");
                         }
                     }
                     else
                     {
-                        await _uiController.LogToFrontend("è¯·å…ˆæ‰“å¼€ç›¸æœºå¹¶ç¡®ä¿æœ‰ç”»é¢", "warning");
+                        await _uiController.LogToFrontend("ÇëÏÈ´ò¿ªÏà»ú²¢È·±£ÓĞ»­Ãæ", "warning");
                     }
                 }
             };
 
-            // å¤„ç†è£å‰ªåçš„æ¨¡æ¿ä¿å­˜
+            // ´¦Àí²Ã¼ôºóµÄÄ£°å±£´æ
             _uiController.OnSaveCroppedTemplate += async (s, json) =>
             {
                 try
                 {
-                    // è§£æ JSON: {x, y, width, height, rotate, scaleX, scaleY}
+                    // ½âÎö JSON: {x, y, width, height, rotate, scaleX, scaleY}
                     using var doc = System.Text.Json.JsonDocument.Parse(json);
                     var r = doc.RootElement;
                     double x = r.GetProperty("x").GetDouble();
@@ -575,7 +578,7 @@ namespace YOLO
                         using var clone = _lastCapturedFrame.Clone();
                         Mat sourceToCrop = clone;
 
-                        // 1. å¤„ç†æ—‹è½¬ (ä»…æ”¯æŒ 90åº¦ æ•´æ•°å€)
+                        // 1. ´¦ÀíĞı×ª (½öÖ§³Ö 90¶È ÕûÊı±¶)
                         if (Math.Abs(rotate) > 0.1)
                         {
                             int rot = (int)rotate;
@@ -594,14 +597,14 @@ namespace YOLO
                             }
                         }
 
-                        // 2. æ˜ å°„åæ ‡
+                        // 2. Ó³Éä×ø±ê
                         if (_currentCropScale <= 0) _currentCropScale = 1.0;
                         double realX = x / _currentCropScale;
                         double realY = y / _currentCropScale;
                         double realW = w / _currentCropScale;
                         double realH = h / _currentCropScale;
 
-                        // 3. å®‰å…¨è£å‰ª
+                        // 3. °²È«²Ã¼ô
                         int ix = Math.Max(0, (int)realX);
                         int iy = Math.Max(0, (int)realY);
                         int iw = (int)realW;
@@ -643,7 +646,7 @@ namespace YOLO
                                     }
                                 }
 
-                                await _uiController.LogToFrontend("âœ“ é«˜åˆ†è¾¨ç‡æ¨¡æ¿å·²åº”ç”¨");
+                                await _uiController.LogToFrontend("? ¸ß·Ö±æÂÊÄ£°åÒÑÓ¦ÓÃ");
 
                                 using var preview = new Mat();
                                 double pScale = 128.0 / Math.Max(iw, ih);
@@ -662,11 +665,11 @@ namespace YOLO
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.LogToFrontend($"ä¿å­˜æ¨¡æ¿å¤±è´¥: {ex.Message}", "error");
+                    await _uiController.LogToFrontend($"±£´æÄ£°åÊ§°Ü: {ex.Message}", "error");
                 }
             };
 
-            // ================== å¤šç›¸æœºäº‹ä»¶ ==================
+            // ================== ¶àÏà»úÊÂ¼ş ==================
             _uiController.OnGetCameraList += async (s, e) =>
             {
                 var cameras = _cameraManager.Cameras.Select(c => new
@@ -700,16 +703,16 @@ namespace YOLO
                         _cameraManager.SaveToConfig(_appConfig);
                         _appConfig.Save();
 
-                        await _uiController.LogToFrontend($"âœ“ å·²åˆ‡æ¢åˆ°ç›¸æœº: {newCam.Config.DisplayName}");
+                        await _uiController.LogToFrontend($"? ÒÑÇĞ»»µ½Ïà»ú: {newCam.Config.DisplayName}");
                     }
                     else
                     {
-                        await _uiController.LogToFrontend($"åˆ‡æ¢ç›¸æœºå¤±è´¥: æœªæ‰¾åˆ° {cameraId}", "error");
+                        await _uiController.LogToFrontend($"ÇĞ»»Ïà»úÊ§°Ü: Î´ÕÒµ½ {cameraId}", "error");
                     }
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.LogToFrontend($"åˆ‡æ¢ç›¸æœºé”™è¯¯: {ex.Message}", "error");
+                    await _uiController.LogToFrontend($"ÇĞ»»Ïà»ú´íÎó: {ex.Message}", "error");
                 }
             };
 
@@ -728,11 +731,11 @@ namespace YOLO
 
                     if (string.IsNullOrEmpty(serialNumber))
                     {
-                        await _uiController.LogToFrontend("åºåˆ—å·ä¸èƒ½ä¸ºç©º", "error");
+                        await _uiController.LogToFrontend("ĞòÁĞºÅ²»ÄÜÎª¿Õ", "error");
                         return;
                     }
 
-                    // æ£€æŸ¥æ˜¯å¦å·²å­˜åœ¨ï¼ˆæ›´æ–°ï¼‰æˆ–æ–°å¢
+                    // ¼ì²éÊÇ·ñÒÑ´æÔÚ£¨¸üĞÂ£©»òĞÂÔö
                     var existing = _appConfig.Cameras.FirstOrDefault(c => c.SerialNumber == serialNumber);
                     if (existing != null)
                     {
@@ -740,7 +743,7 @@ namespace YOLO
                         existing.Manufacturer = manufacturer;
                         existing.ExposureTime = exposure;
                         existing.Gain = gain;
-                        await _uiController.LogToFrontend($"âœ“ å·²æ›´æ–°ç›¸æœºé…ç½®: {displayName} ({manufacturer})");
+                        await _uiController.LogToFrontend($"? ÒÑ¸üĞÂÏà»úÅäÖÃ: {displayName} ({manufacturer})");
                     }
                     else
                     {
@@ -756,21 +759,21 @@ namespace YOLO
                         };
                         _appConfig.Cameras.Add(newConfig);
 
-                        // å°è¯•æ·»åŠ åˆ°ç›¸æœºç®¡ç†å™¨ï¼ˆå¯èƒ½å¤±è´¥å¦‚æœç›¸æœºæœªè¿æ¥ï¼‰
+                        // ³¢ÊÔÌí¼Óµ½Ïà»ú¹ÜÀíÆ÷£¨¿ÉÄÜÊ§°ÜÈç¹ûÏà»úÎ´Á¬½Ó£©
                         bool added = _cameraManager.AddCamera(newConfig);
                         if (added)
                         {
-                            await _uiController.LogToFrontend($"âœ“ å·²æ·»åŠ æ–°ç›¸æœº: {displayName} ({manufacturer})");
+                            await _uiController.LogToFrontend($"? ÒÑÌí¼ÓĞÂÏà»ú: {displayName} ({manufacturer})");
                         }
                         else
                         {
-                            await _uiController.LogToFrontend($"âš  ç›¸æœºé…ç½®å·²ä¿å­˜ï¼Œä½†è®¾å¤‡æœªè¿æ¥æˆ–SDKåŠ è½½å¤±è´¥: {displayName}", "warning");
+                            await _uiController.LogToFrontend($"? Ïà»úÅäÖÃÒÑ±£´æ£¬µ«Éè±¸Î´Á¬½Ó»òSDK¼ÓÔØÊ§°Ü: {displayName}", "warning");
                         }
                     }
 
                     _appConfig.Save();
 
-                    // åˆ·æ–°å‰ç«¯åˆ—è¡¨
+                    // Ë¢ĞÂÇ°¶ËÁĞ±í
                     var cameras = _cameraManager.Cameras.Select(c => new
                     {
                         id = c.Id,
@@ -783,7 +786,7 @@ namespace YOLO
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.LogToFrontend($"æ·»åŠ ç›¸æœºå¤±è´¥: {ex.Message}", "error");
+                    await _uiController.LogToFrontend($"Ìí¼ÓÏà»úÊ§°Ü: {ex.Message}", "error");
                 }
             };
 
@@ -794,7 +797,7 @@ namespace YOLO
                     var camToRemove = _appConfig.Cameras.FirstOrDefault(c => c.Id == cameraId);
                     if (camToRemove == null)
                     {
-                        await _uiController.LogToFrontend($"æœªæ‰¾åˆ°ç›¸æœº: {cameraId}", "error");
+                        await _uiController.LogToFrontend($"Î´ÕÒµ½Ïà»ú: {cameraId}", "error");
                         return;
                     }
 
@@ -802,9 +805,9 @@ namespace YOLO
                     _appConfig.Cameras.Remove(camToRemove);
                     _appConfig.Save();
 
-                    await _uiController.LogToFrontend($"âœ“ å·²åˆ é™¤ç›¸æœº: {camToRemove.DisplayName}");
+                    await _uiController.LogToFrontend($"? ÒÑÉ¾³ıÏà»ú: {camToRemove.DisplayName}");
 
-                    // åˆ·æ–°å‰ç«¯åˆ—è¡¨
+                    // Ë¢ĞÂÇ°¶ËÁĞ±í
                     var cameras = _cameraManager.Cameras.Select(c => new
                     {
                         id = c.Id,
@@ -817,20 +820,20 @@ namespace YOLO
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.LogToFrontend($"åˆ é™¤ç›¸æœºå¤±è´¥: {ex.Message}", "error");
+                    await _uiController.LogToFrontend($"É¾³ıÏà»úÊ§°Ü: {ex.Message}", "error");
                 }
             };
 
-            // æ‰‹åŠ¨æµ‹è¯•æ¨¡æ¿åŒ¹é…
+            // ÊÖ¶¯²âÊÔÄ£°åÆ¥Åä
             _uiController.OnTestTemplateMatch += async (s, e) =>
             {
                 if (_pipelineProcessor == null)
                 {
-                    await _uiController.LogToFrontend("è¯·å…ˆæ„å»ºå¤„ç†æµç¨‹", "warning");
+                    await _uiController.LogToFrontend("ÇëÏÈ¹¹½¨´¦ÀíÁ÷³Ì", "warning");
                     return;
                 }
 
-                string? fileName = await ShowOpenFileDialogOnStaThread("é€‰æ‹©æµ‹è¯•å›¾ç‰‡", "å›¾åƒæ–‡ä»¶|*.jpg;*.jpeg;*.png;*.bmp");
+                string? fileName = await ShowOpenFileDialogOnStaThread("Ñ¡Ôñ²âÊÔÍ¼Æ¬", "Í¼ÏñÎÄ¼ş|*.jpg;*.jpeg;*.png;*.bmp");
 
                 if (!string.IsNullOrEmpty(fileName))
                 {
@@ -839,12 +842,12 @@ namespace YOLO
 
                     try
                     {
-                        await _uiController.LogToFrontend($"æ­£åœ¨æµ‹è¯•: {Path.GetFileName(ofd.FileName)}");
+                        await _uiController.LogToFrontend($"ÕıÔÚ²âÊÔ: {Path.GetFileName(ofd.FileName)}");
 
                         using var testImage = Cv2.ImRead(ofd.FileName, ImreadModes.Color);
                         if (testImage.Empty())
                         {
-                            await _uiController.LogToFrontend("æ— æ³•è¯»å–å›¾åƒæ–‡ä»¶", "error");
+                            await _uiController.LogToFrontend("ÎŞ·¨¶ÁÈ¡Í¼ÏñÎÄ¼ş", "error");
                             return;
                         }
 
@@ -852,15 +855,15 @@ namespace YOLO
                         var result = await _pipelineProcessor.ProcessAsync(testImage);
                         sw.Stop();
 
-                        // è·å–æœ€åä¸€ä¸ªç®—å­çš„è¾“å‡ºï¼ˆå¸¦é”šæ¡†ï¼‰
+                        // »ñÈ¡×îºóÒ»¸öËã×ÓµÄÊä³ö£¨´øÃª¿ò£©
                         Mat? lastOutput = _pipelineProcessor.GetLastOutput();
                         if (lastOutput == null || lastOutput.Empty())
                         {
-                            await _uiController.LogToFrontend("å¤„ç†åæ— è¾“å‡ºå›¾åƒ", "warning");
+                            await _uiController.LogToFrontend("´¦ÀíºóÎŞÊä³öÍ¼Ïñ", "warning");
                             return;
                         }
 
-                        // ç¡®ä¿æ˜¯å½©è‰²å›¾åƒ
+                        // È·±£ÊÇ²ÊÉ«Í¼Ïñ
                         Mat outputForDisplay;
                         if (lastOutput.Channels() == 1)
                         {
@@ -872,7 +875,7 @@ namespace YOLO
                             outputForDisplay = lastOutput.Clone();
                         }
 
-                        // è½¬æ¢ä¸º Base64 å¹¶å‘é€
+                        // ×ª»»Îª Base64 ²¢·¢ËÍ
                         using var bitmap = outputForDisplay.ToBitmap();
                         using var ms = new MemoryStream();
                         bitmap.Save(ms, ImageFormat.Jpeg);
@@ -886,42 +889,42 @@ namespace YOLO
                         };
                         await _uiController.SendPreviewImage(response);
 
-                        // æ˜¾ç¤ºç»“æœ
+                        // ÏÔÊ¾½á¹û
                         string resultMsg;
-                        // å¦‚æœ Pipeline è¿”å›äº†è¯¦ç»†æ¶ˆæ¯ï¼ˆä¸æ˜¯é»˜è®¤çš„"æ£€æµ‹é€šè¿‡/æœªé€šè¿‡"ï¼‰ï¼Œåˆ™ç›´æ¥æ˜¾ç¤º
-                        if (!string.IsNullOrEmpty(result.Message) && result.Message != "æ£€æµ‹é€šè¿‡" && result.Message != "æ£€æµ‹æœªé€šè¿‡")
+                        // Èç¹û Pipeline ·µ»ØÁËÏêÏ¸ÏûÏ¢£¨²»ÊÇÄ¬ÈÏµÄ"¼ì²âÍ¨¹ı/Î´Í¨¹ı"£©£¬ÔòÖ±½ÓÏÔÊ¾
+                        if (!string.IsNullOrEmpty(result.Message) && result.Message != "¼ì²âÍ¨¹ı" && result.Message != "¼ì²âÎ´Í¨¹ı")
                         {
                             resultMsg = result.IsPass
-                                ? $"âœ“ {result.Message}"
-                                : $"âœ— åŒ¹é…å¤±è´¥: {result.Message}";
+                                ? $"? {result.Message}"
+                                : $"? Æ¥ÅäÊ§°Ü: {result.Message}";
                         }
                         else
                         {
-                            // é»˜è®¤æ˜¾ç¤º (å…¼å®¹æ—§é€»è¾‘)
+                            // Ä¬ÈÏÏÔÊ¾ (¼æÈİ¾ÉÂß¼­)
                             resultMsg = result.IsPass
-                                ? $"âœ“ åŒ¹é…æˆåŠŸ! å¾—åˆ†: {result.Score:F3}"
-                                : $"âœ— åŒ¹é…å¤±è´¥ (å¾—åˆ†: {result.Score:F3} < é˜ˆå€¼)";
+                                ? $"? Æ¥Åä³É¹¦! µÃ·Ö: {result.Score:F3}"
+                                : $"? Æ¥ÅäÊ§°Ü (µÃ·Ö: {result.Score:F3} < ãĞÖµ)";
                         }
 
                         await _uiController.LogToFrontend(resultMsg, result.IsPass ? "success" : "error");
-                        await _uiController.LogToFrontend($"å¤„ç†è€—æ—¶: {sw.Elapsed.TotalMilliseconds:F1}ms");
+                        await _uiController.LogToFrontend($"´¦ÀíºÄÊ±: {sw.Elapsed.TotalMilliseconds:F1}ms");
 
-                        // æ›´æ–°ç»Ÿè®¡æ•°æ® (StatisticsUpdated äº‹ä»¶ä¼šè‡ªåŠ¨æ›´æ–° UI)
+                        // ¸üĞÂÍ³¼ÆÊı¾İ (StatisticsUpdated ÊÂ¼ş»á×Ô¶¯¸üĞÂ UI)
                         _statisticsService.RecordDetection(result.IsPass);
                     }
                     catch (Exception ex)
                     {
-                        await _uiController.LogToFrontend($"æµ‹è¯•å¤±è´¥: {ex.Message}", "error");
+                        await _uiController.LogToFrontend($"²âÊÔÊ§°Ü: {ex.Message}", "error");
                     }
                 }
 
             };
 
-            // æ³¨å†Œçª—ä½“å…³é—­äº‹ä»¶
+            // ×¢²á´°Ìå¹Ø±ÕÊÂ¼ş
             this.FormClosing += OnFormClosingHandler;
         }
 
-        private async void ä¸»çª—å£_Load(object? sender, EventArgs e)
+        private async void Ö÷´°¿Ú_Load(object? sender, EventArgs e)
         {
             try
             {
@@ -932,62 +935,62 @@ namespace YOLO
                 // UI Controller might not be ready if error happens too early, but we try
                 if (_uiController != null)
                 {
-                    await _uiController.LogToFrontend($"ç³»ç»Ÿåˆå§‹åŒ–å¼‚å¸¸: {ex.Message}", "error");
+                    await _uiController.LogToFrontend($"ÏµÍ³³õÊ¼»¯Òì³£: {ex.Message}", "error");
                 }
                 else
                 {
-                    MessageBox.Show($"åˆå§‹åŒ–ä¸¥é‡é”™è¯¯: {ex.Message}");
+                    MessageBox.Show($"³õÊ¼»¯ÑÏÖØ´íÎó: {ex.Message}");
                 }
             }
         }
 
         private async Task InitializeAsync()
         {
-            // é˜»æ­¢ç³»ç»Ÿä¼‘çœ 
+            // ×èÖ¹ÏµÍ³ĞİÃß
             WindowHelpers.PreventSleep();
 
-            // ç¡®ä¿æ— è¾¹æ¡†å…¨å±
+            // È·±£ÎŞ±ß¿òÈ«ÆÁ
             this.FormBorderStyle = FormBorderStyle.None;
             this.WindowState = FormWindowState.Maximized;
 
-            // è®¢é˜… WebUI å°±ç»ªäº‹ä»¶
+            // ¶©ÔÄ WebUI ¾ÍĞ÷ÊÂ¼ş
             _uiController.OnAppReady += async (s, ev) =>
             {
                 try
                 {
-                    await _uiController.LogToFrontend("âœ“ WebUIå·²å°±ç»ª");
-                    await _uiController.LogToFrontend("ç³»ç»Ÿåˆå§‹åŒ–å®Œæˆ");
-                    await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "æœªé…ç½®");
+                    await _uiController.LogToFrontend("? WebUIÒÑ¾ÍĞ÷");
+                    await _uiController.LogToFrontend("ÏµÍ³³õÊ¼»¯Íê³É");
+                    await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "Î´ÅäÖÃ");
 
-                    // åˆå§‹åŒ–å‰ç«¯è®¾ç½® (Sidebar Controls)
+                    // ³õÊ¼»¯Ç°¶ËÉèÖÃ (Sidebar Controls)
                     await _uiController.InitSettings(_appConfig);
 
-                    // å‘é€å·²åŠ è½½çš„ç»Ÿè®¡æ•°æ®åˆ°å‰ç«¯ï¼ˆä¿®å¤é‡å¯åé¥¼çŠ¶å›¾ä¸æ›´æ–°çš„é—®é¢˜ï¼‰
+                    // ·¢ËÍÒÑ¼ÓÔØµÄÍ³¼ÆÊı¾İµ½Ç°¶Ë£¨ĞŞ¸´ÖØÆôºó±ı×´Í¼²»¸üĞÂµÄÎÊÌâ£©
                     var currentStats = _statisticsService.Current;
                     await _uiController.UpdateUI(currentStats.TotalCount, currentStats.QualifiedCount, currentStats.UnqualifiedCount);
                     if (currentStats.TotalCount > 0)
                     {
-                        await _uiController.LogToFrontend($"å·²åŠ è½½ä»Šæ—¥ç»Ÿè®¡: æ€»è®¡{currentStats.TotalCount}, åˆæ ¼{currentStats.QualifiedCount}, ä¸åˆæ ¼{currentStats.UnqualifiedCount}");
+                        await _uiController.LogToFrontend($"ÒÑ¼ÓÔØ½ñÈÕÍ³¼Æ: ×Ü¼Æ{currentStats.TotalCount}, ºÏ¸ñ{currentStats.QualifiedCount}, ²»ºÏ¸ñ{currentStats.UnqualifiedCount}");
                     }
 
                     await InitModelList();
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.LogToFrontend($"WebUIåˆå§‹åŒ–æµç¨‹å¼‚å¸¸: {ex.Message}", "error");
+                    await _uiController.LogToFrontend($"WebUI³õÊ¼»¯Á÷³ÌÒì³£: {ex.Message}", "error");
                 }
             };
 
-            // è®¢é˜…æµ‹è¯•YOLOäº‹ä»¶
+            // ¶©ÔÄ²âÊÔYOLOÊÂ¼ş
             _uiController.OnTestYolo += TestYolo_Handler;
 
-            // è®¢é˜…ROIæ›´æ–°äº‹ä»¶
+            // ¶©ÔÄROI¸üĞÂÊÂ¼ş
             _uiController.OnUpdateROI += (sender, normalizedRect) =>
             {
                 _currentROI = normalizedRect;
             };
 
-            // è®¢é˜…YOLOå‚æ•°ä¿®æ”¹äº‹ä»¶
+            // ¶©ÔÄYOLO²ÎÊıĞŞ¸ÄÊÂ¼ş
             _uiController.OnSetConfidence += (sender, conf) =>
             {
                 _appConfig.Confidence = conf;
@@ -1000,12 +1003,12 @@ namespace YOLO
                 _appConfig.Save();
             };
 
-            // è®¢é˜…ä»»åŠ¡ç±»å‹ä¿®æ”¹äº‹ä»¶
+            // ¶©ÔÄÈÎÎñÀàĞÍĞŞ¸ÄÊÂ¼ş
             _uiController.OnSetTaskType += (sender, taskType) =>
             {
                 _appConfig.TaskType = taskType;
                 _appConfig.Save();
-                // ä½¿ç”¨æ£€æµ‹æœåŠ¡æ›´æ–°ä»»åŠ¡ç±»å‹
+                // Ê¹ÓÃ¼ì²â·şÎñ¸üĞÂÈÎÎñÀàĞÍ
                 _detectionService.SetTaskMode(taskType);
             };
 
@@ -1017,27 +1020,27 @@ namespace YOLO
                     {
                         _detectionService.UnloadAuxiliary1Model();
                         _appConfig.Auxiliary1ModelPath = "";
-                        await _uiController.LogToFrontend("è¾…åŠ©æ¨¡å‹1å·²å¸è½½");
+                        await _uiController.LogToFrontend("¸¨ÖúÄ£ĞÍ1ÒÑĞ¶ÔØ");
                     }
                     else
                     {
-                        string modelPath = Path.Combine(æ¨¡å‹è·¯å¾„, modelName);
+                        string modelPath = Path.Combine(Ä£ĞÍÂ·¾¶, modelName);
                         if (File.Exists(modelPath))
                         {
                             await _detectionService.LoadAuxiliary1ModelAsync(modelPath);
                             _appConfig.Auxiliary1ModelPath = modelName;
-                            await _uiController.LogToFrontend($"âœ“ è¾…åŠ©æ¨¡å‹1å·²åŠ è½½: {modelName}");
+                            await _uiController.LogToFrontend($"? ¸¨ÖúÄ£ĞÍ1ÒÑ¼ÓÔØ: {modelName}");
                         }
                         else
                         {
-                            await _uiController.LogToFrontend($"è¾…åŠ©æ¨¡å‹1æ–‡ä»¶ä¸å­˜åœ¨: {modelName}", "error");
+                            await _uiController.LogToFrontend($"¸¨ÖúÄ£ĞÍ1ÎÄ¼ş²»´æÔÚ: {modelName}", "error");
                         }
                     }
                     _appConfig.Save();
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.LogToFrontend($"åŠ è½½è¾…åŠ©æ¨¡å‹1å¤±è´¥: {ex.Message}", "error");
+                    await _uiController.LogToFrontend($"¼ÓÔØ¸¨ÖúÄ£ĞÍ1Ê§°Ü: {ex.Message}", "error");
                 }
             };
 
@@ -1049,27 +1052,27 @@ namespace YOLO
                     {
                         _detectionService.UnloadAuxiliary2Model();
                         _appConfig.Auxiliary2ModelPath = "";
-                        await _uiController.LogToFrontend("è¾…åŠ©æ¨¡å‹2å·²å¸è½½");
+                        await _uiController.LogToFrontend("¸¨ÖúÄ£ĞÍ2ÒÑĞ¶ÔØ");
                     }
                     else
                     {
-                        string modelPath = Path.Combine(æ¨¡å‹è·¯å¾„, modelName);
+                        string modelPath = Path.Combine(Ä£ĞÍÂ·¾¶, modelName);
                         if (File.Exists(modelPath))
                         {
                             await _detectionService.LoadAuxiliary2ModelAsync(modelPath);
                             _appConfig.Auxiliary2ModelPath = modelName;
-                            await _uiController.LogToFrontend($"âœ“ è¾…åŠ©æ¨¡å‹2å·²åŠ è½½: {modelName}");
+                            await _uiController.LogToFrontend($"? ¸¨ÖúÄ£ĞÍ2ÒÑ¼ÓÔØ: {modelName}");
                         }
                         else
                         {
-                            await _uiController.LogToFrontend($"è¾…åŠ©æ¨¡å‹2æ–‡ä»¶ä¸å­˜åœ¨: {modelName}", "error");
+                            await _uiController.LogToFrontend($"¸¨ÖúÄ£ĞÍ2ÎÄ¼ş²»´æÔÚ: {modelName}", "error");
                         }
                     }
                     _appConfig.Save();
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.LogToFrontend($"åŠ è½½è¾…åŠ©æ¨¡å‹2å¤±è´¥: {ex.Message}", "error");
+                    await _uiController.LogToFrontend($"¼ÓÔØ¸¨ÖúÄ£ĞÍ2Ê§°Ü: {ex.Message}", "error");
                 }
             };
 
@@ -1078,35 +1081,35 @@ namespace YOLO
                 _appConfig.EnableMultiModelFallback = enabled;
                 _detectionService.SetEnableFallback(enabled);
                 _appConfig.Save();
-                await _uiController.LogToFrontend(enabled ? "âœ“ å¤šæ¨¡å‹è‡ªåŠ¨åˆ‡æ¢å·²å¯ç”¨" : "å¤šæ¨¡å‹è‡ªåŠ¨åˆ‡æ¢å·²ç¦ç”¨");
+                await _uiController.LogToFrontend(enabled ? "? ¶àÄ£ĞÍ×Ô¶¯ÇĞ»»ÒÑÆôÓÃ" : "¶àÄ£ĞÍ×Ô¶¯ÇĞ»»ÒÑ½ûÓÃ");
             };
 
-            // è®¢é˜…å¯†ç éªŒè¯äº‹ä»¶
+            // ¶©ÔÄÃÜÂëÑéÖ¤ÊÂ¼ş
             _uiController.OnVerifyPassword += async (sender, password) =>
             {
                 if (password == _appConfig.AdminPassword)
                 {
-                    // å¯†ç æ­£ç¡®,å‘é€é…ç½®åˆ°å‰ç«¯æ‰“å¼€è®¾ç½®ç•Œé¢
+                    // ÃÜÂëÕıÈ·,·¢ËÍÅäÖÃµ½Ç°¶Ë´ò¿ªÉèÖÃ½çÃæ
                     await _uiController.SendCurrentConfig(_appConfig);
                 }
                 else
                 {
-                    // å¯†ç é”™è¯¯
-                    await _uiController.ExecuteScriptAsync("alert('å¯†ç é”™è¯¯'); closePasswordModal();");
+                    // ÃÜÂë´íÎó
+                    await _uiController.ExecuteScriptAsync("alert('ÃÜÂë´íÎó'); closePasswordModal();");
                 }
             };
 
-            // è®¢é˜…é…ç½®ä¿å­˜äº‹ä»¶
+            // ¶©ÔÄÅäÖÃ±£´æÊÂ¼ş
             _uiController.OnSaveSettings += async (sender, configJson) =>
             {
                 try
                 {
-                    // ä½¿ç”¨ JsonDocument è§£æï¼Œå…è®¸éƒ¨åˆ†æ›´æ–°
+                    // Ê¹ÓÃ JsonDocument ½âÎö£¬ÔÊĞí²¿·Ö¸üĞÂ
                     using (JsonDocument doc = JsonDocument.Parse(configJson))
                     {
                         var root = doc.RootElement;
 
-                        // é€ä¸ªè¯»å–å¹¶æ›´æ–°é…ç½®å±æ€§
+                        // Öğ¸ö¶ÁÈ¡²¢¸üĞÂÅäÖÃÊôĞÔ
                         if (root.TryGetProperty("StoragePath", out var sp)) _appConfig.StoragePath = sp.GetString() ?? _appConfig.StoragePath;
                         if (root.TryGetProperty("PlcProtocol", out var ppr)) _appConfig.PlcProtocol = ppr.GetString() ?? _appConfig.PlcProtocol;
                         if (root.TryGetProperty("PlcIp", out var pi)) _appConfig.PlcIp = pi.GetString() ?? _appConfig.PlcIp;
@@ -1142,40 +1145,40 @@ namespace YOLO
                         if (root.TryGetProperty("RetryIntervalMs", out var rim)) _appConfig.RetryIntervalMs = rim.TryGetInt32(out int rimVal) ? rimVal : _appConfig.RetryIntervalMs;
                         if (root.TryGetProperty("EnableGpu", out var eg)) _appConfig.EnableGpu = eg.ValueKind == JsonValueKind.True;
 
-                        // ä¿å­˜å¹¶é‡æ–°åŠ è½½
+                        // ±£´æ²¢ÖØĞÂ¼ÓÔØ
                         _appConfig.Save();
 
-                        // æ›´æ–°ç›¸å…³è·¯å¾„
+                        // ¸üĞÂÏà¹ØÂ·¾¶
                         _uiController.ImageBasePath = Path_Images;
                         _uiController.LogBasePath = Path_Logs;
                         InitDirectories();
                         _uiController.SetImageMapping(Path_Images);
 
-                        // é‡æ–°åˆå§‹åŒ–YOLO(å¦‚æœGPUè®¾ç½®æ”¹å˜)
+                        // ÖØĞÂ³õÊ¼»¯YOLO(Èç¹ûGPUÉèÖÃ¸Ä±ä)
                         InitYolo();
 
-                        // å°è¯•é‡æ–°è¿æ¥PLC (åº”ç”¨æ–°IP/ç«¯å£)
+                        // ³¢ÊÔÖØĞÂÁ¬½ÓPLC (Ó¦ÓÃĞÂIP/¶Ë¿Ú)
                         _ = ConnectPlcViaServiceAsync();
 
                         await _uiController.ExecuteScriptAsync("closeSettingsModal();");
-                        await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "æœªé…ç½®");
-                        await _uiController.LogToFrontend("âœ“ ç³»ç»Ÿè®¾ç½®å·²æ›´æ–°", "success");
+                        await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "Î´ÅäÖÃ");
+                        await _uiController.LogToFrontend("? ÏµÍ³ÉèÖÃÒÑ¸üĞÂ", "success");
                     }
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.ExecuteScriptAsync($"alert('ä¿å­˜å¤±è´¥: {ex.Message.Replace("'", "\\'")}');");
+                    await _uiController.ExecuteScriptAsync($"alert('±£´æÊ§°Ü: {ex.Message.Replace("'", "\\'")}');");
                 }
             };
 
-            // è®¢é˜…é€‰æ‹©æ–‡ä»¶å¤¹äº‹ä»¶
+            // ¶©ÔÄÑ¡ÔñÎÄ¼ş¼ĞÊÂ¼ş
             _uiController.OnSelectStorageFolder += (sender, e) =>
             {
                 InvokeOnUIThread(async () =>
                 {
                     using (var fbd = new FolderBrowserDialog())
                     {
-                        fbd.Description = "é€‰æ‹©æ•°æ®å­˜å‚¨æ ¹ç›®å½•";
+                        fbd.Description = "Ñ¡ÔñÊı¾İ´æ´¢¸ùÄ¿Â¼";
                         fbd.UseDescriptionForTitle = true;
                         // fbd.ShowNewFolderButton = true; // Default is true
                         if (Directory.Exists(_appConfig.StoragePath))
@@ -1190,51 +1193,51 @@ namespace YOLO
                 });
             };
 
-            // åˆå§‹åŒ– WebUI
+            // ³õÊ¼»¯ WebUI
             if (webView21 != null)
             {
                 await _uiController.InitializeAsync(webView21);
-                // é…ç½® NG å›¾ç‰‡æŸ¥çœ‹è·¯å¾„
+                // ÅäÖÃ NG Í¼Æ¬²é¿´Â·¾¶
                 _uiController.ImageBasePath = Path_Images;
                 _uiController.SetImageMapping(Path_Images);
-                // é…ç½®æ£€æµ‹æ—¥å¿—è·¯å¾„
+                // ÅäÖÃ¼ì²âÈÕÖ¾Â·¾¶
                 _uiController.LogBasePath = Path_Logs;
             }
 
-            // ç»Ÿè®¡æ•°æ®å·²ç”± _statisticsService åœ¨æ„é€ æ—¶åŠ è½½
-            // æ£€æµ‹è·¨æ—¥ï¼Œå¦‚æœéœ€è¦åˆ™ä¿å­˜å†å²å¹¶é‡ç½®ä»Šæ—¥æ•°æ®
+            // Í³¼ÆÊı¾İÒÑÓÉ _statisticsService ÔÚ¹¹ÔìÊ±¼ÓÔØ
+            // ¼ì²â¿çÈÕ£¬Èç¹ûĞèÒªÔò±£´æÀúÊ·²¢ÖØÖÃ½ñÈÕÊı¾İ
             bool isNewDay = _statisticsService.CheckAndResetForNewDay();
             if (isNewDay)
             {
-                SafeFireAndForget(_uiController.LogToFrontend("æ£€æµ‹åˆ°æ–°çš„ä¸€å¤©ï¼Œç»Ÿè®¡æ•°æ®å·²é‡ç½®", "info"), "æ—¥å¿—è®°å½•");
+                SafeFireAndForget(_uiController.LogToFrontend("¼ì²âµ½ĞÂµÄÒ»Ìì£¬Í³¼ÆÊı¾İÒÑÖØÖÃ", "info"), "ÈÕÖ¾¼ÇÂ¼");
             }
 
-            // åˆå§‹åŒ–YOLO
+            // ³õÊ¼»¯YOLO
             InitYolo();
             InitDirectories();
 
-            // å¯åŠ¨åå°æ¸…ç†
+            // Æô¶¯ºóÌ¨ÇåÀí
             StartCleanupTask();
         }
 
         private async Task InitModelList()
         {
-            await _uiController.LogToFrontend("å¼€å§‹åŠ è½½æ¨¡å‹åˆ—è¡¨...");
+            await _uiController.LogToFrontend("¿ªÊ¼¼ÓÔØÄ£ĞÍÁĞ±í...");
 
-            if (!Directory.Exists(æ¨¡å‹è·¯å¾„))
+            if (!Directory.Exists(Ä£ĞÍÂ·¾¶))
             {
-                Directory.CreateDirectory(æ¨¡å‹è·¯å¾„);
-                _uiController.LogToFrontend($"åˆ›å»ºæ¨¡å‹ç›®å½•: {æ¨¡å‹è·¯å¾„}");
+                Directory.CreateDirectory(Ä£ĞÍÂ·¾¶);
+                _uiController.LogToFrontend($"´´½¨Ä£ĞÍÄ¿Â¼: {Ä£ĞÍÂ·¾¶}");
             }
 
-            var files = Directory.GetFiles(æ¨¡å‹è·¯å¾„, "*.onnx");
-            await _uiController.LogToFrontend($"æ‰¾åˆ° {files.Length} ä¸ªONNXæ¨¡å‹æ–‡ä»¶");
+            var files = Directory.GetFiles(Ä£ĞÍÂ·¾¶, "*.onnx");
+            await _uiController.LogToFrontend($"ÕÒµ½ {files.Length} ¸öONNXÄ£ĞÍÎÄ¼ş");
 
             var names = files.Select(Path.GetFileName).Where(n => !string.IsNullOrEmpty(n)).ToArray();
 
             // Push to Frontend (Requirement from Step 177/147)
             await _uiController.SendModelList(names!);
-            await _uiController.LogToFrontend($"âœ“ å·²é€šè¿‡ SendModelList æ¨é€ {names.Length} ä¸ªæ¨¡å‹");
+            await _uiController.LogToFrontend($"? ÒÑÍ¨¹ı SendModelList ÍÆËÍ {names.Length} ¸öÄ£ĞÍ");
         }
 
         private void InitDirectories()
@@ -1248,7 +1251,7 @@ namespace YOLO
         {
             Task.Run(async () =>
             {
-                while (!åœæ­¢)
+                while (!Í£Ö¹)
                 {
                     _storageService?.CleanOldData(30);
                     await Task.Delay(TimeSpan.FromHours(24));
@@ -1258,25 +1261,25 @@ namespace YOLO
 
         protected void OnFormClosingHandler(object? sender, FormClosingEventArgs e)
         {
-            // é˜²æ­¢é‡å¤è°ƒç”¨
+            // ·ÀÖ¹ÖØ¸´µ÷ÓÃ
             if (e.CloseReason == CloseReason.ApplicationExitCall) return;
 
             try
             {
-                _storageService?.WriteStartupLog("è½¯ä»¶å…³é—­", null);
+                _storageService?.WriteStartupLog("Èí¼ş¹Ø±Õ", null);
 
-                // æ¢å¤ç³»ç»Ÿä¼‘çœ ç­–ç•¥
+                // »Ö¸´ÏµÍ³ĞİÃß²ßÂÔ
                 WindowHelpers.RestoreSleep();
 
-                // ä¿å­˜ç»Ÿè®¡æ•°æ®
+                // ±£´æÍ³¼ÆÊı¾İ
                 _statisticsService?.SaveAll();
 
-                // åœæ­¢åå°ä»»åŠ¡
-                this.åœæ­¢ = true;
+                // Í£Ö¹ºóÌ¨ÈÎÎñ
+                this.Í£Ö¹ = true;
                 _plcService?.StopMonitoring();
 
-                // ä½¿ç”¨çº¿ç¨‹ç­‰å¾…æ¨¡å¼è¿›è¡Œèµ„æºé‡Šæ”¾ï¼Œé˜²æ­¢ç•Œé¢å¡æ­»
-                // ç»™äºˆ500msçš„å°è¯•æ–­å¼€æ—¶é—´ï¼Œè¶…æ—¶å¼ºåˆ¶é€€å‡º
+                // Ê¹ÓÃÏß³ÌµÈ´ıÄ£Ê½½øĞĞ×ÊÔ´ÊÍ·Å£¬·ÀÖ¹½çÃæ¿¨ËÀ
+                // ¸øÓè500msµÄ³¢ÊÔ¶Ï¿ªÊ±¼ä£¬³¬Ê±Ç¿ÖÆÍË³ö
                 var cleanupTask = Task.Run(() =>
                 {
                     try
@@ -1302,7 +1305,7 @@ namespace YOLO
 
                     try
                     {
-                        // DetectionService èµ„æºç”±å…¶å†…éƒ¨ç®¡ç†ï¼Œæ­¤å¤„æ— éœ€æ‰‹åŠ¨é‡Šæ”¾
+                        // DetectionService ×ÊÔ´ÓÉÆäÄÚ²¿¹ÜÀí£¬´Ë´¦ÎŞĞèÊÖ¶¯ÊÍ·Å
                     }
                     catch (Exception ex)
                     {
@@ -1320,15 +1323,15 @@ namespace YOLO
                     }
                 });
 
-                // ç­‰å¾…æ¸…ç†å®Œæˆæˆ–è¶…æ—¶ (800ms)
+                // µÈ´ıÇåÀíÍê³É»ò³¬Ê± (800ms)
                 if (!cleanupTask.Wait(800))
                 {
-                    // è¶…æ—¶ï¼Œå¼ºåˆ¶ä¸å†ç­‰å¾…
+                    // ³¬Ê±£¬Ç¿ÖÆ²»ÔÙµÈ´ı
                 }
             }
             catch (Exception)
             {
-                // ç¡®ä¿ä»»ä½•é”™è¯¯éƒ½ä¸é˜»æ­¢å…³é—­
+                // È·±£ÈÎºÎ´íÎó¶¼²»×èÖ¹¹Ø±Õ
             }
         }
 
@@ -1341,3 +1344,5 @@ namespace YOLO
         #endregion
     }
 }
+
+

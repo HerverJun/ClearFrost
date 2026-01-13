@@ -1,14 +1,14 @@
 // ============================================================================
-// æ–‡ä»¶å: OperatorFactory.cs
-// æè¿°:   ç®—å­å·¥å‚å’Œç›¸å…³æ•°æ®ç±»
+// ÎÄ¼şÃû: OperatorFactory.cs
+// ÃèÊö:   Ëã×Ó¹¤³§ºÍÏà¹ØÊı¾İÀà
 // ============================================================================
 using OpenCvSharp;
 using System.Collections.Generic;
 
-namespace YOLO.Vision
+namespace ClearFrost.Vision
 {
     /// <summary>
-    /// æœ‰æ— æ£€æµ‹ç»“æœ
+    /// ÓĞÎŞ¼ì²â½á¹û
     /// </summary>
     public class PresenceDetectionResult
     {
@@ -20,7 +20,7 @@ namespace YOLO.Vision
     }
 
     /// <summary>
-    /// æ¨¡æ¿åŒ¹é…ç»“æœ
+    /// Ä£°åÆ¥Åä½á¹û
     /// </summary>
     public class TemplateMatchResult
     {
@@ -34,7 +34,7 @@ namespace YOLO.Vision
     }
 
     /// <summary>
-    /// ç®—å­å·¥å‚
+    /// Ëã×Ó¹¤³§
     /// </summary>
     public static class OperatorFactory
     {
@@ -65,16 +65,16 @@ namespace YOLO.Vision
 
         public static List<OperatorInfo> GetAvailableOperators() => new()
         {
-            new OperatorInfo { TypeId = "template_match", Name = "æ¨¡æ¿åŒ¹é…", Description = "ä½¿ç”¨æ¨¡æ¿æŸ¥æ‰¾ç›®æ ‡ä½ç½®" },
-            new OperatorInfo { TypeId = "feature_match", Name = "ç‰¹å¾åŒ¹é… (AKAZE)", Description = "åŸºäºAKAZEç‰¹å¾ç‚¹çš„æŠ—æ—‹è½¬ç¼©æ”¾åŒ¹é…" },
-            new OperatorInfo { TypeId = "orb_match", Name = "ç‰¹å¾åŒ¹é… (ORB)", Description = "åŸºäºORBç‰¹å¾ç‚¹çš„é«˜é€ŸåŒ¹é…" },
-            new OperatorInfo { TypeId = "pyramid_shape_match", Name = "å½¢çŠ¶åŒ¹é… (é‡‘å­—å¡”)", Description = "å·¥ä¸šçº§æŠ—å…‰ç…§æ¢¯åº¦æ–¹å‘åŒ¹é…" },
-            new OperatorInfo { TypeId = "background_diff", Name = "æœ‰æ— æ£€æµ‹ (èƒŒæ™¯å·®åˆ†)", Description = "åŸºäºèƒŒæ™¯å·®åˆ†çš„ç‰©ä½“æœ‰æ— æ£€æµ‹" }
+            new OperatorInfo { TypeId = "template_match", Name = "Ä£°åÆ¥Åä", Description = "Ê¹ÓÃÄ£°å²éÕÒÄ¿±êÎ»ÖÃ" },
+            new OperatorInfo { TypeId = "feature_match", Name = "ÌØÕ÷Æ¥Åä (AKAZE)", Description = "»ùÓÚAKAZEÌØÕ÷µãµÄ¿¹Ğı×ªËõ·ÅÆ¥Åä" },
+            new OperatorInfo { TypeId = "orb_match", Name = "ÌØÕ÷Æ¥Åä (ORB)", Description = "»ùÓÚORBÌØÕ÷µãµÄ¸ßËÙÆ¥Åä" },
+            new OperatorInfo { TypeId = "pyramid_shape_match", Name = "ĞÎ×´Æ¥Åä (½ğ×ÖËş)", Description = "¹¤Òµ¼¶¿¹¹âÕÕÌİ¶È·½ÏòÆ¥Åä" },
+            new OperatorInfo { TypeId = "background_diff", Name = "ÓĞÎŞ¼ì²â (±³¾°²î·Ö)", Description = "»ùÓÚ±³¾°²î·ÖµÄÎïÌåÓĞÎŞ¼ì²â" }
         };
     }
 
     /// <summary>
-    /// ç®—å­ä¿¡æ¯
+    /// Ëã×ÓĞÅÏ¢
     /// </summary>
     public class OperatorInfo
     {
@@ -83,3 +83,4 @@ namespace YOLO.Vision
         public string Description { get; set; } = string.Empty;
     }
 }
+

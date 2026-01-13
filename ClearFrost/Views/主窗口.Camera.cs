@@ -1,4 +1,5 @@
 using MVSDK_Net;
+using ClearFrost.Config;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 using System.IO;
@@ -13,17 +14,17 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using YoloDetection;
-using YOLO.Vision;
-using YOLO.Helpers;
-using YOLO.Interfaces;
-using YOLO.Services;
+using ClearFrost.Yolo;
+using ClearFrost.Vision;
+using ClearFrost.Helpers;
+using ClearFrost.Interfaces;
+using ClearFrost.Services;
 
-namespace YOLO
+namespace ClearFrost
 {
-    public partial class ä¸»çª—å£
+    public partial class Ö÷´°¿Ú
     {
-        #region 4. ç›¸æœºæ§åˆ¶é€»è¾‘
+        #region 4. Ïà»ú¿ØÖÆÂß¼­
 
         private int FindTargetCamera()
         {
@@ -32,7 +33,7 @@ namespace YOLO
                 var config = _appConfig.ActiveCamera;
                 if (config == null || string.IsNullOrEmpty(config.SerialNumber))
                 {
-                    SafeFireAndForget(_uiController.LogToFrontend("âœ— æœªé…ç½®æ´»åŠ¨ç›¸æœºåºåˆ—å·", "error"), "æŸ¥æ‰¾ç›¸æœº");
+                    SafeFireAndForget(_uiController.LogToFrontend("? Î´ÅäÖÃ»î¶¯Ïà»úĞòÁĞºÅ", "error"), "²éÕÒÏà»ú");
                     return -1;
                 }
 
@@ -43,7 +44,7 @@ namespace YOLO
 
                 if (res != IMVDefine.IMV_OK || deviceList.nDevNum == 0)
                 {
-                    SafeFireAndForget(_uiController.LogToFrontend("âœ— æœªæ‰¾åˆ°ä»»ä½•ç›¸æœºè®¾å¤‡", "error"), "æŸ¥æ‰¾ç›¸æœº");
+                    SafeFireAndForget(_uiController.LogToFrontend("? Î´ÕÒµ½ÈÎºÎÏà»úÉè±¸", "error"), "²éÕÒÏà»ú");
                     return -1;
                 }
 
@@ -65,43 +66,43 @@ namespace YOLO
                     }
                 }
 
-                // æœªæ‰¾åˆ°åŒ¹é…çš„åºåˆ—å·
-                SafeFireAndForget(_uiController.LogToFrontend($"âœ— æœªæ‰¾åˆ°åºåˆ—å·ä¸º {targetSn} çš„ç›¸æœº", "error"), "æŸ¥æ‰¾ç›¸æœº");
-                SafeFireAndForget(_uiController.LogToFrontend($"è¯·æ£€æŸ¥ç›¸æœºè¿æ¥æˆ–åœ¨è®¾ç½®ä¸­ä¿®æ”¹åºåˆ—å·", "warning"), "æŸ¥æ‰¾ç›¸æœºæç¤º");
+                // Î´ÕÒµ½Æ¥ÅäµÄĞòÁĞºÅ
+                SafeFireAndForget(_uiController.LogToFrontend($"? Î´ÕÒµ½ĞòÁĞºÅÎª {targetSn} µÄÏà»ú", "error"), "²éÕÒÏà»ú");
+                SafeFireAndForget(_uiController.LogToFrontend($"Çë¼ì²éÏà»úÁ¬½Ó»òÔÚÉèÖÃÖĞĞŞ¸ÄĞòÁĞºÅ", "warning"), "²éÕÒÏà»úÌáÊ¾");
                 return -1;
             }
             catch (DllNotFoundException dllEx)
             {
-                SafeFireAndForget(_uiController.LogToFrontend($"ç›¸æœºé©±åŠ¨ç¼ºå¤±: {dllEx.Message}", "error"), "é©±åŠ¨æ£€æŸ¥");
+                SafeFireAndForget(_uiController.LogToFrontend($"Ïà»úÇı¶¯È±Ê§: {dllEx.Message}", "error"), "Çı¶¯¼ì²é");
                 return -1;
             }
             catch (Exception ex)
             {
-                SafeFireAndForget(_uiController.LogToFrontend($"æŸ¥æ‰¾ç›¸æœºå¼‚å¸¸: {ex.Message}", "error"), "æŸ¥æ‰¾ç›¸æœºå¼‚å¸¸");
+                SafeFireAndForget(_uiController.LogToFrontend($"²éÕÒÏà»úÒì³£: {ex.Message}", "error"), "²éÕÒÏà»úÒì³£");
                 return -1;
             }
         }
 
         /// <summary>
-        /// ä¸€é”®æ‰“å¼€ç›¸æœºï¼šè‡ªåŠ¨æŸ¥æ‰¾ç›®æ ‡ç›¸æœºå¹¶æ‰“å¼€
+        /// Ò»¼ü´ò¿ªÏà»ú£º×Ô¶¯²éÕÒÄ¿±êÏà»ú²¢´ò¿ª
         /// </summary>
         private void btnOpenCamera_Logic()
         {
-            // å…ˆæŸ¥æ‰¾ç›®æ ‡ç›¸æœº
+            // ÏÈ²éÕÒÄ¿±êÏà»ú
             _targetCameraIndex = FindTargetCamera();
 
             if (_targetCameraIndex == -1)
             {
-                return; // æŸ¥æ‰¾å¤±è´¥ï¼Œå·²åœ¨æ—¥å¿—ä¸­æŠ¥è­¦
+                return; // ²éÕÒÊ§°Ü£¬ÒÑÔÚÈÕÖ¾ÖĞ±¨¾¯
             }
 
             try
             {
                 int res = cam.IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode.modeByIndex, _targetCameraIndex);
-                if (res != IMVDefine.IMV_OK) throw new Exception($"åˆ›å»ºå¥æŸ„å¤±è´¥:{res}");
+                if (res != IMVDefine.IMV_OK) throw new Exception($"´´½¨¾ä±úÊ§°Ü:{res}");
 
                 res = cam.IMV_Open();
-                if (res != IMVDefine.IMV_OK) throw new Exception($"æ‰“å¼€ç›¸æœºå¤±è´¥:{res}");
+                if (res != IMVDefine.IMV_OK) throw new Exception($"´ò¿ªÏà»úÊ§°Ü:{res}");
 
                 cam.IMV_SetEnumFeatureSymbol("TriggerSource", "Software");
                 cam.IMV_SetEnumFeatureSymbol("TriggerMode", "On");
@@ -110,22 +111,22 @@ namespace YOLO
                 getParam();
 
                 res = cam.IMV_StartGrabbing();
-                if (res != IMVDefine.IMV_OK) throw new Exception($"å¯åŠ¨é‡‡é›†å¤±è´¥:{res}");
+                if (res != IMVDefine.IMV_OK) throw new Exception($"Æô¶¯²É¼¯Ê§°Ü:{res}");
 
                 if (renderThread != null && renderThread.IsAlive) renderThread.Join(100);
                 renderThread = new Thread(DisplayThread);
                 renderThread.IsBackground = true;
                 renderThread.Start();
 
-                SafeFireAndForget(_uiController.UpdateConnection("cam", true), "æ›´æ–°ç›¸æœºçŠ¶æ€");
-                SafeFireAndForget(_uiController.LogToFrontend("âœ“ ç›¸æœºå¼€å¯æˆåŠŸ", "success"), "ç›¸æœºå¼€å¯æ—¥å¿—");
-                // è‡ªåŠ¨è¿æ¥PLC
-                SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLCè‡ªåŠ¨è¿æ¥");
+                SafeFireAndForget(_uiController.UpdateConnection("cam", true), "¸üĞÂÏà»ú×´Ì¬");
+                SafeFireAndForget(_uiController.LogToFrontend("? Ïà»ú¿ªÆô³É¹¦", "success"), "Ïà»ú¿ªÆôÈÕÖ¾");
+                // ×Ô¶¯Á¬½ÓPLC
+                SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC×Ô¶¯Á¬½Ó");
             }
             catch (Exception ex)
             {
                 ReleaseCameraResources();
-                SafeFireAndForget(_uiController.LogToFrontend($"ç›¸æœºå¼€å¯å¼‚å¸¸: {ex.Message}", "error"), "å¼€å¯ç›¸æœºå¼‚å¸¸");
+                SafeFireAndForget(_uiController.LogToFrontend($"Ïà»ú¿ªÆôÒì³£: {ex.Message}", "error"), "¿ªÆôÏà»úÒì³£");
             }
         }
 
@@ -147,7 +148,7 @@ namespace YOLO
             {
                 foreach (var frame in m_frameQueue.GetConsumingEnumerable(m_cts.Token))
                 {
-                    SafeFireAndForget(ProcessFrame(frame), "å¤„ç†å›¾åƒå¸§");
+                    SafeFireAndForget(ProcessFrame(frame), "´¦ÀíÍ¼ÏñÖ¡");
                 }
             }
             catch (OperationCanceledException) { }
@@ -178,7 +179,7 @@ namespace YOLO
 
         private Bitmap ConvertFrameToBitmap(IMVDefine.IMV_Frame frame)
         {
-            if (frame.frameInfo.pixelFormat != IMVDefine.IMV_EPixelType.gvspPixelMono8) throw new Exception("éMono8æ ¼å¼");
+            if (frame.frameInfo.pixelFormat != IMVDefine.IMV_EPixelType.gvspPixelMono8) throw new Exception("·ÇMono8¸ñÊ½");
             var bitmap = new Bitmap((int)frame.frameInfo.width, (int)frame.frameInfo.height, PixelFormat.Format8bppIndexed);
             ColorPalette palette = bitmap.Palette;
             for (int i = 0; i < 256; i++) palette.Entries[i] = Color.FromArgb(i, i, i);
@@ -195,3 +196,5 @@ namespace YOLO
         #endregion
     }
 }
+
+

@@ -1,136 +1,136 @@
 using System.Text.Json.Serialization;
 
-namespace YOLO.Vision
+namespace ClearFrost.Vision
 {
     /// <summary>
-    /// è§†è§‰é…ç½®ç±»
-    /// ç”¨äº C# <-> JS é€šä¿¡ï¼Œåºåˆ—åŒ–ä¸º JSON å‘é€ç»™å‰ç«¯
+    /// ÊÓ¾õÅäÖÃÀà
+    /// ÓÃÓÚ C# <-> JS Í¨ĞÅ£¬ĞòÁĞ»¯Îª JSON ·¢ËÍ¸øÇ°¶Ë
     /// </summary>
     public class VisionConfig
     {
         /// <summary>
-        /// å½“å‰è§†è§‰æ¨¡å¼
+        /// µ±Ç°ÊÓ¾õÄ£Ê½
         /// </summary>
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public VisionMode Mode { get; set; } = VisionMode.YOLO;
 
         /// <summary>
-        /// ä¼ ç»Ÿè§†è§‰æ¨¡å¼ä¸‹çš„ç®—å­åˆ—è¡¨
+        /// ´«Í³ÊÓ¾õÄ£Ê½ÏÂµÄËã×ÓÁĞ±í
         /// </summary>
         public List<OperatorConfig> Operators { get; set; } = new();
 
         /// <summary>
-        /// æ¨¡æ¿å›¾åƒè·¯å¾„
+        /// Ä£°åÍ¼ÏñÂ·¾¶
         /// </summary>
         public string TemplatePath { get; set; } = string.Empty;
 
         /// <summary>
-        /// æ¨¡æ¿åŒ¹é…é˜ˆå€¼
+        /// Ä£°åÆ¥ÅäãĞÖµ
         /// </summary>
         public double TemplateThreshold { get; set; } = 0.8;
     }
 
     /// <summary>
-    /// ç”¨äºå‰ç«¯æ˜¾ç¤ºçš„å®Œæ•´é…ç½®ä¿¡æ¯
+    /// ÓÃÓÚÇ°¶ËÏÔÊ¾µÄÍêÕûÅäÖÃĞÅÏ¢
     /// </summary>
     public class VisionConfigResponse
     {
-        /// <summary>å½“å‰é…ç½®</summary>
+        /// <summary>µ±Ç°ÅäÖÃ</summary>
         public VisionConfig Config { get; set; } = new();
 
-        /// <summary>å¯ç”¨ç®—å­åˆ—è¡¨</summary>
+        /// <summary>¿ÉÓÃËã×ÓÁĞ±í</summary>
         public List<OperatorInfo> AvailableOperators { get; set; } = new();
 
-        /// <summary>å„ç®—å­çš„å‚æ•°ä¿¡æ¯</summary>
+        /// <summary>¸÷Ëã×ÓµÄ²ÎÊıĞÅÏ¢</summary>
         public Dictionary<string, List<OperatorParameterInfo>> OperatorParameters { get; set; } = new();
     }
 
     /// <summary>
-    /// å‰ç«¯å‘é€çš„æµç¨‹æ›´æ–°è¯·æ±‚
+    /// Ç°¶Ë·¢ËÍµÄÁ÷³Ì¸üĞÂÇëÇó
     /// </summary>
     public class PipelineUpdateRequest
     {
-        /// <summary>æ“ä½œç±»å‹: add, remove, update, move, clear</summary>
+        /// <summary>²Ù×÷ÀàĞÍ: add, remove, update, move, clear</summary>
         [JsonPropertyName("action")]
         public string Action { get; set; } = string.Empty;
 
-        /// <summary>ç®—å­ç±»å‹IDï¼ˆadd æ—¶ä½¿ç”¨ï¼‰</summary>
+        /// <summary>Ëã×ÓÀàĞÍID£¨add Ê±Ê¹ÓÃ£©</summary>
         [JsonPropertyName("typeId")]
         public string? TypeId { get; set; }
 
-        /// <summary>ç®—å­å®ä¾‹IDï¼ˆremove/update/move æ—¶ä½¿ç”¨ï¼‰</summary>
+        /// <summary>Ëã×ÓÊµÀıID£¨remove/update/move Ê±Ê¹ÓÃ£©</summary>
         [JsonPropertyName("instanceId")]
         public string? InstanceId { get; set; }
 
-        /// <summary>å‚æ•°åï¼ˆupdate æ—¶ä½¿ç”¨ï¼‰</summary>
+        /// <summary>²ÎÊıÃû£¨update Ê±Ê¹ÓÃ£©</summary>
         [JsonPropertyName("paramName")]
         public string? ParamName { get; set; }
 
-        /// <summary>å‚æ•°å€¼ï¼ˆupdate æ—¶ä½¿ç”¨ï¼‰</summary>
+        /// <summary>²ÎÊıÖµ£¨update Ê±Ê¹ÓÃ£©</summary>
         [JsonPropertyName("paramValue")]
         public object? ParamValue { get; set; }
 
-        /// <summary>æ–°ä½ç½®ï¼ˆmove æ—¶ä½¿ç”¨ï¼‰</summary>
+        /// <summary>ĞÂÎ»ÖÃ£¨move Ê±Ê¹ÓÃ£©</summary>
         [JsonPropertyName("newIndex")]
         public int? NewIndex { get; set; }
     }
 
     /// <summary>
-    /// é¢„è§ˆè¯·æ±‚
+    /// Ô¤ÀÀÇëÇó
     /// </summary>
     public class PreviewRequest
     {
-        /// <summary>æ˜¯å¦åªé¢„è§ˆåˆ°æŒ‡å®šæ­¥éª¤</summary>
+        /// <summary>ÊÇ·ñÖ»Ô¤ÀÀµ½Ö¸¶¨²½Öè</summary>
         public bool StepPreview { get; set; } = false;
 
-        /// <summary>é¢„è§ˆåˆ°çš„æ­¥éª¤ç´¢å¼•</summary>
+        /// <summary>Ô¤ÀÀµ½µÄ²½ÖèË÷Òı</summary>
         public int StepIndex { get; set; } = -1;
     }
 
     /// <summary>
-    /// é¢„è§ˆå“åº”
+    /// Ô¤ÀÀÏìÓ¦
     /// </summary>
     public class PreviewResponse
     {
-        /// <summary>Base64 ç¼–ç çš„å›¾åƒ</summary>
+        /// <summary>Base64 ±àÂëµÄÍ¼Ïñ</summary>
         public string ImageBase64 { get; set; } = string.Empty;
 
-        /// <summary>å›¾åƒå®½åº¦</summary>
+        /// <summary>Í¼Ïñ¿í¶È</summary>
         public int Width { get; set; }
 
-        /// <summary>å›¾åƒé«˜åº¦</summary>
+        /// <summary>Í¼Ïñ¸ß¶È</summary>
         public int Height { get; set; }
 
-        /// <summary>å¤„ç†æ—¶é—´ï¼ˆæ¯«ç§’ï¼‰</summary>
+        /// <summary>´¦ÀíÊ±¼ä£¨ºÁÃë£©</summary>
         public double ProcessingTimeMs { get; set; }
     }
 
     /// <summary>
-    /// æ£€æµ‹å“åº”
+    /// ¼ì²âÏìÓ¦
     /// </summary>
     public class DetectionResponse
     {
-        /// <summary>æ˜¯å¦é€šè¿‡</summary>
+        /// <summary>ÊÇ·ñÍ¨¹ı</summary>
         public bool IsPass { get; set; }
 
-        /// <summary>æ£€æµ‹åˆ†æ•°</summary>
+        /// <summary>¼ì²â·ÖÊı</summary>
         public double Score { get; set; }
 
-        /// <summary>å¤„ç†æ—¶é—´ï¼ˆæ¯«ç§’ï¼‰</summary>
+        /// <summary>´¦ÀíÊ±¼ä£¨ºÁÃë£©</summary>
         public double ProcessingTimeMs { get; set; }
 
-        /// <summary>ç»“æœæè¿°</summary>
+        /// <summary>½á¹ûÃèÊö</summary>
         public string Message { get; set; } = string.Empty;
 
-        /// <summary>æ£€æµ‹åˆ°çš„å¯¹è±¡</summary>
+        /// <summary>¼ì²âµ½µÄ¶ÔÏó</summary>
         public List<DetectedObjectDto> Objects { get; set; } = new();
 
-        /// <summary>ç»“æœå›¾åƒ Base64</summary>
+        /// <summary>½á¹ûÍ¼Ïñ Base64</summary>
         public string? ResultImageBase64 { get; set; }
     }
 
     /// <summary>
-    /// æ£€æµ‹å¯¹è±¡ DTO
+    /// ¼ì²â¶ÔÏó DTO
     /// </summary>
     public class DetectedObjectDto
     {
@@ -143,7 +143,7 @@ namespace YOLO.Vision
     }
 
     /// <summary>
-    /// ç®—å­è®­ç»ƒè¯·æ±‚
+    /// Ëã×ÓÑµÁ·ÇëÇó
     /// </summary>
     public class TrainOperatorRequest
     {
@@ -154,3 +154,4 @@ namespace YOLO.Vision
         public string ImageBase64 { get; set; } = string.Empty;
     }
 }
+

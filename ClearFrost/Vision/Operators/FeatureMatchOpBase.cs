@@ -1,6 +1,6 @@
 // ============================================================================
-// æ–‡ä»¶å: FeatureMatchOpBase.cs
-// æè¿°:   ç‰¹å¾åŒ¹é…ç®—å­åŸºç±» - å°è£…æ¨¡æ¿åŠ è½½ã€ç‰¹å¾æå–ã€åŒ¹é…ã€RANSACéªŒè¯å’Œç»˜å›¾çš„å…¬å…±é€»è¾‘
+// ÎÄ¼şÃû: FeatureMatchOpBase.cs
+// ÃèÊö:   ÌØÕ÷Æ¥ÅäËã×Ó»ùÀà - ·â×°Ä£°å¼ÓÔØ¡¢ÌØÕ÷ÌáÈ¡¡¢Æ¥Åä¡¢RANSACÑéÖ¤ºÍ»æÍ¼µÄ¹«¹²Âß¼­
 // ============================================================================
 using OpenCvSharp;
 using System;
@@ -8,13 +8,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-namespace YOLO.Vision
+namespace ClearFrost.Vision
 {
     /// <summary>
-    /// ç‰¹å¾åŒ¹é…ç®—å­åŸºç±»
-    /// å°è£…äº†æ¨¡æ¿åŠ è½½ã€ç‰¹å¾æå–ã€åŒ¹é…ã€RANSACéªŒè¯å’Œç»˜å›¾çš„å…¬å…±é€»è¾‘
+    /// ÌØÕ÷Æ¥ÅäËã×Ó»ùÀà
+    /// ·â×°ÁËÄ£°å¼ÓÔØ¡¢ÌØÕ÷ÌáÈ¡¡¢Æ¥Åä¡¢RANSACÑéÖ¤ºÍ»æÍ¼µÄ¹«¹²Âß¼­
     /// </summary>
-    /// <typeparam name="TDetector">ç‰¹å¾æ£€æµ‹å™¨ç±»å‹</typeparam>
+    /// <typeparam name="TDetector">ÌØÕ÷¼ì²âÆ÷ÀàĞÍ</typeparam>
     public abstract class FeatureMatchOpBase<TDetector> : IImageOperator, IDisposable, ITemplateTrainable
         where TDetector : class
     {
@@ -127,7 +127,7 @@ namespace YOLO.Vision
                 {
                     if (sceneDescriptors.Empty() || sceneKeyPoints.Length < 4)
                     {
-                        LastMatchResult = CreateFailedResult($"åœºæ™¯ç‰¹å¾ä¸è¶³ (ç‚¹æ•°: {sceneKeyPoints.Length} < 4)");
+                        LastMatchResult = CreateFailedResult($"³¡¾°ÌØÕ÷²»×ã (µãÊı: {sceneKeyPoints.Length} < 4)");
                         return CreateOutputImage(input);
                     }
 
@@ -208,14 +208,14 @@ namespace YOLO.Vision
 
                 if (!isMatch)
                 {
-                    if (!isInliersPass) failureReason = $"å†…ç‚¹ä¸è¶³({inliers} < {_scoreThreshold})";
-                    else if (!isRatioPass) failureReason = $"å†…ç‚¹ç‡è¿‡ä½({inlierRatio:F2})";
+                    if (!isInliersPass) failureReason = $"ÄÚµã²»×ã({inliers} < {_scoreThreshold})";
+                    else if (!isRatioPass) failureReason = $"ÄÚµãÂÊ¹ıµÍ({inlierRatio:F2})";
                 }
             }
             else
             {
                 isMatch = score >= _scoreThreshold;
-                if (!isMatch) failureReason = ($"åŒ¹é…ç‚¹ä¸è¶³({score} < {_scoreThreshold})");
+                if (!isMatch) failureReason = ($"Æ¥Åäµã²»×ã({score} < {_scoreThreshold})");
             }
 
             using (validHomography)
@@ -400,3 +400,4 @@ namespace YOLO.Vision
         }
     }
 }
+

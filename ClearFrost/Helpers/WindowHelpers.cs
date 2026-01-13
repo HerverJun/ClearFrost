@@ -1,21 +1,21 @@
 // ============================================================================
-// æ–‡ä»¶å: WindowHelpers.cs
-// æè¿°:   Windows ç³»ç»Ÿäº¤äº’å·¥å…·ç±»
-//         åŒ…å«é˜»æ­¢ä¼‘çœ å’Œçª—å£æ‹–åŠ¨çš„ Win32 API å°è£…
+// ÎÄ¼şÃû: WindowHelpers.cs
+// ÃèÊö:   Windows ÏµÍ³½»»¥¹¤¾ßÀà
+//         °üº¬×èÖ¹ĞİÃßºÍ´°¿ÚÍÏ¶¯µÄ Win32 API ·â×°
 // ============================================================================
 
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace YOLO.Helpers
+namespace ClearFrost.Helpers
 {
     /// <summary>
-    /// Windows ç³»ç»Ÿäº¤äº’å·¥å…·ç±»
+    /// Windows ÏµÍ³½»»¥¹¤¾ßÀà
     /// </summary>
     public static class WindowHelpers
     {
-        #region é˜»æ­¢ä¼‘çœ 
+        #region ×èÖ¹ĞİÃß
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern uint SetThreadExecutionState(uint esFlags);
@@ -25,7 +25,7 @@ namespace YOLO.Helpers
         private const uint ES_CONTINUOUS = 0x80000000;
 
         /// <summary>
-        /// é˜»æ­¢ç³»ç»Ÿä¼‘çœ å’Œå±å¹•å…³é—­
+        /// ×èÖ¹ÏµÍ³ĞİÃßºÍÆÁÄ»¹Ø±Õ
         /// </summary>
         public static void PreventSleep()
         {
@@ -40,7 +40,7 @@ namespace YOLO.Helpers
         }
 
         /// <summary>
-        /// æ¢å¤ç³»ç»Ÿæ­£å¸¸ä¼‘çœ ç­–ç•¥
+        /// »Ö¸´ÏµÍ³Õı³£ĞİÃß²ßÂÔ
         /// </summary>
         public static void RestoreSleep()
         {
@@ -56,7 +56,7 @@ namespace YOLO.Helpers
 
         #endregion
 
-        #region çª—å£æ‹–åŠ¨
+        #region ´°¿ÚÍÏ¶¯
 
         [DllImport("user32.dll")]
         private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
@@ -68,9 +68,9 @@ namespace YOLO.Helpers
         private const int HT_CAPTION = 0x2;
 
         /// <summary>
-        /// å¯åŠ¨çª—å£æ‹–åŠ¨ï¼ˆæ¨¡æ‹Ÿæ ‡é¢˜æ æ‹–åŠ¨ï¼‰
+        /// Æô¶¯´°¿ÚÍÏ¶¯£¨Ä£Äâ±êÌâÀ¸ÍÏ¶¯£©
         /// </summary>
-        /// <param name="form">è¦æ‹–åŠ¨çš„çª—ä½“</param>
+        /// <param name="form">ÒªÍÏ¶¯µÄ´°Ìå</param>
         public static void StartWindowDrag(Form form)
         {
             if (form == null) return;
@@ -81,3 +81,4 @@ namespace YOLO.Helpers
         #endregion
     }
 }
+

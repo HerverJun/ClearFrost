@@ -1,57 +1,58 @@
 using System;
+using ClearFrost.Config;
 using System.Text.Json.Serialization;
 
-namespace YOLO
+namespace ClearFrost.Config
 {
     /// <summary>
-    /// å•ä¸ªç›¸æœºçš„é…ç½®ä¿¡æ¯
+    /// µ¥¸öÏà»úµÄÅäÖÃĞÅÏ¢
     /// </summary>
     public class CameraConfig
     {
         /// <summary>
-        /// ç›¸æœºå”¯ä¸€æ ‡è¯†ç¬¦
+        /// Ïà»úÎ¨Ò»±êÊ¶·û
         /// </summary>
         public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
 
         /// <summary>
-        /// ç›¸æœºåºåˆ—å· (ç”¨äºSDKè¿æ¥)
+        /// Ïà»úĞòÁĞºÅ (ÓÃÓÚSDKÁ¬½Ó)
         /// </summary>
         public string SerialNumber { get; set; } = "";
 
         /// <summary>
-        /// ç›¸æœºæ˜¾ç¤ºåç§°
+        /// Ïà»úÏÔÊ¾Ãû³Æ
         /// </summary>
         public string DisplayName { get; set; } = "Camera";
 
         /// <summary>
-        /// æ›å…‰æ—¶é—´ (å¾®ç§’)
+        /// ÆØ¹âÊ±¼ä (Î¢Ãë)
         /// </summary>
         public double ExposureTime { get; set; } = 50000.0;
 
         /// <summary>
-        /// å¢ç›Š
+        /// ÔöÒæ
         /// </summary>
         public double Gain { get; set; } = 1.1;
 
         /// <summary>
-        /// æ˜¯å¦å¯ç”¨
+        /// ÊÇ·ñÆôÓÃ
         /// </summary>
         public bool IsEnabled { get; set; } = true;
 
         /// <summary>
-        /// ç›¸æœºåˆ¶é€ å•† (MindVision / Hikvision)
-        /// é»˜è®¤ä¸º MindVision ä»¥ä¿æŒå‘åå…¼å®¹
+        /// Ïà»úÖÆÔìÉÌ (MindVision / Hikvision)
+        /// Ä¬ÈÏÎª MindVision ÒÔ±£³ÖÏòºó¼æÈİ
         /// </summary>
         public string Manufacturer { get; set; } = "MindVision";
 
         /// <summary>
-        /// ç›¸æœºå‹å· (å¯é€‰ï¼Œæšä¸¾æ—¶å¡«å……)
+        /// Ïà»úĞÍºÅ (¿ÉÑ¡£¬Ã¶¾ÙÊ±Ìî³ä)
         /// </summary>
         [JsonIgnore]
         public string ModelName { get; set; } = "";
 
         /// <summary>
-        /// åˆ›å»ºé…ç½®å‰¯æœ¬
+        /// ´´½¨ÅäÖÃ¸±±¾
         /// </summary>
         public CameraConfig Clone()
         {
@@ -69,3 +70,5 @@ namespace YOLO
         }
     }
 }
+
+

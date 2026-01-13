@@ -1,30 +1,30 @@
 // ============================================================================
-// æ–‡ä»¶å: PipelineProcessor.cs
-// æè¿°:   ä¼ ç»Ÿè§†è§‰å¤„ç†çš„æ ¸å¿ƒæµæ°´çº¿å¤„ç†å™¨
+// ÎÄ¼şÃû: PipelineProcessor.cs
+// ÃèÊö:   ´«Í³ÊÓ¾õ´¦ÀíµÄºËĞÄÁ÷Ë®Ïß´¦ÀíÆ÷
 //         
-// åŠŸèƒ½æ¦‚è¿°:
-//   - åŠ¨æ€ç®¡ç†å›¾åƒå¤„ç†ç®—å­é“¾ (æ·»åŠ ã€åˆ é™¤ã€æ’åº)
-//   - æŒ‰é¡ºåºæ‰§è¡Œæ‰€æœ‰ç®—å­ï¼Œæ¯ä¸ªç®—å­è¾“å‡ºä½œä¸ºä¸‹ä¸€ä¸ªçš„è¾“å…¥
-//   - æ”¯æŒå¤šç§åŒ¹é…ç®—å­: æ¨¡æ¿åŒ¹é…ã€AKAZEç‰¹å¾åŒ¹é…ã€ORBç‰¹å¾åŒ¹é…ã€é‡‘å­—å¡”å½¢çŠ¶åŒ¹é…
-//   - æä¾›é…ç½®å¯¼å…¥/å¯¼å‡ºåŠŸèƒ½ï¼Œæ”¯æŒæµæ°´çº¿æŒä¹…åŒ–
+// ¹¦ÄÜ¸ÅÊö:
+//   - ¶¯Ì¬¹ÜÀíÍ¼Ïñ´¦ÀíËã×ÓÁ´ (Ìí¼Ó¡¢É¾³ı¡¢ÅÅĞò)
+//   - °´Ë³ĞòÖ´ĞĞËùÓĞËã×Ó£¬Ã¿¸öËã×ÓÊä³ö×÷ÎªÏÂÒ»¸öµÄÊäÈë
+//   - Ö§³Ö¶àÖÖÆ¥ÅäËã×Ó: Ä£°åÆ¥Åä¡¢AKAZEÌØÕ÷Æ¥Åä¡¢ORBÌØÕ÷Æ¥Åä¡¢½ğ×ÖËşĞÎ×´Æ¥Åä
+//   - Ìá¹©ÅäÖÃµ¼Èë/µ¼³ö¹¦ÄÜ£¬Ö§³ÖÁ÷Ë®Ïß³Ö¾Ã»¯
 //
-// ä½¿ç”¨ç¤ºä¾‹:
+// Ê¹ÓÃÊ¾Àı:
 //   var processor = new PipelineProcessor();
 //   processor.AddOperator(new GrayscaleOp());
 //   processor.AddOperator(new TemplateMatchOp());
 //   var result = await processor.ProcessAsync(inputMat);
 //
-// ä½œè€…: ClearFrost Team
-// åˆ›å»ºæ—¥æœŸ: 2024
+// ×÷Õß: ClearFrost Team
+// ´´½¨ÈÕÆÚ: 2024
 // ============================================================================
 using OpenCvSharp;
 using System.Diagnostics;
 
-namespace YOLO.Vision
+namespace ClearFrost.Vision
 {
     /// <summary>
-    /// æµç¨‹å¤„ç†å™¨
-    /// å…è®¸åŠ¨æ€æ·»åŠ å›¾åƒå¤„ç†æ­¥éª¤ï¼ŒæŒ‰é¡ºåºæ‰§è¡Œç®—å­é“¾
+    /// Á÷³Ì´¦ÀíÆ÷
+    /// ÔÊĞí¶¯Ì¬Ìí¼ÓÍ¼Ïñ´¦Àí²½Öè£¬°´Ë³ĞòÖ´ĞĞËã×ÓÁ´
     /// </summary>
     public class PipelineProcessor : IVisionProcessor, IDisposable
     {
@@ -32,20 +32,20 @@ namespace YOLO.Vision
         private readonly object _lock = new();
         private bool _disposed = false;
 
-        public string Name => "æµç¨‹å¤„ç†å™¨";
+        public string Name => "Á÷³Ì´¦ÀíÆ÷";
 
         /// <summary>
-        /// å½“å‰ç®—å­åˆ—è¡¨
+        /// µ±Ç°Ëã×ÓÁĞ±í
         /// </summary>
         public IReadOnlyList<OperatorInstance> Operators => _operators.AsReadOnly();
 
         /// <summary>
-        /// ç”¨äºåˆ¤å®šé€šè¿‡/å¤±è´¥çš„å›è°ƒå‡½æ•°
+        /// ÓÃÓÚÅĞ¶¨Í¨¹ı/Ê§°ÜµÄ»Øµ÷º¯Êı
         /// </summary>
         public Func<List<OperatorInstance>, bool>? PassCondition { get; set; }
 
         /// <summary>
-        /// è·å–æœ€åä¸€ä¸ªç®—å­çš„è¾“å‡º
+        /// »ñÈ¡×îºóÒ»¸öËã×ÓµÄÊä³ö
         /// </summary>
         public Mat? GetLastOutput()
         {
@@ -57,11 +57,11 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// æ·»åŠ ç®—å­
+        /// Ìí¼ÓËã×Ó
         /// </summary>
-        /// <param name="op">ç®—å­å®ä¾‹</param>
-        /// <param name="instanceId">å®ä¾‹IDï¼ˆå¯é€‰ï¼‰</param>
-        /// <returns>å®ä¾‹ID</returns>
+        /// <param name="op">Ëã×ÓÊµÀı</param>
+        /// <param name="instanceId">ÊµÀıID£¨¿ÉÑ¡£©</param>
+        /// <returns>ÊµÀıID</returns>
         public string AddOperator(IImageOperator op, string? instanceId = null)
         {
             lock (_lock)
@@ -78,7 +78,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// åœ¨æŒ‡å®šä½ç½®æ’å…¥ç®—å­
+        /// ÔÚÖ¸¶¨Î»ÖÃ²åÈëËã×Ó
         /// </summary>
         public string InsertOperator(int index, IImageOperator op, string? instanceId = null)
         {
@@ -97,10 +97,10 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// ç§»é™¤ç®—å­
+        /// ÒÆ³ıËã×Ó
         /// </summary>
-        /// <param name="instanceId">å®ä¾‹ID</param>
-        /// <returns>æ˜¯å¦ç§»é™¤æˆåŠŸ</returns>
+        /// <param name="instanceId">ÊµÀıID</param>
+        /// <returns>ÊÇ·ñÒÆ³ı³É¹¦</returns>
         public bool RemoveOperator(string instanceId)
         {
             lock (_lock)
@@ -114,7 +114,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// ç§»åŠ¨ç®—å­ä½ç½®
+        /// ÒÆ¶¯Ëã×ÓÎ»ÖÃ
         /// </summary>
         public bool MoveOperator(string instanceId, int newIndex)
         {
@@ -132,7 +132,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// æ¸…ç©ºæ‰€æœ‰ç®—å­
+        /// Çå¿ÕËùÓĞËã×Ó
         /// </summary>
         public void ClearOperators()
         {
@@ -143,7 +143,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// æ›´æ–°ç®—å­å‚æ•°
+        /// ¸üĞÂËã×Ó²ÎÊı
         /// </summary>
         public bool UpdateOperatorParameter(string instanceId, string paramName, object value)
         {
@@ -157,7 +157,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// è·å–ç®—å­
+        /// »ñÈ¡Ëã×Ó
         /// </summary>
         public OperatorInstance? GetOperator(string instanceId)
         {
@@ -168,7 +168,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// é‡æ–°æ’åº
+        /// ÖØĞÂÅÅĞò
         /// </summary>
         private void ReorderOperators()
         {
@@ -180,11 +180,11 @@ namespace YOLO.Vision
 
         public void Initialize()
         {
-            // åˆå§‹åŒ–é€»è¾‘ï¼ˆå¦‚æœ‰éœ€è¦ï¼‰
+            // ³õÊ¼»¯Âß¼­£¨ÈçÓĞĞèÒª£©
         }
 
         /// <summary>
-        /// å¤„ç†å›¾åƒå¹¶è¿”å›ç»“æœ
+        /// ´¦ÀíÍ¼Ïñ²¢·µ»Ø½á¹û
         /// </summary>
         public async Task<VisionResult> ProcessAsync(Mat input)
         {
@@ -193,7 +193,7 @@ namespace YOLO.Vision
                 var sw = Stopwatch.StartNew();
                 var result = new VisionResult();
 
-                // å®šä¹‰åœ¨å¤–éƒ¨ä»¥ä¾¿ finally å—è®¿é—®
+                // ¶¨ÒåÔÚÍâ²¿ÒÔ±ã finally ¿é·ÃÎÊ
                 Mat? current = null;
                 Mat? previous = null;
 
@@ -205,18 +205,18 @@ namespace YOLO.Vision
                     {
                         foreach (var opInstance in _operators.OrderBy(o => o.Order))
                         {
-                            // é‡Šæ”¾ä¸Šä¸€ä¸ªæ­¥éª¤çš„è¾“å‡ºï¼ˆå³å½“å‰æ­¥éª¤çš„è¾“å…¥ï¼‰
+                            // ÊÍ·ÅÉÏÒ»¸ö²½ÖèµÄÊä³ö£¨¼´µ±Ç°²½ÖèµÄÊäÈë£©
                             previous?.Dispose();
                             previous = current;
 
-                            // æ‰§è¡Œå½“å‰æ­¥éª¤
+                            // Ö´ĞĞµ±Ç°²½Öè
                             current = opInstance.Operator.Execute(previous);
 
-                            // æ›´æ–° LastOutput (å¿…é¡» Cloneï¼Œå› ä¸º current å¯èƒ½ä¼šåœ¨åç»­è¢« Dispose)
+                            // ¸üĞÂ LastOutput (±ØĞë Clone£¬ÒòÎª current ¿ÉÄÜ»áÔÚºóĞø±» Dispose)
                             opInstance.LastOutput?.Dispose();
                             opInstance.LastOutput = current.Clone();
 
-                            // æ£€æŸ¥æ¨¡æ¿åŒ¹é…ç»“æœ
+                            // ¼ì²éÄ£°åÆ¥Åä½á¹û
                             if (opInstance.Operator is TemplateMatchOp tmOp && tmOp.LastMatchResult != null)
                             {
                                 result.Objects.Add(new DetectedObject
@@ -228,7 +228,7 @@ namespace YOLO.Vision
                                 result.Score = tmOp.LastMatchResult.Score;
                                 result.IsPass = tmOp.LastMatchResult.IsMatch;
                             }
-                            // æ£€æŸ¥ç‰¹å¾åŒ¹é…ç»“æœ
+                            // ¼ì²éÌØÕ÷Æ¥Åä½á¹û
                             else if (opInstance.Operator is FeatureMatchOp fmOp && fmOp.LastMatchResult != null)
                             {
                                 result.Objects.Add(new DetectedObject
@@ -240,7 +240,7 @@ namespace YOLO.Vision
                                 result.Score = fmOp.LastMatchResult.Score;
                                 result.IsPass = fmOp.LastMatchResult.IsMatch;
                             }
-                            // æ£€æŸ¥ ORB åŒ¹é…ç»“æœ
+                            // ¼ì²é ORB Æ¥Åä½á¹û
                             else if (opInstance.Operator is OrbMatchOp orbOp && orbOp.LastMatchResult != null)
                             {
                                 result.Objects.Add(new DetectedObject
@@ -252,7 +252,7 @@ namespace YOLO.Vision
                                 result.Score = orbOp.LastMatchResult.Score;
                                 result.IsPass = orbOp.LastMatchResult.IsMatch;
                             }
-                            // æ£€æŸ¥é‡‘å­—å¡”å½¢çŠ¶åŒ¹é…ç»“æœ
+                            // ¼ì²é½ğ×ÖËşĞÎ×´Æ¥Åä½á¹û
                             else if (opInstance.Operator is PyramidShapeMatchOp pyrOp && pyrOp.LastMatchResult != null)
                             {
                                 result.Objects.Add(new DetectedObject
@@ -264,7 +264,7 @@ namespace YOLO.Vision
                                 result.Score = pyrOp.LastMatchResult.Score;
                                 result.IsPass = pyrOp.LastMatchResult.IsMatch;
                             }
-                            // æ£€æŸ¥èƒŒæ™¯å·®åˆ†ç»“æœ
+                            // ¼ì²é±³¾°²î·Ö½á¹û
                             else if (opInstance.Operator is BackgroundDiffOp bgOp && bgOp.LastResult != null)
                             {
                                 result.Objects.Add(new DetectedObject
@@ -280,22 +280,22 @@ namespace YOLO.Vision
                         }
                     }
 
-                    // å¦‚æœæœ‰è‡ªå®šä¹‰é€šè¿‡æ¡ä»¶
+                    // Èç¹ûÓĞ×Ô¶¨ÒåÍ¨¹ıÌõ¼ş
                     if (PassCondition != null)
                     {
                         result.IsPass = PassCondition(_operators.ToList());
                     }
                     else if (result.Objects.Count == 0)
                     {
-                        // å¦‚æœæ²¡æœ‰æ¨¡æ¿åŒ¹é…ï¼Œé»˜è®¤é€šè¿‡
+                        // Èç¹ûÃ»ÓĞÄ£°åÆ¥Åä£¬Ä¬ÈÏÍ¨¹ı
                         result.IsPass = true;
                         result.Score = 1.0;
                     }
 
-                    // ä¼˜å…ˆä½¿ç”¨ç®—å­åé¦ˆçš„è¯¦ç»†æ¶ˆæ¯
+                    // ÓÅÏÈÊ¹ÓÃËã×Ó·´À¡µÄÏêÏ¸ÏûÏ¢
                     if (string.IsNullOrEmpty(result.Message))
                     {
-                        // æŸ¥æ‰¾æœ€åä¸€ä¸ªæœ‰æ¶ˆæ¯çš„åŒ¹é…ç»“æœ
+                        // ²éÕÒ×îºóÒ»¸öÓĞÏûÏ¢µÄÆ¥Åä½á¹û
                         var lastMatchMsg = _operators
                             .Select(o => (o.Operator as dynamic).LastMatchResult?.Message as string)
                             .LastOrDefault(msg => !string.IsNullOrEmpty(msg));
@@ -306,18 +306,18 @@ namespace YOLO.Vision
                         }
                         else
                         {
-                            result.Message = result.IsPass ? "æ£€æµ‹é€šè¿‡" : "æ£€æµ‹æœªé€šè¿‡";
+                            result.Message = result.IsPass ? "¼ì²âÍ¨¹ı" : "¼ì²âÎ´Í¨¹ı";
                         }
                     }
                 }
                 catch (Exception ex)
                 {
                     result.IsPass = false;
-                    result.Message = $"å¤„ç†å¤±è´¥: {ex.Message}";
+                    result.Message = $"´¦ÀíÊ§°Ü: {ex.Message}";
                 }
                 finally
                 {
-                    // ç¡®ä¿é‡Šæ”¾æ‰€æœ‰ä¸­é—´åŠæœ€ç»ˆäº§ç”Ÿçš„ Mat
+                    // È·±£ÊÍ·ÅËùÓĞÖĞ¼ä¼°×îÖÕ²úÉúµÄ Mat
                     previous?.Dispose();
                     current?.Dispose();
                 }
@@ -329,7 +329,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// è·å–å¤„ç†åçš„é¢„è§ˆå›¾åƒ
+        /// »ñÈ¡´¦ÀíºóµÄÔ¤ÀÀÍ¼Ïñ
         /// </summary>
         public async Task<Mat> GetPreviewAsync(Mat input)
         {
@@ -350,7 +350,7 @@ namespace YOLO.Vision
 
                 previous?.Dispose();
 
-                // å¦‚æœç»“æœæ˜¯å•é€šé“ï¼Œè½¬å›å½©è‰²ä»¥ä¾¿æ˜¾ç¤º
+                // Èç¹û½á¹ûÊÇµ¥Í¨µÀ£¬×ª»Ø²ÊÉ«ÒÔ±ãÏÔÊ¾
                 if (current.Channels() == 1)
                 {
                     Mat colored = new Mat();
@@ -364,7 +364,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// è·å–æŒ‡å®šæ­¥éª¤çš„é¢„è§ˆ
+        /// »ñÈ¡Ö¸¶¨²½ÖèµÄÔ¤ÀÀ
         /// </summary>
         public async Task<Mat> GetStepPreviewAsync(Mat input, int stepIndex)
         {
@@ -399,7 +399,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// å¯¼å‡ºé…ç½®
+        /// µ¼³öÅäÖÃ
         /// </summary>
         public VisionConfig ExportConfig()
         {
@@ -419,7 +419,7 @@ namespace YOLO.Vision
         }
 
         /// <summary>
-        /// å¯¼å…¥é…ç½®
+        /// µ¼ÈëÅäÖÃ
         /// </summary>
         public void ImportConfig(VisionConfig config)
         {
@@ -458,23 +458,24 @@ namespace YOLO.Vision
     }
 
     /// <summary>
-    /// ç®—å­å®ä¾‹
+    /// Ëã×ÓÊµÀı
     /// </summary>
     public class OperatorInstance
     {
-        /// <summary>å®ä¾‹ID</summary>
+        /// <summary>ÊµÀıID</summary>
         public string InstanceId { get; set; } = string.Empty;
 
-        /// <summary>ç®—å­</summary>
+        /// <summary>Ëã×Ó</summary>
         public IImageOperator Operator { get; set; } = null!;
 
-        /// <summary>æ‰§è¡Œé¡ºåº</summary>
+        /// <summary>Ö´ĞĞË³Ğò</summary>
         public int Order { get; set; }
 
-        /// <summary>æ˜¯å¦å¯ç”¨</summary>
+        /// <summary>ÊÇ·ñÆôÓÃ</summary>
         public bool IsEnabled { get; set; } = true;
 
-        /// <summary>æœ€åè¾“å‡ºï¼ˆç”¨äºè°ƒè¯•é¢„è§ˆï¼‰</summary>
+        /// <summary>×îºóÊä³ö£¨ÓÃÓÚµ÷ÊÔÔ¤ÀÀ£©</summary>
         public Mat? LastOutput { get; set; }
     }
 }
+

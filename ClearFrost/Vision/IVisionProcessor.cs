@@ -1,92 +1,93 @@
 using OpenCvSharp;
 
-namespace YOLO.Vision
+namespace ClearFrost.Vision
 {
     /// <summary>
-    /// è§†è§‰æ£€æµ‹æ¨¡å¼æšä¸¾
+    /// ÊÓ¾õ¼ì²âÄ£Ê½Ã¶¾Ù
     /// </summary>
     public enum VisionMode
     {
-        /// <summary>YOLO æ·±åº¦å­¦ä¹ æ£€æµ‹</summary>
+        /// <summary>YOLO Éî¶ÈÑ§Ï°¼ì²â</summary>
         YOLO = 0,
-        /// <summary>ä¼ ç»Ÿè§†è§‰ç®—æ³•ï¼ˆæ¨¡æ¿åŒ¹é…ç­‰ï¼‰</summary>
+        /// <summary>´«Í³ÊÓ¾õËã·¨£¨Ä£°åÆ¥ÅäµÈ£©</summary>
         Template = 1
     }
 
     /// <summary>
-    /// è§†è§‰å¤„ç†å™¨ç»Ÿä¸€æ¥å£
-    /// ç”¨äºç®¡ç†ä¸åŒçš„æ£€æµ‹æ¨¡å¼ï¼ˆYOLO / ä¼ ç»Ÿè§†è§‰ï¼‰
+    /// ÊÓ¾õ´¦ÀíÆ÷Í³Ò»½Ó¿Ú
+    /// ÓÃÓÚ¹ÜÀí²»Í¬µÄ¼ì²âÄ£Ê½£¨YOLO / ´«Í³ÊÓ¾õ£©
     /// </summary>
     public interface IVisionProcessor
     {
         /// <summary>
-        /// å¤„ç†å™¨åç§°
+        /// ´¦ÀíÆ÷Ãû³Æ
         /// </summary>
         string Name { get; }
 
         /// <summary>
-        /// å¤„ç†å›¾åƒå¹¶è¿”å›æ£€æµ‹ç»“æœ
+        /// ´¦ÀíÍ¼Ïñ²¢·µ»Ø¼ì²â½á¹û
         /// </summary>
-        /// <param name="input">è¾“å…¥å›¾åƒ</param>
-        /// <returns>æ£€æµ‹ç»“æœ</returns>
+        /// <param name="input">ÊäÈëÍ¼Ïñ</param>
+        /// <returns>¼ì²â½á¹û</returns>
         Task<VisionResult> ProcessAsync(Mat input);
 
         /// <summary>
-        /// è·å–å¤„ç†åçš„é¢„è§ˆå›¾åƒ
+        /// »ñÈ¡´¦ÀíºóµÄÔ¤ÀÀÍ¼Ïñ
         /// </summary>
-        /// <param name="input">è¾“å…¥å›¾åƒ</param>
-        /// <returns>é¢„è§ˆå›¾åƒ</returns>
+        /// <param name="input">ÊäÈëÍ¼Ïñ</param>
+        /// <returns>Ô¤ÀÀÍ¼Ïñ</returns>
         Task<Mat> GetPreviewAsync(Mat input);
 
         /// <summary>
-        /// åˆå§‹åŒ–å¤„ç†å™¨
+        /// ³õÊ¼»¯´¦ÀíÆ÷
         /// </summary>
         void Initialize();
 
         /// <summary>
-        /// é‡Šæ”¾èµ„æº
+        /// ÊÍ·Å×ÊÔ´
         /// </summary>
         void Dispose();
     }
 
     /// <summary>
-    /// è§†è§‰æ£€æµ‹ç»“æœ
+    /// ÊÓ¾õ¼ì²â½á¹û
     /// </summary>
     public class VisionResult
     {
-        /// <summary>æ˜¯å¦é€šè¿‡æ£€æµ‹ï¼ˆOKï¼‰</summary>
+        /// <summary>ÊÇ·ñÍ¨¹ı¼ì²â£¨OK£©</summary>
         public bool IsPass { get; set; }
 
-        /// <summary>æ£€æµ‹å¾—åˆ†</summary>
+        /// <summary>¼ì²âµÃ·Ö</summary>
         public double Score { get; set; }
 
-        /// <summary>æ£€æµ‹åˆ°çš„å¯¹è±¡åˆ—è¡¨</summary>
+        /// <summary>¼ì²âµ½µÄ¶ÔÏóÁĞ±í</summary>
         public List<DetectedObject> Objects { get; set; } = new();
 
-        /// <summary>å¤„ç†æ—¶é—´ï¼ˆæ¯«ç§’ï¼‰</summary>
+        /// <summary>´¦ÀíÊ±¼ä£¨ºÁÃë£©</summary>
         public double ProcessingTimeMs { get; set; }
 
-        /// <summary>ç»“æœæè¿°</summary>
+        /// <summary>½á¹ûÃèÊö</summary>
         public string Message { get; set; } = string.Empty;
     }
 
     /// <summary>
-    /// æ£€æµ‹åˆ°çš„å¯¹è±¡
+    /// ¼ì²âµ½µÄ¶ÔÏó
     /// </summary>
     public class DetectedObject
     {
-        /// <summary>å¯¹è±¡æ ‡ç­¾/åç§°</summary>
+        /// <summary>¶ÔÏó±êÇ©/Ãû³Æ</summary>
         public string Label { get; set; } = string.Empty;
 
-        /// <summary>ç½®ä¿¡åº¦/åŒ¹é…åˆ†æ•°</summary>
+        /// <summary>ÖÃĞÅ¶È/Æ¥Åä·ÖÊı</summary>
         public double Confidence { get; set; }
 
-        /// <summary>è¾¹ç•Œæ¡†</summary>
+        /// <summary>±ß½ç¿ò</summary>
         public Rect BoundingBox { get; set; }
 
-        /// <summary>ä¸­å¿ƒç‚¹</summary>
+        /// <summary>ÖĞĞÄµã</summary>
         public OpenCvSharp.Point Center => new OpenCvSharp.Point(
             BoundingBox.X + BoundingBox.Width / 2,
             BoundingBox.Y + BoundingBox.Height / 2);
     }
 }
+

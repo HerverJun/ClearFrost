@@ -2,11 +2,11 @@ using System;
 using System.Runtime.InteropServices;
 using MVSDK_Net;
 
-namespace YOLO
+namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// ICameraProvider åˆ° ICamera çš„é€‚é…å™¨
-    /// å…è®¸æ–°çš„ç›¸æœºæä¾›è€…ä¸ç°æœ‰çš„ CameraManager å…¼å®¹
+    /// ICameraProvider µ½ ICamera µÄÊÊÅäÆ÷
+    /// ÔÊĞíĞÂµÄÏà»úÌá¹©ÕßÓëÏÖÓĞµÄ CameraManager ¼æÈİ
     /// </summary>
     public class CameraProviderAdapter : ICamera
     {
@@ -23,19 +23,19 @@ namespace YOLO
 
         public int IMV_EnumDevices(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType)
         {
-            // é€‚é…å™¨ä¸å®ç°æšä¸¾ï¼Œè¿™åº”è¯¥åœ¨å¤–éƒ¨é€šè¿‡ CameraProviderFactory å®Œæˆ
+            // ÊÊÅäÆ÷²»ÊµÏÖÃ¶¾Ù£¬ÕâÓ¦¸ÃÔÚÍâ²¿Í¨¹ı CameraProviderFactory Íê³É
             return IMVDefine.IMV_OK;
         }
 
         public int IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode mode, int index)
         {
-            // æ–°æ¥å£ä¸éœ€è¦è¿™ä¸ªæ­¥éª¤ï¼Œè¿”å›æˆåŠŸ
+            // ĞÂ½Ó¿Ú²»ĞèÒªÕâ¸ö²½Öè£¬·µ»Ø³É¹¦
             return IMVDefine.IMV_OK;
         }
 
         public int IMV_Open()
         {
-            // Open åº”è¯¥å·²ç»åœ¨å¤–éƒ¨è°ƒç”¨è¿‡
+            // Open Ó¦¸ÃÒÑ¾­ÔÚÍâ²¿µ÷ÓÃ¹ı
             return _provider.IsConnected ? IMVDefine.IMV_OK : -1;
         }
 
@@ -59,7 +59,7 @@ namespace YOLO
 
         public int IMV_SetBufferCount(int count)
         {
-            // æ–°æ¥å£å†…éƒ¨ç®¡ç†ç¼“å†²åŒº
+            // ĞÂ½Ó¿ÚÄÚ²¿¹ÜÀí»º³åÇø
             return IMVDefine.IMV_OK;
         }
 
@@ -80,7 +80,7 @@ namespace YOLO
 
         public int IMV_DestroyHandle()
         {
-            // æ–°æ¥å£é€šè¿‡ Dispose é‡Šæ”¾
+            // ĞÂ½Ó¿ÚÍ¨¹ı Dispose ÊÍ·Å
             return IMVDefine.IMV_OK;
         }
 
@@ -104,7 +104,7 @@ namespace YOLO
             if (_currentFrame == null)
                 return -1;
 
-            // å¡«å……æ—§æ¥å£çš„å¸§ç»“æ„
+            // Ìî³ä¾É½Ó¿ÚµÄÖ¡½á¹¹
             frame.pData = _currentFrame.DataPtr;
             frame.frameInfo = new IMVDefine.IMV_FrameInfo
             {
@@ -129,7 +129,7 @@ namespace YOLO
             return format switch
             {
                 CameraPixelFormat.Mono8 => IMVDefine.IMV_EPixelType.gvspPixelMono8,
-                _ => IMVDefine.IMV_EPixelType.gvspPixelMono8  // é»˜è®¤è¿”å› Mono8
+                _ => IMVDefine.IMV_EPixelType.gvspPixelMono8  // Ä¬ÈÏ·µ»Ø Mono8
             };
         }
 
@@ -143,3 +143,5 @@ namespace YOLO
         }
     }
 }
+
+

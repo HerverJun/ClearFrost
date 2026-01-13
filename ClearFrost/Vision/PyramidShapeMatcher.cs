@@ -8,19 +8,19 @@ using OpenCvSharp;
 namespace ClearFrost.Vision
 {
     /// <summary>
-    /// é«˜çº§ç‰ˆæœ¬: å¸¦é‡‘å­—å¡”åŠ é€Ÿçš„å½¢çŠ¶åŒ¹é…å™¨
-    /// é€‚ç”¨äºå¤§å°ºå¯¸å›¾åƒçš„é«˜é€ŸåŒ¹é…
+    /// ¸ß¼¶°æ±¾: ´ø½ğ×ÖËş¼ÓËÙµÄĞÎ×´Æ¥ÅäÆ÷
+    /// ÊÊÓÃÓÚ´ó³ß´çÍ¼ÏñµÄ¸ßËÙÆ¥Åä
     /// </summary>
     /// <summary>
-    /// é«˜çº§ç‰ˆæœ¬: å¸¦é‡‘å­—å¡”åŠ é€Ÿçš„å½¢çŠ¶åŒ¹é…å™¨
-    /// é€‚ç”¨äºå¤§å°ºå¯¸å›¾åƒçš„é«˜é€ŸåŒ¹é…
+    /// ¸ß¼¶°æ±¾: ´ø½ğ×ÖËş¼ÓËÙµÄĞÎ×´Æ¥ÅäÆ÷
+    /// ÊÊÓÃÓÚ´ó³ß´çÍ¼ÏñµÄ¸ßËÙÆ¥Åä
     /// </summary>
     public sealed class PyramidShapeMatcher : IDisposable
     {
         #region Nested Types
 
         /// <summary>
-        /// é‡‘å­—å¡”å±‚æ¨¡æ¿
+        /// ½ğ×ÖËş²ãÄ£°å
         /// </summary>
         private sealed class PyramidLevel
         {
@@ -37,7 +37,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// å€™é€‰åŒ¹é…ä½ç½®
+        /// ºòÑ¡Æ¥ÅäÎ»ÖÃ
         /// </summary>
         private readonly struct Candidate
         {
@@ -99,7 +99,7 @@ namespace ClearFrost.Vision
         #region Public API
 
         /// <summary>
-        /// è®­ç»ƒæ¨¡æ¿ (é‡‘å­—å¡”ç‰ˆæœ¬)
+        /// ÑµÁ·Ä£°å (½ğ×ÖËş°æ±¾)
         /// </summary>
         public void Train(Mat image, int angleRange = 180, Mat? mask = null)
         {
@@ -113,7 +113,7 @@ namespace ClearFrost.Vision
 
                 _pyramidTemplates.Clear();
 
-                // ä¸ºæ¯ä¸ªé‡‘å­—å¡”å±‚çº§åˆ›å»ºæ¨¡æ¿
+                // ÎªÃ¿¸ö½ğ×ÖËş²ã¼¶´´½¨Ä£°å
                 Mat currentImage = gray.Clone();
                 Mat? currentMask = mask?.Clone();
 
@@ -122,7 +122,7 @@ namespace ClearFrost.Vision
                     double scale = Math.Pow(2, level);
                     var pyramidLevel = new PyramidLevel(level, scale);
 
-                    // æå–å½“å‰å±‚çš„ç‰¹å¾
+                    // ÌáÈ¡µ±Ç°²ãµÄÌØÕ÷
                     int thresholdScaled = (int)(_magnitudeThreshold / scale);
                     var baseFeatures = ExtractFeatures(currentImage, currentMask, thresholdScaled);
 
@@ -131,7 +131,7 @@ namespace ClearFrost.Vision
                         int centerX = currentImage.Width / 2;
                         int centerY = currentImage.Height / 2;
 
-                        // ç”Ÿæˆæ‰€æœ‰æ—‹è½¬è§’åº¦çš„æ¨¡æ¿
+                        // Éú³ÉËùÓĞĞı×ª½Ç¶ÈµÄÄ£°å
                         for (int angle = -angleRange; angle <= angleRange; angle += _angleStep)
                         {
                             var template = CreateRotatedTemplate(
@@ -143,7 +143,7 @@ namespace ClearFrost.Vision
 
                     _pyramidTemplates.Add(pyramidLevel);
 
-                    // é™é‡‡æ ·åˆ°ä¸‹ä¸€å±‚
+                    // ½µ²ÉÑùµ½ÏÂÒ»²ã
                     if (level < _pyramidLevels - 1)
                     {
                         var nextImage = new Mat();
@@ -173,7 +173,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// é‡‘å­—å¡”åŠ é€ŸåŒ¹é…
+        /// ½ğ×ÖËş¼ÓËÙÆ¥Åä
         /// </summary>
         public MatchResult Match(Mat sceneImage, double minScore = 80, Rect? searchRegion = null)
         {
@@ -189,21 +189,21 @@ namespace ClearFrost.Vision
                 // Double check trained state inside lock
                 if (!_isTrained) throw new InvalidOperationException("Matcher trained state changed.");
 
-                // è¯Šæ–­è¾“å‡º
+                // Õï¶ÏÊä³ö
                 // Console.WriteLine($"[PyramidMatcher] Scene: {gray.Width}x{gray.Height}, MinScore: {minScore}");
                 // ... (Console logging omitted for brevity in lock scope)
 
-                // æ„å»ºåœºæ™¯å›¾çš„é‡‘å­—å¡”
+                // ¹¹½¨³¡¾°Í¼µÄ½ğ×ÖËş
                 var scenePyramid = BuildScenePyramid(gray);
 
                 try
                 {
-                    // ä»æœ€ç²—å±‚å¼€å§‹æœç´¢è·å–å€™é€‰ä½ç½®å’Œè§’åº¦
+                    // ´Ó×î´Ö²ã¿ªÊ¼ËÑË÷»ñÈ¡ºòÑ¡Î»ÖÃºÍ½Ç¶È
                     var candidates = CoarseSearch(scenePyramid, minScore);
 
                     if (candidates.Count == 0) return MatchResult.Empty;
 
-                    // ç›´æ¥åœ¨ Level 0 ç²¾ç¡®åŒ¹é…ï¼ˆè·³è¿‡å¤šå±‚ç²¾ç»†åŒ–ï¼Œå› ä¸ºå¤šå±‚åŒ¹é…å­˜åœ¨ç‰¹å¾å¯¹é½é—®é¢˜ï¼‰
+                    // Ö±½ÓÔÚ Level 0 ¾«È·Æ¥Åä£¨Ìø¹ı¶à²ã¾«Ï¸»¯£¬ÒòÎª¶à²ãÆ¥Åä´æÔÚÌØÕ÷¶ÔÆëÎÊÌâ£©
                     var (directions, magnitudes, _, width, height) = scenePyramid[0];
                     var templates = _pyramidTemplates[0].Templates;
 
@@ -211,18 +211,18 @@ namespace ClearFrost.Vision
 
                     double bestScore = 0;
                     int bestX = 0, bestY = 0, bestTi = 0;
-                    double scale = Math.Pow(2, _pyramidLevels - 1);  // ä»é¡¶å±‚åˆ°åº•å±‚çš„ç¼©æ”¾å€æ•°
+                    double scale = Math.Pow(2, _pyramidLevels - 1);  // ´Ó¶¥²ãµ½µ×²ãµÄËõ·Å±¶Êı
 
-                    // å¯¹æ¯ä¸ªç²—æœç´¢å€™é€‰ï¼Œåœ¨ Level 0 è¿›è¡Œç²¾ç¡®åŒ¹é…
+                    // ¶ÔÃ¿¸ö´ÖËÑË÷ºòÑ¡£¬ÔÚ Level 0 ½øĞĞ¾«È·Æ¥Åä
                     foreach (var candidate in candidates)
                     {
-                        // å°†ç²—æœç´¢åæ ‡ç¼©æ”¾åˆ° Level 0
+                        // ½«´ÖËÑË÷×ø±êËõ·Åµ½ Level 0
                         int cx = (int)(candidate.X * scale);
                         int cy = (int)(candidate.Y * scale);
 
-                        // åœ¨å€™é€‰è§’åº¦èŒƒå›´å†…æœç´¢æœ€ä½³åŒ¹é…
-                        // candidate.TemplateIndex å·²ç»æ˜¯å®é™…çš„æ¨¡æ¿ç´¢å¼•ï¼Œç›´æ¥ä½¿ç”¨
-                        int searchRange = 16;  // æœç´¢ Â±16 ä¸ªè§’åº¦
+                        // ÔÚºòÑ¡½Ç¶È·¶Î§ÄÚËÑË÷×î¼ÑÆ¥Åä
+                        // candidate.TemplateIndex ÒÑ¾­ÊÇÊµ¼ÊµÄÄ£°åË÷Òı£¬Ö±½ÓÊ¹ÓÃ
+                        int searchRange = 16;  // ËÑË÷ ¡À16 ¸ö½Ç¶È
                         int startTi = Math.Max(0, candidate.TemplateIndex - searchRange);
                         int endTi = Math.Min(templates.Count - 1, candidate.TemplateIndex + searchRange);
 
@@ -233,8 +233,8 @@ namespace ClearFrost.Vision
                             int fCount = features.Length;
                             if (fCount == 0) continue;
 
-                            // åœ¨é‚»åŸŸå†…æœç´¢æœ€ä½³ä½ç½®ï¼ˆæ‰©å¤§æœç´¢èŒƒå›´ä»¥è¡¥å¿é‡‘å­—å¡”ç¼©æ”¾è¯¯å·®ï¼‰
-                            int searchRadius = 32;  // ä»8å¢åŠ åˆ°32ï¼Œå› ä¸ºä»Level 2åˆ°Level 0ç¼©æ”¾4å€
+                            // ÔÚÁÚÓòÄÚËÑË÷×î¼ÑÎ»ÖÃ£¨À©´óËÑË÷·¶Î§ÒÔ²¹³¥½ğ×ÖËşËõ·ÅÎó²î£©
+                            int searchRadius = 32;  // ´Ó8Ôö¼Óµ½32£¬ÒòÎª´ÓLevel 2µ½Level 0Ëõ·Å4±¶
                             for (int dy = -searchRadius; dy <= searchRadius; dy += 4)
                             {
                                 int py = cy + dy;
@@ -282,7 +282,7 @@ namespace ClearFrost.Vision
                 }
                 finally
                 {
-                    // æ¸…ç†é‡‘å­—å¡”
+                    // ÇåÀí½ğ×ÖËş
                     foreach (var (dirs, mags, img, w, h) in scenePyramid)
                     {
                         img.Dispose();
@@ -300,7 +300,7 @@ namespace ClearFrost.Vision
         #region Pyramid Processing
 
         /// <summary>
-        /// æ„å»ºåœºæ™¯å›¾åƒçš„é‡‘å­—å¡”
+        /// ¹¹½¨³¡¾°Í¼ÏñµÄ½ğ×ÖËş
         /// </summary>
         private List<(byte[] directions, ushort[] magnitudes, Mat image, int width, int height)> BuildScenePyramid(Mat gray)
         {
@@ -328,7 +328,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// åœ¨æœ€ç²—å±‚è¿›è¡Œç²—æœç´¢
+        /// ÔÚ×î´Ö²ã½øĞĞ´ÖËÑË÷
         /// </summary>
         private unsafe List<Candidate> CoarseSearch(
             List<(byte[] directions, ushort[] magnitudes, Mat image, int width, int height)> pyramid,
@@ -348,10 +348,10 @@ namespace ClearFrost.Vision
             if (templates.Count == 0) return new List<Candidate>();
 
             var candidates = new ConcurrentBag<Candidate>();
-            double threshold = (minScore / 100.0) * 0.5;  // æ¢å¤50%é˜ˆå€¼
+            double threshold = (minScore / 100.0) * 0.5;  // »Ö¸´50%ãĞÖµ
 
-            int step = 8;  // å¢åŠ æ­¥é•¿ä»¥åŠ é€Ÿç²—æœç´¢
-            int angleStride = Math.Max(8, _angleStep);  // å¤§å¹…è·³è¿‡è§’åº¦ä»¥åŠ é€Ÿ
+            int step = 8;  // Ôö¼Ó²½³¤ÒÔ¼ÓËÙ´ÖËÑË÷
+            int angleStride = Math.Max(8, _angleStep);  // ´ó·ùÌø¹ı½Ç¶ÈÒÔ¼ÓËÙ
 
             Parallel.For(0, (templates.Count + angleStride - 1) / angleStride, i =>
             {
@@ -393,7 +393,7 @@ namespace ClearFrost.Vision
                 }
             });
 
-            // é™åˆ¶å€™é€‰æ•°é‡ï¼Œåªä¿ç•™Top 100
+            // ÏŞÖÆºòÑ¡ÊıÁ¿£¬Ö»±£ÁôTop 100
             var result = candidates.ToArray();
             if (result.Length > 100)
             {
@@ -471,8 +471,8 @@ namespace ClearFrost.Vision
                 }
             }
 
-            // ä½¿ç”¨æ›´å¤§çš„ç¨€ç–åŒ–è·ç¦»ï¼ˆ8åƒç´ ï¼‰æ¥å‡å°‘ç‰¹å¾æ•°é‡
-            return SparsifyFeatures(features, 8, 2000);  // æœ€å¤šä¿ç•™2000ä¸ªç‰¹å¾
+            // Ê¹ÓÃ¸ü´óµÄÏ¡Êè»¯¾àÀë£¨8ÏñËØ£©À´¼õÉÙÌØÕ÷ÊıÁ¿
+            return SparsifyFeatures(features, 8, 2000);  // ×î¶à±£Áô2000¸öÌØÕ÷
         }
 
         private List<FeaturePoint> SparsifyFeatures(List<FeaturePoint> features, double minDistance, int maxFeatures = 2000)
@@ -484,12 +484,12 @@ namespace ClearFrost.Vision
             var sparse = new List<FeaturePoint>(Math.Min(features.Count / 4, maxFeatures));
             var occupied = new HashSet<long>();
 
-            // å…ˆæŒ‰æ¢¯åº¦å¼ºåº¦æ’åºï¼ˆå‡è®¾å¼ºè¾¹ç¼˜æ›´é‡è¦ï¼‰
+            // ÏÈ°´Ìİ¶ÈÇ¿¶ÈÅÅĞò£¨¼ÙÉèÇ¿±ßÔµ¸üÖØÒª£©
             foreach (var f in features)
             {
                 if (sparse.Count >= maxFeatures) break;
 
-                // ä¿®å¤è´Ÿåæ ‡å¤„ç†ï¼šä½¿ç”¨åç§»é‡ç¡®ä¿æ­£ç´¢å¼•
+                // ĞŞ¸´¸º×ø±ê´¦Àí£ºÊ¹ÓÃÆ«ÒÆÁ¿È·±£ÕıË÷Òı
                 int gx = (f.X + 10000) / gridSize;
                 int gy = (f.Y + 10000) / gridSize;
                 long key = ((long)gx << 32) | (uint)gy;
@@ -605,7 +605,7 @@ namespace ClearFrost.Vision
                     int diff = Math.Abs(t - s);
                     if (diff > NumDirections / 2)
                         diff = NumDirections - diff;
-                    lut[t, s] = diff <= 2;  // æ”¾å®½å®¹å·®ï¼šä» Â±1 æ”¹ä¸º Â±2 (å…è®¸90Â°åå·®)
+                    lut[t, s] = diff <= 2;  // ·Å¿íÈİ²î£º´Ó ¡À1 ¸ÄÎª ¡À2 (ÔÊĞí90¡ãÆ«²î)
                 }
             }
 
@@ -670,3 +670,4 @@ namespace ClearFrost.Vision
         #endregion
     }
 }
+

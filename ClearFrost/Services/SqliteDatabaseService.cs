@@ -1,12 +1,12 @@
 using System.IO;
 using System.Diagnostics;
 using Microsoft.Data.Sqlite;
-using YOLO.Interfaces;
+using ClearFrost.Interfaces;
 
-namespace YOLO.Services
+namespace ClearFrost.Services
 {
     /// <summary>
-    /// SQLite æ•°æ®åº“æœåŠ¡å®ç°
+    /// SQLite Êı¾İ¿â·şÎñÊµÏÖ
     /// </summary>
     public class SqliteDatabaseService : IDatabaseService
     {
@@ -17,10 +17,10 @@ namespace YOLO.Services
 
         public SqliteDatabaseService(string? dbPath = null)
         {
-            // é»˜è®¤æ•°æ®åº“è·¯å¾„ï¼šç¨‹åºç›®å½•/Data/detection.db
+            // Ä¬ÈÏÊı¾İ¿âÂ·¾¶£º³ÌĞòÄ¿Â¼/Data/detection.db
             _dbPath = dbPath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "detection.db");
 
-            // ç¡®ä¿ç›®å½•å­˜åœ¨
+            // È·±£Ä¿Â¼´æÔÚ
             string? dir = Path.GetDirectoryName(_dbPath);
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
             {
@@ -40,7 +40,7 @@ namespace YOLO.Services
                 using var connection = new SqliteConnection(_connectionString);
                 await connection.OpenAsync();
 
-                // åˆ›å»ºæ£€æµ‹è®°å½•è¡¨
+                // ´´½¨¼ì²â¼ÇÂ¼±í
                 string createTableSql = @"
                     CREATE TABLE IF NOT EXISTS detection_records (
                         Id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -236,3 +236,4 @@ namespace YOLO.Services
         }
     }
 }
+
