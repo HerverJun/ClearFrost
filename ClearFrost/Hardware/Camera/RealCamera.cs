@@ -3,10 +3,10 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using MVSDK_Net;
 
-namespace YOLO
+namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// çœŸå®å·¥ä¸šç›¸æœºå®ç°ï¼Œå°è£…è¿ˆå¾·å¨è§† SDK
+    /// ÕæÊµ¹¤ÒµÏà»úÊµÏÖ£¬·â×°ÂõµÂÍşÊÓ SDK
     /// </summary>
     public class RealCamera : ICamera
     {
@@ -23,7 +23,7 @@ namespace YOLO
         private bool _isConnected = false;
 
         /// <summary>
-        /// ç›¸æœºæ˜¯å¦å·²è¿æ¥
+        /// Ïà»úÊÇ·ñÒÑÁ¬½Ó
         /// </summary>
         public bool IsConnected => _isConnected && _handle != IntPtr.Zero;
 
@@ -103,10 +103,10 @@ namespace YOLO
         private static extern int IMV_ReleaseFrame(IntPtr handle, ref IMVDefine.IMV_Frame frame);
         public int IMV_ReleaseFrame(ref IMVDefine.IMV_Frame frame) => IMV_ReleaseFrame(_handle, ref frame);
 
-        #region IDisposable å®ç°
+        #region IDisposable ÊµÏÖ
 
         /// <summary>
-        /// é‡Šæ”¾ç›¸æœºèµ„æº
+        /// ÊÍ·ÅÏà»ú×ÊÔ´
         /// </summary>
         public void Dispose()
         {
@@ -115,7 +115,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// é‡Šæ”¾èµ„æºçš„æ ¸å¿ƒå®ç°
+        /// ÊÍ·Å×ÊÔ´µÄºËĞÄÊµÏÖ
         /// </summary>
         protected virtual void Dispose(bool disposing)
         {
@@ -146,7 +146,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// ææ„å‡½æ•°ï¼Œé˜²æ­¢èµ„æºæ³„æ¼
+        /// Îö¹¹º¯Êı£¬·ÀÖ¹×ÊÔ´Ğ¹Â©
         /// </summary>
         ~RealCamera()
         {
@@ -156,4 +156,6 @@ namespace YOLO
         #endregion
     }
 }
+
+
 

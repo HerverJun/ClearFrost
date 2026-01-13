@@ -1,11 +1,11 @@
 // ============================================================================
-// æ–‡ä»¶å: StorageService.cs
-// æè¿°:   å­˜å‚¨æœåŠ¡å®ç°
+// ÎÄ¼şÃû: StorageService.cs
+// ÃèÊö:   ´æ´¢·şÎñÊµÏÖ
 //
-// åŠŸèƒ½:
-//   - å›¾åƒä¿å­˜å’Œç®¡ç†
-//   - æ—¥å¿—æ–‡ä»¶ç®¡ç†
-//   - æ—§æ•°æ®è‡ªåŠ¨æ¸…ç†
+// ¹¦ÄÜ:
+//   - Í¼Ïñ±£´æºÍ¹ÜÀí
+//   - ÈÕÖ¾ÎÄ¼ş¹ÜÀí
+//   - ¾ÉÊı¾İ×Ô¶¯ÇåÀí
 // ============================================================================
 
 using System;
@@ -16,36 +16,36 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
-using YOLO.Interfaces;
+using ClearFrost.Interfaces;
 
-namespace YOLO.Services
+namespace ClearFrost.Services
 {
     /// <summary>
-    /// å­˜å‚¨æœåŠ¡å®ç°
+    /// ´æ´¢·şÎñÊµÏÖ
     /// </summary>
     public class StorageService : IStorageService
     {
-        #region ç§æœ‰å­—æ®µ
+        #region Ë½ÓĞ×Ö¶Î
 
         private readonly string _baseStoragePath;
         private bool _disposed;
 
         #endregion
 
-        #region å±æ€§
+        #region ÊôĞÔ
 
         public string ImageBasePath => Path.Combine(_baseStoragePath, "Images");
         public string LogBasePath => Path.Combine(_baseStoragePath, "Logs");
         public string SystemPath => Path.Combine(_baseStoragePath, "System");
 
         /// <summary>
-        /// å¯åŠ¨æ—¥å¿—è·¯å¾„
+        /// Æô¶¯ÈÕÖ¾Â·¾¶
         /// </summary>
         public string StartupLogPath => Path.Combine(LogBasePath, "SoftwareStartLog.txt");
 
         #endregion
 
-        #region æ„é€ å‡½æ•°
+        #region ¹¹Ôìº¯Êı
 
         public StorageService(string? storagePath = null)
         {
@@ -79,7 +79,7 @@ namespace YOLO.Services
 
         #endregion
 
-        #region å›¾åƒä¿å­˜
+        #region Í¼Ïñ±£´æ
 
         public void SaveDetectionImage(Bitmap bitmap, bool isQualified)
         {
@@ -91,7 +91,7 @@ namespace YOLO.Services
                 string saveDir = Path.Combine(
                     ImageBasePath,
                     isQualified ? "Qualified" : "Unqualified",
-                    now.ToString("yyyyå¹´MMæœˆddæ—¥"),
+                    now.ToString("yyyyÄêMMÔÂddÈÕ"),
                     now.ToString("HH"));
 
                 if (!Directory.Exists(saveDir))
@@ -126,20 +126,20 @@ namespace YOLO.Services
 
         #endregion
 
-        #region æ—¥å¿—è®°å½•
+        #region ÈÕÖ¾¼ÇÂ¼
 
         public void WriteDetectionLog(string content, bool isQualified)
         {
             try
             {
                 DateTime now = DateTime.Now;
-                string dir = Path.Combine(LogBasePath, "DetectionLogs", now.ToString("yyyyå¹´MMæœˆddæ—¥"));
+                string dir = Path.Combine(LogBasePath, "DetectionLogs", now.ToString("yyyyÄêMMÔÂddÈÕ"));
 
                 if (!Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
                 string fileName = $"{now:yyyyMMddHH}.txt";
-                string fullContent = $"æ£€æµ‹æ—¶é—´: {now}\r\nç»“æœ: {(isQualified ? "åˆæ ¼" : "ä¸åˆæ ¼")}\r\n{content}\r\n";
+                string fullContent = $"¼ì²âÊ±¼ä: {now}\r\n½á¹û: {(isQualified ? "ºÏ¸ñ" : "²»ºÏ¸ñ")}\r\n{content}\r\n";
 
                 File.AppendAllText(Path.Combine(dir, fileName), fullContent, Encoding.UTF8);
             }
@@ -179,7 +179,7 @@ namespace YOLO.Services
 
         #endregion
 
-        #region æ•°æ®æ¸…ç†
+        #region Êı¾İÇåÀí
 
         public void CleanOldData(int retainDays)
         {
@@ -197,11 +197,11 @@ namespace YOLO.Services
                     {
                         string dirName = Path.GetFileName(dir);
 
-                        // æ”¯æŒæ–°æ—§ä¸¤ç§æ—¥æœŸæ ¼å¼
+                        // Ö§³ÖĞÂ¾ÉÁ½ÖÖÈÕÆÚ¸ñÊ½
                         bool isLegacy = DateTime.TryParseExact(
                             dirName, "yyyyMMdd", null, DateTimeStyles.None, out DateTime fdLegacy);
                         bool isNew = DateTime.TryParseExact(
-                            dirName, "yyyyå¹´MMæœˆddæ—¥", null, DateTimeStyles.None, out DateTime fdNew);
+                            dirName, "yyyyÄêMMÔÂddÈÕ", null, DateTimeStyles.None, out DateTime fdNew);
 
                         DateTime? folderDate = isNew ? fdNew : (isLegacy ? fdLegacy : null);
 
@@ -252,3 +252,4 @@ namespace YOLO.Services
         #endregion
     }
 }
+

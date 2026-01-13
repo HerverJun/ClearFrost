@@ -1,100 +1,101 @@
 // ============================================================================
-// æ–‡ä»¶å: ICameraService.cs
-// æè¿°:   ç›¸æœºæœåŠ¡æ¥å£
+// ÎÄ¼şÃû: ICameraService.cs
+// ÃèÊö:   Ïà»ú·şÎñ½Ó¿Ú
 //
-// åŠŸèƒ½:
-//   - å®šä¹‰ç›¸æœºæ§åˆ¶çš„æ ‡å‡†æ¥å£
-//   - æ”¯æŒå¤šå“ç‰Œç›¸æœº (MindVision, Hikvision)
+// ¹¦ÄÜ:
+//   - ¶¨ÒåÏà»ú¿ØÖÆµÄ±ê×¼½Ó¿Ú
+//   - Ö§³Ö¶àÆ·ÅÆÏà»ú (MindVision, Hikvision)
 // ============================================================================
 
 using System;
 using OpenCvSharp;
 
-namespace YOLO.Interfaces
+namespace ClearFrost.Interfaces
 {
     /// <summary>
-    /// ç›¸æœºæœåŠ¡æ¥å£
+    /// Ïà»ú·şÎñ½Ó¿Ú
     /// </summary>
     public interface ICameraService : IDisposable
     {
-        #region äº‹ä»¶
+        #region ÊÂ¼ş
 
         /// <summary>
-        /// å¸§æ•è·äº‹ä»¶
+        /// Ö¡²¶»ñÊÂ¼ş
         /// </summary>
         event Action<Mat>? FrameCaptured;
 
         /// <summary>
-        /// è¿æ¥çŠ¶æ€å˜åŒ–äº‹ä»¶
+        /// Á¬½Ó×´Ì¬±ä»¯ÊÂ¼ş
         /// </summary>
         event Action<bool>? ConnectionChanged;
 
         /// <summary>
-        /// é”™è¯¯å‘ç”Ÿäº‹ä»¶
+        /// ´íÎó·¢ÉúÊÂ¼ş
         /// </summary>
         event Action<string>? ErrorOccurred;
 
         #endregion
 
-        #region å±æ€§
+        #region ÊôĞÔ
 
         /// <summary>
-        /// æ˜¯å¦å·²æ‰“å¼€
+        /// ÊÇ·ñÒÑ´ò¿ª
         /// </summary>
         bool IsOpen { get; }
 
         /// <summary>
-        /// å½“å‰ç›¸æœºåç§°
+        /// µ±Ç°Ïà»úÃû³Æ
         /// </summary>
         string CameraName { get; }
 
         /// <summary>
-        /// æœ€åä¸€å¸§å›¾åƒ
+        /// ×îºóÒ»Ö¡Í¼Ïñ
         /// </summary>
         Mat? LastFrame { get; }
 
         #endregion
 
-        #region æ–¹æ³•
+        #region ·½·¨
 
         /// <summary>
-        /// æ‰“å¼€ç›¸æœº
+        /// ´ò¿ªÏà»ú
         /// </summary>
-        /// <param name="serialNumber">ç›¸æœºåºåˆ—å·</param>
-        /// <param name="manufacturer">åˆ¶é€ å•† (MindVision/Hikvision)</param>
-        /// <returns>æ˜¯å¦æˆåŠŸ</returns>
+        /// <param name="serialNumber">Ïà»úĞòÁĞºÅ</param>
+        /// <param name="manufacturer">ÖÆÔìÉÌ (MindVision/Hikvision)</param>
+        /// <returns>ÊÇ·ñ³É¹¦</returns>
         bool Open(string serialNumber, string manufacturer);
 
         /// <summary>
-        /// å…³é—­ç›¸æœº
+        /// ¹Ø±ÕÏà»ú
         /// </summary>
         void Close();
 
         /// <summary>
-        /// å¼€å§‹é‡‡é›†
+        /// ¿ªÊ¼²É¼¯
         /// </summary>
         void StartCapture();
 
         /// <summary>
-        /// åœæ­¢é‡‡é›†
+        /// Í£Ö¹²É¼¯
         /// </summary>
         void StopCapture();
 
         /// <summary>
-        /// è§¦å‘é‡‡é›† (è½¯è§¦å‘æ¨¡å¼)
+        /// ´¥·¢²É¼¯ (Èí´¥·¢Ä£Ê½)
         /// </summary>
         void TriggerOnce();
 
         /// <summary>
-        /// è®¾ç½®æ›å…‰æ—¶é—´
+        /// ÉèÖÃÆØ¹âÊ±¼ä
         /// </summary>
         void SetExposure(double exposureUs);
 
         /// <summary>
-        /// è®¾ç½®å¢ç›Š
+        /// ÉèÖÃÔöÒæ
         /// </summary>
         void SetGain(double gain);
 
         #endregion
     }
 }
+

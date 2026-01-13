@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 
-namespace YOLO
+namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// é€šç”¨åƒç´ æ ¼å¼æšä¸¾
+    /// Í¨ÓÃÏñËØ¸ñÊ½Ã¶¾Ù
     /// </summary>
     public enum CameraPixelFormat
     {
@@ -19,32 +19,32 @@ namespace YOLO
     }
 
     /// <summary>
-    /// ç›¸æœºè®¾å¤‡ä¿¡æ¯
+    /// Ïà»úÉè±¸ĞÅÏ¢
     /// </summary>
     public class CameraDeviceInfo
     {
         /// <summary>
-        /// åºåˆ—å·
+        /// ĞòÁĞºÅ
         /// </summary>
         public string SerialNumber { get; set; } = "";
 
         /// <summary>
-        /// åˆ¶é€ å•† ("MindVision" / "Hikvision")
+        /// ÖÆÔìÉÌ ("MindVision" / "Hikvision")
         /// </summary>
         public string Manufacturer { get; set; } = "";
 
         /// <summary>
-        /// å‹å·
+        /// ĞÍºÅ
         /// </summary>
         public string Model { get; set; } = "";
 
         /// <summary>
-        /// ç”¨æˆ·è‡ªå®šä¹‰åç§°
+        /// ÓÃ»§×Ô¶¨ÒåÃû³Æ
         /// </summary>
         public string UserDefinedName { get; set; } = "";
 
         /// <summary>
-        /// æ¥å£ç±»å‹ (GigE / USB3 / CameraLink)
+        /// ½Ó¿ÚÀàĞÍ (GigE / USB3 / CameraLink)
         /// </summary>
         public string InterfaceType { get; set; } = "";
 
@@ -52,52 +52,52 @@ namespace YOLO
     }
 
     /// <summary>
-    /// é€šç”¨ç›¸æœºæ•°æ®å¸§
+    /// Í¨ÓÃÏà»úÊı¾İÖ¡
     /// </summary>
     public class CameraFrame : IDisposable
     {
         /// <summary>
-        /// å›¾åƒæ•°æ®æŒ‡é’ˆ
+        /// Í¼ÏñÊı¾İÖ¸Õë
         /// </summary>
         public IntPtr DataPtr { get; set; } = IntPtr.Zero;
 
         /// <summary>
-        /// å›¾åƒå®½åº¦
+        /// Í¼Ïñ¿í¶È
         /// </summary>
         public int Width { get; set; }
 
         /// <summary>
-        /// å›¾åƒé«˜åº¦
+        /// Í¼Ïñ¸ß¶È
         /// </summary>
         public int Height { get; set; }
 
         /// <summary>
-        /// æ•°æ®å¤§å° (bytes)
+        /// Êı¾İ´óĞ¡ (bytes)
         /// </summary>
         public int Size { get; set; }
 
         /// <summary>
-        /// åƒç´ æ ¼å¼
+        /// ÏñËØ¸ñÊ½
         /// </summary>
         public CameraPixelFormat PixelFormat { get; set; } = CameraPixelFormat.Mono8;
 
         /// <summary>
-        /// å¸§å·
+        /// Ö¡ºÅ
         /// </summary>
         public ulong FrameNumber { get; set; }
 
         /// <summary>
-        /// æ—¶é—´æˆ³
+        /// Ê±¼ä´Á
         /// </summary>
         public ulong Timestamp { get; set; }
 
         /// <summary>
-        /// æ˜¯å¦éœ€è¦é‡Šæ”¾åŸç”Ÿèµ„æº (ç”±æä¾›è€…å†³å®š)
+        /// ÊÇ·ñĞèÒªÊÍ·ÅÔ­Éú×ÊÔ´ (ÓÉÌá¹©Õß¾ö¶¨)
         /// </summary>
         internal bool NeedsNativeRelease { get; set; } = false;
 
         /// <summary>
-        /// é‡Šæ”¾å¸§çš„å›è°ƒ (ç”±æä¾›è€…è®¾ç½®)
+        /// ÊÍ·ÅÖ¡µÄ»Øµ÷ (ÓÉÌá¹©ÕßÉèÖÃ)
         /// </summary>
         internal Action<CameraFrame>? ReleaseCallback { get; set; }
 
@@ -115,81 +115,83 @@ namespace YOLO
     }
 
     /// <summary>
-    /// é€šç”¨ç›¸æœºæä¾›è€…æ¥å£ - ä¸ä¾èµ–ä»»ä½•ç‰¹å®š SDK
+    /// Í¨ÓÃÏà»úÌá¹©Õß½Ó¿Ú - ²»ÒÀÀµÈÎºÎÌØ¶¨ SDK
     /// </summary>
     public interface ICameraProvider : IDisposable
     {
         /// <summary>
-        /// æä¾›è€…åç§° (MindVision / Hikvision)
+        /// Ìá¹©ÕßÃû³Æ (MindVision / Hikvision)
         /// </summary>
         string ProviderName { get; }
 
         /// <summary>
-        /// ç›¸æœºæ˜¯å¦å·²è¿æ¥
+        /// Ïà»úÊÇ·ñÒÑÁ¬½Ó
         /// </summary>
         bool IsConnected { get; }
 
         /// <summary>
-        /// ç›¸æœºæ˜¯å¦æ­£åœ¨é‡‡é›†
+        /// Ïà»úÊÇ·ñÕıÔÚ²É¼¯
         /// </summary>
         bool IsGrabbing { get; }
 
         /// <summary>
-        /// å½“å‰è¿æ¥çš„è®¾å¤‡ä¿¡æ¯
+        /// µ±Ç°Á¬½ÓµÄÉè±¸ĞÅÏ¢
         /// </summary>
         CameraDeviceInfo? CurrentDevice { get; }
 
         /// <summary>
-        /// æšä¸¾ç³»ç»Ÿä¸­çš„ç›¸æœºè®¾å¤‡
+        /// Ã¶¾ÙÏµÍ³ÖĞµÄÏà»úÉè±¸
         /// </summary>
         List<CameraDeviceInfo> EnumerateDevices();
 
         /// <summary>
-        /// æ‰“å¼€æŒ‡å®šåºåˆ—å·çš„ç›¸æœº
+        /// ´ò¿ªÖ¸¶¨ĞòÁĞºÅµÄÏà»ú
         /// </summary>
         bool Open(string serialNumber);
 
         /// <summary>
-        /// å…³é—­ç›¸æœº
+        /// ¹Ø±ÕÏà»ú
         /// </summary>
         bool Close();
 
         /// <summary>
-        /// å¼€å§‹é‡‡é›†
+        /// ¿ªÊ¼²É¼¯
         /// </summary>
         bool StartGrabbing();
 
         /// <summary>
-        /// åœæ­¢é‡‡é›†
+        /// Í£Ö¹²É¼¯
         /// </summary>
         bool StopGrabbing();
 
         /// <summary>
-        /// è·å–ä¸€å¸§å›¾åƒ
+        /// »ñÈ¡Ò»Ö¡Í¼Ïñ
         /// </summary>
-        /// <param name="timeoutMs">è¶…æ—¶æ—¶é—´ (æ¯«ç§’)</param>
-        /// <returns>å¸§æ•°æ®ï¼Œå¤±è´¥è¿”å› null</returns>
+        /// <param name="timeoutMs">³¬Ê±Ê±¼ä (ºÁÃë)</param>
+        /// <returns>Ö¡Êı¾İ£¬Ê§°Ü·µ»Ø null</returns>
         CameraFrame? GetFrame(int timeoutMs = 1000);
 
         /// <summary>
-        /// è®¾ç½®æ›å…‰æ—¶é—´ (å¾®ç§’)
+        /// ÉèÖÃÆØ¹âÊ±¼ä (Î¢Ãë)
         /// </summary>
         bool SetExposure(double microseconds);
 
         /// <summary>
-        /// è®¾ç½®å¢ç›Š
+        /// ÉèÖÃÔöÒæ
         /// </summary>
         bool SetGain(double value);
 
         /// <summary>
-        /// è®¾ç½®è§¦å‘æ¨¡å¼
+        /// ÉèÖÃ´¥·¢Ä£Ê½
         /// </summary>
-        /// <param name="softwareTrigger">true=è½¯è§¦å‘, false=è¿ç»­é‡‡é›†</param>
+        /// <param name="softwareTrigger">true=Èí´¥·¢, false=Á¬Ğø²É¼¯</param>
         bool SetTriggerMode(bool softwareTrigger);
 
         /// <summary>
-        /// æ‰§è¡Œè½¯è§¦å‘
+        /// Ö´ĞĞÈí´¥·¢
         /// </summary>
         bool ExecuteSoftwareTrigger();
     }
 }
+
+

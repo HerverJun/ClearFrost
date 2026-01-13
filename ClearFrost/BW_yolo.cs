@@ -1,22 +1,22 @@
-ï»¿// ============================================================================
-// æ–‡ä»¶å: BW_yolo.cs
-// æè¿°:   YOLO æ·±åº¦å­¦ä¹ ç›®æ ‡æ£€æµ‹å¼•æ“ - åŸºäº ONNX Runtime çš„æ¨ç†æ ¸å¿ƒ
+// ============================================================================
+// ÎÄ¼şÃû: BW_yolo.cs
+// ÃèÊö:   YOLO Éî¶ÈÑ§Ï°Ä¿±ê¼ì²âÒıÇæ - »ùÓÚ ONNX Runtime µÄÍÆÀíºËĞÄ
 //
-// åŠŸèƒ½æ¦‚è¿°:
-//   - æ”¯æŒ YOLOv5/v6/v8/v9/v11 æ¨¡å‹è‡ªåŠ¨è¯†åˆ«
-//   - æ”¯æŒå¤šç§ä»»åŠ¡ç±»å‹: åˆ†ç±»(classify)ã€æ£€æµ‹(detect)ã€åˆ†å‰²(segment)ã€å§¿æ€(pose)ã€OBB
-//   - æ”¯æŒ CPU å’Œ GPU (DirectML) æ¨ç†åŠ é€Ÿ
-//   - å†…ç½®ä¸¤ç§é¢„å¤„ç†æ¨¡å¼: é«˜ç²¾åº¦/é«˜é€Ÿåº¦
+// ¹¦ÄÜ¸ÅÊö:
+//   - Ö§³Ö YOLOv5/v6/v8/v9/v11 Ä£ĞÍ×Ô¶¯Ê¶±ğ
+//   - Ö§³Ö¶àÖÖÈÎÎñÀàĞÍ: ·ÖÀà(classify)¡¢¼ì²â(detect)¡¢·Ö¸î(segment)¡¢×ËÌ¬(pose)¡¢OBB
+//   - Ö§³Ö CPU ºÍ GPU (DirectML) ÍÆÀí¼ÓËÙ
+//   - ÄÚÖÃÁ½ÖÖÔ¤´¦ÀíÄ£Ê½: ¸ß¾«¶È/¸ßËÙ¶È
 //
-// æ¨¡å—æ‹†åˆ†:
-//   - YoloPreprocessor.cs:  é¢„å¤„ç†æ¨¡å— (Letterboxç¼©æ”¾ã€Tensorè½¬æ¢)
-//   - YoloPostprocessor.cs: åå¤„ç†æ¨¡å— (ç½®ä¿¡åº¦è¿‡æ»¤ã€åæ ‡æ¢å¤)
-//   - YoloNms.cs:           NMS æ¨¡å— (éæå¤§å€¼æŠ‘åˆ¶)
-//   - YoloRenderer.cs:      æ¸²æŸ“æ¨¡å— (ç»“æœå¯è§†åŒ–)
-//   - YoloDataTypes.cs:     æ•°æ®ç»“æ„å®šä¹‰
+// Ä£¿é²ğ·Ö:
+//   - YoloPreprocessor.cs:  Ô¤´¦ÀíÄ£¿é (LetterboxËõ·Å¡¢Tensor×ª»»)
+//   - YoloPostprocessor.cs: ºó´¦ÀíÄ£¿é (ÖÃĞÅ¶È¹ıÂË¡¢×ø±ê»Ö¸´)
+//   - YoloNms.cs:           NMS Ä£¿é (·Ç¼«´óÖµÒÖÖÆ)
+//   - YoloRenderer.cs:      äÖÈ¾Ä£¿é (½á¹û¿ÉÊÓ»¯)
+//   - YoloDataTypes.cs:     Êı¾İ½á¹¹¶¨Òå
 //
-// ä½œè€…: ClearFrost Team (åŸºäºå¼€æº YOLO æ¨ç†åº“æ”¹è¿›)
-// åˆ›å»ºæ—¥æœŸ: 2024
+// ×÷Õß: ClearFrost Team (»ùÓÚ¿ªÔ´ YOLO ÍÆÀí¿â¸Ä½ø)
+// ´´½¨ÈÕÆÚ: 2024
 // ============================================================================
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
@@ -30,7 +30,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
 
-namespace YoloDetection
+namespace ClearFrost.Yolo
 {
     public enum YoloTaskType
     {
@@ -65,7 +65,7 @@ namespace YoloDetection
 
     partial class YoloDetector : IDisposable
     {
-        // ==================== å¸¸é‡å®šä¹‰ ====================
+        // ==================== ³£Á¿¶¨Òå ====================
 
         private const int YOLO_BOX_ELEMENTS = 4;
         private const int YOLO5_OBJECTNESS_INDEX = 4;
@@ -82,7 +82,7 @@ namespace YoloDetection
         private const float DEFAULT_CONFIDENCE_THRESHOLD = 0.5f;
         private const float DEFAULT_IOU_THRESHOLD = 0.45f;
 
-        // ==================== å­—æ®µå®šä¹‰ ====================
+        // ==================== ×Ö¶Î¶¨Òå ====================
 
         private bool _disposed = false;
         private InferenceSession? _inferenceSession;
@@ -343,7 +343,7 @@ namespace YoloDetection
 
             try
             {
-                // ==================== é¢„å¤„ç†é˜¶æ®µ ====================
+                // ==================== Ô¤´¦Àí½×¶Î ====================
                 EnsureTensorBuffer();
                 Array.Clear(_tensorBuffer!, 0, _tensorBuffer!.Length);
 
@@ -368,7 +368,7 @@ namespace YoloDetection
                 metrics.PreprocessMs = sw.Elapsed.TotalMilliseconds;
                 sw.Restart();
 
-                // ==================== æ¨ç†é˜¶æ®µ ====================
+                // ==================== ÍÆÀí½×¶Î ====================
                 Tensor<float> output0;
                 Tensor<float> output1;
                 List<YoloResult> filteredDataList;
@@ -435,7 +435,7 @@ namespace YoloDetection
                     finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
                 }
 
-                // ==================== åå¤„ç†é˜¶æ®µ ====================
+                // ==================== ºó´¦Àí½×¶Î ====================
                 RestoreCoordinates(ref finalResult);
                 if (_executionTaskMode != YoloTaskType.Classify)
                 {

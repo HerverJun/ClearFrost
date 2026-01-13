@@ -1,11 +1,12 @@
 using System;
+using ClearFrost.Config;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 
-namespace YOLO
+namespace ClearFrost.Config
 {
     public class AppConfig
     {
@@ -15,22 +16,22 @@ namespace YOLO
         public short PlcTriggerAddress { get; set; } = 555;
         public short PlcResultAddress { get; set; } = 556;
         /// <summary>
-        /// PLCåè®®ç±»å‹: Mitsubishi_MC_ASCII, Mitsubishi_MC_Binary, Modbus_TCP
+        /// PLCĞ­ÒéÀàĞÍ: Mitsubishi_MC_ASCII, Mitsubishi_MC_Binary, Modbus_TCP
         /// </summary>
         public string PlcProtocol { get; set; } = "Mitsubishi_MC_ASCII";
 
         // ================== Multi-Camera Settings ==================
         /// <summary>
-        /// ç›¸æœºé…ç½®åˆ—è¡¨ (å¤šç›¸æœºæ”¯æŒ)
+        /// Ïà»úÅäÖÃÁĞ±í (¶àÏà»úÖ§³Ö)
         /// </summary>
         public List<CameraConfig> Cameras { get; set; } = new();
 
         /// <summary>
-        /// å½“å‰æ´»åŠ¨ç›¸æœºçš„ ID
+        /// µ±Ç°»î¶¯Ïà»úµÄ ID
         /// </summary>
         public string ActiveCameraId { get; set; } = "";
 
-        // ================== Legacy Camera Settings (å‘åå…¼å®¹) ==================
+        // ================== Legacy Camera Settings (Ïòºó¼æÈİ) ==================
         [Obsolete("Use Cameras list instead")]
         public string CameraName { get; set; } = "CAM: HIK-MV-01";
         [Obsolete("Use Cameras list instead")]
@@ -57,17 +58,17 @@ namespace YOLO
 
         // ================== Multi-Model Fallback Settings ==================
         /// <summary>
-        /// è¾…åŠ©æ¨¡å‹1è·¯å¾„
+        /// ¸¨ÖúÄ£ĞÍ1Â·¾¶
         /// </summary>
         public string Auxiliary1ModelPath { get; set; } = "";
 
         /// <summary>
-        /// è¾…åŠ©æ¨¡å‹2è·¯å¾„
+        /// ¸¨ÖúÄ£ĞÍ2Â·¾¶
         /// </summary>
         public string Auxiliary2ModelPath { get; set; } = "";
 
         /// <summary>
-        /// æ˜¯å¦å¯ç”¨å¤šæ¨¡å‹è‡ªåŠ¨åˆ‡æ¢
+        /// ÊÇ·ñÆôÓÃ¶àÄ£ĞÍ×Ô¶¯ÇĞ»»
         /// </summary>
         public bool EnableMultiModelFallback { get; set; } = false;
 
@@ -128,11 +129,11 @@ namespace YOLO
         }
 
         /// <summary>
-        /// å°†æ—§ç‰ˆå•ç›¸æœºé…ç½®è¿ç§»åˆ°å¤šç›¸æœºåˆ—è¡¨
+        /// ½«¾É°æµ¥Ïà»úÅäÖÃÇ¨ÒÆµ½¶àÏà»úÁĞ±í
         /// </summary>
         private void MigrateLegacyCamera()
         {
-#pragma warning disable CS0618 // å¿½ç•¥ Obsolete è­¦å‘Š
+#pragma warning disable CS0618 // ºöÂÔ Obsolete ¾¯¸æ
             if (Cameras.Count == 0 && !string.IsNullOrEmpty(CameraSerialNumber))
             {
                 var legacyCam = new CameraConfig
@@ -152,7 +153,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// è·å–å½“å‰æ´»åŠ¨ç›¸æœºé…ç½®
+        /// »ñÈ¡µ±Ç°»î¶¯Ïà»úÅäÖÃ
         /// </summary>
         [System.Text.Json.Serialization.JsonIgnore]
         public CameraConfig? ActiveCamera =>
@@ -177,4 +178,6 @@ namespace YOLO
         }
     }
 }
+
+
 

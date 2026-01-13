@@ -4,16 +4,16 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using MVSDK_Net;
 
-namespace YOLO
+namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// è¿ˆå¾·å¨è§†ç›¸æœºå®ç°
+    /// ÂõµÂÍşÊÓÏà»úÊµÏÖ
     /// </summary>
     public class MindVisionCamera : ICameraProvider
     {
         private const string DLL_NAME = "MVSDKmd.dll";
 
-        #region P/Invoke å£°æ˜
+        #region P/Invoke ÉùÃ÷
 
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         private static extern int IMV_EnumDevices(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType);
@@ -115,11 +115,11 @@ namespace YOLO
 
             try
             {
-                // å…ˆæšä¸¾è®¾å¤‡
+                // ÏÈÃ¶¾ÙÉè±¸
                 if (_cachedDevices.Count == 0)
                     EnumerateDevices();
 
-                // æŸ¥æ‰¾è®¾å¤‡ç´¢å¼•
+                // ²éÕÒÉè±¸Ë÷Òı
                 int deviceIndex = -1;
                 var deviceList = new IMVDefine.IMV_DeviceList();
                 IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
@@ -142,7 +142,7 @@ namespace YOLO
                     return false;
                 }
 
-                // åˆ›å»ºå¥æŸ„
+                // ´´½¨¾ä±ú
                 int result = IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode.modeByIndex, deviceIndex, ref _handle);
                 if (result != IMVDefine.IMV_OK)
                 {
@@ -150,7 +150,7 @@ namespace YOLO
                     return false;
                 }
 
-                // æ‰“å¼€ç›¸æœº
+                // ´ò¿ªÏà»ú
                 result = IMV_Open(_handle);
                 if (result != IMVDefine.IMV_OK)
                 {
@@ -160,7 +160,7 @@ namespace YOLO
                     return false;
                 }
 
-                // è®¾ç½®ç¼“å†²åŒº
+                // ÉèÖÃ»º³åÇø
                 IMV_SetBufferCount(_handle, 3);
 
                 _isConnected = true;
@@ -332,3 +332,5 @@ namespace YOLO
         #endregion
     }
 }
+
+

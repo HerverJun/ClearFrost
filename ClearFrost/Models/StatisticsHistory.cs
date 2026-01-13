@@ -1,14 +1,15 @@
 using System;
+using ClearFrost.Models;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 
-namespace YOLO
+namespace ClearFrost.Models
 {
     /// <summary>
-    /// å•æ—¥ç»Ÿè®¡è®°å½•
+    /// µ¥ÈÕÍ³¼Æ¼ÇÂ¼
     /// </summary>
     public class DailyStatisticsRecord
     {
@@ -21,7 +22,7 @@ namespace YOLO
     }
 
     /// <summary>
-    /// å†å²ç»Ÿè®¡æ•°æ®ç®¡ç†ç±»ï¼Œä¿ç•™æœ€è¿‘ 7 å¤©çš„è®°å½•
+    /// ÀúÊ·Í³¼ÆÊı¾İ¹ÜÀíÀà£¬±£Áô×î½ü 7 ÌìµÄ¼ÇÂ¼
     /// </summary>
     public class StatisticsHistory
     {
@@ -31,7 +32,7 @@ namespace YOLO
         private const int MaxDays = 7;
 
         /// <summary>
-        /// æœ€åä¸€æ¬¡æ“ä½œçš„é”™è¯¯ä¿¡æ¯
+        /// ×îºóÒ»´Î²Ù×÷µÄ´íÎóĞÅÏ¢
         /// </summary>
         [System.Text.Json.Serialization.JsonIgnore]
         public string? LastError { get; private set; }
@@ -42,7 +43,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// è®¾ç½®ä¿å­˜è·¯å¾„
+        /// ÉèÖÃ±£´æÂ·¾¶
         /// </summary>
         public void SetSavePath(string basePath)
         {
@@ -52,27 +53,27 @@ namespace YOLO
         }
 
         /// <summary>
-        /// æ·»åŠ å†å²è®°å½•
+        /// Ìí¼ÓÀúÊ·¼ÇÂ¼
         /// </summary>
         public void AddRecord(DailyStatisticsRecord record)
         {
-            // é¿å…é‡å¤æ·»åŠ åŒä¸€å¤©çš„è®°å½•
+            // ±ÜÃâÖØ¸´Ìí¼ÓÍ¬Ò»ÌìµÄ¼ÇÂ¼
             Records.RemoveAll(r => r.Date == record.Date);
             Records.Add(record);
 
-            // ä¿æŒæœ€å¤š 7 å¤©
+            // ±£³Ö×î¶à 7 Ìì
             TrimToMaxDays();
             Save();
         }
 
         /// <summary>
-        /// ä¿ç•™æœ€è¿‘ N å¤©çš„è®°å½•
+        /// ±£Áô×î½ü N ÌìµÄ¼ÇÂ¼
         /// </summary>
         public void TrimToMaxDays()
         {
             if (Records.Count > MaxDays)
             {
-                // æŒ‰æ—¥æœŸæ’åºï¼Œä¿ç•™æœ€æ–°çš„ N æ¡
+                // °´ÈÕÆÚÅÅĞò£¬±£Áô×îĞÂµÄ N Ìõ
                 Records = Records
                     .OrderByDescending(r => r.Date)
                     .Take(MaxDays)
@@ -81,7 +82,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// ä»æ–‡ä»¶åŠ è½½å†å²æ•°æ®
+        /// ´ÓÎÄ¼ş¼ÓÔØÀúÊ·Êı¾İ
         /// </summary>
         public static StatisticsHistory Load(string basePath)
         {
@@ -112,7 +113,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// ä¿å­˜å†å²æ•°æ®åˆ°æ–‡ä»¶
+        /// ±£´æÀúÊ·Êı¾İµ½ÎÄ¼ş
         /// </summary>
         public bool Save()
         {
@@ -134,7 +135,7 @@ namespace YOLO
         }
 
         /// <summary>
-        /// è·å–ç”¨äºå‰ç«¯æ˜¾ç¤ºçš„è®°å½•åˆ—è¡¨ï¼ˆæŒ‰æ—¥æœŸé™åºï¼‰
+        /// »ñÈ¡ÓÃÓÚÇ°¶ËÏÔÊ¾µÄ¼ÇÂ¼ÁĞ±í£¨°´ÈÕÆÚ½µĞò£©
         /// </summary>
         public List<DailyStatisticsRecord> GetOrderedRecords()
         {
@@ -142,4 +143,6 @@ namespace YOLO
         }
     }
 }
+
+
 

@@ -1,51 +1,53 @@
 using System.Threading.Tasks;
 
-namespace YOLO
+namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// PLC设备通用接口，支持多种协议适配
+    /// PLC�豸ͨ�ýӿڣ�֧�ֶ���Э������
     /// </summary>
     public interface IPlcDevice
     {
         /// <summary>
-        /// 异步连接到PLC
+        /// �첽���ӵ�PLC
         /// </summary>
-        /// <returns>是否连接成功</returns>
+        /// <returns>�Ƿ����ӳɹ�</returns>
         Task<bool> ConnectAsync();
 
         /// <summary>
-        /// 断开PLC连接
+        /// �Ͽ�PLC����
         /// </summary>
         void Disconnect();
 
         /// <summary>
-        /// 异步读取Int16值
+        /// �첽��ȡInt16ֵ
         /// </summary>
-        /// <param name="address">寄存器地址（格式取决于协议）</param>
-        /// <returns>读取结果元组：(是否成功, 读取值)</returns>
+        /// <param name="address">�Ĵ�����ַ����ʽȡ����Э�飩</param>
+        /// <returns>��ȡ���Ԫ�飺(�Ƿ�ɹ�, ��ȡֵ)</returns>
         Task<(bool Success, short Value)> ReadInt16Async(string address);
 
         /// <summary>
-        /// 异步写入Int16值
+        /// �첽д��Int16ֵ
         /// </summary>
-        /// <param name="address">寄存器地址</param>
-        /// <param name="value">要写入的值</param>
-        /// <returns>是否写入成功</returns>
+        /// <param name="address">�Ĵ�����ַ</param>
+        /// <param name="value">Ҫд���ֵ</param>
+        /// <returns>�Ƿ�д��ɹ�</returns>
         Task<bool> WriteInt16Async(string address, short value);
 
         /// <summary>
-        /// 最后一次操作的错误信息
+        /// ���һ�β����Ĵ�����Ϣ
         /// </summary>
         string LastError { get; }
 
         /// <summary>
-        /// 当前是否已连接
+        /// ��ǰ�Ƿ�������
         /// </summary>
         bool IsConnected { get; }
 
         /// <summary>
-        /// 协议名称（用于日志显示）
+        /// Э�����ƣ�������־��ʾ��
         /// </summary>
         string ProtocolName { get; }
     }
 }
+
+

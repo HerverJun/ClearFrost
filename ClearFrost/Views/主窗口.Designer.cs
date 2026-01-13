@@ -1,6 +1,6 @@
-ï»¿namespace YOLO
+namespace ClearFrost
 {
-    partial class ä¸»çª—å£
+    partial class Ö÷´°¿Ú
     {
         /// <summary>
         ///  Required designer variable.
@@ -45,16 +45,16 @@
             webView21.TabIndex = 0;
             webView21.ZoomFactor = 1D;
             // 
-            // ä¸»çª—å£
+            // Ö÷´°¿Ú
             // 
             AutoScaleDimensions = new SizeF(13F, 28F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(3649, 1854);
             Controls.Add(webView21);
             Margin = new Padding(6, 5, 6, 5);
-            Name = "ä¸»çª—å£";
-            Text = "æ¸…éœœ";
-            Load += ä¸»çª—å£_Load;
+            Name = "Ö÷´°¿Ú";
+            Text = "ÇåËª";
+            Load += Ö÷´°¿Ú_Load;
             ((System.ComponentModel.ISupportInitialize)webView21).EndInit();
             ResumeLayout(false);
         }
@@ -64,3 +64,4 @@
         private Microsoft.Web.WebView2.WinForms.WebView2 webView21;
     }
 }
+

@@ -1,10 +1,10 @@
 // ============================================================================
-// æ–‡ä»¶å: IDetectionService.cs
-// æè¿°:   æ£€æµ‹æœåŠ¡æ¥å£
+// ÎÄ¼şÃû: IDetectionService.cs
+// ÃèÊö:   ¼ì²â·şÎñ½Ó¿Ú
 //
-// åŠŸèƒ½:
-//   - å®šä¹‰ YOLO/ä¼ ç»Ÿè§†è§‰æ£€æµ‹çš„æ ‡å‡†æ¥å£
-//   - æ”¯æŒå¤šæ¨¡å‹ç®¡ç†å’Œè‡ªåŠ¨åˆ‡æ¢
+// ¹¦ÄÜ:
+//   - ¶¨Òå YOLO/´«Í³ÊÓ¾õ¼ì²âµÄ±ê×¼½Ó¿Ú
+//   - Ö§³Ö¶àÄ£ĞÍ¹ÜÀíºÍ×Ô¶¯ÇĞ»»
 // ============================================================================
 
 using System;
@@ -12,183 +12,184 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Threading.Tasks;
 using OpenCvSharp;
-using YoloDetection;
+using ClearFrost.Yolo;
 
-namespace YOLO.Interfaces
+namespace ClearFrost.Interfaces
 {
     /// <summary>
-    /// æ£€æµ‹ç»“æœ
+    /// ¼ì²â½á¹û
     /// </summary>
     public class DetectionResultData
     {
         /// <summary>
-        /// æ˜¯å¦åˆæ ¼
+        /// ÊÇ·ñºÏ¸ñ
         /// </summary>
         public bool IsQualified { get; set; }
 
         /// <summary>
-        /// YOLO æ£€æµ‹ç»“æœåˆ—è¡¨
+        /// YOLO ¼ì²â½á¹ûÁĞ±í
         /// </summary>
         public List<YoloResult>? Results { get; set; }
 
         /// <summary>
-        /// åŸå§‹å›¾åƒ
+        /// Ô­Ê¼Í¼Ïñ
         /// </summary>
         public Bitmap? OriginalBitmap { get; set; }
 
         /// <summary>
-        /// æ¨ç†è€—æ—¶ (æ¯«ç§’)
+        /// ÍÆÀíºÄÊ± (ºÁÃë)
         /// </summary>
         public long ElapsedMs { get; set; }
 
         /// <summary>
-        /// ä½¿ç”¨çš„æ¨¡å‹æ ‡ç­¾åˆ—è¡¨
+        /// Ê¹ÓÃµÄÄ£ĞÍ±êÇ©ÁĞ±í
         /// </summary>
         public string[]? UsedModelLabels { get; set; }
 
         /// <summary>
-        /// ä½¿ç”¨çš„æ¨¡å‹åç§°
+        /// Ê¹ÓÃµÄÄ£ĞÍÃû³Æ
         /// </summary>
         public string? UsedModelName { get; set; }
 
         /// <summary>
-        /// æ˜¯å¦å‘ç”Ÿäº†æ¨¡å‹å›é€€
+        /// ÊÇ·ñ·¢ÉúÁËÄ£ĞÍ»ØÍË
         /// </summary>
         public bool WasFallback { get; set; }
     }
 
     /// <summary>
-    /// æ£€æµ‹æœåŠ¡æ¥å£
+    /// ¼ì²â·şÎñ½Ó¿Ú
     /// </summary>
     public interface IDetectionService : IDisposable
     {
-        #region äº‹ä»¶
+        #region ÊÂ¼ş
 
         /// <summary>
-        /// æ£€æµ‹å®Œæˆäº‹ä»¶
+        /// ¼ì²âÍê³ÉÊÂ¼ş
         /// </summary>
         event Action<DetectionResultData>? DetectionCompleted;
 
         /// <summary>
-        /// æ¨¡å‹åŠ è½½å®Œæˆäº‹ä»¶
+        /// Ä£ĞÍ¼ÓÔØÍê³ÉÊÂ¼ş
         /// </summary>
         event Action<string>? ModelLoaded;
 
         /// <summary>
-        /// é”™è¯¯å‘ç”Ÿäº‹ä»¶
+        /// ´íÎó·¢ÉúÊÂ¼ş
         /// </summary>
         event Action<string>? ErrorOccurred;
 
         #endregion
 
-        #region å±æ€§
+        #region ÊôĞÔ
 
         /// <summary>
-        /// æ¨¡å‹æ˜¯å¦å·²åŠ è½½
+        /// Ä£ĞÍÊÇ·ñÒÑ¼ÓÔØ
         /// </summary>
         bool IsModelLoaded { get; }
 
         /// <summary>
-        /// å½“å‰åŠ è½½çš„æ¨¡å‹åç§°
+        /// µ±Ç°¼ÓÔØµÄÄ£ĞÍÃû³Æ
         /// </summary>
         string CurrentModelName { get; }
 
         /// <summary>
-        /// å¯ç”¨æ¨¡å‹åˆ—è¡¨
+        /// ¿ÉÓÃÄ£ĞÍÁĞ±í
         /// </summary>
         IReadOnlyList<string> AvailableModels { get; }
 
         /// <summary>
-        /// æœ€åä¸€æ¬¡æ¨ç†è€—æ—¶
+        /// ×îºóÒ»´ÎÍÆÀíºÄÊ±
         /// </summary>
         long LastInferenceMs { get; }
 
         #endregion
 
-        #region æ–¹æ³•
+        #region ·½·¨
 
         /// <summary>
-        /// åŠ è½½ YOLO æ¨¡å‹
+        /// ¼ÓÔØ YOLO Ä£ĞÍ
         /// </summary>
-        /// <param name="modelPath">æ¨¡å‹æ–‡ä»¶è·¯å¾„</param>
-        /// <param name="useGpu">æ˜¯å¦ä½¿ç”¨ GPU</param>
-        /// <returns>æ˜¯å¦æˆåŠŸ</returns>
+        /// <param name="modelPath">Ä£ĞÍÎÄ¼şÂ·¾¶</param>
+        /// <param name="useGpu">ÊÇ·ñÊ¹ÓÃ GPU</param>
+        /// <returns>ÊÇ·ñ³É¹¦</returns>
         Task<bool> LoadModelAsync(string modelPath, bool useGpu);
 
         /// <summary>
-        /// æ‰«æå¹¶åŠ è½½é»˜è®¤æ¨¡å‹
+        /// É¨Ãè²¢¼ÓÔØÄ¬ÈÏÄ£ĞÍ
         /// </summary>
-        /// <param name="modelsDirectory">æ¨¡å‹ç›®å½•</param>
-        /// <param name="useGpu">æ˜¯å¦ä½¿ç”¨ GPU</param>
+        /// <param name="modelsDirectory">Ä£ĞÍÄ¿Â¼</param>
+        /// <param name="useGpu">ÊÇ·ñÊ¹ÓÃ GPU</param>
         Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu);
 
         /// <summary>
-        /// åˆ‡æ¢æ¨¡å‹
+        /// ÇĞ»»Ä£ĞÍ
         /// </summary>
-        /// <param name="modelName">æ¨¡å‹åç§°</param>
+        /// <param name="modelName">Ä£ĞÍÃû³Æ</param>
         Task<bool> SwitchModelAsync(string modelName);
 
         /// <summary>
-        /// æ‰§è¡Œæ£€æµ‹
+        /// Ö´ĞĞ¼ì²â
         /// </summary>
-        /// <param name="image">è¾“å…¥å›¾åƒ (Mat)</param>
-        /// <param name="confidence">ç½®ä¿¡åº¦é˜ˆå€¼</param>
-        /// <param name="iouThreshold">IOU é˜ˆå€¼</param>
+        /// <param name="image">ÊäÈëÍ¼Ïñ (Mat)</param>
+        /// <param name="confidence">ÖÃĞÅ¶ÈãĞÖµ</param>
+        /// <param name="iouThreshold">IOU ãĞÖµ</param>
         Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold);
 
         /// <summary>
-        /// æ‰§è¡Œæ£€æµ‹ (Bitmap è¾“å…¥)
+        /// Ö´ĞĞ¼ì²â (Bitmap ÊäÈë)
         /// </summary>
         Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold);
 
         /// <summary>
-        /// ç”Ÿæˆå¸¦æ ‡æ³¨çš„ç»“æœå›¾åƒ
+        /// Éú³É´ø±ê×¢µÄ½á¹ûÍ¼Ïñ
         /// </summary>
-        /// <param name="original">åŸå§‹å›¾åƒ</param>
-        /// <param name="results">æ£€æµ‹ç»“æœ</param>
-        /// <param name="labels">æ ‡ç­¾åˆ—è¡¨</param>
+        /// <param name="original">Ô­Ê¼Í¼Ïñ</param>
+        /// <param name="results">¼ì²â½á¹û</param>
+        /// <param name="labels">±êÇ©ÁĞ±í</param>
         Bitmap GenerateResultImage(Bitmap original, List<YoloResult> results, string[] labels);
 
         /// <summary>
-        /// è®¾ç½®ä»»åŠ¡ç±»å‹
+        /// ÉèÖÃÈÎÎñÀàĞÍ
         /// </summary>
         void SetTaskMode(int taskType);
 
         /// <summary>
-        /// å¯ç”¨/ç¦ç”¨å¤šæ¨¡å‹å›é€€
+        /// ÆôÓÃ/½ûÓÃ¶àÄ£ĞÍ»ØÍË
         /// </summary>
         void SetEnableFallback(bool enabled);
 
         /// <summary>
-        /// åŠ è½½è¾…åŠ©æ¨¡å‹1
+        /// ¼ÓÔØ¸¨ÖúÄ£ĞÍ1
         /// </summary>
         Task<bool> LoadAuxiliary1ModelAsync(string modelPath);
 
         /// <summary>
-        /// åŠ è½½è¾…åŠ©æ¨¡å‹2
+        /// ¼ÓÔØ¸¨ÖúÄ£ĞÍ2
         /// </summary>
         Task<bool> LoadAuxiliary2ModelAsync(string modelPath);
 
         /// <summary>
-        /// å¸è½½è¾…åŠ©æ¨¡å‹1
+        /// Ğ¶ÔØ¸¨ÖúÄ£ĞÍ1
         /// </summary>
         void UnloadAuxiliary1Model();
 
         /// <summary>
-        /// å¸è½½è¾…åŠ©æ¨¡å‹2
+        /// Ğ¶ÔØ¸¨ÖúÄ£ĞÍ2
         /// </summary>
         void UnloadAuxiliary2Model();
 
         /// <summary>
-        /// è·å–å½“å‰æ¨¡å‹æ ‡ç­¾
+        /// »ñÈ¡µ±Ç°Ä£ĞÍ±êÇ©
         /// </summary>
         string[] GetLabels();
 
         /// <summary>
-        /// è·å–æœ€åä¸€æ¬¡æ¨ç†çš„æ€§èƒ½æŒ‡æ ‡
+        /// »ñÈ¡×îºóÒ»´ÎÍÆÀíµÄĞÔÄÜÖ¸±ê
         /// </summary>
         object? GetLastMetrics();
 
         #endregion
     }
 }
+

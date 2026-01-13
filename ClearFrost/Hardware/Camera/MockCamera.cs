@@ -4,10 +4,10 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using MVSDK_Net;
 
-namespace YOLO
+namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// æ¨¡æ‹Ÿç›¸æœºå®ç°ï¼Œç”¨äºè°ƒè¯•å’Œæµ‹è¯•
+    /// Ä£ÄâÏà»úÊµÏÖ£¬ÓÃÓÚµ÷ÊÔºÍ²âÊÔ
     /// </summary>
     public class MockCamera : ICamera
     {
@@ -17,7 +17,7 @@ namespace YOLO
         private GCHandle _bufferHandle;
 
         /// <summary>
-        /// ç›¸æœºæ˜¯å¦å·²è¿æ¥ï¼ˆæ¨¡æ‹Ÿç›¸æœºå§‹ç»ˆè¿”å› trueï¼‰
+        /// Ïà»úÊÇ·ñÒÑÁ¬½Ó£¨Ä£ÄâÏà»úÊ¼ÖÕ·µ»Ø true£©
         /// </summary>
         public bool IsConnected => !_disposed;
 
@@ -137,7 +137,7 @@ namespace YOLO
             return IMVDefine.IMV_OK;
         }
 
-        #region IDisposable å®ç°
+        #region IDisposable ÊµÏÖ
 
         public void Dispose()
         {
@@ -175,4 +175,6 @@ namespace YOLO
         #endregion
     }
 }
+
+
 

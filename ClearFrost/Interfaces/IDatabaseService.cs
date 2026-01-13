@@ -1,7 +1,7 @@
-namespace YOLO.Interfaces
+namespace ClearFrost.Interfaces
 {
     /// <summary>
-    /// æ£€æµ‹è®°å½•æ•°æ®æ¨¡å‹
+    /// ¼ì²â¼ÇÂ¼Êı¾İÄ£ĞÍ
     /// </summary>
     public class DetectionRecord
     {
@@ -18,33 +18,34 @@ namespace YOLO.Interfaces
     }
 
     /// <summary>
-    /// æ•°æ®åº“æœåŠ¡æ¥å£
+    /// Êı¾İ¿â·şÎñ½Ó¿Ú
     /// </summary>
     public interface IDatabaseService : IDisposable
     {
         /// <summary>
-        /// åˆå§‹åŒ–æ•°æ®åº“ï¼ˆåˆ›å»ºè¡¨ç­‰ï¼‰
+        /// ³õÊ¼»¯Êı¾İ¿â£¨´´½¨±íµÈ£©
         /// </summary>
         Task InitializeAsync();
 
         /// <summary>
-        /// ä¿å­˜æ£€æµ‹è®°å½•
+        /// ±£´æ¼ì²â¼ÇÂ¼
         /// </summary>
         Task<long> SaveDetectionRecordAsync(DetectionRecord record);
 
         /// <summary>
-        /// æŸ¥è¯¢æ£€æµ‹è®°å½•
+        /// ²éÑ¯¼ì²â¼ÇÂ¼
         /// </summary>
         Task<List<DetectionRecord>> QueryRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100);
 
         /// <summary>
-        /// è·å–ç»Ÿè®¡æ•°æ®
+        /// »ñÈ¡Í³¼ÆÊı¾İ
         /// </summary>
         Task<(int total, int pass, int fail)> GetStatisticsAsync(DateTime date);
 
         /// <summary>
-        /// æ¸…ç†æ—§æ•°æ®
+        /// ÇåÀí¾ÉÊı¾İ
         /// </summary>
         Task<int> CleanupOldRecordsAsync(int daysToKeep);
     }
 }
+

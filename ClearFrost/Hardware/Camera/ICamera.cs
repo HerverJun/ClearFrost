@@ -1,15 +1,15 @@
 using System;
 using MVSDK_Net;
 
-namespace YOLO
+namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// ç›¸æœºæ¥å£ï¼Œå®šä¹‰å·¥ä¸šç›¸æœºçš„åŸºæœ¬æ“ä½œ
+    /// Ïà»ú½Ó¿Ú£¬¶¨Òå¹¤ÒµÏà»úµÄ»ù±¾²Ù×÷
     /// </summary>
     public interface ICamera : IDisposable
     {
         /// <summary>
-        /// ç›¸æœºæ˜¯å¦å·²è¿æ¥
+        /// Ïà»úÊÇ·ñÒÑÁ¬½Ó
         /// </summary>
         bool IsConnected { get; }
 
@@ -29,3 +29,5 @@ namespace YOLO
         int IMV_ReleaseFrame(ref IMVDefine.IMV_Frame frame);
     }
 }
+
+
