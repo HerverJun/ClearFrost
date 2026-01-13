@@ -1,0 +1,39 @@
+﻿  姝ｅ湪纭畾瑕佽繕鍘熺殑椤圭洰鈥?
+  鎵€鏈夐」鐩潎鏄渶鏂扮殑锛屾棤娉曡繕鍘熴€?
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Vision\RobustOrbExtractor.cs(216,47): warning CS8600: 灏?null 鏂囨湰鎴栧彲鑳界殑 null 鍊艰浆鎹负涓嶅彲涓?null 绫诲瀷銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\BW_yolo.cs(407,31): warning CS8600: 灏?null 鏂囨湰鎴栧彲鑳界殑 null 鍊艰浆鎹负涓嶅彲涓?null 绫诲瀷銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Init.cs(129,78): error CS0103: 褰撳墠涓婁笅鏂囦腑涓嶅瓨鍦ㄥ悕绉扳€渂tnCapture_Logic鈥?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Init.cs(524,46): warning CS8600: 灏?null 鏂囨湰鎴栧彲鑳界殑 null 鍊艰浆鎹负涓嶅彲涓?null 绫诲瀷銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Init.cs(985,41): error CS0103: 褰撳墠涓婁笅鏂囦腑涓嶅瓨鍦ㄥ悕绉扳€淭estYolo_Handler鈥?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Init.cs(1230,17): warning CS4014: 鐢变簬姝よ皟鐢ㄤ笉浼氱瓑寰咃紝鍥犳鍦ㄦ璋冪敤瀹屾垚涔嬪墠灏嗕細缁х画鎵ц褰撳墠鏂规硶銆傝鑰冭檻灏?"await" 杩愮畻绗﹀簲鐢ㄤ簬璋冪敤缁撴灉銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Yolo\YoloPreprocessor.cs(167,29): warning CS8600: 灏?null 鏂囨湰鎴栧彲鑳界殑 null 鍊艰浆鎹负涓嶅彲涓?null 绫诲瀷銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Yolo\YoloRenderer.cs(62,27): warning CS0168: 澹版槑浜嗗彉閲忊€渢extWidth鈥濓紝浣嗕粠鏈娇鐢ㄨ繃 [C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Yolo\YoloRenderer.cs(63,27): warning CS0168: 澹版槑浜嗗彉閲忊€渢extHeight鈥濓紝浣嗕粠鏈娇鐢ㄨ繃 [C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Yolo\YoloRenderer.cs(65,28): warning CS0168: 澹版槑浜嗗彉閲忊€渢extContent鈥濓紝浣嗕粠鏈娇鐢ㄨ繃 [C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Vision.cs(162,21): warning CS4014: 鐢变簬姝よ皟鐢ㄤ笉浼氱瓑寰咃紝鍥犳鍦ㄦ璋冪敤瀹屾垚涔嬪墠灏嗕細缁х画鎵ц褰撳墠鏂规硶銆傝鑰冭檻灏?"await" 杩愮畻绗﹀簲鐢ㄤ簬璋冪敤缁撴灉銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Vision.cs(205,17): warning CS4014: 鐢变簬姝よ皟鐢ㄤ笉浼氱瓑寰咃紝鍥犳鍦ㄦ璋冪敤瀹屾垚涔嬪墠灏嗕細缁х画鎵ц褰撳墠鏂规硶銆傝鑰冭檻灏?"await" 杩愮畻绗﹀簲鐢ㄤ簬璋冪敤缁撴灉銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Vision.cs(219,21): warning CS4014: 鐢变簬姝よ皟鐢ㄤ笉浼氱瓑寰咃紝鍥犳鍦ㄦ璋冪敤瀹屾垚涔嬪墠灏嗕細缁х画鎵ц褰撳墠鏂规硶銆傝鑰冭檻灏?"await" 杩愮畻绗﹀簲鐢ㄤ簬璋冪敤缁撴灉銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Vision.cs(284,17): warning CS4014: 鐢变簬姝よ皟鐢ㄤ笉浼氱瓑寰咃紝鍥犳鍦ㄦ璋冪敤瀹屾垚涔嬪墠灏嗕細缁х画鎵ц褰撳墠鏂规硶銆傝鑰冭檻灏?"await" 杩愮畻绗﹀簲鐢ㄤ簬璋冪敤缁撴灉銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Vision.cs(408,17): warning CS4014: 鐢变簬姝よ皟鐢ㄤ笉浼氱瓑寰咃紝鍥犳鍦ㄦ璋冪敤瀹屾垚涔嬪墠灏嗕細缁х画鎵ц褰撳墠鏂规硶銆傝鑰冭檻灏?"await" 杩愮畻绗﹀簲鐢ㄤ簬璋冪敤缁撴灉銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+
+鐢熸垚澶辫触銆?
+
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Vision\RobustOrbExtractor.cs(216,47): warning CS8600: 灏?null 鏂囨湰鎴栧彲鑳界殑 null 鍊艰浆鎹负涓嶅彲涓?null 绫诲瀷銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\BW_yolo.cs(407,31): warning CS8600: 灏?null 鏂囨湰鎴栧彲鑳界殑 null 鍊艰浆鎹负涓嶅彲涓?null 绫诲瀷銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Init.cs(524,46): warning CS8600: 灏?null 鏂囨湰鎴栧彲鑳界殑 null 鍊艰浆鎹负涓嶅彲涓?null 绫诲瀷銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Init.cs(1230,17): warning CS4014: 鐢变簬姝よ皟鐢ㄤ笉浼氱瓑寰咃紝鍥犳鍦ㄦ璋冪敤瀹屾垚涔嬪墠灏嗕細缁х画鎵ц褰撳墠鏂规硶銆傝鑰冭檻灏?"await" 杩愮畻绗﹀簲鐢ㄤ簬璋冪敤缁撴灉銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Yolo\YoloPreprocessor.cs(167,29): warning CS8600: 灏?null 鏂囨湰鎴栧彲鑳界殑 null 鍊艰浆鎹负涓嶅彲涓?null 绫诲瀷銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Yolo\YoloRenderer.cs(62,27): warning CS0168: 澹版槑浜嗗彉閲忊€渢extWidth鈥濓紝浣嗕粠鏈娇鐢ㄨ繃 [C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Yolo\YoloRenderer.cs(63,27): warning CS0168: 澹版槑浜嗗彉閲忊€渢extHeight鈥濓紝浣嗕粠鏈娇鐢ㄨ繃 [C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Yolo\YoloRenderer.cs(65,28): warning CS0168: 澹版槑浜嗗彉閲忊€渢extContent鈥濓紝浣嗕粠鏈娇鐢ㄨ繃 [C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Vision.cs(162,21): warning CS4014: 鐢变簬姝よ皟鐢ㄤ笉浼氱瓑寰咃紝鍥犳鍦ㄦ璋冪敤瀹屾垚涔嬪墠灏嗕細缁х画鎵ц褰撳墠鏂规硶銆傝鑰冭檻灏?"await" 杩愮畻绗﹀簲鐢ㄤ簬璋冪敤缁撴灉銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Vision.cs(205,17): warning CS4014: 鐢变簬姝よ皟鐢ㄤ笉浼氱瓑寰咃紝鍥犳鍦ㄦ璋冪敤瀹屾垚涔嬪墠灏嗕細缁х画鎵ц褰撳墠鏂规硶銆傝鑰冭檻灏?"await" 杩愮畻绗﹀簲鐢ㄤ簬璋冪敤缁撴灉銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Vision.cs(219,21): warning CS4014: 鐢变簬姝よ皟鐢ㄤ笉浼氱瓑寰咃紝鍥犳鍦ㄦ璋冪敤瀹屾垚涔嬪墠灏嗕細缁х画鎵ц褰撳墠鏂规硶銆傝鑰冭檻灏?"await" 杩愮畻绗﹀簲鐢ㄤ簬璋冪敤缁撴灉銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Vision.cs(284,17): warning CS4014: 鐢变簬姝よ皟鐢ㄤ笉浼氱瓑寰咃紝鍥犳鍦ㄦ璋冪敤瀹屾垚涔嬪墠灏嗕細缁х画鎵ц褰撳墠鏂规硶銆傝鑰冭檻灏?"await" 杩愮畻绗﹀簲鐢ㄤ簬璋冪敤缁撴灉銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Vision.cs(408,17): warning CS4014: 鐢变簬姝よ皟鐢ㄤ笉浼氱瓑寰咃紝鍥犳鍦ㄦ璋冪敤瀹屾垚涔嬪墠灏嗕細缁х画鎵ц褰撳墠鏂规硶銆傝鑰冭檻灏?"await" 杩愮畻绗﹀簲鐢ㄤ簬璋冪敤缁撴灉銆?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Init.cs(129,78): error CS0103: 褰撳墠涓婁笅鏂囦腑涓嶅瓨鍦ㄥ悕绉扳€渂tnCapture_Logic鈥?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\Views\涓荤獥鍙?Init.cs(985,41): error CS0103: 褰撳墠涓婁笅鏂囦腑涓嶅瓨鍦ㄥ悕绉扳€淭estYolo_Handler鈥?[C:\Users\11234\Desktop\娓呴湝V2\ClearFrost\ClearFrost.csproj]
+    13 涓鍛?
+    2 涓敊璇?
+
+宸茬敤鏃堕棿 00:00:01.02
