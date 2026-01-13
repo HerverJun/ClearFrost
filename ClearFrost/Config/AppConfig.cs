@@ -16,22 +16,22 @@ namespace ClearFrost.Config
         public short PlcTriggerAddress { get; set; } = 555;
         public short PlcResultAddress { get; set; } = 556;
         /// <summary>
-        /// PLCĞ­ÒéÀàĞÍ: Mitsubishi_MC_ASCII, Mitsubishi_MC_Binary, Modbus_TCP
+        /// PLCåè®®ç±»å‹: Mitsubishi_MC_ASCII, Mitsubishi_MC_Binary, Modbus_TCP
         /// </summary>
         public string PlcProtocol { get; set; } = "Mitsubishi_MC_ASCII";
 
         // ================== Multi-Camera Settings ==================
         /// <summary>
-        /// Ïà»úÅäÖÃÁĞ±í (¶àÏà»úÖ§³Ö)
+        /// ç›¸æœºé…ç½®åˆ—è¡¨ (å¤šç›¸æœºæ”¯æŒ)
         /// </summary>
         public List<CameraConfig> Cameras { get; set; } = new();
 
         /// <summary>
-        /// µ±Ç°»î¶¯Ïà»úµÄ ID
+        /// å½“å‰æ´»åŠ¨ç›¸æœºçš„ ID
         /// </summary>
         public string ActiveCameraId { get; set; } = "";
 
-        // ================== Legacy Camera Settings (Ïòºó¼æÈİ) ==================
+        // ================== Legacy Camera Settings (å‘åå…¼å®¹) ==================
         [Obsolete("Use Cameras list instead")]
         public string CameraName { get; set; } = "CAM: HIK-MV-01";
         [Obsolete("Use Cameras list instead")]
@@ -58,17 +58,17 @@ namespace ClearFrost.Config
 
         // ================== Multi-Model Fallback Settings ==================
         /// <summary>
-        /// ¸¨ÖúÄ£ĞÍ1Â·¾¶
+        /// è¾…åŠ©æ¨¡å‹1è·¯å¾„
         /// </summary>
         public string Auxiliary1ModelPath { get; set; } = "";
 
         /// <summary>
-        /// ¸¨ÖúÄ£ĞÍ2Â·¾¶
+        /// è¾…åŠ©æ¨¡å‹2è·¯å¾„
         /// </summary>
         public string Auxiliary2ModelPath { get; set; } = "";
 
         /// <summary>
-        /// ÊÇ·ñÆôÓÃ¶àÄ£ĞÍ×Ô¶¯ÇĞ»»
+        /// æ˜¯å¦å¯ç”¨å¤šæ¨¡å‹è‡ªåŠ¨åˆ‡æ¢
         /// </summary>
         public bool EnableMultiModelFallback { get; set; } = false;
 
@@ -100,7 +100,7 @@ namespace ClearFrost.Config
                 File.AppendAllText(ErrorLogPath, message);
                 Debug.WriteLine($"[AppConfig] {operation}: {ex.Message}");
             }
-            catch { }
+            catch (Exception logEx) { System.Diagnostics.Debug.WriteLine($"[AppConfig] æ—¥å¿—å†™å…¥å¤±è´¥: {logEx.Message}"); }
         }
 
         public static AppConfig Load()
@@ -129,11 +129,11 @@ namespace ClearFrost.Config
         }
 
         /// <summary>
-        /// ½«¾É°æµ¥Ïà»úÅäÖÃÇ¨ÒÆµ½¶àÏà»úÁĞ±í
+        /// å°†æ—§ç‰ˆå•ç›¸æœºé…ç½®è¿ç§»åˆ°å¤šç›¸æœºåˆ—è¡¨
         /// </summary>
         private void MigrateLegacyCamera()
         {
-#pragma warning disable CS0618 // ºöÂÔ Obsolete ¾¯¸æ
+#pragma warning disable CS0618 // å¿½ç•¥ Obsolete è­¦å‘Š
             if (Cameras.Count == 0 && !string.IsNullOrEmpty(CameraSerialNumber))
             {
                 var legacyCam = new CameraConfig
@@ -153,7 +153,7 @@ namespace ClearFrost.Config
         }
 
         /// <summary>
-        /// »ñÈ¡µ±Ç°»î¶¯Ïà»úÅäÖÃ
+        /// è·å–å½“å‰æ´»åŠ¨ç›¸æœºé…ç½®
         /// </summary>
         [System.Text.Json.Serialization.JsonIgnore]
         public CameraConfig? ActiveCamera =>
