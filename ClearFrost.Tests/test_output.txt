@@ -1,0 +1,89 @@
+﻿C:\Users\11234\Desktop\娓呴湝V2\ClearFrost.Tests\bin\Debug\net8.0-windows10.0.17763.0\ClearFrost.Tests.dll (.NETCoreApp,Version=v8.0)鐨勬祴璇曡繍琛?
+VSTest 鐗堟湰 18.0.1 (x64)
+
+姝ｅ湪鍚姩娴嬭瘯鎵ц锛岃绋嶅€?..
+鎬诲叡 1 涓祴璇曟枃浠朵笌鎸囧畾妯″紡鐩稿尮閰嶃€?
+dotnet : [xUnit.net 00:00:00.14]     ClearFr
+ost.Tests.Yolo.YoloResultTests.Area_鍚勭杈撳叆鎯呭
+喌(cx: 0, cy: 0, w: 100, h: 100, expectedArea
+: 2500) [FAIL]
+所在位置 行:1 字符: 1
++ dotnet test --no-build 2>&1 | Out-File -Fi
+lePath test_output.txt -Enc ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: 
+    ([xUnit.net 00:0...a: 2500) [FAIL]:Str  
+  ing) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommand 
+   Error
+ 
+[xUnit.net 00:00:00.14]     ClearFrost.Tests
+.Yolo.IoUCalculationTests.IoU_涓嶅悓鍋忕Щ閲?offset
+: 25, expectedIoU: 0.680000007) [FAIL]
+[xUnit.net 00:00:00.14]     ClearFrost.Tests
+.Yolo.IoUCalculationTests.IoU_涓嶅悓鍋忕Щ閲?offset
+: 50, expectedIoU: 0.5) [FAIL]
+[xUnit.net 00:00:00.14]     ClearFrost.Tests
+.Yolo.IoUCalculationTests.IoU_涓嶅悓鍋忕Щ閲?offset
+: 75, expectedIoU: 0.140000001) [FAIL]
+  澶辫触 ClearFrost.Tests.Yolo.YoloResultTests.Area_鍚勭杈撳叆鎯呭喌(cx: 0, cy: 0, w: 100, h: 100, expectedArea: 2500) [20 ms]
+  閿欒娑堟伅:
+   Expected result.Area to be 2500F, but found 10000F (difference of 7500).
+  鍫嗘爤璺熻釜:
+     at FluentAssertions.Execution.LateBoundTestFramework.Throw(String message)
+   at FluentAssertions.Execution.DefaultAssertionStrategy.HandleFailure(String message)
+   at FluentAssertions.Execution.AssertionScope.AddPreFormattedFailure(String formattedFailureMessage)
+   at FluentAssertions.Execution.AssertionChain.FailWith(Func`1 getFailureReason)
+   at FluentAssertions.Execution.AssertionChain.FailWith(Func`1 getFailureReason)
+   at FluentAssertions.Execution.AssertionChain.FailWith(String message, Object[] args)
+   at FluentAssertions.Numeric.NumericAssertionsBase`3.Be(T expected, String because, Object[] becauseArgs)
+   at ClearFrost.Tests.Yolo.YoloResultTests.Area_鍚勭杈撳叆鎯呭喌(Single cx, Single cy, Single w, Single h, Single expectedArea) in C:\Users\11234\Desktop\娓呴湝V2\ClearFrost.Tests\Yolo\YoloResultTests.cs:line 100
+   at InvokeStub_YoloResultTests.Area_鍚勭杈撳叆鎯呭喌(Object, Span`1)
+   at System.Reflection.MethodBaseInvoker.InvokeWithManyArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+  澶辫触 ClearFrost.Tests.Yolo.IoUCalculationTests.IoU_涓嶅悓鍋忕Щ閲?offset: 25, expectedIoU: 0.680000007) [20 ms]
+  閿欒娑堟伅:
+   Expected iou to approximate 0.68F +/- 0.05F, but 0.39130434F differed by 0.28869566F.
+  鍫嗘爤璺熻釜:
+     at FluentAssertions.Execution.LateBoundTestFramework.Throw(String message)
+   at FluentAssertions.Execution.DefaultAssertionStrategy.HandleFailure(String message)
+   at FluentAssertions.Execution.AssertionScope.AddPreFormattedFailure(String formattedFailureMessage)
+   at FluentAssertions.Execution.AssertionChain.FailWith(Func`1 getFailureReason)
+   at FluentAssertions.Execution.AssertionChain.FailWith(Func`1 getFailureReason)
+   at FluentAssertions.Execution.AssertionChain.FailWith(String message, Object[] args)
+   at FluentAssertions.NumericAssertionsExtensions.FailIfDifferenceOutsidePrecision[T](Boolean differenceWithinPrecision, NumericAssertions`1 parent, T expectedValue, T precision, T actualDifference, String because, Object[] becauseArgs)
+   at FluentAssertions.NumericAssertionsExtensions.BeApproximately(NumericAssertions`1 parent, Single expectedValue, Single precision, String because, Object[] becauseArgs)
+   at ClearFrost.Tests.Yolo.IoUCalculationTests.IoU_涓嶅悓鍋忕Щ閲?Single offset, Single expectedIoU) in C:\Users\11234\Desktop\娓呴湝V2\ClearFrost.Tests\Yolo\IoUCalculationTests.cs:line 130
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
+  澶辫触 ClearFrost.Tests.Yolo.IoUCalculationTests.IoU_涓嶅悓鍋忕Щ閲?offset: 50, expectedIoU: 0.5) [< 1 ms]
+  閿欒娑堟伅:
+   Expected iou to approximate 0.5F +/- 0.05F, but 0.14285715F differed by 0.35714287F.
+  鍫嗘爤璺熻釜:
+     at FluentAssertions.Execution.LateBoundTestFramework.Throw(String message)
+   at FluentAssertions.Execution.DefaultAssertionStrategy.HandleFailure(String message)
+   at FluentAssertions.Execution.AssertionScope.AddPreFormattedFailure(String formattedFailureMessage)
+   at FluentAssertions.Execution.AssertionChain.FailWith(Func`1 getFailureReason)
+   at FluentAssertions.Execution.AssertionChain.FailWith(Func`1 getFailureReason)
+   at FluentAssertions.Execution.AssertionChain.FailWith(String message, Object[] args)
+   at FluentAssertions.NumericAssertionsExtensions.FailIfDifferenceOutsidePrecision[T](Boolean differenceWithinPrecision, NumericAssertions`1 parent, T expectedValue, T precision, T actualDifference, String because, Object[] becauseArgs)
+   at FluentAssertions.NumericAssertionsExtensions.BeApproximately(NumericAssertions`1 parent, Single expectedValue, Single precision, String because, Object[] becauseArgs)
+   at ClearFrost.Tests.Yolo.IoUCalculationTests.IoU_涓嶅悓鍋忕Щ閲?Single offset, Single expectedIoU) in C:\Users\11234\Desktop\娓呴湝V2\ClearFrost.Tests\Yolo\IoUCalculationTests.cs:line 130
+   at InvokeStub_IoUCalculationTests.IoU_涓嶅悓鍋忕Щ閲?Object, Span`1)
+   at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+  澶辫触 ClearFrost.Tests.Yolo.IoUCalculationTests.IoU_涓嶅悓鍋忕Щ閲?offset: 75, expectedIoU: 0.140000001) [< 1 ms]
+  閿欒娑堟伅:
+   Expected iou to approximate 0.14F +/- 0.05F, but 0.032258064F differed by 0.10774194F.
+  鍫嗘爤璺熻釜:
+     at FluentAssertions.Execution.LateBoundTestFramework.Throw(String message)
+   at FluentAssertions.Execution.DefaultAssertionStrategy.HandleFailure(String message)
+   at FluentAssertions.Execution.AssertionScope.AddPreFormattedFailure(String formattedFailureMessage)
+   at FluentAssertions.Execution.AssertionChain.FailWith(Func`1 getFailureReason)
+   at FluentAssertions.Execution.AssertionChain.FailWith(Func`1 getFailureReason)
+   at FluentAssertions.Execution.AssertionChain.FailWith(String message, Object[] args)
+   at FluentAssertions.NumericAssertionsExtensions.FailIfDifferenceOutsidePrecision[T](Boolean differenceWithinPrecision, NumericAssertions`1 parent, T expectedValue, T precision, T actualDifference, String because, Object[] becauseArgs)
+   at FluentAssertions.NumericAssertionsExtensions.BeApproximately(NumericAssertions`1 parent, Single expectedValue, Single precision, String because, Object[] becauseArgs)
+   at ClearFrost.Tests.Yolo.IoUCalculationTests.IoU_涓嶅悓鍋忕Щ閲?Single offset, Single expectedIoU) in C:\Users\11234\Desktop\娓呴湝V2\ClearFrost.Tests\Yolo\IoUCalculationTests.cs:line 130
+   at InvokeStub_IoUCalculationTests.IoU_涓嶅悓鍋忕Щ閲?Object, Span`1)
+   at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+
+澶辫触!  - 澶辫触:     4锛岄€氳繃:    32锛屽凡璺宠繃:     0锛屾€昏:    36锛屾寔缁椂闂? 45 ms - ClearFrost.Tests.dll (net8.0)

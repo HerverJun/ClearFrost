@@ -1,11 +1,11 @@
 // ============================================================================
-// ÎÄ¼şÃû: DetectionService.cs
-// ÃèÊö:   ¼ì²â·şÎñÊµÏÖ
+// æ–‡ä»¶å: DetectionService.cs
+// æè¿°:   æ£€æµ‹æœåŠ¡å®ç°
 //
-// ¹¦ÄÜ:
-//   - ·â×° YOLO ÍÆÀíÂß¼­
-//   - ¶àÄ£ĞÍ¹ÜÀíºÍ×Ô¶¯ÇĞ»»
-//   - ¼ì²â½á¹ûÉú³É
+// åŠŸèƒ½:
+//   - å°è£… YOLO æ¨ç†é€»è¾‘
+//   - å¤šæ¨¡å‹ç®¡ç†å’Œè‡ªåŠ¨åˆ‡æ¢
+//   - æ£€æµ‹ç»“æœç”Ÿæˆ
 // ============================================================================
 
 using System;
@@ -23,22 +23,22 @@ using ClearFrost.Yolo;
 namespace ClearFrost.Services
 {
     /// <summary>
-    /// ¼ì²â·şÎñÊµÏÖ
+    /// æ£€æµ‹æœåŠ¡å®ç°
     /// </summary>
     public class DetectionService : IDetectionService
     {
-        #region Ë½ÓĞ×Ö¶Î
+        #region ç§æœ‰å­—æ®µ
 
         private YoloDetector? _yolo;
         private MultiModelManager? _modelManager;
         private readonly bool _useGpu;
         private readonly List<string> _availableModels = new List<string>();
-        private string _currentModelName = "Î´¼ÓÔØ";
+        private string _currentModelName = "æœªåŠ è½½";
         private bool _disposed;
 
         #endregion
 
-        #region ÊÂ¼ş
+        #region äº‹ä»¶
 
         public event Action<DetectionResultData>? DetectionCompleted;
         public event Action<string>? ModelLoaded;
@@ -46,7 +46,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ÊôĞÔ
+        #region å±æ€§
 
         public bool IsModelLoaded => _modelManager?.IsPrimaryLoaded ?? _yolo != null;
         public string CurrentModelName => _currentModelName;
@@ -55,7 +55,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ¹¹Ôìº¯Êı
+        #region æ„é€ å‡½æ•°
 
         public DetectionService(bool useGpu = true)
         {
@@ -64,7 +64,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region Ä£ĞÍ¹ÜÀí
+        #region æ¨¡å‹ç®¡ç†
 
         public async Task<bool> LoadModelAsync(string modelPath, bool useGpu)
         {
@@ -72,14 +72,27 @@ namespace ClearFrost.Services
             {
                 if (!File.Exists(modelPath))
                 {
-                    ErrorOccurred?.Invoke($"Ä£ĞÍÎÄ¼ş²»´æÔÚ: {modelPath}");
+                    ErrorOccurred?.Invoke($"æ¨¡å‹æ–‡ä»¶ä¸å­˜åœ¨: {modelPath}");
                     return false;
                 }
 
-                await Task.Run(() =>
+                // åˆå§‹åŒ–å¤šæ¨¡å‹ç®¡ç†å™¨ï¼ˆå¦‚æœå°šæœªåˆå§‹åŒ–ï¼‰
+                if (_modelManager == null)
                 {
-                    _yolo = new YoloDetector(modelPath, 0, 0, useGpu);
-                });
+                    _modelManager = new MultiModelManager(useGpu);
+                }
+
+                // ä½¿ç”¨å¤šæ¨¡å‹ç®¡ç†å™¨åŠ è½½ä¸»æ¨¡å‹
+                await Task.Run(() => _modelManager.LoadPrimaryModel(modelPath));
+
+                if (!_modelManager.IsPrimaryLoaded)
+                {
+                    // å¦‚æœå¤šæ¨¡å‹ç®¡ç†å™¨åŠ è½½å¤±è´¥ï¼Œå›é€€åˆ°å•æ¨¡å‹æ¨¡å¼
+                    await Task.Run(() =>
+                    {
+                        _yolo = new YoloDetector(modelPath, 0, 0, useGpu);
+                    });
+                }
 
                 string modelName = Path.GetFileNameWithoutExtension(modelPath);
                 if (!_availableModels.Contains(modelName))
@@ -89,12 +102,12 @@ namespace ClearFrost.Services
 
                 _currentModelName = modelName;
                 ModelLoaded?.Invoke(modelName);
-                Debug.WriteLine($"[DetectionService] Ä£ĞÍÒÑ¼ÓÔØ: {modelName}");
+                Debug.WriteLine($"[DetectionService] æ¨¡å‹å·²åŠ è½½: {modelName} (MultiModelManager: {_modelManager?.IsPrimaryLoaded ?? false})");
                 return true;
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"¼ÓÔØÄ£ĞÍÊ§°Ü: {ex.Message}");
+                ErrorOccurred?.Invoke($"åŠ è½½æ¨¡å‹å¤±è´¥: {ex.Message}");
                 return false;
             }
         }
@@ -105,7 +118,7 @@ namespace ClearFrost.Services
             {
                 if (!Directory.Exists(modelsDirectory))
                 {
-                    Debug.WriteLine($"[DetectionService] Ä£ĞÍÄ¿Â¼²»´æÔÚ: {modelsDirectory}");
+                    Debug.WriteLine($"[DetectionService] æ¨¡å‹ç›®å½•ä¸å­˜åœ¨: {modelsDirectory}");
                     return false;
                 }
 
@@ -119,14 +132,14 @@ namespace ClearFrost.Services
 
                 if (_availableModels.Count == 0)
                 {
-                    Debug.WriteLine("[DetectionService] Î´ÕÒµ½ÈÎºÎÄ£ĞÍÎÄ¼ş");
+                    Debug.WriteLine("[DetectionService] æœªæ‰¾åˆ°ä»»ä½•æ¨¡å‹æ–‡ä»¶");
                     return false;
                 }
 
-                // ³õÊ¼»¯¶àÄ£ĞÍ¹ÜÀíÆ÷
+                // åˆå§‹åŒ–å¤šæ¨¡å‹ç®¡ç†å™¨
                 _modelManager = new MultiModelManager(useGpu);
 
-                // ¼ÓÔØÖ÷Ä£ĞÍ (µÚÒ»¸öÕÒµ½µÄÄ£ĞÍ)
+                // åŠ è½½ä¸»æ¨¡å‹ (ç¬¬ä¸€ä¸ªæ‰¾åˆ°çš„æ¨¡å‹)
                 string primaryModelPath = modelFiles[0];
                 await Task.Run(() => _modelManager.LoadPrimaryModel(primaryModelPath));
 
@@ -135,7 +148,7 @@ namespace ClearFrost.Services
                     string loadedName = System.IO.Path.GetFileNameWithoutExtension(_modelManager.PrimaryModelPath);
                     _currentModelName = loadedName;
                     ModelLoaded?.Invoke(loadedName);
-                    Debug.WriteLine($"[DetectionService] ¶àÄ£ĞÍ¹ÜÀíÆ÷³õÊ¼»¯Íê³É: {_modelManager.PrimaryModelPath}");
+                    Debug.WriteLine($"[DetectionService] å¤šæ¨¡å‹ç®¡ç†å™¨åˆå§‹åŒ–å®Œæˆ: {_modelManager.PrimaryModelPath}");
                     return true;
                 }
 
@@ -143,7 +156,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"É¨ÃèÄ£ĞÍÊ§°Ü: {ex.Message}");
+                ErrorOccurred?.Invoke($"æ‰«ææ¨¡å‹å¤±è´¥: {ex.Message}");
                 return false;
             }
         }
@@ -157,7 +170,7 @@ namespace ClearFrost.Services
 
                 if (_modelManager != null)
                 {
-                    // ÖØĞÂ¼ÓÔØÖ÷Ä£ĞÍ
+                    // é‡æ–°åŠ è½½ä¸»æ¨¡å‹
                     await Task.Run(() => _modelManager.LoadPrimaryModel(modelPath));
 
                     if (_modelManager.IsPrimaryLoaded)
@@ -173,14 +186,14 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"ÇĞ»»Ä£ĞÍÊ§°Ü: {ex.Message}");
+                ErrorOccurred?.Invoke($"åˆ‡æ¢æ¨¡å‹å¤±è´¥: {ex.Message}");
                 return false;
             }
         }
 
         #endregion
 
-        #region ¼ì²â·½·¨
+        #region æ£€æµ‹æ–¹æ³•
 
         public async Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold)
         {
@@ -197,7 +210,7 @@ namespace ClearFrost.Services
 
             if (!IsModelLoaded)
             {
-                ErrorOccurred?.Invoke("Ä£ĞÍÎ´¼ÓÔØ");
+                ErrorOccurred?.Invoke("æ¨¡å‹æœªåŠ è½½");
                 result.IsQualified = false;
                 return result;
             }
@@ -211,7 +224,7 @@ namespace ClearFrost.Services
                 string[] usedModelLabels = Array.Empty<string>();
                 bool wasFallback = false;
 
-                // Ê¹ÓÃ¶àÄ£ĞÍ¹ÜÀíÆ÷½øĞĞÍÆÀí
+                // ä½¿ç”¨å¤šæ¨¡å‹ç®¡ç†å™¨è¿›è¡Œæ¨ç†
                 if (_modelManager != null && _modelManager.IsPrimaryLoaded)
                 {
                     var inferenceResult = await _modelManager.InferenceWithFallbackAsync(
@@ -224,20 +237,20 @@ namespace ClearFrost.Services
                 }
                 else if (_yolo != null)
                 {
-                    // Ïòºó¼æÈİ£ºÊ¹ÓÃµ¥Ä£ĞÍÍÆÀí
+                    // å‘åå…¼å®¹ï¼šä½¿ç”¨å•æ¨¡å‹æ¨ç†
                     allResults = await Task.Run(() =>
                         _yolo.Inference(image, confidence, iouThreshold, false, 0));
                     usedModelLabels = _yolo.Labels;
                 }
                 else
                 {
-                    throw new InvalidOperationException("Ã»ÓĞ¿ÉÓÃµÄ¼ì²âÄ£ĞÍ");
+                    throw new InvalidOperationException("æ²¡æœ‰å¯ç”¨çš„æ£€æµ‹æ¨¡å‹");
                 }
 
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
 
-                // ¼òµ¥ÅĞ¶¨£ºÎŞ¼ì²â½á¹ûÊÓÎªºÏ¸ñ
+                // ç®€å•åˆ¤å®šï¼šæ— æ£€æµ‹ç»“æœè§†ä¸ºåˆæ ¼
                 bool isQualified = allResults.Count == 0;
 
                 result.IsQualified = isQualified;
@@ -253,7 +266,7 @@ namespace ClearFrost.Services
             catch (Exception ex)
             {
                 sw.Stop();
-                ErrorOccurred?.Invoke($"¼ì²âÊ§°Ü: {ex.Message}");
+                ErrorOccurred?.Invoke($"æ£€æµ‹å¤±è´¥: {ex.Message}");
                 result.IsQualified = false;
                 result.ElapsedMs = sw.ElapsedMilliseconds;
                 return result;
@@ -262,13 +275,13 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ½á¹û¿ÉÊÓ»¯
+        #region ç»“æœå¯è§†åŒ–
 
         public Bitmap GenerateResultImage(Bitmap original, List<YoloResult> results, string[] labels)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
-                // Ê¹ÓÃ MultiModelManager µÄ GenerateImage ·½·¨
+                // ä½¿ç”¨ MultiModelManager çš„ GenerateImage æ–¹æ³•
                 var detector = _modelManager.PrimaryDetector;
                 if (detector != null)
                 {
@@ -281,13 +294,13 @@ namespace ClearFrost.Services
                 return (Bitmap)_yolo.GenerateImage(original, results, labels);
             }
 
-            // ·µ»ØÔ­Í¼µÄ¸±±¾
+            // è¿”å›åŸå›¾çš„å‰¯æœ¬
             return new Bitmap(original);
         }
 
         #endregion
 
-        #region ¶àÄ£ĞÍ¹ÜÀí
+        #region å¤šæ¨¡å‹ç®¡ç†
 
         public void SetTaskMode(int taskType)
         {
@@ -314,12 +327,12 @@ namespace ClearFrost.Services
             try
             {
                 await Task.Run(() => _modelManager.LoadAuxiliary1Model(modelPath));
-                Debug.WriteLine($"[DetectionService] ¸¨ÖúÄ£ĞÍ1ÒÑ¼ÓÔØ: {Path.GetFileName(modelPath)}");
+                Debug.WriteLine($"[DetectionService] è¾…åŠ©æ¨¡å‹1å·²åŠ è½½: {Path.GetFileName(modelPath)}");
                 return true;
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"¼ÓÔØ¸¨ÖúÄ£ĞÍ1Ê§°Ü: {ex.Message}");
+                ErrorOccurred?.Invoke($"åŠ è½½è¾…åŠ©æ¨¡å‹1å¤±è´¥: {ex.Message}");
                 return false;
             }
         }
@@ -332,12 +345,12 @@ namespace ClearFrost.Services
             try
             {
                 await Task.Run(() => _modelManager.LoadAuxiliary2Model(modelPath));
-                Debug.WriteLine($"[DetectionService] ¸¨ÖúÄ£ĞÍ2ÒÑ¼ÓÔØ: {Path.GetFileName(modelPath)}");
+                Debug.WriteLine($"[DetectionService] è¾…åŠ©æ¨¡å‹2å·²åŠ è½½: {Path.GetFileName(modelPath)}");
                 return true;
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"¼ÓÔØ¸¨ÖúÄ£ĞÍ2Ê§°Ü: {ex.Message}");
+                ErrorOccurred?.Invoke($"åŠ è½½è¾…åŠ©æ¨¡å‹2å¤±è´¥: {ex.Message}");
                 return false;
             }
         }
