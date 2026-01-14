@@ -150,27 +150,34 @@ function switchVisionMode(mode) {
 window.switchVisionMode = switchVisionMode;
 
 function toggleMultiModel(enabled) {
-    const btn = document.getElementById('multi-model-toggle-btn');
-    const dot = document.getElementById('multi-model-dot');
-    const text = document.getElementById('multi-model-text');
+    const checkbox = document.getElementById('enable-multi-model');
+    const statusText = document.getElementById('multi-model-status');
+    const configSection = document.getElementById('multi-model-config');
 
-    if (enabled) {
-        btn.classList.remove('bg-slate-200');
-        btn.classList.add('bg-celadon-500');
-        dot.classList.remove('translate-x-0');
-        dot.classList.add('translate-x-full', 'border-celadon-500');
-        text.innerText = "多模型自动切换 (已启用)";
-        text.classList.add('text-celadon-600', 'font-bold');
-    } else {
-        btn.classList.remove('bg-celadon-500');
-        btn.classList.add('bg-slate-200');
-        dot.classList.remove('translate-x-full', 'border-celadon-500');
-        dot.classList.add('translate-x-0');
-        text.innerText = "多模型自动切换 (已禁用)";
-        text.classList.remove('text-celadon-600', 'font-bold');
+    // Update checkbox state
+    if (checkbox) checkbox.checked = enabled;
+
+    // Update status text
+    if (statusText) {
+        statusText.innerText = enabled ? "已启用" : "自动切换";
+        if (enabled) {
+            statusText.classList.add('text-celadon-600', 'font-bold');
+            statusText.classList.remove('text-ink-500');
+        } else {
+            statusText.classList.remove('text-celadon-600', 'font-bold');
+            statusText.classList.add('text-ink-500');
+        }
     }
 
-    document.getElementById('check-multi-model').checked = enabled;
+    // Enable/disable auxiliary model configuration section
+    if (configSection) {
+        if (enabled) {
+            configSection.classList.remove('opacity-50', 'pointer-events-none');
+        } else {
+            configSection.classList.add('opacity-50', 'pointer-events-none');
+        }
+    }
+
     sendCommand('toggle_multi_model', enabled);
     addLog(enabled ? '✓ 多模型自动切换已启用' : '多模型自动切换已禁用', enabled ? 'success' : 'info');
 }
@@ -230,7 +237,7 @@ function addNewCamera() {
 window.addNewCamera = addNewCamera;
 
 function deleteCurrentCamera() {
-    const select = document.getElementById('camera-select');
+    const select = document.getElementById('cfg-cam-select');
     if (!select || !select.value) return;
     window.chrome.webview.postMessage(JSON.stringify({
         cmd: 'delete_camera',
@@ -512,7 +519,8 @@ window.updateOperatorParam = updateOperatorParam;
 
 function updateTemplateThreshold(val) {
     const value = parseFloat(val);
-    document.getElementById('template-threshold-value').innerText = value.toFixed(2);
+    const display = document.getElementById('template-threshold-value');
+    if (display) display.innerText = value.toFixed(2);
     sendCommand('set_template_threshold', value);
 }
 window.updateTemplateThreshold = updateTemplateThreshold;
@@ -550,7 +558,9 @@ function updateTaskType(val) {
 window.updateTaskType = updateTaskType;
 
 function uploadTemplateImage() {
-    if (document.getElementById('template-upload')) document.getElementById('template-upload').click();
+    // 使用 tm-file-input 作为模板上传的文件选择器 (模板管理器中的元素)
+    const fileInput = document.getElementById('tm-file-input');
+    if (fileInput) fileInput.click();
 }
 window.uploadTemplateImage = uploadTemplateImage;
 
