@@ -1,0 +1,38 @@
+﻿  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Vision\RobustOrbExtractor.cs(216,47): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\BW_yolo.cs(407,31): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloPreprocessor.cs(167,29): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloRenderer.cs(62,27): warning CS0168: 声明了变量“textWidth”，但从未使用过 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloRenderer.cs(63,27): warning CS0168: 声明了变量“textHeight”，但从未使用过 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloRenderer.cs(65,28): warning CS0168: 声明了变量“textContent”，但从未使用过 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Init.cs(876,25): error CS0117: “CameraConfig”未包含“Exposure”的定义 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Init.cs(524,46): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Init.cs(1312,17): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Vision.cs(162,21): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Vision.cs(205,17): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Vision.cs(219,21): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Vision.cs(284,17): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Vision.cs(408,17): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+
+生成失败。
+
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Vision\RobustOrbExtractor.cs(216,47): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\BW_yolo.cs(407,31): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloPreprocessor.cs(167,29): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloRenderer.cs(62,27): warning CS0168: 声明了变量“textWidth”，但从未使用过 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloRenderer.cs(63,27): warning CS0168: 声明了变量“textHeight”，但从未使用过 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloRenderer.cs(65,28): warning CS0168: 声明了变量“textContent”，但从未使用过 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Init.cs(524,46): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Init.cs(1312,17): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Vision.cs(162,21): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Vision.cs(205,17): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Vision.cs(219,21): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Vision.cs(284,17): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Vision.cs(408,17): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Init.cs(876,25): error CS0117: “CameraConfig”未包含“Exposure”的定义 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+    13 个警告
+    1 个错误
+
+已用时间 00:00:00.98
+
