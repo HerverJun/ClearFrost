@@ -204,20 +204,126 @@ function onCameraSelected(cameraId) {
 window.onCameraSelected = onCameraSelected;
 
 function addNewCamera() {
-    const defaultName = `相机 ${window.cameraList.length + 1}`;
-    sendCommand('add_camera', defaultName);
+    // 收集表单中的相机配置信息
+    const displayName = document.getElementById('cfg-cam-name')?.value || `相机 ${(window.cameraList?.length || 0) + 1}`;
+    const manufacturer = document.getElementById('cfg-cam-manufacturer')?.value || 'MindVision';
+    const serialNumber = document.getElementById('cfg-cam-serial')?.value || '';
+    const exposureTime = parseFloat(document.getElementById('cfg-cam-exposure')?.value) || 50000;
+    const gain = parseFloat(document.getElementById('cfg-cam-gain')?.value) || 1.0;
+
+    if (!serialNumber) {
+        alert('请输入相机序列号');
+        return;
+    }
+
+    const camData = {
+        displayName: displayName,
+        manufacturer: manufacturer,
+        serialNumber: serialNumber,
+        exposureTime: exposureTime,
+        gain: gain
+    };
+
+    sendCommand('add_camera', camData);
+    addLog(`正在添加/更新相机: ${displayName}...`, 'info');
 }
 window.addNewCamera = addNewCamera;
 
 function deleteCurrentCamera() {
-    const select = document.getElementById('cfg-cam-select');
-    const id = select.value;
-    if (!id) return;
-    if (confirm('确定要删除当前相机配置吗？')) {
-        sendCommand('delete_camera', id);
-    }
+    const select = document.getElementById('camera-select');
+    if (!select || !select.value) return;
+    window.chrome.webview.postMessage(JSON.stringify({
+        cmd: 'delete_camera',
+        value: select.value
+    }));
 }
 window.deleteCurrentCamera = deleteCurrentCamera;
+
+// --- Super Search Camera ---
+function superSearchCameras() {
+    const modal = document.getElementById('super-search-modal');
+    const loading = document.getElementById('super-search-loading');
+    const results = document.getElementById('super-search-results');
+    const empty = document.getElementById('super-search-empty');
+
+    if (!modal) return;
+
+    // 显示弹窗和加载状态
+    modal.classList.remove('hidden');
+    loading.classList.remove('hidden');
+    results.classList.add('hidden');
+    empty.classList.add('hidden');
+    results.innerHTML = '';
+
+    // 发送搜索命令
+    window.chrome.webview.postMessage(JSON.stringify({
+        cmd: 'super_search_cameras'
+    }));
+}
+window.superSearchCameras = superSearchCameras;
+
+function closeSuperSearchModal() {
+    const modal = document.getElementById('super-search-modal');
+    if (modal) modal.classList.add('hidden');
+}
+window.closeSuperSearchModal = closeSuperSearchModal;
+
+// 接收超级搜索结果
+function receiveSuperSearchResult(data) {
+    const loading = document.getElementById('super-search-loading');
+    const results = document.getElementById('super-search-results');
+    const empty = document.getElementById('super-search-empty');
+
+    loading.classList.add('hidden');
+
+    if (!data || !data.cameras || data.cameras.length === 0) {
+        empty.classList.remove('hidden');
+        return;
+    }
+
+    results.classList.remove('hidden');
+    results.innerHTML = data.cameras.map(cam => `
+        <div class="bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl p-4 border border-slate-200 hover:shadow-md transition-all">
+            <div class="flex items-center justify-between">
+                <div class="flex-1">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="text-sm font-bold text-slate-700">${cam.userDefinedName || cam.model || '未命名相机'}</span>
+                        <span class="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-indigo-100 text-indigo-600">${cam.manufacturer}</span>
+                    </div>
+                    <div class="text-xs text-slate-500 space-y-0.5">
+                        <div><span class="font-medium">序列号:</span> ${cam.serialNumber}</div>
+                        <div><span class="font-medium">型号:</span> ${cam.model || '-'}</div>
+                        <div><span class="font-medium">接口:</span> ${cam.interfaceType || '-'}</div>
+                    </div>
+                </div>
+                <button onclick="directConnectCamera('${cam.serialNumber}', '${cam.manufacturer}', '${cam.model || ''}', '${cam.userDefinedName || ''}')"
+                    class="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white text-sm font-semibold rounded-lg hover:shadow-lg hover:scale-105 transition-all flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    连接
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+window.receiveSuperSearchResult = receiveSuperSearchResult;
+
+// 直接连接相机（无序列号过滤）
+function directConnectCamera(serialNumber, manufacturer, model, userDefinedName) {
+    window.chrome.webview.postMessage(JSON.stringify({
+        cmd: 'direct_connect_camera',
+        value: {
+            serialNumber: serialNumber,
+            manufacturer: manufacturer,
+            model: model,
+            userDefinedName: userDefinedName
+        }
+    }));
+    closeSuperSearchModal();
+}
+window.directConnectCamera = directConnectCamera;
+
 
 function requestPreview() {
     sendCommand('get_preview');
@@ -450,10 +556,15 @@ window.uploadTemplateImage = uploadTemplateImage;
 
 // --- Modals ---
 
-function openSettingsModal() {
+function openSettingsModal(config) {
     document.getElementById('settings-modal').classList.remove('hidden');
-    sendCommand('open_settings');
-    // We expect populateSettings to be called by backend or initSettings
+    // 如果后端传入了配置数据（密码验证通过后），直接填充设置
+    // 否则，发送 open_settings 命令触发密码验证流程
+    if (config) {
+        populateSettings(config);
+    } else {
+        sendCommand('open_settings');
+    }
 }
 window.openSettingsModal = openSettingsModal;
 
