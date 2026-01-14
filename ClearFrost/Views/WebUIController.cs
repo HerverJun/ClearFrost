@@ -1,26 +1,26 @@
 using ClearFrost.Config;
 using ClearFrost.Models;
 // ============================================================================
-// ÎÄ¼şÃû: WebUIController.cs
-// ÃèÊö:   WebView2 Ç°ºó¶ËÍ¨ĞÅ¿ØÖÆÆ÷ - C# Óë HTML/JS Ç°¶ËµÄÇÅÁº
+// æ–‡ä»¶å: WebUIController.cs
+// æè¿°:   WebView2 å‰åç«¯é€šä¿¡æ§åˆ¶å™¨ - C# ä¸ HTML/JS å‰ç«¯çš„æ¡¥æ¢
 //
-// ¹¦ÄÜ¸ÅÊö:
-//   - ³õÊ¼»¯ WebView2 »·¾³²¢¼ÓÔØ HTML Ç°¶Ë
-//   - Ìá¹© C# ¡ú JS µÄ·½·¨µ÷ÓÃ (ExecuteScriptAsync)
-//   - ´¦Àí JS ¡ú C# µÄÏûÏ¢½ÓÊÕ (WebMessageReceived)
-//   - Ö§³Ö¿ª·¢Ä£Ê½ÈÈ¸üĞÂ (×Ô¶¯²éÕÒÔ´ÂëÄ¿Â¼)
+// åŠŸèƒ½æ¦‚è¿°:
+//   - åˆå§‹åŒ– WebView2 ç¯å¢ƒå¹¶åŠ è½½ HTML å‰ç«¯
+//   - æä¾› C# â†’ JS çš„æ–¹æ³•è°ƒç”¨ (ExecuteScriptAsync)
+//   - å¤„ç† JS â†’ C# çš„æ¶ˆæ¯æ¥æ”¶ (WebMessageReceived)
+//   - æ”¯æŒå¼€å‘æ¨¡å¼çƒ­æ›´æ–° (è‡ªåŠ¨æŸ¥æ‰¾æºç ç›®å½•)
 //
-// ÊÂ¼ş¶¨Òå:
-//   - OnOpenCamera, OnManualDetect, OnConnectPlc, ...  (²Ù×÷ÊÂ¼ş)
-//   - OnVisionModeChanged, OnPipelineUpdate, ...      (´«Í³ÊÓ¾õÊÂ¼ş)
-//   - OnSaveSettings, OnVerifyPassword, ...           (ÅäÖÃÊÂ¼ş)
+// äº‹ä»¶å®šä¹‰:
+//   - OnOpenCamera, OnManualDetect, OnConnectPlc, ...  (æ“ä½œäº‹ä»¶)
+//   - OnVisionModeChanged, OnPipelineUpdate, ...      (ä¼ ç»Ÿè§†è§‰äº‹ä»¶)
+//   - OnSaveSettings, OnVerifyPassword, ...           (é…ç½®äº‹ä»¶)
 //
-// Ç°¶ËÍ¨ĞÅ:
-//   - ·¢ËÍ: UpdateUI(), UpdateImage(), LogToFrontend(), SendVisionConfig(), ...
-//   - ½ÓÊÕ: Í¨¹ı { "cmd": "xxx", "value": ... } JSON ¸ñÊ½½âÎö
+// å‰ç«¯é€šä¿¡:
+//   - å‘é€: UpdateUI(), UpdateImage(), LogToFrontend(), SendVisionConfig(), ...
+//   - æ¥æ”¶: é€šè¿‡ { "cmd": "xxx", "value": ... } JSON æ ¼å¼è§£æ
 //
-// ×÷Õß: ClearFrost Team
-// ´´½¨ÈÕÆÚ: 2024
+// ä½œè€…: ClearFrost Team
+// åˆ›å»ºæ—¥æœŸ: 2024
 // ============================================================================
 using System;
 using System.IO;
@@ -61,14 +61,14 @@ namespace ClearFrost
         public event EventHandler<float[]>? OnUpdateROI;
         public event EventHandler<float>? OnSetConfidence;
         public event EventHandler<float>? OnSetIou;
-        public event EventHandler<int>? OnSetTaskType;  // YOLOÈÎÎñÀàĞÍÉèÖÃÊÂ¼ş
+        public event EventHandler<int>? OnSetTaskType;  // YOLOä»»åŠ¡ç±»å‹è®¾ç½®äº‹ä»¶
         public event EventHandler<string>? OnVerifyPassword;
         public event EventHandler<string>? OnSaveSettings;
         public event EventHandler? OnSelectStorageFolder;
         public event EventHandler? OnGetStatisticsHistory;
         public event EventHandler? OnResetStatistics;
 
-        // ================== ´«Í³ÊÓ¾õÄ£Ê½ÊÂ¼ş ==================
+        // ================== ä¼ ç»Ÿè§†è§‰æ¨¡å¼äº‹ä»¶ ==================
         public event EventHandler<int>? OnVisionModeChanged;
         public event EventHandler<PipelineUpdateRequest>? OnPipelineUpdate;
         public event EventHandler? OnGetVisionConfig;
@@ -79,13 +79,15 @@ namespace ClearFrost
         public event EventHandler? OnGetFrameForTemplate;
         public event EventHandler<TrainOperatorRequest>? OnTrainOperator;
 
-        // ================== ¶àÏà»úÊÂ¼ş ==================
+        // ================== å¤šç›¸æœºäº‹ä»¶ ==================
         public event EventHandler? OnGetCameraList;
         public event EventHandler<string>? OnSwitchCamera;
-        public event EventHandler<string>? OnAddCamera;  // JSON¸ñÊ½µÄÏà»úÊı¾İ
-        public event EventHandler<string>? OnDeleteCamera;  // Ïà»úID
+        public event EventHandler<string>? OnAddCamera;  // JSONæ ¼å¼çš„ç›¸æœºæ•°æ®
+        public event EventHandler<string>? OnDeleteCamera;  // ç›¸æœºID
+        public event EventHandler? OnSuperSearchCameras;  // ç›¸æœºè¶…çº§æœç´¢
+        public event EventHandler<string>? OnDirectConnectCamera;  // ç›´æ¥è¿æ¥ç›¸æœºï¼ˆJSONæ ¼å¼ï¼‰
 
-        // ================== ¶àÄ£ĞÍÇĞ»»ÊÂ¼ş ==================
+        // ================== å¤šæ¨¡å‹åˆ‡æ¢äº‹ä»¶ ==================
         public event EventHandler<string>? OnSetAuxiliary1Model;
         public event EventHandler<string>? OnSetAuxiliary2Model;
         public event EventHandler<bool>? OnToggleMultiModelFallback;
@@ -361,11 +363,11 @@ namespace ClearFrost
                             case "app_ready":
                                 OnAppReady?.Invoke(this, EventArgs.Empty);
                                 // Debug log
-                                await LogToFrontend("ÊÕµ½ app_ready Ö¸Áî");
+                                await LogToFrontend("æ”¶åˆ° app_ready æŒ‡ä»¤");
                                 break;
                             case "test_yolo":
                                 OnTestYolo?.Invoke(this, EventArgs.Empty);
-                                await LogToFrontend("ÊÕµ½ test_yolo Ö¸Áî");
+                                await LogToFrontend("æ”¶åˆ° test_yolo æŒ‡ä»¤");
                                 break;
                             case "update_roi":
                                 if (root.TryGetProperty("value", out JsonElement valueElement) &&
@@ -377,17 +379,17 @@ namespace ClearFrost
                                         if (rectArray != null && rectArray.Length == 4)
                                         {
                                             OnUpdateROI?.Invoke(this, rectArray);
-                                            await LogToFrontend($"ROIÒÑ¸üĞÂ: [{string.Join(", ", rectArray.Select(v => v.ToString("F3")))}]");
+                                            await LogToFrontend($"ROIå·²æ›´æ–°: [{string.Join(", ", rectArray.Select(v => v.ToString("F3")))}]");
                                         }
                                     }
                                     catch (Exception ex)
                                     {
-                                        await LogToFrontend($"ROI½âÎö´íÎó: {ex.Message}", "error");
+                                        await LogToFrontend($"ROIè§£æé”™è¯¯: {ex.Message}", "error");
                                     }
                                 }
                                 break;
                             case "exit_app":
-                                await LogToFrontend("ÊÕµ½ exit_app Ö¸Áî, ÕıÔÚÍË³ö...");
+                                await LogToFrontend("æ”¶åˆ° exit_app æŒ‡ä»¤, æ­£åœ¨é€€å‡º...");
                                 OnExitApp?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "minimize_app":
@@ -407,7 +409,7 @@ namespace ClearFrost
                                 {
                                     float conf = confElement.GetSingle();
                                     OnSetConfidence?.Invoke(this, conf);
-                                    await LogToFrontend($"ÖÃĞÅ¶ÈÒÑÉèÖÃ: {conf:F2}");
+                                    await LogToFrontend($"ç½®ä¿¡åº¦å·²è®¾ç½®: {conf:F2}");
                                 }
                                 break;
                             case "set_iou":
@@ -415,7 +417,7 @@ namespace ClearFrost
                                 {
                                     float iou = iouElement.GetSingle();
                                     OnSetIou?.Invoke(this, iou);
-                                    await LogToFrontend($"IOUãĞÖµÒÑÉèÖÃ: {iou:F2}");
+                                    await LogToFrontend($"IOUé˜ˆå€¼å·²è®¾ç½®: {iou:F2}");
                                 }
                                 break;
                             case "set_task_type":
@@ -425,14 +427,14 @@ namespace ClearFrost
                                     OnSetTaskType?.Invoke(this, taskType);
                                     string taskName = taskType switch
                                     {
-                                        0 => "·ÖÀà (Classify)",
-                                        1 => "Ä¿±ê¼ì²â (Detect)",
-                                        3 => "ÊµÀı·Ö¸î (Segment)",
-                                        5 => "×ËÌ¬¹À¼Æ (Pose)",
-                                        6 => "Ğı×ª¿ò¼ì²â (OBB)",
-                                        _ => $"Î´Öª ({taskType})"
+                                        0 => "åˆ†ç±» (Classify)",
+                                        1 => "ç›®æ ‡æ£€æµ‹ (Detect)",
+                                        3 => "å®ä¾‹åˆ†å‰² (Segment)",
+                                        5 => "å§¿æ€ä¼°è®¡ (Pose)",
+                                        6 => "æ—‹è½¬æ¡†æ£€æµ‹ (OBB)",
+                                        _ => $"æœªçŸ¥ ({taskType})"
                                     };
-                                    await LogToFrontend($"ÈÎÎñÀàĞÍÒÑÉèÖÃ: {taskName}");
+                                    await LogToFrontend($"ä»»åŠ¡ç±»å‹å·²è®¾ç½®: {taskName}");
                                 }
                                 break;
                             case "verify_password":
@@ -444,7 +446,7 @@ namespace ClearFrost
                             case "save_settings":
                                 if (root.TryGetProperty("value", out JsonElement settingsElement))
                                 {
-                                    // value ÏÖÔÚÊÇJSON¶ÔÏó£¬ÓÃ GetRawText() »ñÈ¡ÆäJSON×Ö·û´®
+                                    // value ç°åœ¨æ˜¯JSONå¯¹è±¡ï¼Œç”¨ GetRawText() è·å–å…¶JSONå­—ç¬¦ä¸²
                                     string jsonStr = settingsElement.GetRawText();
                                     OnSaveSettings?.Invoke(this, jsonStr);
                                 }
@@ -489,7 +491,7 @@ namespace ClearFrost
                                 OnResetStatistics?.Invoke(this, EventArgs.Empty);
                                 break;
 
-                            // ================== ¶àÏà»úÃüÁî ==================
+                            // ================== å¤šç›¸æœºå‘½ä»¤ ==================
                             case "get_camera_list":
                                 OnGetCameraList?.Invoke(this, EventArgs.Empty);
                                 break;
@@ -520,8 +522,18 @@ namespace ClearFrost
                                     }
                                 }
                                 break;
+                            case "super_search_cameras":
+                                OnSuperSearchCameras?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "direct_connect_camera":
+                                if (root.TryGetProperty("value", out JsonElement directConnectElement))
+                                {
+                                    string camJson = directConnectElement.GetRawText();
+                                    OnDirectConnectCamera?.Invoke(this, camJson);
+                                }
+                                break;
 
-                            // ================== ¶àÄ£ĞÍÇĞ»»ÃüÁî ==================
+                            // ================== å¤šæ¨¡å‹åˆ‡æ¢å‘½ä»¤ ==================
                             case "set_auxiliary1_model":
                                 if (root.TryGetProperty("value", out JsonElement aux1Element))
                                 {
@@ -541,13 +553,13 @@ namespace ClearFrost
                                 }
                                 break;
 
-                            // ================== ´«Í³ÊÓ¾õÄ£Ê½ÃüÁî ==================
+                            // ================== ä¼ ç»Ÿè§†è§‰æ¨¡å¼å‘½ä»¤ ==================
                             case "set_vision_mode":
                                 if (root.TryGetProperty("value", out JsonElement modeElement))
                                 {
                                     int mode = modeElement.GetInt32();
                                     OnVisionModeChanged?.Invoke(this, mode);
-                                    await LogToFrontend($"ÊÓ¾õÄ£Ê½ÒÑÇĞ»»Îª: {(mode == 0 ? "YOLO" : "´«Í³ÊÓ¾õ")}");
+                                    await LogToFrontend($"è§†è§‰æ¨¡å¼å·²åˆ‡æ¢ä¸º: {(mode == 0 ? "YOLO" : "ä¼ ç»Ÿè§†è§‰")}");
                                 }
                                 break;
                             case "get_vision_config":
@@ -566,7 +578,7 @@ namespace ClearFrost
                                     }
                                     catch (Exception ex)
                                     {
-                                        await LogToFrontend($"Á÷³Ì¸üĞÂ½âÎö´íÎó: {ex.Message}", "error");
+                                        await LogToFrontend($"æµç¨‹æ›´æ–°è§£æé”™è¯¯: {ex.Message}", "error");
                                     }
                                 }
                                 break;
@@ -604,7 +616,7 @@ namespace ClearFrost
                                     }
                                     catch (Exception ex)
                                     {
-                                        await LogToFrontend($"½âÎöÑµÁ·ÇëÇóÊ§°Ü: {ex.Message}", "error");
+                                        await LogToFrontend($"è§£æè®­ç»ƒè¯·æ±‚å¤±è´¥: {ex.Message}", "error");
                                     }
                                 }
                                 break;
@@ -617,7 +629,7 @@ namespace ClearFrost
                                 {
                                     float thresh = threshElement.GetSingle();
                                     // This is handled through pipeline_update with threshold param
-                                    await LogToFrontend($"Ä£°åãĞÖµÒÑÉèÖÃ: {thresh:F2}");
+                                    await LogToFrontend($"æ¨¡æ¿é˜ˆå€¼å·²è®¾ç½®: {thresh:F2}");
                                 }
                                 break;
                             default:
@@ -679,7 +691,7 @@ namespace ClearFrost
             }
             catch (Exception ex)
             {
-                await LogToFrontend($"»ñÈ¡ÈÕÆÚÁĞ±íÊ§°Ü: {ex.Message}", "error");
+                await LogToFrontend($"è·å–æ—¥æœŸåˆ—è¡¨å¤±è´¥: {ex.Message}", "error");
             }
         }
 
@@ -784,7 +796,7 @@ namespace ClearFrost
                                 var entry = entries[i].Trim();
                                 if (string.IsNullOrEmpty(entry)) continue;
 
-                                // Parse entry: "¼ì²âÊ±¼ä: {time}\r\n½á¹û: {result}\r\n{details}"
+                                // Parse entry: "æ£€æµ‹æ—¶é—´: {time}\r\nç»“æœ: {result}\r\n{details}"
                                 var lines = entry.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
 
                                 string time = "";
@@ -793,10 +805,10 @@ namespace ClearFrost
 
                                 foreach (var line in lines)
                                 {
-                                    if (line.StartsWith("¼ì²âÊ±¼ä:"))
-                                        time = line.Substring("¼ì²âÊ±¼ä:".Length).Trim();
-                                    else if (line.StartsWith("½á¹û:"))
-                                        result = line.Substring("½á¹û:".Length).Trim();
+                                    if (line.StartsWith("æ£€æµ‹æ—¶é—´:"))
+                                        time = line.Substring("æ£€æµ‹æ—¶é—´:".Length).Trim();
+                                    else if (line.StartsWith("ç»“æœ:"))
+                                        result = line.Substring("ç»“æœ:".Length).Trim();
                                     else if (!string.IsNullOrWhiteSpace(line))
                                         details += (details.Length > 0 ? "; " : "") + line.Trim();
                                 }
@@ -825,7 +837,7 @@ namespace ClearFrost
             }
             catch (Exception ex)
             {
-                await LogToFrontend($"¶ÁÈ¡¼ì²âÈÕÖ¾Ê§°Ü: {ex.Message}", "error");
+                await LogToFrontend($"è¯»å–æ£€æµ‹æ—¥å¿—å¤±è´¥: {ex.Message}", "error");
                 await _webView.ExecuteScriptAsync("updateDetectionLogTable([])");
             }
         }
@@ -869,14 +881,14 @@ namespace ClearFrost
             }
             catch (Exception ex)
             {
-                await LogToFrontend($"»ñÈ¡ÀúÊ·Í³¼ÆÊ§°Ü: {ex.Message}", "error");
+                await LogToFrontend($"è·å–å†å²ç»Ÿè®¡å¤±è´¥: {ex.Message}", "error");
             }
         }
 
-        // ================== ´«Í³ÊÓ¾õÄ£Ê½·½·¨ ==================
+        // ================== ä¼ ç»Ÿè§†è§‰æ¨¡å¼æ–¹æ³• ==================
 
         /// <summary>
-        /// ·¢ËÍÊÓ¾õÅäÖÃµ½Ç°¶Ë
+        /// å‘é€è§†è§‰é…ç½®åˆ°å‰ç«¯
         /// </summary>
         public async Task SendVisionConfig(VisionConfigResponse config)
         {
@@ -886,7 +898,7 @@ namespace ClearFrost
         }
 
         /// <summary>
-        /// ·¢ËÍÔ¤ÀÀÍ¼Ïñµ½Ç°¶Ë
+        /// å‘é€é¢„è§ˆå›¾åƒåˆ°å‰ç«¯
         /// </summary>
         public async Task SendPreviewImage(PreviewResponse preview)
         {
@@ -896,7 +908,7 @@ namespace ClearFrost
         }
 
         /// <summary>
-        /// ·¢ËÍ¿ÉÓÃËã×ÓÁĞ±íµ½Ç°¶Ë
+        /// å‘é€å¯ç”¨ç®—å­åˆ—è¡¨åˆ°å‰ç«¯
         /// </summary>
         public async Task SendAvailableOperators()
         {
@@ -907,7 +919,7 @@ namespace ClearFrost
         }
 
         /// <summary>
-        /// ·¢ËÍÁ÷³Ì¸üĞÂÈ·ÈÏ
+        /// å‘é€æµç¨‹æ›´æ–°ç¡®è®¤
         /// </summary>
         public async Task SendPipelineUpdated(VisionConfig config)
         {
@@ -917,7 +929,7 @@ namespace ClearFrost
         }
 
         /// <summary>
-        /// ·¢ËÍ¼ì²â½á¹ûµ½Ç°¶Ë
+        /// å‘é€æ£€æµ‹ç»“æœåˆ°å‰ç«¯
         /// </summary>
         public async Task SendDetectionResult(DetectionResponse result)
         {
@@ -935,10 +947,10 @@ namespace ClearFrost
             await _webView.ExecuteScriptAsync($"receiveTemplateFrame('{base64}')");
         }
 
-        // ================== ¶àÏà»ú·½·¨ ==================
+        // ================== å¤šç›¸æœºæ–¹æ³• ==================
 
         /// <summary>
-        /// ·¢ËÍÏà»úÁĞ±íµ½Ç°¶Ë
+        /// å‘é€ç›¸æœºåˆ—è¡¨åˆ°å‰ç«¯
         /// </summary>
         public async Task SendCameraList(IEnumerable<object> cameras, string activeCameraId)
         {
@@ -946,6 +958,16 @@ namespace ClearFrost
             var data = new { cameras = cameras, activeId = activeCameraId };
             string json = JsonSerializer.Serialize(data);
             await _webView.ExecuteScriptAsync($"receiveCameraList({json})");
+        }
+
+        /// <summary>
+        /// å‘é€è¶…çº§æœç´¢ç»“æœåˆ°å‰ç«¯ï¼ˆæ‰€æœ‰å±€åŸŸç½‘ç›¸æœºï¼‰
+        /// </summary>
+        public async Task SendDiscoveredCameras(IEnumerable<object> cameras)
+        {
+            if (_webView?.CoreWebView2 == null) return;
+            string json = JsonSerializer.Serialize(new { cameras = cameras });
+            await _webView.ExecuteScriptAsync($"receiveSuperSearchResult({json})");
         }
     }
 }
