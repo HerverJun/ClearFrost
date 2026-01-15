@@ -1,44 +1,45 @@
 using ClearFrost.Models;
 // ============================================================================
-// ÎÄ¼şÃû: StatisticsService.cs
-// ÃèÊö:   Í³¼Æ·şÎñÊµÏÖ
+// æ–‡ä»¶å: StatisticsService.cs
+// æè¿°:   ç»Ÿè®¡æœåŠ¡å®ç°
 //
-// ¹¦ÄÜ:
-//   - ·â×° DetectionStatistics ºÍ StatisticsHistory
-//   - Ìá¹©Í³Ò»µÄÍ³¼Æ¹ÜÀí API
-//   - ÊÂ¼şÇı¶¯µÄ UI ¸üĞÂ
+// åŠŸèƒ½:
+//   - å°è£… DetectionStatistics å’Œ StatisticsHistory
+//   - æä¾›ç»Ÿä¸€çš„ç»Ÿè®¡åŠŸèƒ½ API
+//   - äº‹ä»¶é©±åŠ¨çš„ UI æ›´æ–°
 // ============================================================================
 
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using ClearFrost.Interfaces;
 
 namespace ClearFrost.Services
 {
     /// <summary>
-    /// Í³¼Æ·şÎñÊµÏÖ
+    /// ç»Ÿè®¡æœåŠ¡å®ç°
     /// </summary>
     public class StatisticsService : IStatisticsService
     {
-        #region Ë½ÓĞ×Ö¶Î
+        #region ç§æœ‰å­—æ®µ
 
         private readonly string _basePath;
         private DetectionStatistics _detectionStats;
         private StatisticsHistory _statisticsHistory;
-        private bool _disposed;
         private System.Timers.Timer _checkDayTimer;
+        private bool _disposed;
 
         #endregion
 
-        #region ÊÂ¼ş
+        #region äº‹ä»¶
 
         public event Action<StatisticsSnapshot>? StatisticsUpdated;
         public event Action? DayReset;
 
         #endregion
 
-        #region ÊôĞÔ
+        #region å±æ€§
 
         public StatisticsSnapshot Current => new StatisticsSnapshot
         {
@@ -53,54 +54,64 @@ namespace ClearFrost.Services
         public int TodayUnqualified => _detectionStats.UnqualifiedCount;
         public int TodayTotal => _detectionStats.TotalCount;
 
-        public IReadOnlyList<DailyStatisticsRecord> History =>
-            _statisticsHistory.GetOrderedRecords().AsReadOnly();
+        public IReadOnlyList<DailyStatisticsRecord> History
+        {
+            get
+            {
+                var records = _statisticsHistory.GetOrderedRecords();
+                return records.Select(r => new DailyStatisticsRecord
+                {
+                    Date = r.Date,
+                    QualifiedCount = r.QualifiedCount,
+                    UnqualifiedCount = r.UnqualifiedCount
+                }).ToList().AsReadOnly();
+            }
+        }
 
         #endregion
 
-        #region ¹¹Ôìº¯Êı
+        #region æ„é€ å‡½æ•°
 
         public StatisticsService(string basePath)
         {
             _basePath = basePath ?? throw new ArgumentNullException(nameof(basePath));
 
-            // ¼ÓÔØÏÖÓĞÊı¾İ
+            // åŠ è½½æŒä¹…åŒ–æ•°æ®
             _detectionStats = DetectionStatistics.Load(_basePath);
             _statisticsHistory = StatisticsHistory.Load(_basePath);
 
-            // ³õÊ¼»¯¶¨Ê±Æ÷£¬Ã¿60Ãë¼ì²éÒ»´Î¿çÈÕ
-            _checkDayTimer = new System.Timers.Timer(60000);
+            // å®šæ—¶æ£€æŸ¥æ—¥æœŸå˜æ›´ (æ¯10åˆ†é’Ÿ)
+            _checkDayTimer = new System.Timers.Timer(600000);
             _checkDayTimer.Elapsed += (s, e) => CheckAndResetForNewDay();
             _checkDayTimer.AutoReset = true;
             _checkDayTimer.Start();
 
-            Debug.WriteLine($"[StatisticsService] ³õÊ¼»¯Íê³É - ½ñÈÕ: {TodayTotal} Ìõ, ÀúÊ·: {_statisticsHistory.Records.Count} Ìì");
+            Debug.WriteLine($"[StatisticsService] åˆå§‹åŒ–å®Œæˆ - ä»Šæ—¥: {TodayTotal} ä»¶, å†å²: {_statisticsHistory.Records.Count} å¤©");
         }
 
         #endregion
 
-        #region ¼ÇÂ¼·½·¨
+        #region è®°å½•åŠŸèƒ½
 
         public void RecordDetection(bool isQualified)
         {
-            // ¼ÇÂ¼Ç°ÏÈ¼ì²éÊÇ·ñ¿çÈÕ£¬·ÀÖ¹Êı¾İ¼ÇÈë´íÎóÈÕÆÚ
+            // è®°å½•å‰å…ˆæ£€æŸ¥æ˜¯å¦è·¨æ—¥ï¼Œé˜²æ­¢æ•°æ®è®¡å…¥é”™è¯¯æ—¥æœŸ
             CheckAndResetForNewDay();
 
             _detectionStats.AddRecord(isQualified);
 
-            // ´¥·¢¸üĞÂÊÂ¼ş
+            // è§¦å‘æ›´æ–°äº‹ä»¶
             StatisticsUpdated?.Invoke(Current);
 
-            Debug.WriteLine($"[StatisticsService] ¼ÇÂ¼¼ì²â: {(isQualified ? "ºÏ¸ñ" : "²»ºÏ¸ñ")} (×Ü¼Æ: {TodayTotal})");
+            Debug.WriteLine($"[StatisticsService] è®°å½•æ£€æµ‹: {(isQualified ? "åˆæ ¼" : "ä¸åˆæ ¼")} (æ€»è®¡: {TodayTotal})");
         }
 
         public void ResetToday()
         {
             _detectionStats.Reset();
             _detectionStats.Save();
-
             StatisticsUpdated?.Invoke(Current);
-            Debug.WriteLine("[StatisticsService] ½ñÈÕÍ³¼ÆÒÑÖØÖÃ");
+            Debug.WriteLine("[StatisticsService] ä»Šæ—¥ç»Ÿè®¡å·²é‡ç½®");
         }
 
         public bool CheckAndResetForNewDay()
@@ -111,7 +122,7 @@ namespace ClearFrost.Services
             {
                 DayReset?.Invoke();
                 StatisticsUpdated?.Invoke(Current);
-                Debug.WriteLine("[StatisticsService] ¼ì²âµ½¿çÈÕ£¬ÒÑ×Ô¶¯ÖØÖÃ");
+                Debug.WriteLine("[StatisticsService] æ£€æµ‹åˆ°è·¨æ—¥ï¼Œå·²è‡ªåŠ¨é‡ç½®");
             }
 
             return wasReset;
@@ -119,7 +130,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ³Ö¾Ã»¯
+        #region æŒä¹…åŒ–
 
         public void SaveAll()
         {
@@ -127,11 +138,11 @@ namespace ClearFrost.Services
             {
                 _detectionStats.Save();
                 _statisticsHistory.Save();
-                Debug.WriteLine("[StatisticsService] ËùÓĞÊı¾İÒÑ±£´æ");
+                Debug.WriteLine("[StatisticsService] æ‰€æœ‰æ•°æ®å·²ä¿å­˜");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[StatisticsService] ±£´æÊ§°Ü: {ex.Message}");
+                Debug.WriteLine($"[StatisticsService] ä¿å­˜å¤±è´¥: {ex.Message}");
             }
         }
 
@@ -142,25 +153,25 @@ namespace ClearFrost.Services
                 _detectionStats = DetectionStatistics.Load(_basePath);
                 _statisticsHistory = StatisticsHistory.Load(_basePath);
                 StatisticsUpdated?.Invoke(Current);
-                Debug.WriteLine("[StatisticsService] ËùÓĞÊı¾İÒÑ¼ÓÔØ");
+                Debug.WriteLine("[StatisticsService] æ‰€æœ‰æ•°æ®å·²åŠ è½½");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[StatisticsService] ¼ÓÔØÊ§°Ü: {ex.Message}");
+                Debug.WriteLine($"[StatisticsService] åŠ è½½å¤±è´¥: {ex.Message}");
             }
         }
 
         #endregion
 
-        #region ¼æÈİĞÔ·½·¨
+        #region å…¼å®¹æ€§æ–¹æ³•
 
         /// <summary>
-        /// »ñÈ¡µ×²ã DetectionStatistics (Ïòºó¼æÈİ)
+        /// è·å–åº•å±‚ DetectionStatistics (ä¾›å…¼å®¹)
         /// </summary>
         public DetectionStatistics GetDetectionStats() => _detectionStats;
 
         /// <summary>
-        /// »ñÈ¡µ×²ã StatisticsHistory (Ïòºó¼æÈİ)
+        /// è·å–åº•å±‚ StatisticsHistory (ä¾›å…¼å®¹)
         /// </summary>
         public StatisticsHistory GetStatisticsHistory() => _statisticsHistory;
 
@@ -173,14 +184,14 @@ namespace ClearFrost.Services
             if (_disposed) return;
             _disposed = true;
 
-            // Í£Ö¹¶¨Ê±Æ÷
+            // åœæ­¢å®šæ—¶å™¨
             if (_checkDayTimer != null)
             {
                 _checkDayTimer.Stop();
                 _checkDayTimer.Dispose();
             }
 
-            // ±£´æÊı¾İ
+            // ä¿å­˜æ•°æ®
             SaveAll();
 
             GC.SuppressFinalize(this);
@@ -189,4 +200,3 @@ namespace ClearFrost.Services
         #endregion
     }
 }
-

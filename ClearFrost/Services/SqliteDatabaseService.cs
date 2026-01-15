@@ -1,12 +1,15 @@
+using System;
 using System.IO;
 using System.Diagnostics;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 using ClearFrost.Interfaces;
 
 namespace ClearFrost.Services
 {
     /// <summary>
-    /// SQLite  ˝æ›ø‚∑˛ŒÒ µœ÷
+    /// SQLite Êï∞ÊçÆÂ∫ìÊúçÂä°ÂÆûÁé∞
     /// </summary>
     public class SqliteDatabaseService : IDatabaseService
     {
@@ -17,14 +20,17 @@ namespace ClearFrost.Services
 
         public SqliteDatabaseService(string? dbPath = null)
         {
-            // ƒ¨»œ ˝æ›ø‚¬∑æ∂£∫≥Ã–Úƒø¬º/Data/detection.db
-            _dbPath = dbPath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "detection.db");
-
-            // »∑±£ƒø¬º¥Ê‘⁄
-            string? dir = Path.GetDirectoryName(_dbPath);
-            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            // ÈªòËÆ§Êï∞ÊçÆÂ∫ìË∑ØÂæÑÔºöÁ®ãÂ∫èÁõÆÂΩï/Data/detection.db
+            if (string.IsNullOrEmpty(dbPath))
             {
-                Directory.CreateDirectory(dir);
+                string dataDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
+                if (!Directory.Exists(dataDir))
+                    Directory.CreateDirectory(dataDir);
+                _dbPath = Path.Combine(dataDir, "detection.db");
+            }
+            else
+            {
+                _dbPath = dbPath;
             }
 
             _connectionString = $"Data Source={_dbPath}";
@@ -40,11 +46,10 @@ namespace ClearFrost.Services
                 using var connection = new SqliteConnection(_connectionString);
                 await connection.OpenAsync();
 
-                // ¥¥Ω®ºÏ≤‚º«¬º±Ì
                 string createTableSql = @"
-                    CREATE TABLE IF NOT EXISTS detection_records (
+                    CREATE TABLE IF NOT EXISTS DetectionRecords (
                         Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        Timestamp DATETIME NOT NULL,
+                        Timestamp TEXT NOT NULL,
                         IsQualified INTEGER NOT NULL,
                         TargetLabel TEXT,
                         ExpectedCount INTEGER,
@@ -52,28 +57,26 @@ namespace ClearFrost.Services
                         InferenceMs INTEGER,
                         ModelName TEXT,
                         CameraId TEXT,
-                        ResultJson TEXT,
-                        CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+                        ResultJson TEXT
                     );
-                    
-                    CREATE INDEX IF NOT EXISTS idx_timestamp ON detection_records(Timestamp);
-                    CREATE INDEX IF NOT EXISTS idx_qualified ON detection_records(IsQualified);
+                    CREATE INDEX IF NOT EXISTS idx_timestamp ON DetectionRecords(Timestamp);
+                    CREATE INDEX IF NOT EXISTS idx_qualified ON DetectionRecords(IsQualified);
                 ";
 
                 using var command = new SqliteCommand(createTableSql, connection);
                 await command.ExecuteNonQueryAsync();
 
                 _initialized = true;
-                Debug.WriteLine("[SqliteDatabaseService] Database initialized successfully");
+                Debug.WriteLine("[SqliteDatabaseService] Database initialized");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[SqliteDatabaseService] Initialize error: {ex.Message}");
+                Debug.WriteLine($"[SqliteDatabaseService] Init error: {ex.Message}");
                 throw;
             }
         }
 
-        public async Task<long> SaveDetectionRecordAsync(DetectionRecord record)
+        public async Task SaveDetectionRecordAsync(DetectionRecord record)
         {
             if (!_initialized) await InitializeAsync();
 
@@ -83,11 +86,9 @@ namespace ClearFrost.Services
                 await connection.OpenAsync();
 
                 string insertSql = @"
-                    INSERT INTO detection_records 
+                    INSERT INTO DetectionRecords 
                     (Timestamp, IsQualified, TargetLabel, ExpectedCount, ActualCount, InferenceMs, ModelName, CameraId, ResultJson)
-                    VALUES 
-                    (@Timestamp, @IsQualified, @TargetLabel, @ExpectedCount, @ActualCount, @InferenceMs, @ModelName, @CameraId, @ResultJson);
-                    SELECT last_insert_rowid();
+                    VALUES (@Timestamp, @IsQualified, @TargetLabel, @ExpectedCount, @ActualCount, @InferenceMs, @ModelName, @CameraId, @ResultJson)
                 ";
 
                 using var command = new SqliteCommand(insertSql, connection);
@@ -101,20 +102,15 @@ namespace ClearFrost.Services
                 command.Parameters.AddWithValue("@CameraId", record.CameraId ?? "");
                 command.Parameters.AddWithValue("@ResultJson", record.ResultJson ?? "");
 
-                var result = await command.ExecuteScalarAsync();
-                long id = Convert.ToInt64(result);
-
-                Debug.WriteLine($"[SqliteDatabaseService] Saved record ID: {id}");
-                return id;
+                await command.ExecuteNonQueryAsync();
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[SqliteDatabaseService] SaveDetectionRecord error: {ex.Message}");
-                throw;
+                Debug.WriteLine($"[SqliteDatabaseService] Save error: {ex.Message}");
             }
         }
 
-        public async Task<List<DetectionRecord>> QueryRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100)
+        public async Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100)
         {
             if (!_initialized) await InitializeAsync();
 
@@ -126,18 +122,25 @@ namespace ClearFrost.Services
                 await connection.OpenAsync();
 
                 var conditions = new List<string>();
-                if (startDate.HasValue) conditions.Add("Timestamp >= @StartDate");
-                if (endDate.HasValue) conditions.Add("Timestamp <= @EndDate");
-                if (isQualified.HasValue) conditions.Add("IsQualified = @IsQualified");
+                if (startDate.HasValue)
+                    conditions.Add("Timestamp >= @StartDate");
+                if (endDate.HasValue)
+                    conditions.Add("Timestamp <= @EndDate");
+                if (isQualified.HasValue)
+                    conditions.Add("IsQualified = @IsQualified");
 
                 string whereClause = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
-                string querySql = $"SELECT * FROM detection_records {whereClause} ORDER BY Timestamp DESC LIMIT @Limit";
+                string querySql = $"SELECT * FROM DetectionRecords {whereClause} ORDER BY Timestamp DESC LIMIT @Limit";
 
                 using var command = new SqliteCommand(querySql, connection);
-                if (startDate.HasValue) command.Parameters.AddWithValue("@StartDate", startDate.Value.ToString("yyyy-MM-dd HH:mm:ss"));
-                if (endDate.HasValue) command.Parameters.AddWithValue("@EndDate", endDate.Value.ToString("yyyy-MM-dd HH:mm:ss"));
-                if (isQualified.HasValue) command.Parameters.AddWithValue("@IsQualified", isQualified.Value ? 1 : 0);
                 command.Parameters.AddWithValue("@Limit", limit);
+
+                if (startDate.HasValue)
+                    command.Parameters.AddWithValue("@StartDate", startDate.Value.ToString("yyyy-MM-dd 00:00:00"));
+                if (endDate.HasValue)
+                    command.Parameters.AddWithValue("@EndDate", endDate.Value.ToString("yyyy-MM-dd 23:59:59"));
+                if (isQualified.HasValue)
+                    command.Parameters.AddWithValue("@IsQualified", isQualified.Value ? 1 : 0);
 
                 using var reader = await command.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
@@ -159,7 +162,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[SqliteDatabaseService] QueryRecords error: {ex.Message}");
+                Debug.WriteLine($"[SqliteDatabaseService] Query error: {ex.Message}");
             }
 
             return records;
@@ -175,22 +178,22 @@ namespace ClearFrost.Services
                 await connection.OpenAsync();
 
                 string dateStr = date.ToString("yyyy-MM-dd");
-                string querySql = @"
+                string sql = @"
                     SELECT 
-                        COUNT(*) as total,
-                        SUM(CASE WHEN IsQualified = 1 THEN 1 ELSE 0 END) as pass,
-                        SUM(CASE WHEN IsQualified = 0 THEN 1 ELSE 0 END) as fail
-                    FROM detection_records 
-                    WHERE date(Timestamp) = @Date
+                        COUNT(*) as Total,
+                        SUM(CASE WHEN IsQualified = 1 THEN 1 ELSE 0 END) as Pass,
+                        SUM(CASE WHEN IsQualified = 0 THEN 1 ELSE 0 END) as Fail
+                    FROM DetectionRecords 
+                    WHERE Timestamp LIKE @DatePattern
                 ";
 
-                using var command = new SqliteCommand(querySql, connection);
-                command.Parameters.AddWithValue("@Date", dateStr);
+                using var command = new SqliteCommand(sql, connection);
+                command.Parameters.AddWithValue("@DatePattern", dateStr + "%");
 
                 using var reader = await command.ExecuteReaderAsync();
                 if (await reader.ReadAsync())
                 {
-                    int total = reader.GetInt32(0);
+                    int total = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
                     int pass = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
                     int fail = reader.IsDBNull(2) ? 0 : reader.GetInt32(2);
                     return (total, pass, fail);
@@ -198,7 +201,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[SqliteDatabaseService] GetStatistics error: {ex.Message}");
+                Debug.WriteLine($"[SqliteDatabaseService] Statistics error: {ex.Message}");
             }
 
             return (0, 0, 0);
@@ -213,9 +216,11 @@ namespace ClearFrost.Services
                 using var connection = new SqliteConnection(_connectionString);
                 await connection.OpenAsync();
 
-                string deleteSql = "DELETE FROM detection_records WHERE Timestamp < @CutoffDate";
-                using var command = new SqliteCommand(deleteSql, connection);
-                command.Parameters.AddWithValue("@CutoffDate", DateTime.Now.AddDays(-daysToKeep).ToString("yyyy-MM-dd HH:mm:ss"));
+                string cutoffDate = DateTime.Now.AddDays(-daysToKeep).ToString("yyyy-MM-dd 00:00:00");
+                string sql = "DELETE FROM DetectionRecords WHERE Timestamp < @CutoffDate";
+
+                using var command = new SqliteCommand(sql, connection);
+                command.Parameters.AddWithValue("@CutoffDate", cutoffDate);
 
                 int deleted = await command.ExecuteNonQueryAsync();
                 Debug.WriteLine($"[SqliteDatabaseService] Cleaned up {deleted} old records");
@@ -236,4 +241,3 @@ namespace ClearFrost.Services
         }
     }
 }
-

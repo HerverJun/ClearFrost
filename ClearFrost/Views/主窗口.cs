@@ -1,4 +1,4 @@
-using MVSDK_Net;
+ï»¿using MVSDK_Net;
 using ClearFrost.Config;
 using ClearFrost.Hardware;
 using OpenCvSharp;
@@ -23,19 +23,19 @@ using ClearFrost.Services;
 
 namespace ClearFrost
 {
-    public partial class Ö÷´°¿Ú : Form
+    public partial class ä¸»çª—å£ : Form
     {
-        #region 2. ³õÊ¼»¯ÓëÉúÃüÖÜÆÚ (Initialization)
+        #region 2. åˆå§‹åŒ–ä¸ç”Ÿå‘½å‘¨æœŸ (Initialization)
 
-        public Ö÷´°¿Ú()
+        public ä¸»çª—å£()
         {
             InitializeComponent();
 
-            // ³õÊ¼»¯Ïà»ú¹ÜÀíÆ÷
+            // åˆå§‹åŒ–ç›¸æœºç®¡ç†å™¨
             _cameraManager = new CameraManager(_appConfig.IsDebugMode);
             _cameraManager.LoadFromConfig(_appConfig);
 
-            // Ïòºó¼æÈİ£º´Ó CameraManager »ñÈ¡»î¶¯Ïà»ú
+            // å‘åå…¼å®¹ï¼šä» CameraManager è·å–æ´»åŠ¨ç›¸æœº
             var activeCam = _cameraManager.ActiveCamera;
             if (activeCam != null)
             {
@@ -43,39 +43,38 @@ namespace ClearFrost
             }
             else
             {
-                // Èç¹ûÃ»ÓĞÅäÖÃÏà»ú£¬´´½¨Ä¬ÈÏÏà»ú
+                // å¦‚æœæ²¡æœ‰é…ç½®ç›¸æœºï¼Œåˆ›å»ºé»˜è®¤ç›¸æœº
                 cam = _appConfig.IsDebugMode ? new MockCamera() : new RealCamera();
             }
 
-            // ÉèÖÃÎŞ±ß¿òÈ«ÆÁ
+            // è®¾ç½®æ— è¾¹æ¡†å…¨å±
             this.FormBorderStyle = FormBorderStyle.None;
             this.WindowState = FormWindowState.Maximized;
 
-            // ³õÊ¼»¯ WebUI ¿ØÖÆÆ÷
+            // åˆå§‹åŒ– WebUI æ§åˆ¶å™¨
             _uiController = new WebUIController();
 
-            // ====================== ³õÊ¼»¯·şÎñ²ã ======================
-            // PLC ·şÎñ
+            // ====================== åˆå§‹åŒ–æœåŠ¡å±‚ ======================
+            // PLC æœåŠ¡
             _plcService = new PlcService();
 
-            // Detection ·şÎñ
+            // Detection æœåŠ¡
             _detectionService = new DetectionService(_appConfig.EnableGpu);
 
-            // Storage ·şÎñ
+            // Storage æœåŠ¡
             _storageService = new StorageService(_appConfig?.StoragePath);
 
-            // Statistics ·şÎñ
+            // Statistics æœåŠ¡
             _statisticsService = new StatisticsService(_storageService.SystemPath.Replace("\\System", ""));
 
-            // Database ·şÎñ (SQLite)
+            // Database æœåŠ¡ (SQLite)
             _databaseService = new SqliteDatabaseService();
-            SafeFireAndForget(_databaseService.InitializeAsync(), "Êı¾İ¿â³õÊ¼»¯");
+            SafeFireAndForget(_databaseService.InitializeAsync(), "æ•°æ®åº“åˆå§‹åŒ–");
 
-            // ×¢²áËùÓĞÊÂ¼ş¼àÌı (ÊµÏÖÎ»ÓÚ Ö÷´°¿Ú.Init.cs)
+            // æ³¨å†Œæ‰€æœ‰äº‹ä»¶ç›‘å¬ (å®ç°ä½äº ä¸»çª—å£.Init.cs)
             RegisterEvents();
         }
 
         #endregion
     }
 }
-

@@ -1,12 +1,12 @@
 using ClearFrost.Hardware;
 // ============================================================================
-// ÎÄ¼şÃû: PlcService.cs
-// ÃèÊö:   PLC Í¨Ñ¶·şÎñÊµÏÖ
+// æ–‡ä»¶å: PlcService.cs
+// æè¿°:   PLC é€šè®¯æœåŠ¡å®ç°
 //
-// ¹¦ÄÜ:
-//   - ¶àĞ­Òé PLC Á¬½Ó¹ÜÀí (Mitsubishi, Siemens, Omron, Modbus)
-//   - ´¥·¢ĞÅºÅ¼à¿ØÑ­»·
-//   - ¼ì²â½á¹ûĞ´Èë
+// åŠŸèƒ½:
+//   - å¤šåè®® PLC è¿æ¥ç®¡ç† (Mitsubishi, Siemens, Omron, Modbus)
+//   - è§¦å‘ä¿¡å·ç›‘å¬å¾ªç¯
+//   - ç»“æœè¯»å†™æ“ä½œ
 // ============================================================================
 
 using System;
@@ -18,11 +18,11 @@ using ClearFrost.Interfaces;
 namespace ClearFrost.Services
 {
     /// <summary>
-    /// PLC Í¨Ñ¶·şÎñÊµÏÖ
+    /// PLC é€šè®¯æœåŠ¡å®ç°
     /// </summary>
     public class PlcService : IPlcService
     {
-        #region Ë½ÓĞ×Ö¶Î
+        #region ç§æœ‰å­—æ®µ
 
         private IPlcDevice? _plcDevice;
         private CancellationTokenSource? _monitoringCts;
@@ -31,7 +31,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ÊÂ¼ş
+        #region äº‹ä»¶
 
         public event Action<bool>? ConnectionChanged;
         public event Action? TriggerReceived;
@@ -39,15 +39,15 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ÊôĞÔ
+        #region å±æ€§
 
         public bool IsConnected { get; private set; }
-        public string ProtocolName => _plcDevice?.ProtocolName ?? "Î´Á¬½Ó";
+        public string ProtocolName => _plcDevice?.ProtocolName ?? "æœªè¿æ¥";
         public string? LastError { get; private set; }
 
         #endregion
 
-        #region Á¬½Ó¹ÜÀí
+        #region è¿æ¥ç®¡ç†
 
         public async Task<bool> ConnectAsync(string protocol, string ip, int port)
         {
@@ -59,14 +59,14 @@ namespace ClearFrost.Services
 
             try
             {
-                // Í£Ö¹¾ÉµÄ¼à¿Ø
+                // åœæ­¢æ—§çš„ç›‘å¬
                 await StopMonitoringAsync();
 
-                // ¶Ï¿ª¾ÉÁ¬½Ó
+                // æ–­å¼€ç°æœ‰è¿æ¥
                 Disconnect();
 
                 var protocolType = PlcFactory.ParseProtocol(protocol);
-                Debug.WriteLine($"[PlcService] ÕıÔÚÁ¬½Ó {protocolType} @ {ip}:{port}");
+                Debug.WriteLine($"[PlcService] æ­£åœ¨è¿æ¥ {protocolType} @ {ip}:{port}");
 
                 for (int i = 0; i < maxRetries; i++)
                 {
@@ -78,12 +78,12 @@ namespace ClearFrost.Services
                         IsConnected = true;
                         LastError = null;
                         ConnectionChanged?.Invoke(true);
-                        Debug.WriteLine($"[PlcService] Á¬½Ó³É¹¦: {_plcDevice.ProtocolName}");
+                        Debug.WriteLine($"[PlcService] è¿æ¥æˆåŠŸ: {_plcDevice.ProtocolName}");
                         return true;
                     }
 
-                    LastError = _plcDevice?.LastError ?? "Î´Öª´íÎó";
-                    Debug.WriteLine($"[PlcService] Á¬½ÓÊ§°Ü: {LastError}");
+                    LastError = _plcDevice?.LastError ?? "æœªçŸ¥é”™è¯¯";
+                    Debug.WriteLine($"[PlcService] è¿æ¥å¤±è´¥: {LastError}");
 
                     if (i < maxRetries - 1)
                     {
@@ -97,7 +97,7 @@ namespace ClearFrost.Services
             catch (Exception ex)
             {
                 LastError = ex.Message;
-                ErrorOccurred?.Invoke($"Á¬½ÓÒì³£: {ex.Message}");
+                ErrorOccurred?.Invoke($"è¿æ¥å¼‚å¸¸: {ex.Message}");
                 ConnectionChanged?.Invoke(false);
                 return false;
             }
@@ -115,7 +115,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[PlcService] ¶Ï¿ªÁ¬½ÓÒì³£: {ex.Message}");
+                Debug.WriteLine($"[PlcService] æ–­å¼€è¿æ¥å¼‚å¸¸: {ex.Message}");
             }
             finally
             {
@@ -126,7 +126,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ¼à¿Ø¹ÜÀí
+        #region ç›‘å¬åŠŸèƒ½
 
         public void StartMonitoring(short triggerAddress, int pollingIntervalMs = 500)
         {
@@ -140,7 +140,7 @@ namespace ClearFrost.Services
                 await MonitoringLoop(triggerAddress, pollingIntervalMs, token);
             });
 
-            Debug.WriteLine($"[PlcService] ¿ªÊ¼¼à¿Ø´¥·¢µØÖ·: {triggerAddress}");
+            Debug.WriteLine($"[PlcService] å¼€å§‹ç›‘å¬è§¦å‘åœ°å€: {triggerAddress}");
         }
 
         public void StopMonitoring()
@@ -150,7 +150,7 @@ namespace ClearFrost.Services
                 _monitoringCts.Cancel();
                 _monitoringCts.Dispose();
                 _monitoringCts = null;
-                Debug.WriteLine("[PlcService] Í£Ö¹¼à¿Ø");
+                Debug.WriteLine("[PlcService] åœæ­¢ç›‘å¬");
             }
         }
 
@@ -159,7 +159,7 @@ namespace ClearFrost.Services
             if (_monitoringCts != null && !_monitoringCts.IsCancellationRequested)
             {
                 _monitoringCts.Cancel();
-                await Task.Delay(100); // ¸øÑ­»·Ê±¼äÍË³ö
+                await Task.Delay(100); // ç­‰å¾…å¾ªç¯é€€å‡º
             }
             _monitoringCts?.Dispose();
             _monitoringCts = null;
@@ -180,11 +180,11 @@ namespace ClearFrost.Services
 
                     if (success && value == 1)
                     {
-                        // ÊÕµ½´¥·¢ĞÅºÅ£¬ÇåÁã
+                        // æ”¶åˆ°è§¦å‘ä¿¡å·ï¼Œå¤ä½
                         await _plcDevice.WriteInt16Async(address, 0);
                         await Task.Delay(triggerDelay);
 
-                        // ·¢³öÊÂ¼şÍ¨Öª
+                        // è§¦å‘äº‹ä»¶é€šçŸ¥
                         TriggerReceived?.Invoke();
                     }
 
@@ -197,7 +197,7 @@ namespace ClearFrost.Services
                 catch (Exception ex)
                 {
                     LastError = ex.Message;
-                    ErrorOccurred?.Invoke($"¼à¿ØÒì³£: {ex.Message}");
+                    ErrorOccurred?.Invoke($"ç›‘å¬å¼‚å¸¸: {ex.Message}");
                     break;
                 }
             }
@@ -205,7 +205,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ½á¹ûĞ´Èë
+        #region ç»“æœè¯»å†™
 
         public async Task WriteResultAsync(short resultAddress, bool isQualified)
         {
@@ -218,13 +218,13 @@ namespace ClearFrost.Services
                 if (!success)
                 {
                     LastError = _plcDevice.LastError;
-                    ErrorOccurred?.Invoke($"Ğ´ÈëÊ§°Ü: {LastError}");
+                    ErrorOccurred?.Invoke($"å†™å…¥å¤±è´¥: {LastError}");
                 }
             }
             catch (Exception ex)
             {
                 LastError = ex.Message;
-                ErrorOccurred?.Invoke($"Ğ´ÈëÒì³£: {ex.Message}");
+                ErrorOccurred?.Invoke($"å†™å…¥å¼‚å¸¸: {ex.Message}");
             }
         }
 
@@ -239,19 +239,19 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"·ÅĞĞÊ§°Ü: {ex.Message}");
+                ErrorOccurred?.Invoke($"æ”¾è¡Œå¤±è´¥: {ex.Message}");
             }
         }
 
         #endregion
 
-        #region ¸¨Öú·½·¨
+        #region è¾…åŠ©æ–¹æ³•
 
         private string GetPlcAddress(short address)
         {
             if (_plcDevice == null) return $"D{address}";
 
-            // ¸ù¾İĞ­ÒéÃû³ÆÅĞ¶ÏµØÖ·¸ñÊ½
+            // æ ¹æ®åè®®ç±»å‹åˆ¤æ–­åœ°å€æ ¼å¼
             string protocol = _plcDevice.ProtocolName?.ToLower() ?? "";
 
             if (protocol.Contains("modbus"))
@@ -280,4 +280,3 @@ namespace ClearFrost.Services
         #endregion
     }
 }
-
