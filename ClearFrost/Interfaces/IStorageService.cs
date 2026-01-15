@@ -1,11 +1,11 @@
 // ============================================================================
-// ÎÄ¼şÃû: IStorageService.cs
-// ÃèÊö:   ´æ´¢·şÎñ½Ó¿Ú
+// æ–‡ä»¶å: IStorageService.cs
+// æè¿°:   å­˜å‚¨æœåŠ¡æ¥å£
 //
-// ¹¦ÄÜ:
-//   - Í¼Ïñ±£´æºÍ¹ÜÀí
-//   - ÈÕÖ¾ÎÄ¼ş¹ÜÀí
-//   - ¾ÉÊı¾İ×Ô¶¯ÇåÀí
+// åŠŸèƒ½:
+//   - å›¾åƒä¿å­˜å’Œç®¡ç†
+//   - æ—¥å¿—æ–‡ä»¶è®°å½•
+//   - å†å²æ•°æ®è‡ªåŠ¨æ¸…ç†
 // ============================================================================
 
 using System;
@@ -14,78 +14,77 @@ using System.Drawing;
 namespace ClearFrost.Interfaces
 {
     /// <summary>
-    /// ´æ´¢·şÎñ½Ó¿Ú
+    /// å­˜å‚¨æœåŠ¡æ¥å£
     /// </summary>
     public interface IStorageService : IDisposable
     {
-        #region ÊôĞÔ
+        #region å±æ€§
 
         /// <summary>
-        /// Í¼Ïñ´æ´¢»ùÂ·¾¶
+        /// å›¾åƒå­˜å‚¨æ ¹è·¯å¾„
         /// </summary>
         string ImageBasePath { get; }
 
         /// <summary>
-        /// ÈÕÖ¾´æ´¢»ùÂ·¾¶
+        /// æ—¥å¿—å­˜å‚¨æ ¹è·¯å¾„
         /// </summary>
         string LogBasePath { get; }
 
         /// <summary>
-        /// ÏµÍ³Êı¾İÂ·¾¶
+        /// ç³»ç»Ÿæ•°æ®è·¯å¾„
         /// </summary>
         string SystemPath { get; }
 
         #endregion
 
-        #region Í¼Ïñ±£´æ
+        #region å›¾åƒä¿å­˜
 
         /// <summary>
-        /// ±£´æ¼ì²âÍ¼Ïñ
+        /// ä¿å­˜æ£€æµ‹å›¾åƒ
         /// </summary>
-        /// <param name="bitmap">Í¼Ïñ</param>
-        /// <param name="isQualified">ÊÇ·ñºÏ¸ñ</param>
+        /// <param name="bitmap">å›¾åƒ</param>
+        /// <param name="isQualified">æ˜¯å¦åˆæ ¼</param>
         void SaveDetectionImage(Bitmap bitmap, bool isQualified);
 
         /// <summary>
-        /// ±£´æ¼ì²âÍ¼Ïñ (Òì²½)
+        /// ä¿å­˜æ£€æµ‹å›¾åƒ (å¼‚æ­¥)
         /// </summary>
         void SaveDetectionImageAsync(Bitmap bitmap, bool isQualified);
 
         #endregion
 
-        #region ÈÕÖ¾¼ÇÂ¼
+        #region æ—¥å¿—è®°å½•
 
         /// <summary>
-        /// Ğ´Èë¼ì²âÈÕÖ¾
+        /// å†™å…¥æ£€æµ‹æ—¥å¿—
         /// </summary>
         void WriteDetectionLog(string content, bool isQualified);
 
         /// <summary>
-        /// Ğ´ÈëÆô¶¯ÈÕÖ¾
+        /// å†™å…¥å¯åŠ¨æ—¥å¿—
         /// </summary>
         void WriteStartupLog(string action, string? serialNumber = null);
 
         /// <summary>
-        /// Ğ´Èë´íÎóÈÕÖ¾
+        /// å†™å…¥é”™è¯¯æ—¥å¿—
         /// </summary>
         void WriteErrorLog(string message);
 
         #endregion
 
-        #region Êı¾İÇåÀí
+        #region æ•°æ®æ¸…ç†
 
         /// <summary>
-        /// ÇåÀí¾ÉÊı¾İ
+        /// æ¸…ç†æ—§æ•°æ®
         /// </summary>
-        /// <param name="retainDays">±£ÁôÌìÊı</param>
+        /// <param name="retainDays">ä¿ç•™å¤©æ•°</param>
         void CleanOldData(int retainDays);
 
         /// <summary>
-        /// È·±£Ä¿Â¼´æÔÚ
+        /// ç¡®ä¿ç›®å½•å­˜åœ¨
         /// </summary>
         void EnsureDirectoriesExist();
 
         #endregion
     }
 }
-

@@ -1,0 +1,41 @@
+﻿  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Vision\RobustOrbExtractor.cs(216,47): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\BW_yolo.cs(407,31): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloPreprocessor.cs(167,29): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Init.cs(293,24): error CS1061: “VisionConfig”未包含“TemplatePath”的定义，并且找不到可接受第一个“VisionConfig”类型参数的可访问扩展方法“TemplatePath”(是否缺少 using 指令或程序集引用?) [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Init.cs(524,46): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloRenderer.cs(62,27): warning CS0168: 声明了变量“textWidth”，但从未使用过 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloRenderer.cs(63,27): warning CS0168: 声明了变量“textHeight”，但从未使用过 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloRenderer.cs(65,28): warning CS0168: 声明了变量“textContent”，但从未使用过 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Init.cs(1326,17): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(123,22): warning CS0649: 从未对字段“主窗口._lastCapturedFrame”赋值，字段将一直保持其默认值 null [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(43,21): warning CS0414: 字段“主窗口.roiY”已被赋值，但从未使用过它的值 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(42,21): warning CS0414: 字段“主窗口.roiX”已被赋值，但从未使用过它的值 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(44,21): warning CS0414: 字段“主窗口.roiWidth”已被赋值，但从未使用过它的值 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(46,22): warning CS0414: 字段“主窗口.useROI”已被赋值，但从未使用过它的值 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(47,22): warning CS0414: 字段“主窗口.isROISet”已被赋值，但从未使用过它的值 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(45,21): warning CS0414: 字段“主窗口.roiHeight”已被赋值，但从未使用过它的值 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+
+生成失败。
+
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Vision\RobustOrbExtractor.cs(216,47): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\BW_yolo.cs(407,31): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloPreprocessor.cs(167,29): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Init.cs(524,46): warning CS8600: 将 null 文本或可能的 null 值转换为不可为 null 类型。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloRenderer.cs(62,27): warning CS0168: 声明了变量“textWidth”，但从未使用过 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloRenderer.cs(63,27): warning CS0168: 声明了变量“textHeight”，但从未使用过 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Yolo\YoloRenderer.cs(65,28): warning CS0168: 声明了变量“textContent”，但从未使用过 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Init.cs(1326,17): warning CS4014: 由于此调用不会等待，因此在此调用完成之前将会继续执行当前方法。请考虑将 "await" 运算符应用于调用结果。 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(123,22): warning CS0649: 从未对字段“主窗口._lastCapturedFrame”赋值，字段将一直保持其默认值 null [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(43,21): warning CS0414: 字段“主窗口.roiY”已被赋值，但从未使用过它的值 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(42,21): warning CS0414: 字段“主窗口.roiX”已被赋值，但从未使用过它的值 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(44,21): warning CS0414: 字段“主窗口.roiWidth”已被赋值，但从未使用过它的值 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(46,22): warning CS0414: 字段“主窗口.useROI”已被赋值，但从未使用过它的值 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(47,22): warning CS0414: 字段“主窗口.isROISet”已被赋值，但从未使用过它的值 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Fields.cs(45,21): warning CS0414: 字段“主窗口.roiHeight”已被赋值，但从未使用过它的值 [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+C:\Users\11234\Desktop\清霜V2\ClearFrost\Views\主窗口.Init.cs(293,24): error CS1061: “VisionConfig”未包含“TemplatePath”的定义，并且找不到可接受第一个“VisionConfig”类型参数的可访问扩展方法“TemplatePath”(是否缺少 using 指令或程序集引用?) [C:\Users\11234\Desktop\清霜V2\ClearFrost\ClearFrost.csproj]
+    15 个警告
+    1 个错误
+
+已用时间 00:00:00.97

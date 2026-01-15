@@ -22,55 +22,52 @@ using ClearFrost.Services;
 
 namespace ClearFrost
 {
-    public partial class Ö÷´°¿Ú
+    public partial class ä¸»çª—å£
     {
-        #region 5. YOLO¼ì²âÂß¼­ (°üº¬¸¨ÖúÂß¼­)
+        #region 5. YOLOæ£€æµ‹é€»è¾‘ (æ£€æµ‹ä¸è§†è§‰é€»è¾‘)
 
         private void InitYolo()
         {
-            // Í¬²½µ÷ÓÃÒì²½·½·¨
-            SafeFireAndForget(InitYoloAsync(), "YOLO³õÊ¼»¯");
+            // åŒæ­¥è°ƒç”¨å¼‚æ­¥æ–¹æ³•
+            SafeFireAndForget(InitYoloAsync(), "YOLOåˆå§‹åŒ–");
         }
 
         private async Task InitYoloAsync()
         {
-            await _uiController.LogToFrontend("ÕıÔÚ¼ÓÔØ YOLO Ä£ĞÍ...", "info");
+            await _uiController.LogToFrontend("æ­£åœ¨åŠ è½½ YOLO æ¨¡å‹...", "info");
 
             bool useGpu = _appConfig.EnableGpu;
 
-            // Èç¹ûÃ»Ö¸¶¨Ä£ĞÍÃû£¬³¢ÊÔÕÒÒ»¸öÄ¬ÈÏµÄ
-            if (string.IsNullOrEmpty(Ä£ĞÍÃû))
+            // å¦‚æœæ²¡æŒ‡å®šæ¨¡å‹åï¼Œå°è¯•æ‰¾ä¸€ä¸ªé»˜è®¤çš„
+            if (string.IsNullOrEmpty(æ¨¡å‹å))
             {
-                var files = Directory.GetFiles(Ä£ĞÍÂ·¾¶, "*.onnx");
-                if (files.Length > 0) Ä£ĞÍÃû = Path.GetFileName(files[0]);
+                var files = Directory.GetFiles(æ¨¡å‹è·¯å¾„, "*.onnx");
+                if (files.Length > 0) æ¨¡å‹å = Path.GetFileName(files[0]);
             }
 
-            if (!string.IsNullOrEmpty(Ä£ĞÍÃû))
+            if (!string.IsNullOrEmpty(æ¨¡å‹å))
             {
                 try
                 {
-                    string fullPath = Path.Combine(Ä£ĞÍÂ·¾¶, Ä£ĞÍÃû);
-                    bool success = await _detectionService.LoadModelAsync(fullPath, useGpu);
-
+                    string modelPath = Path.Combine(æ¨¡å‹è·¯å¾„, æ¨¡å‹å);
+                    bool success = await _detectionService.LoadModelAsync(modelPath, useGpu);
                     if (success)
                     {
-                        // ÉèÖÃÈÎÎñÀàĞÍ
-                        _detectionService.SetTaskMode(_appConfig.TaskType);
-                        await _uiController.LogToFrontend($"? YOLOÄ£ĞÍÒÑ¼ÓÔØ: {Ä£ĞÍÃû} {(useGpu ? "[GPU]" : "[CPU]")}", "success");
+                        await _uiController.LogToFrontend($"æ¨¡å‹åŠ è½½æˆåŠŸ: {æ¨¡å‹å}", "success");
                     }
                     else
                     {
-                        await _uiController.LogToFrontend($"Ä£ĞÍ¼ÓÔØÊ§°Ü", "error");
+                        await _uiController.LogToFrontend("æ¨¡å‹åŠ è½½å¤±è´¥", "error");
                     }
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.LogToFrontend($"Ä£ĞÍ¼ÓÔØÊ§°Ü: {ex.Message}", "error");
+                    await _uiController.LogToFrontend($"æ¨¡å‹åŠ è½½å¤±è´¥: {ex.Message}", "error");
                 }
             }
             else
             {
-                await _uiController.LogToFrontend("Î´ÕÒµ½Ä£ĞÍÎÄ¼ş£¬ÇëÔÚÉèÖÃÖĞÏÂÔØ»òÉÏ´«Ä£ĞÍ", "warning");
+                await _uiController.LogToFrontend("æœªæ‰¾åˆ°æ¨¡å‹æ–‡ä»¶ï¼Œè¯·åœ¨è®¾ç½®ä¸­ä¸‹è½½æˆ–ä¸Šä¼ æ¨¡å‹", "warning");
             }
         }
 
@@ -78,607 +75,274 @@ namespace ClearFrost
         {
             try
             {
-                await _uiController.LogToFrontend("¿ªÊ¼YOLO²âÊÔ...", "info");
+                await _uiController.LogToFrontend("å¼€å§‹YOLOæµ‹è¯•...", "info");
 
-                string? selectedFile = await ShowOpenFileDialogOnStaThread("Ñ¡Ôñ²âÊÔÍ¼Æ¬", "Í¼Æ¬ÎÄ¼ş|*.jpg;*.jpeg;*.png;*.bmp|ËùÓĞÎÄ¼ş|*.*");
+                string? selectedFile = await ShowOpenFileDialogOnStaThread("é€‰æ‹©æµ‹è¯•å›¾ç‰‡", "å›¾åƒæ–‡ä»¶|*.jpg;*.jpeg;*.png;*.bmp|æ‰€æœ‰æ–‡ä»¶|*.*");
 
                 if (string.IsNullOrEmpty(selectedFile))
                 {
-                    await _uiController.LogToFrontend("ÒÑÈ¡Ïû²âÊÔ", "warning");
+                    await _uiController.LogToFrontend("å·²å–æ¶ˆæµ‹è¯•", "warning");
                     return;
                 }
 
-                await _uiController.LogToFrontend($"¼ÓÔØÍ¼Æ¬: {Path.GetFileName(selectedFile)}", "info");
+                await _uiController.LogToFrontend($"æµ‹è¯•å›¾ç‰‡: {Path.GetFileName(selectedFile)}", "info");
 
-                // ¶ÁÈ¡Í¼Æ¬
+                // è¯»å–å›¾ç‰‡
                 using (Bitmap originalBitmap = new Bitmap(selectedFile))
                 {
-                    // ¼ì²éÄ£ĞÍÊÇ·ñ³õÊ¼»¯
+                    // æ£€æŸ¥æ¨¡å‹æ˜¯å¦åˆå§‹åŒ–
                     if (!_detectionService.IsModelLoaded)
                     {
-                        await _uiController.LogToFrontend("YOLOÄ£ĞÍÎ´³õÊ¼»¯", "error");
+                        await _uiController.LogToFrontend("YOLOæ¨¡å‹æœªåˆå§‹åŒ–", "error");
                         return;
                     }
 
-                    // Ö´ĞĞYOLO¼ì²â
-                    Stopwatch sw = Stopwatch.StartNew();
+                    var sw = Stopwatch.StartNew();
 
-                    float conf = _appConfig.Confidence;
-                    float iou = _appConfig.IouThreshold;
-
-                    // Ê¹ÓÃ¼ì²â·şÎñ½øĞĞÍÆÀí
-                    var detectionResult = await _detectionService.DetectAsync(originalBitmap, conf, iou);
-                    List<YoloResult> allResults = detectionResult.Results ?? new List<YoloResult>();
-                    string usedModelName = detectionResult.UsedModelName ?? "";
-                    string[] usedModelLabels = detectionResult.UsedModelLabels ?? Array.Empty<string>();
-
-                    // ¼ÇÂ¼Ê¹ÓÃµÄÄ£ĞÍ
-                    if (detectionResult.WasFallback)
-                    {
-                        await _uiController.LogToFrontend($"? Ö÷Ä£ĞÍÎ´¼ì²âµ½, ÒÑÇĞ»»µ½: {usedModelName}", "warning");
-                    }
-                    else if (!string.IsNullOrEmpty(usedModelName))
-                    {
-                        await _uiController.LogToFrontend($"Ê¹ÓÃÄ£ĞÍ: {usedModelName}", "info");
-                    }
-
-                    // ·¢ËÍĞÔÄÜÖ¸±ê
-                    var metrics = _detectionService.GetLastMetrics();
-                    if (metrics != null)
-                    {
-                        await _uiController.SendInferenceMetrics(metrics);
-                    }
+                    // æ‰§è¡Œæ£€æµ‹
+                    var result = await _detectionService.DetectAsync(originalBitmap, _appConfig.Confidence, overlapThreshold);
 
                     sw.Stop();
 
-                    // ±ê×¼»¯ĞèÒªimgW/H
-                    List<YoloResult> pixelResults = StandardizeYoloResults(allResults, originalBitmap.Width, originalBitmap.Height);
+                    // è·å–æ£€æµ‹ç»“æœ
+                    var results = result.Results ?? new List<YoloResult>();
+                    bool isQualified = result.IsQualified;
 
-                    // Ó¦ÓÃUI»æÖÆµÄROI¹ıÂË
-                    List<YoloResult> results = FilterByROI(pixelResults, originalBitmap.Width, originalBitmap.Height);
-
-                    // Ê¹ÓÃÊµ¼ÊÍÆÀíÄ£ĞÍµÄ±êÇ©ÁĞ±í£¨¹Ø¼üĞŞ¸´£ºÈ·±£¸¨ÖúÄ£ĞÍµÄ±êÇ©ÕıÈ·ÏÔÊ¾£©
-                    string[] labels = usedModelLabels;
-
-                    // 3. ÅĞ±ğ¸Ã´ÎÊÇ·ñºÏ¸ñ
-                    int targetCount = results.Count(r =>
+                    // ç”Ÿæˆå¸¦æ ‡æ³¨çš„ç»“æœå›¾åƒ
+                    string[] labels = _detectionService.GetLabels() ?? Array.Empty<string>();
+                    using (var resultImage = _detectionService.GenerateResultImage(originalBitmap, results, labels))
                     {
-                        int labelIndex = (int)r.BasicData[5];
-                        if (labelIndex >= 0 && labelIndex < labels.Length)
+                        // å‘é€ç»“æœå›¾åƒåˆ°å‰ç«¯
+                        using (var ms = new MemoryStream())
                         {
-                            return labels[labelIndex].Equals(_appConfig.TargetLabel, StringComparison.OrdinalIgnoreCase);
-                        }
-                        return false;
-                    });
-                    bool isQualified = (targetCount == _appConfig.TargetCount);
-
-
-                    string roiInfo = _currentROI != null ? $" (ROI¹ıÂË: {allResults.Count} ¡ú {results.Count})" : "";
-                    string objDesc = GetDetectedObjectsDescription(results, usedModelLabels);
-                    string modelInfo = detectionResult.WasFallback ? $" [Ä£ĞÍ: {usedModelName}]" : "";
-                    await _uiController.LogDetectionToFrontend($"¼ì²âÍê³É! ºÄÊ±: {sw.ElapsedMilliseconds}ms, ¼ì²âµ½ {objDesc}{roiInfo}{modelInfo}, ÅĞ¶¨: {(isQualified ? "ºÏ¸ñ" : "²»ºÏ¸ñ")}", isQualified ? "success" : "error");
-
-                    // 4. ¸üĞÂUI¡¢PLC¡¢±£´æ½á¹û (¸´ÓÃÉú²úÂß¼­)
-                    UpdateUIAndPLC(isQualified, results, usedModelLabels);
-                    ProcessAndSaveImages(originalBitmap, results, isQualified, usedModelLabels);
-                }
-            }
-            catch (Exception ex)
-            {
-                await _uiController.LogToFrontend($"²âÊÔÒì³£: {ex.Message}", "error");
-            }
-        }
-
-        // ¶ÔÓ¦Ô­ btnCapture_Click_1
-        private async Task btnCapture_LogicAsync()
-        {
-            try
-            {
-                var result = await RunDetectionOnceAsync();
-                if (result != null)
-                {
-                    await UpdateUIAndPLC(result.IsQualified, result.Results, result.UsedModelLabels);
-                    ProcessAndSaveImages(result.OriginalBitmap, result.Results, result.IsQualified, result.UsedModelLabels);
-                    result.OriginalBitmap?.Dispose();
-                }
-            }
-            catch (Exception ex)
-            {
-                await _uiController.LogToFrontend($"ÊÖ¶¯¼ì²âÒì³£: {ex.Message}", "error");
-            }
-        }
-
-        private class DetectionResult
-        {
-            public bool IsQualified { get; set; }
-            public List<YoloResult>? Results { get; set; }
-            public Bitmap? OriginalBitmap { get; set; }
-            public long ElapsedMs { get; set; }
-            /// <summary>Ê¹ÓÃµÄÄ£ĞÍ±êÇ©ÁĞ±í£¨¶àÄ£ĞÍÇĞ»»Ê±¹Ø¼ü£©</summary>
-            public string[]? UsedModelLabels { get; set; }
-        }
-
-        private async Task<DetectionResult?> RunDetectionOnceAsync()
-        {
-            if (!cam.IMV_IsGrabbing())
-            {
-                _uiController.LogToFrontend("ÇëÏÈÆô¶¯Ïà»ú", "warning");
-                return null;
-            }
-
-            IMVDefine.IMV_Frame frame = new IMVDefine.IMV_Frame();
-            Stopwatch sw = new Stopwatch();
-            Bitmap? originalBitmap = null;
-
-            try
-            {
-                cam.IMV_ExecuteCommandFeature("TriggerSoftware");
-                int res = cam.IMV_GetFrame(ref frame, 3000);
-                if (res != IMVDefine.IMV_OK)
-                {
-                    _uiController.LogToFrontend("»ñÈ¡Í¼ÏñÖ¡Ê§°Ü", "error");
-                    return null;
-                }
-
-                originalBitmap = ConvertFrameToBitmap(frame);
-                sw.Start();
-
-                // ±£´æ×îºóÒ»Ö¡ÓÃÓÚ´«Í³ÊÓ¾õÔ¤ÀÀ
-                lock (_frameLock)
-                {
-                    _lastCapturedFrame?.Dispose();
-                    _lastCapturedFrame = BitmapConverter.ToMat(originalBitmap);
-                }
-
-                // ¼ì²éÄ£ĞÍÊÇ·ñ³õÊ¼»¯
-                if (!_detectionService.IsModelLoaded) throw new Exception("YOLOÄ£ĞÍÎ´³õÊ¼»¯");
-
-                float conf = _appConfig.Confidence;
-                float iou = _appConfig.IouThreshold;
-
-                // Ê¹ÓÃ¼ì²â·şÎñ½øĞĞÍÆÀí
-                var detectionResult = await _detectionService.DetectAsync(originalBitmap, conf, iou);
-                List<YoloResult> allResults = detectionResult.Results ?? new List<YoloResult>();
-                string usedModelName = detectionResult.UsedModelName ?? "";
-                string[] usedModelLabels = detectionResult.UsedModelLabels ?? Array.Empty<string>();
-
-                // ¼ÇÂ¼Ê¹ÓÃµÄÄ£ĞÍ
-                if (detectionResult.WasFallback)
-                {
-                    await _uiController.LogToFrontend($"Ö÷Ä£ĞÍÎ´¼ì²âµ½, ÇĞ»»µ½: {usedModelName}", "warning");
-                }
-
-                List<YoloResult> pixelResults = StandardizeYoloResults(allResults, originalBitmap.Width, originalBitmap.Height);
-                // Ê¹ÓÃÄÚ²¿²ÎÊı½øĞĞROI¹ıÂË
-                List<YoloResult> finalResults = FilterResultsByROIWithThreshold(pixelResults, overlapThreshold);
-
-                // Ó¦ÓÃUI»æÖÆµÄROI¹ıÂË
-                finalResults = FilterByROI(finalResults, originalBitmap.Width, originalBitmap.Height);
-
-                // Ê¹ÓÃÊµ¼ÊÍÆÀíÄ£ĞÍµÄ±êÇ©ÁĞ±í£¨¹Ø¼üĞŞ¸´£ºÈ·±£¸¨ÖúÄ£ĞÍµÄ±êÇ©ÕıÈ·ÏÔÊ¾£©
-                string[] labels = usedModelLabels;
-                int targetCount = finalResults.Count(r =>
-                {
-                    int labelIndex = (int)r.BasicData[5];
-                    if (labelIndex >= 0 && labelIndex < labels.Length)
-                    {
-                        return labels[labelIndex].Equals(_appConfig.TargetLabel, StringComparison.OrdinalIgnoreCase);
-                    }
-                    return false;
-                });
-                bool isQualified = (targetCount == _appConfig.TargetCount);
-
-                sw.Stop();
-                return new DetectionResult
-                {
-                    IsQualified = isQualified,
-                    Results = finalResults,
-                    OriginalBitmap = originalBitmap,
-                    ElapsedMs = sw.ElapsedMilliseconds,
-                    UsedModelLabels = usedModelLabels
-                };
-            }
-            catch (Exception ex)
-            {
-                originalBitmap?.Dispose(); // ·¢ÉúÒì³£Ê±ÊÍ·ÅBitmap
-                _uiController.LogToFrontend($"¼ì²âÒì³£: {ex.Message}", "error");
-                return null;
-            }
-            finally
-            {
-                cam.IMV_ReleaseFrame(ref frame);
-            }
-        }
-
-        private List<YoloResult> StandardizeYoloResults(List<YoloResult> results, int imgW, int imgH)
-        {
-            var outList = new List<YoloResult>();
-            foreach (var r in results)
-            {
-                YoloResult newItem = new YoloResult();
-                newItem.BasicData = (float[])r.BasicData.Clone();
-                newItem.MaskData = r.MaskData?.Clone() ?? new Mat();
-                if (r.KeyPoints != null)
-                {
-                    newItem.KeyPoints = new PosePoint[r.KeyPoints.Length];
-                    for (int i = 0; i < r.KeyPoints.Length; i++)
-                        newItem.KeyPoints[i] = new PosePoint { X = r.KeyPoints[i].X, Y = r.KeyPoints[i].Y, Score = r.KeyPoints[i].Score };
-                }
-
-                outList.Add(newItem);
-            }
-            return outList;
-        }
-
-        private async Task UpdateUIAndPLC(bool isQualified, List<YoloResult>? results, string[]? labels = null)
-        {
-            // ¸üĞÂ WebUI (StatisticsUpdated ÊÂ¼ş»á×Ô¶¯¸üĞÂ UI)
-            _statisticsService.RecordDetection(isQualified);
-
-            // ±£´æ¼ì²â¼ÇÂ¼µ½Êı¾İ¿â
-            try
-            {
-                var record = new DetectionRecord
-                {
-                    Timestamp = DateTime.Now,
-                    IsQualified = isQualified,
-                    TargetLabel = _appConfig.TargetLabel,
-                    ExpectedCount = _appConfig.TargetCount,
-                    ActualCount = results?.Count ?? 0,
-                    InferenceMs = (int)_detectionService.LastInferenceMs,
-                    ModelName = _detectionService.CurrentModelName,
-                    CameraId = _appConfig.ActiveCamera?.Id ?? "",
-                    ResultJson = results != null ? JsonSerializer.Serialize(results.Select(r => new
-                    {
-                        Label = r.BasicData[5],
-                        Confidence = r.BasicData[4]
-                    })) : ""
-                };
-                await _databaseService.SaveDetectionRecordAsync(record);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[UpdateUIAndPLC] Database save error: {ex.Message}");
-            }
-
-            // ¿ÉÒÔÔÚhtmlÌí¼Ó showResultOverlay(bool) ½Ó¿Ú£¬ÕâÀïÏÈ²»´«
-            // Èô WebUIController Ö§³Ö£¬¿Éµ÷ÓÃ _uiController.ShowResult(isQualified);
-
-            string[] actualLabels = labels ?? _detectionService.GetLabels();
-
-            StringBuilder sb = new StringBuilder();
-            if (actualLabels != null && results != null)
-            {
-                foreach (var r in results)
-                {
-                    int labelIdx = (int)r.BasicData[5];
-                    string label = (labelIdx >= 0 && labelIdx < actualLabels.Length) ? actualLabels[labelIdx] : $"Unknown({labelIdx})";
-                    float conf = r.BasicData[4];
-                    sb.AppendLine($"·¢ÏÖÎïÌå: {label} ({conf:P0})");
-                }
-            }
-            // Éú²úÄ£Ê½ÏÂµÄÃ¿´Î¼ì²â½á¹ûÒ²Êä³öµ½¼ì²âÈÕÖ¾´°¿Ú
-            string objDesc = GetDetectedObjectsDescription(results, actualLabels);
-            await _uiController.LogDetectionToFrontend($"PLC´¥·¢: {(isQualified ? "OK" : "NG")} | {objDesc}", isQualified ? "success" : "error");
-
-            _storageService?.WriteDetectionLog(sb.ToString(), isQualified);
-
-            // ÏÂ·¢ PLC
-            await WriteDetectionResult(isQualified);
-        }
-
-        private void ProcessAndSaveImages(Bitmap? original, List<YoloResult>? results, bool isQualified, string[]? labels = null)
-        {
-            if (original == null) return;
-
-            using (Bitmap roiMarked = DrawROIBorder(original))
-            {
-                if (!_detectionService.IsModelLoaded || results == null) return;
-
-                // Ê¹ÓÃ´«ÈëµÄ±êÇ©ÁĞ±í£¬·ñÔò»ØÍËµ½Ö÷Ä£ĞÍ±êÇ©
-                string[] actualLabels = labels ?? _detectionService.GetLabels();
-
-                using (Image finalImg = _detectionService.GenerateResultImage(roiMarked, results, actualLabels))
-                {
-                    // ¸üĞÂ WebUI Í¼Æ¬
-                    using (Bitmap webImg = new Bitmap(finalImg))
-                    {
-                        SendImageToWeb(webImg);
-                    }
-                    // ±£´æ
-                    _storageService?.SaveDetectionImageAsync(roiMarked, isQualified);
-                }
-            }
-        }
-
-        /// <summary>
-        /// ½«Í¼Æ¬·¢ËÍµ½Ç°¶ËÏÔÊ¾
-        /// <para>×¢Òâ£º´Ë·½·¨²»¸ºÔğ Dispose ´«ÈëµÄ Bitmap£¬µ÷ÓÃÕßĞè×ÔĞĞ¹ÜÀíÉúÃüÖÜÆÚ</para>
-        /// </summary>
-        /// <param name="bmp">ÒªÏÔÊ¾µÄÍ¼Æ¬¶ÔÏó</param>
-        private void SendImageToWeb(Bitmap bmp)
-        {
-            if (bmp == null) return;
-            using (MemoryStream ms = new MemoryStream())
-            {
-                //±£´æÎª Jpeg ¼õÉÙÊı¾İÁ¿
-                bmp.Save(ms, ImageFormat.Jpeg);
-                byte[] byteImage = ms.ToArray();
-                string base64 = Convert.ToBase64String(byteImage);
-                _uiController.UpdateImage(base64);
-            }
-        }
-
-        // ½öÔÚÔ­Í¼ÉÏ»­ ROI ĞéÏß¿ò (¹©±£´æ/ÏÔÊ¾)
-        private Bitmap DrawROIBorder(Bitmap src)
-        {
-            if (src == null) throw new ArgumentNullException(nameof(src));
-
-            Bitmap ret = new Bitmap(src);
-
-            // ÓÅÏÈÊ¹ÓÃ WebUI ÉèÖÃµÄ ROI (_currentROI)
-            if (_currentROI != null && _currentROI.Length == 4)
-            {
-                // _currentROI is [x, y, w, h] normalized (0.0 ~ 1.0)
-                int x = (int)(_currentROI[0] * src.Width);
-                int y = (int)(_currentROI[1] * src.Height);
-                int w = (int)(_currentROI[2] * src.Width);
-                int h = (int)(_currentROI[3] * src.Height);
-
-                // ±ÜÃâÎŞĞ§»æÖÆ
-                if (w > 0 && h > 0)
-                {
-                    using (Graphics g = Graphics.FromImage(ret))
-                    {
-                        using (Pen p = new Pen(Color.Red, 3) { DashStyle = DashStyle.Dash, DashPattern = new float[] { 8, 4 } })
-                        {
-                            g.DrawRectangle(p, x, y, w, h);
+                            resultImage.Save(ms, ImageFormat.Jpeg);
+                            string base64 = Convert.ToBase64String(ms.ToArray());
+                            await _uiController.UpdateImage(base64);
                         }
                     }
-                }
-                return ret;
-            }
 
-            // ¼æÈİ¾É°æÂß¼­ (Èç¹û WebUI Î´ÉèÖÃ ROI£¬µ«ºó¶ËÆôÓÃÁË useROI)
-            if (!useROI) return ret;
+                    // æ›´æ–°UI
+                    string objDesc = results.Count > 0 ? $"æ£€æµ‹åˆ° {results.Count} ä¸ªç›®æ ‡" : "æœªæ£€æµ‹åˆ°ç›®æ ‡";
+                    await _uiController.LogToFrontend($"æ£€æµ‹å®Œæˆ: {(isQualified ? "åˆæ ¼" : "ä¸åˆæ ¼")} | {objDesc} | è€—æ—¶: {sw.ElapsedMilliseconds}ms", isQualified ? "success" : "error");
 
-            using (Graphics g = Graphics.FromImage(ret))
-            {
-                using (Pen p = new Pen(Color.Red, 3) { DashStyle = DashStyle.Dash, DashPattern = new float[] { 8, 4 } })
-                    g.DrawRectangle(p, roiX, roiY, roiWidth, roiHeight);
-            }
-            return ret;
-        }
-
-        // ´¿ÊıÖµ¼ÆËã ROI ¹ıÂË
-        private List<YoloResult> FilterResultsByROIWithThreshold(List<YoloResult>? input, float threshold)
-        {
-            if (input == null) return new List<YoloResult>();
-            if (!useROI || !isROISet) return input;
-            var outList = new List<YoloResult>();
-            RectangleF roiF = new RectangleF(roiX, roiY, roiWidth, roiHeight);
-
-            foreach (var item in input)
-            {
-                float w = item.BasicData[2];
-                float h = item.BasicData[3];
-                float left = item.BasicData[0] - w / 2f;
-                float top = item.BasicData[1] - h / 2f;
-                RectangleF itemRect = new RectangleF(left, top, w, h);
-                RectangleF inter = RectangleF.Intersect(roiF, itemRect);
-                float interArea = Math.Max(0, inter.Width) * Math.Max(0, inter.Height);
-                float boxArea = w * h;
-                if (boxArea > 0 && (interArea / boxArea) >= threshold) outList.Add(item);
-            }
-            return outList;
-        }
-
-        /// <summary>
-        /// ¸ù¾İROIÇøÓò¹ıÂË¼ì²â½á¹û,Ö»±£ÁôÖĞĞÄµãÔÚROIÄÚµÄ¼ì²â
-        /// </summary>
-        private List<YoloResult> FilterByROI(List<YoloResult> results, int imageWidth, int imageHeight)
-        {
-            if (_currentROI == null || _currentROI.Length != 4)
-                return results; // Ã»ÓĞROIÔò²»¹ıÂË
-
-            // Èç¹ûROI¿í¸ß¼¸ºõÎª0£¬Ò²¾ÍÊÇÎ´ÉèÖÃÓĞĞ§ROI£¬Ôò²»¹ıÂË
-            if (_currentROI[2] < 0.001f || _currentROI[3] < 0.001f)
-                return results;
-
-            // ½«¹éÒ»»¯×ø±ê×ª»»ÎªÏñËØ×ø±ê
-            float roiX = _currentROI[0] * imageWidth;
-            float roiY = _currentROI[1] * imageHeight;
-            float roiW = _currentROI[2] * imageWidth;
-            float roiH = _currentROI[3] * imageHeight;
-
-            // ¹ıÂË:Ö»±£ÁôÖĞĞÄµãÔÚROIÄÚµÄ¼ì²â½á¹û
-            var filtered = results.Where(r =>
-            {
-                float centerX = r.BasicData[0];
-                float centerY = r.BasicData[1];
-
-                return centerX >= roiX && centerX <= (roiX + roiW) &&
-                       centerY >= roiY && centerY <= (roiY + roiH);
-            }).ToList();
-
-            return filtered;
-        }
-
-        private string GetDetectedObjectsDescription(List<YoloResult>? results, string[]? labels = null)
-        {
-            if (results == null || results.Count == 0) return "Î´¼ì²âµ½ÎïÌå";
-
-            // Ê¹ÓÃ´«ÈëµÄ±êÇ©ÁĞ±í£¬·ñÔò»ØÍËµ½Ä¬ÈÏ
-            string[]? actualLabels = labels ?? _detectionService.GetLabels();
-            if (actualLabels == null || actualLabels.Length == 0) return $"{results.Count} ¸öÎïÌå";
-
-            var descriptions = results
-                .GroupBy(r => (int)r.BasicData[5])
-                .Select(g =>
-                {
-                    int index = g.Key;
-                    string name = (index >= 0 && index < actualLabels.Length) ? actualLabels[index] : $"Î´Öª({index})";
-
-                    if (name.Equals("remote", StringComparison.OrdinalIgnoreCase)) name = "Ò£¿ØÆ÷";
-                    else if (name.Equals("screw", StringComparison.OrdinalIgnoreCase)) name = "Âİ¶¤";
-
-                    return $"{g.Count()}¸ö{name}";
-                });
-
-            return string.Join(", ", descriptions);
-        }
-
-        /// <summary>
-        /// ´¦Àí×îÖÕ¼ì²â½á¹û
-        /// </summary>
-        private void ProcessFinalResult(DetectionResult result)
-        {
-            if (result == null || result.Results == null || result.OriginalBitmap == null) return;
-
-            InvokeOnUIThread(() =>
-            {
-                SafeFireAndForget(UpdateUIAndPLC(result.IsQualified, result.Results, result.UsedModelLabels), "UI¸üĞÂ");
-                ProcessAndSaveImages(result.OriginalBitmap, result.Results, result.IsQualified, result.UsedModelLabels);
-
-                var lastMetrics = _detectionService.GetLastMetrics();
-                if (lastMetrics != null)
-                {
-                    SafeFireAndForget(_uiController.SendInferenceMetrics(lastMetrics), "·¢ËÍÍÆÀíÖ¸±ê");
-                }
-
-                result.OriginalBitmap?.Dispose();
-            });
-        }
-
-        /// <summary>
-        /// ½öÏÔÊ¾Í¼Ïñ£¨ÖĞ¼ä½á¹û£¬²»±£´æ£©
-        /// </summary>
-        private void DisplayImageOnly(Bitmap? original, List<YoloResult>? results, string[]? labels = null)
-        {
-            if (!_detectionService.IsModelLoaded || original == null || results == null) return;
-
-            using (Bitmap roiMarked = DrawROIBorder(original))
-            {
-                string[] actualLabels = labels ?? _detectionService.GetLabels();
-
-                using (Image finalImg = _detectionService.GenerateResultImage(roiMarked, results, actualLabels))
-                using (Bitmap webImg = new Bitmap(finalImg))
-                {
-                    SendImageToWeb(webImg);
+                    // æ›´æ–°ç»Ÿè®¡
+                    _statisticsService.RecordDetection(isQualified);
                 }
             }
+            catch (Exception ex)
+            {
+                await _uiController.LogToFrontend($"æµ‹è¯•å¤±è´¥: {ex.Message}", "error");
+            }
         }
 
-        /// <summary>
-        /// ÔÚ¶ÀÁ¢µÄSTAÏß³ÌÖĞÔËĞĞOpenFileDialog£¬³¹µ×½â¾öWebView2Ïß³Ì³åÍ»µ¼ÖÂµÄÉÁÍËÎÊÌâ
-        /// </summary>
-        private Task<string?> ShowOpenFileDialogOnStaThread(string title, string filter)
+        private async Task<string?> ShowOpenFileDialogOnStaThread(string title, string filter)
         {
-            var tcs = new TaskCompletionSource<string?>();
-
-            Thread thread = new Thread(() =>
+            string? result = null;
+            await Task.Run(() =>
             {
-                try
+                Thread thread = new Thread(() =>
                 {
                     using var ofd = new OpenFileDialog();
                     ofd.Title = title;
                     ofd.Filter = filter;
-                    ofd.Multiselect = false;
-                    ofd.AutoUpgradeEnabled = true; // ÔÚ¶ÀÁ¢Ïß³ÌÖĞÍ¨³£¿ÉÒÔ»Ö¸´ĞÂ°æ½çÃæ
-
                     if (ofd.ShowDialog() == DialogResult.OK)
                     {
-                        tcs.SetResult(ofd.FileName);
+                        result = ofd.FileName;
                     }
-                    else
-                    {
-                        tcs.SetResult(null);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    tcs.SetException(ex);
-                }
+                });
+                thread.SetApartmentState(ApartmentState.STA);
+                thread.Start();
+                thread.Join();
             });
-
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.IsBackground = true;
-            thread.Start();
-
-            return tcs.Task;
+            return result;
         }
 
-        private void btnSettings_Logic()
+        private void ChangeModel_Logic(string modelName)
         {
-            // ´¥·¢HTMLÃÜÂëÄ£Ì¬¿ò¶ø·ÇWinForms¶Ô»°¿ò
-            _ = _uiController.ExecuteScriptAsync("openPasswordModal();");
+            if (string.IsNullOrEmpty(modelName)) return;
+
+            æ¨¡å‹å = modelName;
+            SafeFireAndForget(ChangeModelAsync(modelName), "åˆ‡æ¢æ¨¡å‹");
         }
 
-        private void ChangeModel_Logic(string modelFilename)
+        private async Task ChangeModelAsync(string modelName)
         {
-            Ä£ĞÍÃû = modelFilename;
-            SafeFireAndForget(InitYoloAndMultiModelAsync(), "Ä£ĞÍ³õÊ¼»¯");
+            try
+            {
+                await _uiController.LogToFrontend($"æ­£åœ¨åˆ‡æ¢æ¨¡å‹: {modelName}", "info");
+
+                string modelPath = Path.Combine(æ¨¡å‹è·¯å¾„, modelName);
+                if (!File.Exists(modelPath))
+                {
+                    await _uiController.LogToFrontend($"æ¨¡å‹æ–‡ä»¶ä¸å­˜åœ¨: {modelName}", "error");
+                    return;
+                }
+
+                bool success = await _detectionService.LoadModelAsync(modelPath, _appConfig.EnableGpu);
+                if (success)
+                {
+                    _appConfig.Save();
+                    await _uiController.LogToFrontend($"æ¨¡å‹åˆ‡æ¢æˆåŠŸ: {modelName}", "success");
+                }
+                else
+                {
+                    await _uiController.LogToFrontend("æ¨¡å‹åˆ‡æ¢å¤±è´¥", "error");
+                }
+            }
+            catch (Exception ex)
+            {
+                await _uiController.LogToFrontend($"æ¨¡å‹åˆ‡æ¢å¼‚å¸¸: {ex.Message}", "error");
+            }
         }
 
         /// <summary>
-        /// ³õÊ¼»¯YOLO¼ì²âÆ÷ºÍ¶àÄ£ĞÍ¹ÜÀíÆ÷
+        /// æ‰‹åŠ¨æ£€æµ‹é€»è¾‘ (PLCè§¦å‘æˆ–æ‰‹åŠ¨æŒ‰é’®)
         /// </summary>
-        private async Task InitYoloAndMultiModelAsync()
+        private async Task btnCapture_LogicAsync()
         {
-            if (string.IsNullOrEmpty(Ä£ĞÍÃû)) return;
-
-            string primaryModelPath = Path.Combine(Ä£ĞÍÂ·¾¶, Ä£ĞÍÃû);
-            if (!File.Exists(primaryModelPath))
+            // ä½¿ç”¨ä¿¡å·é‡é˜²æ­¢å¹¶å‘æ£€æµ‹
+            if (!await _detectionSemaphore.WaitAsync(0))
             {
-                SafeFireAndForget(_uiController.LogToFrontend($"Ä£ĞÍÎÄ¼ş²»´æÔÚ: {Ä£ĞÍÃû}", "error"), "Ä£ĞÍ¼ÓÔØ");
+                await _uiController.LogToFrontend("æ£€æµ‹æ­£åœ¨è¿›è¡Œä¸­ï¼Œè¯·ç¨å€™...", "warning");
                 return;
             }
 
             try
             {
-                // Ê¹ÓÃ¼ì²â·şÎñ¼ÓÔØÖ÷Ä£ĞÍ
-                bool success = await _detectionService.LoadModelAsync(primaryModelPath, _appConfig.EnableGpu);
-                if (!success)
+                await _uiController.LogToFrontend("å¼€å§‹æ£€æµ‹...", "info");
+
+                Mat? frameToProcess = null;
+                lock (_frameLock)
                 {
-                    SafeFireAndForget(_uiController.LogToFrontend($"Ö÷Ä£ĞÍ¼ÓÔØÊ§°Ü", "error"), "Ä£ĞÍ¼ÓÔØ");
+                    if (_lastCapturedFrame != null && !_lastCapturedFrame.Empty())
+                    {
+                        frameToProcess = _lastCapturedFrame.Clone();
+                    }
+                }
+
+                if (frameToProcess == null)
+                {
+                    await _uiController.LogToFrontend("æ— å¯ç”¨å›¾åƒè¿›è¡Œæ£€æµ‹ï¼Œè¯·å…ˆæ‰“å¼€ç›¸æœº", "error");
                     return;
                 }
 
-                // ÉèÖÃ²ÎÊı
-                _detectionService.SetEnableFallback(_appConfig.EnableMultiModelFallback);
-                _detectionService.SetTaskMode(_appConfig.TaskType);
-
-                SafeFireAndForget(_uiController.LogToFrontend($"? Ö÷Ä£ĞÍÒÑ¼ÓÔØ: {Ä£ĞÍÃû}"), "Ä£ĞÍ¼ÓÔØ");
-
-                // ¼ÓÔØ¸¨ÖúÄ£ĞÍ£¨Èç¹ûÅäÖÃÁË£©
-                if (!string.IsNullOrEmpty(_appConfig.Auxiliary1ModelPath))
+                using (var mat = frameToProcess)
                 {
-                    string aux1Path = Path.Combine(Ä£ĞÍÂ·¾¶, _appConfig.Auxiliary1ModelPath);
-                    if (File.Exists(aux1Path))
-                    {
-                        await _detectionService.LoadAuxiliary1ModelAsync(aux1Path);
-                        SafeFireAndForget(_uiController.LogToFrontend($"? ¸¨ÖúÄ£ĞÍ1ÒÑ¼ÓÔØ: {_appConfig.Auxiliary1ModelPath}"), "Ä£ĞÍ¼ÓÔØ");
-                    }
-                }
+                    var sw = Stopwatch.StartNew();
 
-                if (!string.IsNullOrEmpty(_appConfig.Auxiliary2ModelPath))
-                {
-                    string aux2Path = Path.Combine(Ä£ĞÍÂ·¾¶, _appConfig.Auxiliary2ModelPath);
-                    if (File.Exists(aux2Path))
+                    // æ‰§è¡Œæ£€æµ‹
+                    var result = await _detectionService.DetectAsync(mat, _appConfig.Confidence, overlapThreshold);
+
+                    sw.Stop();
+
+                    bool isQualified = result.IsQualified;
+                    var results = result.Results ?? new List<YoloResult>();
+
+                    // å°†æ£€æµ‹ç»“æœå†™å…¥PLC
+                    await WriteDetectionResultToPlc(isQualified);
+
+                    // ä¿å­˜å›¾åƒ
+                    string imagePath = await SaveDetectionImage(mat, results, isQualified);
+
+                    // å‘é€ç»“æœåˆ°å‰ç«¯
+                    string[] labels = _detectionService.GetLabels() ?? Array.Empty<string>();
+                    using (var bitmap = mat.ToBitmap())
+                    using (var resultImage = _detectionService.GenerateResultImage(bitmap, results, labels))
+                    using (var ms = new MemoryStream())
                     {
-                        await _detectionService.LoadAuxiliary2ModelAsync(aux2Path);
-                        SafeFireAndForget(_uiController.LogToFrontend($"? ¸¨ÖúÄ£ĞÍ2ÒÑ¼ÓÔØ: {_appConfig.Auxiliary2ModelPath}"), "Ä£ĞÍ¼ÓÔØ");
+                        resultImage.Save(ms, ImageFormat.Jpeg);
+                        string base64 = Convert.ToBase64String(ms.ToArray());
+                        await _uiController.UpdateImage(base64);
                     }
+
+                    // æ—¥å¿—
+                    string objDesc = results.Count > 0 ? $"æ£€æµ‹åˆ° {results.Count} ä¸ªç›®æ ‡" : "æœªæ£€æµ‹åˆ°ç›®æ ‡";
+                    await _uiController.LogToFrontend($"æ£€æµ‹å®Œæˆ: {(isQualified ? "åˆæ ¼" : "ä¸åˆæ ¼")} | {objDesc} | è€—æ—¶: {sw.ElapsedMilliseconds}ms", isQualified ? "success" : "error");
+
+                    // æ›´æ–°ç»Ÿè®¡
+                    _statisticsService.RecordDetection(isQualified);
+
+                    // å†™å…¥æ•°æ®åº“
+                    await _databaseService.SaveDetectionRecordAsync(new DetectionRecord
+                    {
+                        Timestamp = DateTime.Now,
+                        IsQualified = isQualified,
+                        ModelName = _detectionService.CurrentModelName,
+                        InferenceMs = (int)sw.ElapsedMilliseconds
+                    });
                 }
             }
             catch (Exception ex)
             {
-                SafeFireAndForget(_uiController.LogToFrontend($"Ä£ĞÍ¼ÓÔØÊ§°Ü: {ex.Message}", "error"), "Ä£ĞÍ¼ÓÔØ");
+                await _uiController.LogToFrontend($"æ£€æµ‹å¼‚å¸¸: {ex.Message}", "error");
             }
+            finally
+            {
+                _detectionSemaphore.Release();
+            }
+        }
+
+        private async Task<string> SaveDetectionImage(Mat image, List<YoloResult> results, bool isQualified)
+        {
+            try
+            {
+                string subFolder = isQualified ? "OK" : "NG";
+                string dateFolder = DateTime.Now.ToString("yyyy-MM-dd");
+                string directory = Path.Combine(Path_Images, subFolder, dateFolder);
+
+                if (!Directory.Exists(directory))
+                    Directory.CreateDirectory(directory);
+
+                string fileName = $"{DateTime.Now:HHmmss_fff}.jpg";
+                string filePath = Path.Combine(directory, fileName);
+
+                // å¦‚æœæœ‰æ£€æµ‹ç»“æœï¼Œå…ˆç»˜åˆ¶è¾¹æ¡†
+                if (results.Count > 0)
+                {
+                    string[] labels = _detectionService.GetLabels() ?? Array.Empty<string>();
+                    using (var bitmap = image.ToBitmap())
+                    using (var resultImage = _detectionService.GenerateResultImage(bitmap, results, labels))
+                    {
+                        resultImage.Save(filePath, ImageFormat.Jpeg);
+                    }
+                }
+                else
+                {
+                    Cv2.ImWrite(filePath, image);
+                }
+
+                return filePath;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ä¿å­˜æ£€æµ‹å›¾åƒå¤±è´¥: {ex.Message}");
+                return "";
+            }
+        }
+
+        private async Task WriteDetectionResultToPlc(bool isQualified)
+        {
+            if (_plcService.IsConnected)
+            {
+                try
+                {
+                    short resultAddress = (short)_appConfig.PlcResultAddress;
+                    await _plcService.WriteResultAsync(resultAddress, isQualified);
+                }
+                catch (Exception ex)
+                {
+                    await _uiController.LogToFrontend($"PLCå†™å…¥å¤±è´¥: {ex.Message}", "error");
+                }
+            }
+        }
+
+
+        private void btnSettings_Logic()
+        {
+            // æ‰“å¼€è®¾ç½®å¯¹è¯æ¡† (é€šè¿‡å‰ç«¯å¯†ç éªŒè¯)
+            SafeFireAndForget(_uiController.ExecuteScriptAsync("showPasswordModal()"), "æ˜¾ç¤ºå¯†ç æ¡†");
         }
 
         #endregion
     }
 }
-
-
