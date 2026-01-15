@@ -1,11 +1,11 @@
 // ============================================================================
-// ÎÄ¼şÃû: StorageService.cs
-// ÃèÊö:   ´æ´¢·şÎñÊµÏÖ
+// æ–‡ä»¶å: StorageService.cs
+// æè¿°:   å­˜å‚¨æœåŠ¡å®ç°
 //
-// ¹¦ÄÜ:
-//   - Í¼Ïñ±£´æºÍ¹ÜÀí
-//   - ÈÕÖ¾ÎÄ¼ş¹ÜÀí
-//   - ¾ÉÊı¾İ×Ô¶¯ÇåÀí
+// åŠŸèƒ½:
+//   - å›¾åƒä¿å­˜å’Œç®¡ç†
+//   - æ—¥å¿—æ–‡ä»¶è®°å½•
+//   - å†å²æ•°æ®è‡ªåŠ¨æ¸…ç†
 // ============================================================================
 
 using System;
@@ -21,31 +21,31 @@ using ClearFrost.Interfaces;
 namespace ClearFrost.Services
 {
     /// <summary>
-    /// ´æ´¢·şÎñÊµÏÖ
+    /// å­˜å‚¨æœåŠ¡å®ç°
     /// </summary>
     public class StorageService : IStorageService
     {
-        #region Ë½ÓĞ×Ö¶Î
+        #region ç§æœ‰å­—æ®µ
 
         private readonly string _baseStoragePath;
         private bool _disposed;
 
         #endregion
 
-        #region ÊôĞÔ
+        #region å±æ€§
 
         public string ImageBasePath => Path.Combine(_baseStoragePath, "Images");
         public string LogBasePath => Path.Combine(_baseStoragePath, "Logs");
         public string SystemPath => Path.Combine(_baseStoragePath, "System");
 
         /// <summary>
-        /// Æô¶¯ÈÕÖ¾Â·¾¶
+        /// å¯åŠ¨æ—¥å¿—è·¯å¾„
         /// </summary>
         public string StartupLogPath => Path.Combine(LogBasePath, "SoftwareStartLog.txt");
 
         #endregion
 
-        #region ¹¹Ôìº¯Êı
+        #region æ„é€ å‡½æ•°
 
         public StorageService(string? storagePath = null)
         {
@@ -79,7 +79,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region Í¼Ïñ±£´æ
+        #region å›¾åƒä¿å­˜
 
         public void SaveDetectionImage(Bitmap bitmap, bool isQualified)
         {
@@ -91,7 +91,7 @@ namespace ClearFrost.Services
                 string saveDir = Path.Combine(
                     ImageBasePath,
                     isQualified ? "Qualified" : "Unqualified",
-                    now.ToString("yyyyÄêMMÔÂddÈÕ"),
+                    now.ToString("yyyyå¹´MMæœˆddæ—¥"),
                     now.ToString("HH"));
 
                 if (!Directory.Exists(saveDir))
@@ -126,20 +126,20 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ÈÕÖ¾¼ÇÂ¼
+        #region æ—¥å¿—è®°å½•
 
         public void WriteDetectionLog(string content, bool isQualified)
         {
             try
             {
                 DateTime now = DateTime.Now;
-                string dir = Path.Combine(LogBasePath, "DetectionLogs", now.ToString("yyyyÄêMMÔÂddÈÕ"));
+                string dir = Path.Combine(LogBasePath, "DetectionLogs", now.ToString("yyyyå¹´MMæœˆddæ—¥"));
 
                 if (!Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
                 string fileName = $"{now:yyyyMMddHH}.txt";
-                string fullContent = $"¼ì²âÊ±¼ä: {now}\r\n½á¹û: {(isQualified ? "ºÏ¸ñ" : "²»ºÏ¸ñ")}\r\n{content}\r\n";
+                string fullContent = $"æ£€æµ‹æ—¶é—´: {now}\r\nç»“æœ: {(isQualified ? "åˆæ ¼" : "ä¸åˆæ ¼")}\r\n{content}\r\n";
 
                 File.AppendAllText(Path.Combine(dir, fileName), fullContent, Encoding.UTF8);
             }
@@ -179,7 +179,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region Êı¾İÇåÀí
+        #region æ•°æ®æ¸…ç†
 
         public void CleanOldData(int retainDays)
         {
@@ -197,11 +197,11 @@ namespace ClearFrost.Services
                     {
                         string dirName = Path.GetFileName(dir);
 
-                        // Ö§³ÖĞÂ¾ÉÁ½ÖÖÈÕÆÚ¸ñÊ½
+                        // æ”¯æŒæ–°æ—§ä¸¤ç§æ—¥æœŸæ ¼å¼
                         bool isLegacy = DateTime.TryParseExact(
                             dirName, "yyyyMMdd", null, DateTimeStyles.None, out DateTime fdLegacy);
                         bool isNew = DateTime.TryParseExact(
-                            dirName, "yyyyÄêMMÔÂddÈÕ", null, DateTimeStyles.None, out DateTime fdNew);
+                            dirName, "yyyyå¹´MMæœˆddæ—¥", null, DateTimeStyles.None, out DateTime fdNew);
 
                         DateTime? folderDate = isNew ? fdNew : (isLegacy ? fdLegacy : null);
 
@@ -252,4 +252,3 @@ namespace ClearFrost.Services
         #endregion
     }
 }
-

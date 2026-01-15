@@ -62,7 +62,7 @@ namespace ClearFrost
             {
                 int maxRetries = _appConfig.MaxRetryCount;
                 int retryInterval = _appConfig.RetryIntervalMs;
-                DetectionResult? lastResult = null;
+                DetectionResultData? lastResult = null;
 
                 for (int attempt = 0; attempt <= maxRetries; attempt++)
                 {
@@ -72,23 +72,51 @@ namespace ClearFrost
                         await Task.Delay(retryInterval);
                     }
 
-                    lastResult = await RunDetectionOnceAsync();
+                    // 获取当前帧进行检测
+                    Mat? frameToProcess = null;
+                    lock (_frameLock)
+                    {
+                        if (_lastCapturedFrame != null && !_lastCapturedFrame.Empty())
+                        {
+                            frameToProcess = _lastCapturedFrame.Clone();
+                        }
+                    }
+
+                    if (frameToProcess == null)
+                    {
+                        await _uiController.LogToFrontend("无可用图像进行检测", "error");
+                        return;
+                    }
+
+                    using (var mat = frameToProcess)
+                    {
+                        lastResult = await _detectionService.DetectAsync(mat, _appConfig.Confidence, overlapThreshold);
+                    }
 
                     if (lastResult != null && lastResult.IsQualified)
                     {
                         break;
                     }
-                    else if (lastResult != null && !lastResult.IsQualified && attempt < maxRetries)
-                    {
-                        // 显示中间结果
-                        DisplayImageOnly(lastResult.OriginalBitmap, lastResult.Results, lastResult.UsedModelLabels);
-                        lastResult.OriginalBitmap?.Dispose();
-                    }
                 }
 
+                // 处理最终结果
                 if (lastResult != null)
                 {
-                    ProcessFinalResult(lastResult);
+                    bool isQualified = lastResult.IsQualified;
+
+                    // 写入 PLC
+                    await WriteDetectionResult(isQualified);
+
+                    // 更新统计
+                    _statisticsService.RecordDetection(isQualified);
+
+                    // 日志
+                    int detectedCount = lastResult.Results?.Count ?? 0;
+                    string objDesc = detectedCount > 0 ? $"检测到 {detectedCount} 个目标" : "未检测到目标";
+                    await _uiController.LogToFrontend($"PLC触发检测: {(isQualified ? "合格" : "不合格")} | {objDesc}", isQualified ? "success" : "error");
+
+                    // 更新前端结果显示
+                    await _uiController.UpdateResult(isQualified);
                 }
             }
             finally
@@ -126,5 +154,3 @@ namespace ClearFrost
         #endregion
     }
 }
-
-

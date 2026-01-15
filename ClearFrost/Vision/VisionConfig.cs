@@ -3,134 +3,126 @@ using System.Text.Json.Serialization;
 namespace ClearFrost.Vision
 {
     /// <summary>
-    /// ÊÓ¾õÅäÖÃÀà
-    /// ÓÃÓÚ C# <-> JS Í¨ĞÅ£¬ĞòÁĞ»¯Îª JSON ·¢ËÍ¸øÇ°¶Ë
+    /// è§†è§‰æ£€æµ‹é…ç½®
+    /// ç”¨äº C# <-> JS é€šä¿¡ï¼Œåºåˆ—åŒ–ä¸º JSON å‘é€ç»™å‰ç«¯
     /// </summary>
     public class VisionConfig
     {
-        /// <summary>
-        /// µ±Ç°ÊÓ¾õÄ£Ê½
-        /// </summary>
+        /// <summary>æ£€æµ‹æ¨¡å¼</summary>
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public VisionMode Mode { get; set; } = VisionMode.YOLO;
 
-        /// <summary>
-        /// ´«Í³ÊÓ¾õÄ£Ê½ÏÂµÄËã×ÓÁĞ±í
-        /// </summary>
+        /// <summary>ç®—å­ç®¡çº¿é…ç½®</summary>
         public List<OperatorConfig> Operators { get; set; } = new();
 
-        /// <summary>
-        /// Ä£°åÍ¼ÏñÂ·¾¶
-        /// </summary>
-        public string TemplatePath { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Ä£°åÆ¥ÅäãĞÖµ
-        /// </summary>
+        /// <summary>æ¨¡æ¿åŒ¹é…é˜ˆå€¼</summary>
         public double TemplateThreshold { get; set; } = 0.8;
+
+        /// <summary>æ¨¡æ¿å›¾åƒè·¯å¾„</summary>
+        public string TemplatePath { get; set; } = string.Empty;
     }
 
     /// <summary>
-    /// ÓÃÓÚÇ°¶ËÏÔÊ¾µÄÍêÕûÅäÖÃĞÅÏ¢
+    /// è§†è§‰é…ç½®å“åº”ï¼ˆå‘é€ç»™å‰ç«¯ï¼‰
     /// </summary>
     public class VisionConfigResponse
     {
-        /// <summary>µ±Ç°ÅäÖÃ</summary>
+        /// <summary>å½“å‰é…ç½®</summary>
         public VisionConfig Config { get; set; } = new();
 
-        /// <summary>¿ÉÓÃËã×ÓÁĞ±í</summary>
+        /// <summary>å¯ç”¨ç®—å­åˆ—è¡¨</summary>
         public List<OperatorInfo> AvailableOperators { get; set; } = new();
 
-        /// <summary>¸÷Ëã×ÓµÄ²ÎÊıĞÅÏ¢</summary>
+        /// <summary>å„ç®—å­çš„å‚æ•°ä¿¡æ¯</summary>
         public Dictionary<string, List<OperatorParameterInfo>> OperatorParameters { get; set; } = new();
     }
 
     /// <summary>
-    /// Ç°¶Ë·¢ËÍµÄÁ÷³Ì¸üĞÂÇëÇó
+    /// å‰ç«¯å‘é€çš„ç®¡çº¿æ›´æ–°è¯·æ±‚
     /// </summary>
     public class PipelineUpdateRequest
     {
-        /// <summary>²Ù×÷ÀàĞÍ: add, remove, update, move, clear</summary>
+        /// <summary>æ“ä½œç±»å‹: add, remove, update, move, clear</summary>
         [JsonPropertyName("action")]
         public string Action { get; set; } = string.Empty;
 
-        /// <summary>Ëã×ÓÀàĞÍID£¨add Ê±Ê¹ÓÃ£©</summary>
+        /// <summary>ç®—å­ç±»å‹IDï¼ˆadd æ—¶ä½¿ç”¨ï¼‰</summary>
         [JsonPropertyName("typeId")]
         public string? TypeId { get; set; }
 
-        /// <summary>Ëã×ÓÊµÀıID£¨remove/update/move Ê±Ê¹ÓÃ£©</summary>
+        /// <summary>ç®—å­å®ä¾‹IDï¼ˆremove/update/move æ—¶ä½¿ç”¨ï¼‰</summary>
         [JsonPropertyName("instanceId")]
         public string? InstanceId { get; set; }
 
-        /// <summary>²ÎÊıÃû£¨update Ê±Ê¹ÓÃ£©</summary>
+        /// <summary>å‚æ•°åï¼ˆupdate æ—¶ä½¿ç”¨ï¼‰</summary>
         [JsonPropertyName("paramName")]
         public string? ParamName { get; set; }
 
-        /// <summary>²ÎÊıÖµ£¨update Ê±Ê¹ÓÃ£©</summary>
+        /// <summary>å‚æ•°å€¼ï¼ˆupdate æ—¶ä½¿ç”¨ï¼‰</summary>
         [JsonPropertyName("paramValue")]
         public object? ParamValue { get; set; }
 
-        /// <summary>ĞÂÎ»ÖÃ£¨move Ê±Ê¹ÓÃ£©</summary>
+        /// <summary>æ–°ä½ç½®ï¼ˆmove æ—¶ä½¿ç”¨ï¼‰</summary>
         [JsonPropertyName("newIndex")]
         public int? NewIndex { get; set; }
     }
 
     /// <summary>
-    /// Ô¤ÀÀÇëÇó
+    /// é¢„è§ˆè¯·æ±‚
     /// </summary>
     public class PreviewRequest
     {
-        /// <summary>ÊÇ·ñÖ»Ô¤ÀÀµ½Ö¸¶¨²½Öè</summary>
+        /// <summary>æ˜¯å¦åªé¢„è§ˆåˆ°æŒ‡å®šç®—å­</summary>
         public bool StepPreview { get; set; } = false;
 
-        /// <summary>Ô¤ÀÀµ½µÄ²½ÖèË÷Òı</summary>
+        /// <summary>é¢„è§ˆåˆ°çš„æ­¥éª¤ç´¢å¼•</summary>
         public int StepIndex { get; set; } = -1;
     }
 
     /// <summary>
-    /// Ô¤ÀÀÏìÓ¦
+    /// é¢„è§ˆå“åº”
     /// </summary>
     public class PreviewResponse
     {
-        /// <summary>Base64 ±àÂëµÄÍ¼Ïñ</summary>
+        /// <summary>Base64 ç¼–ç çš„å›¾åƒ</summary>
         public string ImageBase64 { get; set; } = string.Empty;
 
-        /// <summary>Í¼Ïñ¿í¶È</summary>
+        /// <summary>å›¾åƒå®½</summary>
         public int Width { get; set; }
 
-        /// <summary>Í¼Ïñ¸ß¶È</summary>
+        /// <summary>å›¾åƒé«˜åº¦</summary>
         public int Height { get; set; }
 
-        /// <summary>´¦ÀíÊ±¼ä£¨ºÁÃë£©</summary>
+        /// <summary>å¤„ç†æ—¶é—´ï¼ˆæ¯«ç§’ï¼‰</summary>
         public double ProcessingTimeMs { get; set; }
     }
 
     /// <summary>
-    /// ¼ì²âÏìÓ¦
+    /// æ£€æµ‹å“åº”
     /// </summary>
     public class DetectionResponse
     {
-        /// <summary>ÊÇ·ñÍ¨¹ı</summary>
+        /// <summary>æ˜¯å¦é€šè¿‡</summary>
         public bool IsPass { get; set; }
 
-        /// <summary>¼ì²â·ÖÊı</summary>
+        /// <summary>å¾—åˆ†</summary>
         public double Score { get; set; }
 
-        /// <summary>´¦ÀíÊ±¼ä£¨ºÁÃë£©</summary>
+        /// <summary>å¤„ç†æ—¶é—´ï¼ˆæ¯«ç§’ï¼‰</summary>
         public double ProcessingTimeMs { get; set; }
 
-        /// <summary>½á¹ûÃèÊö</summary>
+        /// <summary>ç»“æœæè¿°</summary>
         public string Message { get; set; } = string.Empty;
 
-        /// <summary>¼ì²âµ½µÄ¶ÔÏó</summary>
+        /// <summary>æ£€æµ‹åˆ°çš„å¯¹è±¡</summary>
         public List<DetectedObjectDto> Objects { get; set; } = new();
 
-        /// <summary>½á¹ûÍ¼Ïñ Base64</summary>
+        /// <summary>ç»“æœå›¾åƒ Base64</summary>
         public string? ResultImageBase64 { get; set; }
     }
 
     /// <summary>
-    /// ¼ì²â¶ÔÏó DTO
+    /// æ£€æµ‹å¯¹è±¡ DTO
     /// </summary>
     public class DetectedObjectDto
     {
@@ -143,7 +135,7 @@ namespace ClearFrost.Vision
     }
 
     /// <summary>
-    /// Ëã×ÓÑµÁ·ÇëÇó
+    /// ç®—å­è®­ç»ƒè¯·æ±‚
     /// </summary>
     public class TrainOperatorRequest
     {
@@ -154,4 +146,3 @@ namespace ClearFrost.Vision
         public string ImageBase64 { get; set; } = string.Empty;
     }
 }
-

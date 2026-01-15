@@ -1,10 +1,10 @@
 // ============================================================================
-// ÎÄ¼şÃû: IPlcService.cs
-// ÃèÊö:   PLC Í¨Ñ¶·şÎñ½Ó¿Ú
+// æ–‡ä»¶å: IPlcService.cs
+// æè¿°:   PLC é€šè®¯æœåŠ¡æ¥å£
 //
-// ¹¦ÄÜ:
-//   - ¶¨Òå PLC Á¬½Ó¡¢¶ÁĞ´¡¢¼à¿ØµÄ±ê×¼½Ó¿Ú
-//   - Ö§³Ö¶àÖÖ PLC Ğ­Òé (Mitsubishi, Siemens, Omron, Modbus)
+// åŠŸèƒ½:
+//   - å®šä¹‰ PLC è¿æ¥ã€è¯»å†™å’Œç›‘å¬çš„æ ‡å‡†æ¥å£
+//   - æ”¯æŒå¤šç§ PLC åè®® (Mitsubishi, Siemens, Omron, Modbus)
 // ============================================================================
 
 using System;
@@ -13,90 +13,89 @@ using System.Threading.Tasks;
 namespace ClearFrost.Interfaces
 {
     /// <summary>
-    /// PLC Í¨Ñ¶·şÎñ½Ó¿Ú
+    /// PLC é€šè®¯æœåŠ¡æ¥å£
     /// </summary>
     public interface IPlcService : IDisposable
     {
-        #region ÊÂ¼ş
+        #region äº‹ä»¶
 
         /// <summary>
-        /// Á¬½Ó×´Ì¬±ä»¯ÊÂ¼ş
+        /// è¿æ¥çŠ¶æ€å˜åŒ–äº‹ä»¶
         /// </summary>
         event Action<bool>? ConnectionChanged;
 
         /// <summary>
-        /// ÊÕµ½´¥·¢ĞÅºÅÊÂ¼ş
+        /// æ”¶åˆ°è§¦å‘ä¿¡å·äº‹ä»¶
         /// </summary>
         event Action? TriggerReceived;
 
         /// <summary>
-        /// ´íÎó·¢ÉúÊÂ¼ş
+        /// é”™è¯¯å‘ç”Ÿäº‹ä»¶
         /// </summary>
         event Action<string>? ErrorOccurred;
 
         #endregion
 
-        #region ÊôĞÔ
+        #region å±æ€§
 
         /// <summary>
-        /// ÊÇ·ñÒÑÁ¬½Ó
+        /// æ˜¯å¦å·²è¿æ¥
         /// </summary>
         bool IsConnected { get; }
 
         /// <summary>
-        /// µ±Ç°Ğ­ÒéÃû³Æ
+        /// å½“å‰åè®®åç§°
         /// </summary>
         string ProtocolName { get; }
 
         /// <summary>
-        /// ×îºóÒ»´Î´íÎóĞÅÏ¢
+        /// æœ€åä¸€æ¬¡é”™è¯¯ä¿¡æ¯
         /// </summary>
         string? LastError { get; }
 
         #endregion
 
-        #region ·½·¨
+        #region æ–¹æ³•
 
         /// <summary>
-        /// Òì²½Á¬½Óµ½ PLC
+        /// å¼‚æ­¥è¿æ¥åˆ° PLC
         /// </summary>
-        /// <param name="protocol">Ğ­ÒéÀàĞÍ×Ö·û´®</param>
-        /// <param name="ip">IP µØÖ·</param>
-        /// <param name="port">¶Ë¿ÚºÅ</param>
-        /// <returns>ÊÇ·ñÁ¬½Ó³É¹¦</returns>
+        /// <param name="protocol">åè®®åç§°å­—ç¬¦ä¸²</param>
+        /// <param name="ip">IP åœ°å€</param>
+        /// <param name="port">ç«¯å£å·</param>
+        /// <returns>æ˜¯å¦è¿æ¥æˆåŠŸ</returns>
         Task<bool> ConnectAsync(string protocol, string ip, int port);
 
         /// <summary>
-        /// ¶Ï¿ªÁ¬½Ó
+        /// æ–­å¼€è¿æ¥
         /// </summary>
         void Disconnect();
 
         /// <summary>
-        /// Æô¶¯´¥·¢ĞÅºÅ¼à¿Ø
+        /// å¯åŠ¨è§¦å‘ä¿¡å·ç›‘å¬
         /// </summary>
-        /// <param name="triggerAddress">´¥·¢µØÖ·</param>
-        /// <param name="pollingIntervalMs">ÂÖÑ¯¼ä¸ô (ºÁÃë)</param>
+        /// <param name="triggerAddress">è§¦å‘åœ°å€</param>
+        /// <param name="pollingIntervalMs">è½®è¯¢é—´éš” (æ¯«ç§’)</param>
         void StartMonitoring(short triggerAddress, int pollingIntervalMs = 500);
 
         /// <summary>
-        /// Í£Ö¹´¥·¢ĞÅºÅ¼à¿Ø
+        /// åœæ­¢è§¦å‘ä¿¡å·ç›‘å¬
         /// </summary>
         void StopMonitoring();
 
         /// <summary>
-        /// Ğ´Èë¼ì²â½á¹ûµ½ PLC
+        /// å†™å…¥æ£€æµ‹ç»“æœåˆ° PLC
         /// </summary>
-        /// <param name="resultAddress">½á¹ûµØÖ·</param>
-        /// <param name="isQualified">ÊÇ·ñºÏ¸ñ</param>
+        /// <param name="resultAddress">ç»“æœåœ°å€</param>
+        /// <param name="isQualified">æ˜¯å¦åˆæ ¼</param>
         Task WriteResultAsync(short resultAddress, bool isQualified);
 
         /// <summary>
-        /// Ğ´Èë·ÅĞĞĞÅºÅ
+        /// å†™å…¥æ”¾è¡Œä¿¡å·
         /// </summary>
-        /// <param name="resultAddress">½á¹ûµØÖ·</param>
+        /// <param name="resultAddress">ç»“æœåœ°å€</param>
         Task WriteReleaseSignalAsync(short resultAddress);
 
         #endregion
     }
 }
-

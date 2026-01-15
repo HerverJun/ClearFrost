@@ -3,90 +3,89 @@ using OpenCvSharp;
 namespace ClearFrost.Vision
 {
     /// <summary>
-    /// Í¼Ïñ´¦ÀíËã×Ó»ùÀà½Ó¿Ú
-    /// ËùÓĞÍ¼Ïñ´¦Àí²½Öè¶¼ÊµÏÖ´Ë½Ó¿Ú
+    /// å›¾åƒç®—å­åŸºç¡€æ¥å£
+    /// æ‰€æœ‰å›¾åƒç®—å­éƒ½å®ç°æ­¤æ¥å£
     /// </summary>
     public interface IImageOperator
     {
         /// <summary>
-        /// Ëã×ÓÃû³Æ
+        /// ç®—å­åç§°
         /// </summary>
         string Name { get; }
 
         /// <summary>
-        /// Ëã×ÓÀàĞÍ±êÊ¶
+        /// ç®—å­ç±»å‹æ ‡è¯†
         /// </summary>
         string TypeId { get; }
 
         /// <summary>
-        /// Ëã×Ó²ÎÊı£¨ÓÃÓÚĞòÁĞ»¯µ½Ç°¶Ë£©
+        /// ç®—å­å‚æ•°ï¼ˆç”¨äºåºåˆ—åŒ–å’Œå‰ç«¯ï¼‰
         /// </summary>
         Dictionary<string, object> Parameters { get; }
 
         /// <summary>
-        /// Ö´ĞĞÍ¼Ïñ´¦Àí
+        /// æ‰§è¡Œå›¾åƒå¤„ç†
         /// </summary>
-        /// <param name="input">ÊäÈëÍ¼Ïñ</param>
-        /// <returns>´¦ÀíºóµÄÍ¼Ïñ</returns>
+        /// <param name="input">è¾“å…¥å›¾åƒ</param>
+        /// <returns>å¤„ç†åå›¾åƒ</returns>
         Mat Execute(Mat input);
 
         /// <summary>
-        /// ¸üĞÂ²ÎÊı
+        /// æ›´æ–°å‚æ•°
         /// </summary>
-        /// <param name="paramName">²ÎÊıÃû</param>
-        /// <param name="value">²ÎÊıÖµ</param>
+        /// <param name="paramName">å‚æ•°å</param>
+        /// <param name="value">å‚æ•°å€¼</param>
         void SetParameter(string paramName, object value);
 
         /// <summary>
-        /// »ñÈ¡²ÎÊıÅäÖÃ£¨ÓÃÓÚÇ°¶ËÏÔÊ¾£©
+        /// è·å–å‚æ•°é…ç½®ï¼ˆä¾›å‰ç«¯æ˜¾ç¤ºï¼‰
         /// </summary>
-        /// <returns>²ÎÊıÅäÖÃÁĞ±í</returns>
+        /// <returns>å‚æ•°æè¿°åˆ—è¡¨</returns>
         List<OperatorParameterInfo> GetParameterInfo();
     }
 
     /// <summary>
-    /// Ëã×Ó²ÎÊıĞÅÏ¢£¨ÓÃÓÚÇ°¶Ë¶¯Ì¬Éú³É UI£©
+    /// ç®—å­å‚æ•°ä¿¡æ¯ï¼ˆä¾›å‰ç«¯åŠ¨æ€ç”Ÿæˆ UIï¼‰
     /// </summary>
     public class OperatorParameterInfo
     {
-        /// <summary>²ÎÊıÃû</summary>
+        /// <summary>å‚æ•°å</summary>
         public string Name { get; set; } = string.Empty;
 
-        /// <summary>ÏÔÊ¾Ãû³Æ</summary>
+        /// <summary>æ˜¾ç¤ºåç§°</summary>
         public string DisplayName { get; set; } = string.Empty;
 
-        /// <summary>²ÎÊıÀàĞÍ: slider, number, checkbox, file</summary>
+        /// <summary>æ§ä»¶ç±»å‹: slider, number, checkbox, file</summary>
         public string Type { get; set; } = "number";
 
-        /// <summary>×îĞ¡Öµ£¨slider ÀàĞÍ£©</summary>
+        /// <summary>æœ€å°å€¼ï¼ˆslider ç±»å‹ï¼‰</summary>
         public double Min { get; set; }
 
-        /// <summary>×î´óÖµ£¨slider ÀàĞÍ£©</summary>
+        /// <summary>æœ€å¤§å€¼ï¼ˆslider ç±»å‹ï¼‰</summary>
         public double Max { get; set; }
 
-        /// <summary>²½½øÖµ</summary>
+        /// <summary>æ­¥é•¿å€¼</summary>
         public double Step { get; set; } = 1;
 
-        /// <summary>Ä¬ÈÏÖµ</summary>
+        /// <summary>é»˜è®¤å€¼</summary>
         public object DefaultValue { get; set; } = 0;
 
-        /// <summary>µ±Ç°Öµ</summary>
+        /// <summary>å½“å‰å€¼</summary>
         public object CurrentValue { get; set; } = 0;
     }
 
     /// <summary>
-    /// Ëã×ÓÅäÖÃ£¨ÓÃÓÚĞòÁĞ»¯£©
+    /// ç®—å­é…ç½®ï¼ˆç”¨äºåºåˆ—åŒ–ï¼‰
     /// </summary>
     public class OperatorConfig
     {
-        /// <summary>Ëã×ÓÀàĞÍ±êÊ¶</summary>
+        /// <summary>ç®—å­ç±»å‹æ ‡è¯†</summary>
         public string TypeId { get; set; } = string.Empty;
 
-        /// <summary>Ëã×ÓÊµÀıID£¨ÓÃÓÚÇ°¶ËÎ¨Ò»±êÊ¶£©</summary>
+        /// <summary>ç®—å­å®ä¾‹IDï¼ˆåœ¨å‰ç«¯å”¯ä¸€æ ‡è¯†ï¼‰</summary>
         public string InstanceId { get; set; } = Guid.NewGuid().ToString("N");
 
-        /// <summary>Ëã×Ó²ÎÊı</summary>
+        /// <summary>ç®—å­å‚æ•°</summary>
         public Dictionary<string, object> Parameters { get; set; } = new();
     }
 }
-

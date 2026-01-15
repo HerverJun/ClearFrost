@@ -1,7 +1,11 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
 namespace ClearFrost.Interfaces
 {
     /// <summary>
-    /// ¼ì²â¼ÇÂ¼Êı¾İÄ£ĞÍ
+    /// æ£€æµ‹è®°å½•æ•°æ®æ¨¡å‹
     /// </summary>
     public class DetectionRecord
     {
@@ -18,34 +22,37 @@ namespace ClearFrost.Interfaces
     }
 
     /// <summary>
-    /// Êı¾İ¿â·şÎñ½Ó¿Ú
+    /// æ•°æ®åº“æœåŠ¡æ¥å£
     /// </summary>
     public interface IDatabaseService : IDisposable
     {
         /// <summary>
-        /// ³õÊ¼»¯Êı¾İ¿â£¨´´½¨±íµÈ£©
+        /// åˆå§‹åŒ–æ•°æ®åº“ï¼ˆåˆ›å»ºè¡¨ç­‰ï¼‰
         /// </summary>
         Task InitializeAsync();
 
         /// <summary>
-        /// ±£´æ¼ì²â¼ÇÂ¼
+        /// ä¿å­˜æ£€æµ‹è®°å½•
         /// </summary>
-        Task<long> SaveDetectionRecordAsync(DetectionRecord record);
+        Task SaveDetectionRecordAsync(DetectionRecord record);
 
         /// <summary>
-        /// ²éÑ¯¼ì²â¼ÇÂ¼
+        /// æŸ¥è¯¢æ£€æµ‹è®°å½•
         /// </summary>
-        Task<List<DetectionRecord>> QueryRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100);
+        /// <param name="startDate">å¼€å§‹æ—¥æœŸï¼ˆå¯é€‰ï¼‰</param>
+        /// <param name="endDate">ç»“æŸæ—¥æœŸï¼ˆå¯é€‰ï¼‰</param>
+        /// <param name="isQualified">æ˜¯å¦åˆæ ¼ï¼ˆå¯é€‰ç­›é€‰ï¼‰</param>
+        /// <param name="limit">è¿”å›è®°å½•æ•°é™åˆ¶</param>
+        Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100);
 
         /// <summary>
-        /// »ñÈ¡Í³¼ÆÊı¾İ
+        /// è·å–ç»Ÿè®¡æ•°æ®
         /// </summary>
         Task<(int total, int pass, int fail)> GetStatisticsAsync(DateTime date);
 
         /// <summary>
-        /// ÇåÀí¾ÉÊı¾İ
+        /// æ¸…ç†æ—§æ•°æ®
         /// </summary>
         Task<int> CleanupOldRecordsAsync(int daysToKeep);
     }
 }
-

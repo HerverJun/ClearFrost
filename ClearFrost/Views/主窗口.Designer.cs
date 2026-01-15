@@ -1,6 +1,6 @@
 namespace ClearFrost
 {
-    partial class Ö÷´°¿Ú
+    partial class ä¸»çª—å£
     {
         /// <summary>
         ///  Required designer variable.
@@ -31,9 +31,9 @@ namespace ClearFrost
             webView21 = new Microsoft.Web.WebView2.WinForms.WebView2();
             ((System.ComponentModel.ISupportInitialize)webView21).BeginInit();
             SuspendLayout();
-            // 
+            //
             // webView21
-            // 
+            //
             webView21.AllowExternalDrop = true;
             webView21.CreationProperties = null;
             webView21.DefaultBackgroundColor = Color.White;
@@ -44,17 +44,17 @@ namespace ClearFrost
             webView21.Size = new Size(3649, 1854);
             webView21.TabIndex = 0;
             webView21.ZoomFactor = 1D;
-            // 
-            // Ö÷´°¿Ú
-            // 
+            //
+            // ä¸»çª—å£
+            //
             AutoScaleDimensions = new SizeF(13F, 28F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(3649, 1854);
             Controls.Add(webView21);
             Margin = new Padding(6, 5, 6, 5);
-            Name = "Ö÷´°¿Ú";
-            Text = "ÇåËª";
-            Load += Ö÷´°¿Ú_Load;
+            Name = "ä¸»çª—å£";
+            Text = "æ¸…éœœ";
+            Load += ä¸»çª—å£_Load;
             ((System.ComponentModel.ISupportInitialize)webView21).EndInit();
             ResumeLayout(false);
         }
@@ -64,4 +64,3 @@ namespace ClearFrost
         private Microsoft.Web.WebView2.WinForms.WebView2 webView21;
     }
 }
-

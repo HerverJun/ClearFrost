@@ -3,19 +3,18 @@ using OpenCvSharp;
 namespace ClearFrost.Vision
 {
     /// <summary>
-    /// Ö§³ÖÄ£°åÑµÁ·µÄËã×Ó½Ó¿Ú
+    /// æ”¯æŒæ¨¡æ¿è®­ç»ƒçš„ç®—å­æ¥å£
     /// </summary>
     public interface ITemplateTrainable
     {
         /// <summary>
-        /// Ê¹ÓÃMatÍ¼ÏñÉèÖÃÄ£°å
+        /// ä½¿ç”¨Matå›¾åƒè®¾ç½®æ¨¡æ¿
         /// </summary>
         void SetTemplateFromMat(Mat template);
 
         /// <summary>
-        /// ÊÇ·ñÒÑÑµÁ·
+        /// æ˜¯å¦å·²è®­ç»ƒ
         /// </summary>
         bool IsTrained { get; }
     }
 }
-
