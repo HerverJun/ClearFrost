@@ -7,13 +7,13 @@ using MVSDK_Net;
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// ÂõµÂÍşÊÓÏà»úÊµÏÖ
+    /// è¿ˆå¾·å¨è§†ç›¸æœºå®ç°
     /// </summary>
     public class MindVisionCamera : ICameraProvider
     {
         private const string DLL_NAME = "MVSDKmd.dll";
 
-        #region P/Invoke ÉùÃ÷
+        #region P/Invoke å£°æ˜
 
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         private static extern int IMV_EnumDevices(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType);
@@ -79,7 +79,8 @@ namespace ClearFrost.Hardware
 
             try
             {
-                int result = IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
+                // ä½¿ç”¨ RealCamera é™æ€æ–¹æ³•è¿›è¡Œè®¾å¤‡æšä¸¾
+                int result = RealCamera.EnumDevicesStatic(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
                 if (result != IMVDefine.IMV_OK || deviceList.nDevNum == 0)
                 {
                     return _cachedDevices;
@@ -115,11 +116,11 @@ namespace ClearFrost.Hardware
 
             try
             {
-                // ÏÈÃ¶¾ÙÉè±¸
+                // å…ˆæšä¸¾è®¾å¤‡
                 if (_cachedDevices.Count == 0)
                     EnumerateDevices();
 
-                // ²éÕÒÉè±¸Ë÷Òı
+                // æŸ¥æ‰¾è®¾å¤‡ç´¢å¼•
                 int deviceIndex = -1;
                 var deviceList = new IMVDefine.IMV_DeviceList();
                 IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
@@ -142,7 +143,7 @@ namespace ClearFrost.Hardware
                     return false;
                 }
 
-                // ´´½¨¾ä±ú
+                // åˆ›å»ºå¥æŸ„
                 int result = IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode.modeByIndex, deviceIndex, ref _handle);
                 if (result != IMVDefine.IMV_OK)
                 {
@@ -150,7 +151,7 @@ namespace ClearFrost.Hardware
                     return false;
                 }
 
-                // ´ò¿ªÏà»ú
+                // æ‰“å¼€ç›¸æœº
                 result = IMV_Open(_handle);
                 if (result != IMVDefine.IMV_OK)
                 {
@@ -160,7 +161,7 @@ namespace ClearFrost.Hardware
                     return false;
                 }
 
-                // ÉèÖÃ»º³åÇø
+                // è®¾ç½®ç¼“å†²åŒº
                 IMV_SetBufferCount(_handle, 3);
 
                 _isConnected = true;

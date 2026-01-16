@@ -38,7 +38,14 @@
     <PackageReference Include="OpenCvSharp4.Extensions" Version="4.8.0.20230708" />
     <!-- Replaced local references with NuGet packages -->
     <PackageReference Include="HslCommunication" Version="11.6.1" />
-    <PackageReference Include="MVSDK" Version="2.4.1.7" />
+    <!-- 移除 NuGet MVSDK 包，改用本地华睿官方 SDK -->
+  </ItemGroup>
+
+  <!-- 本地华睿 MVSDK DLL 引用 -->
+  <ItemGroup>
+    <Reference Include="MVSDK">
+      <HintPath>..\ClearFrost_Lite\MVSDK.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
