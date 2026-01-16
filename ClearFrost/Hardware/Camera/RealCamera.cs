@@ -6,7 +6,7 @@ using MVSDK_Net;
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// ÕæÊµ¹¤ÒµÏà»úÊµÏÖ£¬·â×°ÂõµÂÍşÊÓ SDK
+    /// çœŸå®å·¥ä¸šç›¸æœºå®ç°ï¼Œå°è£…è¿ˆå¾·å¨è§† SDK
     /// </summary>
     public class RealCamera : ICamera
     {
@@ -14,6 +14,14 @@ namespace ClearFrost.Hardware
 
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern int IMV_EnumDevices(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType);
+
+        /// <summary>
+        /// é™æ€æ–¹æ³•ï¼šæšä¸¾æ‰€æœ‰ç›¸æœºè®¾å¤‡ï¼ˆä¾›å…¶ä»–ç±»è°ƒç”¨ï¼‰
+        /// </summary>
+        public static int EnumDevicesStatic(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType)
+        {
+            return IMV_EnumDevices(ref deviceList, interfaceType);
+        }
 
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         private static extern int IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode mode, int index, ref IntPtr handle);
@@ -23,7 +31,7 @@ namespace ClearFrost.Hardware
         private bool _isConnected = false;
 
         /// <summary>
-        /// Ïà»úÊÇ·ñÒÑÁ¬½Ó
+        /// ç›¸æœºæ˜¯å¦å·²è¿æ¥
         /// </summary>
         public bool IsConnected => _isConnected && _handle != IntPtr.Zero;
 
@@ -103,10 +111,10 @@ namespace ClearFrost.Hardware
         private static extern int IMV_ReleaseFrame(IntPtr handle, ref IMVDefine.IMV_Frame frame);
         public int IMV_ReleaseFrame(ref IMVDefine.IMV_Frame frame) => IMV_ReleaseFrame(_handle, ref frame);
 
-        #region IDisposable ÊµÏÖ
+        #region IDisposable å®ç°
 
         /// <summary>
-        /// ÊÍ·ÅÏà»ú×ÊÔ´
+        /// é‡Šæ”¾ç›¸æœºèµ„æº
         /// </summary>
         public void Dispose()
         {
@@ -115,7 +123,7 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// ÊÍ·Å×ÊÔ´µÄºËĞÄÊµÏÖ
+        /// é‡Šæ”¾èµ„æºçš„æ ¸å¿ƒå®ç°
         /// </summary>
         protected virtual void Dispose(bool disposing)
         {
@@ -146,7 +154,7 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// Îö¹¹º¯Êı£¬·ÀÖ¹×ÊÔ´Ğ¹Â©
+        /// ææ„å‡½æ•°ï¼Œé˜²æ­¢èµ„æºæ³„æ¼
         /// </summary>
         ~RealCamera()
         {

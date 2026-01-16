@@ -1,4 +1,5 @@
 using MVSDK_Net;
+using ClearFrost.Hardware;
 using ClearFrost.Config;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
@@ -39,8 +40,9 @@ namespace ClearFrost
 
                 string targetSn = config.SerialNumber?.Trim() ?? "";
 
+                // 使用 RealCamera 静态方法进行设备枚举
                 IMVDefine.IMV_DeviceList deviceList = new IMVDefine.IMV_DeviceList();
-                int res = cam.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
+                int res = RealCamera.EnumDevicesStatic(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
 
                 if (res != IMVDefine.IMV_OK || deviceList.nDevNum == 0)
                 {
