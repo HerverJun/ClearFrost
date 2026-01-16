@@ -33,39 +33,61 @@ namespace ClearFrost.Hardware
         public static ICameraProvider CreateMock() => new MockCameraProvider();
 
         /// <summary>
-        /// 
+        /// 发现所有品牌的相机（华睿 + 海康）
         /// </summary>
-        /// 
         public static List<CameraDeviceInfo> DiscoverAll()
         {
             var allDevices = new List<CameraDeviceInfo>();
 
-            // 
+            // 华睿相机枚举
             try
             {
+                Debug.WriteLine("[CameraProviderFactory] Starting Huaray camera enumeration...");
                 using var mv = new MindVisionCamera();
                 var devices = mv.EnumerateDevices();
                 allDevices.AddRange(devices);
                 Debug.WriteLine($"[CameraProviderFactory] Huaray: found {devices.Count} devices");
             }
+            catch (DllNotFoundException ex)
+            {
+                Debug.WriteLine($"[CameraProviderFactory] Huaray SDK DLL not found: {ex.Message}");
+                Debug.WriteLine($"[CameraProviderFactory] 请确保 MVSDKmd.dll 在程序目录中");
+            }
+            catch (BadImageFormatException ex)
+            {
+                Debug.WriteLine($"[CameraProviderFactory] Huaray SDK DLL 格式错误 (32/64位不匹配): {ex.Message}");
+            }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[CameraProviderFactory] Huaray enum failed: {ex.Message}");
+                Debug.WriteLine($"[CameraProviderFactory] Huaray enum failed: {ex.GetType().Name} - {ex.Message}");
+                Debug.WriteLine($"[CameraProviderFactory] Stack: {ex.StackTrace}");
             }
 
-            // 
+            // 海康相机枚举
             try
             {
+                Debug.WriteLine("[CameraProviderFactory] Starting Hikvision camera enumeration...");
                 using var hik = new HikvisionCamera();
                 var devices = hik.EnumerateDevices();
                 allDevices.AddRange(devices);
                 Debug.WriteLine($"[CameraProviderFactory] Hikvision: found {devices.Count} devices");
             }
+            catch (DllNotFoundException ex)
+            {
+                Debug.WriteLine($"[CameraProviderFactory] Hikvision SDK DLL not found: {ex.Message}");
+                Debug.WriteLine($"[CameraProviderFactory] 请确保 MvCameraControl.dll 在程序目录中");
+            }
+            catch (BadImageFormatException ex)
+            {
+                Debug.WriteLine($"[CameraProviderFactory] Hikvision SDK DLL 格式错误 (32/64位不匹配): {ex.Message}");
+            }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[CameraProviderFactory] Hikvision enum failed: {ex.Message}");
+                Debug.WriteLine($"[CameraProviderFactory] Hikvision enum failed: {ex.GetType().Name} - {ex.Message}");
+                Debug.WriteLine($"[CameraProviderFactory] Stack: {ex.StackTrace}");
             }
 
+            Debug.WriteLine($"[CameraProviderFactory] Total cameras discovered: {allDevices.Count}");
             return allDevices;
         }
 

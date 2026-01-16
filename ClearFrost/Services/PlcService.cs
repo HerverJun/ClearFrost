@@ -168,39 +168,63 @@ namespace ClearFrost.Services
         private async Task MonitoringLoop(short triggerAddress, int pollingIntervalMs, CancellationToken token)
         {
             const int triggerDelay = 800;
+            int pollCount = 0;
+
+            Debug.WriteLine($"[PlcService] ▶ 监听循环启动 - 地址: {triggerAddress}, 间隔: {pollingIntervalMs}ms");
 
             while (!token.IsCancellationRequested)
             {
                 try
                 {
-                    if (_plcDevice == null) break;
+                    if (_plcDevice == null)
+                    {
+                        Debug.WriteLine("[PlcService] ⚠ PLC设备为空，退出监听");
+                        break;
+                    }
 
                     string address = GetPlcAddress(triggerAddress);
                     var (success, value) = await _plcDevice.ReadInt16Async(address);
+                    pollCount++;
+
+                    // 每10次轮询输出一次状态（避免日志过多）
+                    if (pollCount % 10 == 0)
+                    {
+                        Debug.WriteLine($"[PlcService] 📡 轮询 #{pollCount} - 地址:{address} 读取:{(success ? "成功" : "失败")} 值:{value}");
+                    }
 
                     if (success && value == 1)
                     {
+                        Debug.WriteLine($"[PlcService] 🎯 检测到触发信号! 地址:{address} 值:{value}");
+
                         // 收到触发信号，复位
-                        await _plcDevice.WriteInt16Async(address, 0);
+                        bool resetSuccess = await _plcDevice.WriteInt16Async(address, 0);
+                        Debug.WriteLine($"[PlcService] ↩ 复位信号 - {(resetSuccess ? "成功" : "失败")}");
+
                         await Task.Delay(triggerDelay);
 
                         // 触发事件通知
+                        Debug.WriteLine("[PlcService] 📤 触发 TriggerReceived 事件...");
                         TriggerReceived?.Invoke();
+                        Debug.WriteLine("[PlcService] ✅ TriggerReceived 事件已发送");
                     }
 
                     await Task.Delay(pollingIntervalMs, token);
                 }
                 catch (OperationCanceledException)
                 {
+                    Debug.WriteLine("[PlcService] ⏹ 监听循环被取消");
                     break;
                 }
                 catch (Exception ex)
                 {
+                    Debug.WriteLine($"[PlcService] ❌ 监听异常: {ex.Message}");
                     LastError = ex.Message;
                     ErrorOccurred?.Invoke($"监听异常: {ex.Message}");
                     break;
                 }
             }
+
+            Debug.WriteLine($"[PlcService] ⏹ 监听循环结束 - 共轮询 {pollCount} 次");
         }
 
         #endregion

@@ -40,9 +40,9 @@ namespace ClearFrost
 
                 string targetSn = config.SerialNumber?.Trim() ?? "";
 
-                // 使用 RealCamera 静态方法进行设备枚举
+                // 使用官方 SDK 的 MyCamera 静态方法进行设备枚举
                 IMVDefine.IMV_DeviceList deviceList = new IMVDefine.IMV_DeviceList();
-                int res = RealCamera.EnumDevicesStatic(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
+                int res = MyCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
 
                 if (res != IMVDefine.IMV_OK || deviceList.nDevNum == 0)
                 {
@@ -52,12 +52,11 @@ namespace ClearFrost
 
                 Debug.WriteLine($"[FindTargetCamera] Looking for '{targetSn}' in {deviceList.nDevNum} devices");
 
-                for (int i = 0; i < deviceList.nDevNum; i++)
+                for (int i = 0; i < (int)deviceList.nDevNum; i++)
                 {
-                    var infoPtr = deviceList.pDevInfo + Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo)) * i;
-                    var infoObj = Marshal.PtrToStructure(infoPtr, typeof(IMVDefine.IMV_DeviceInfo));
-                    if (infoObj == null) continue;
-                    var info = (IMVDefine.IMV_DeviceInfo)infoObj;
+                    var info = (IMVDefine.IMV_DeviceInfo)Marshal.PtrToStructure(
+                        deviceList.pDevInfo + Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo)) * i,
+                        typeof(IMVDefine.IMV_DeviceInfo))!;
 
                     string foundSn = info.serialNumber?.Trim() ?? "";
                     Debug.WriteLine($"[FindTargetCamera] Device[{i}] SerialNumber: '{foundSn}'");

@@ -7,70 +7,21 @@ using MVSDK_Net;
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// 华睿 (Huaray) 工业相机实现 - 基于 MVSDK
+    /// 华睿 (Huaray) 工业相机实现 - 基于官方 MVSDK_Net
     /// 注意：类名保留 MindVisionCamera 以兼容现有代码
     /// </summary>
     public class MindVisionCamera : ICameraProvider
     {
-        private const string DLL_NAME = "MVSDKmd.dll";
-
-        #region P/Invoke 声明
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_EnumDevices(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode mode, int index, ref IntPtr handle);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_Open(IntPtr handle);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_Close(IntPtr handle);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_DestroyHandle(IntPtr handle);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_StartGrabbing(IntPtr handle);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_StopGrabbing(IntPtr handle);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern bool IMV_IsGrabbing(IntPtr handle);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_GetFrame(IntPtr handle, ref IMVDefine.IMV_Frame frame, int timeout);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_ReleaseFrame(IntPtr handle, ref IMVDefine.IMV_Frame frame);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_SetDoubleFeatureValue(IntPtr handle, string name, double value);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_SetEnumFeatureSymbol(IntPtr handle, string name, string value);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_ExecuteCommandFeature(IntPtr handle, string name);
-
-        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int IMV_SetBufferCount(IntPtr handle, int count);
-
-        #endregion
-
-        private IntPtr _handle = IntPtr.Zero;
+        private readonly MyCamera _cam = new MyCamera();
         private bool _disposed = false;
         private bool _isConnected = false;
         private bool _isGrabbing = false;
         private CameraDeviceInfo? _currentDevice;
-        private IMVDefine.IMV_Frame _lastFrame;
         private List<CameraDeviceInfo> _cachedDevices = new();
 
         public string ProviderName => "Huaray";
-        public bool IsConnected => _isConnected && _handle != IntPtr.Zero;
-        public bool IsGrabbing => _isGrabbing && _handle != IntPtr.Zero && IMV_IsGrabbing(_handle);
+        public bool IsConnected => _isConnected;
+        public bool IsGrabbing => _isGrabbing && _cam.IMV_IsGrabbing();
         public CameraDeviceInfo? CurrentDevice => _currentDevice;
 
         public List<CameraDeviceInfo> EnumerateDevices()
@@ -80,32 +31,51 @@ namespace ClearFrost.Hardware
 
             try
             {
-                // 使用 RealCamera 静态方法进行设备枚举
-                int result = RealCamera.EnumDevicesStatic(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
-                if (result != IMVDefine.IMV_OK || deviceList.nDevNum == 0)
+                Debug.WriteLine("[MindVisionCamera] Calling IMV_EnumDevices...");
+                int result = MyCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
+
+                Debug.WriteLine($"[MindVisionCamera] IMV_EnumDevices returned: {result}, nDevNum: {deviceList.nDevNum}");
+
+                if (result != IMVDefine.IMV_OK)
                 {
+                    Debug.WriteLine($"[MindVisionCamera] IMV_EnumDevices failed with code: {result}");
+                    return _cachedDevices;
+                }
+
+                if (deviceList.nDevNum == 0)
+                {
+                    Debug.WriteLine("[MindVisionCamera] No devices found");
                     return _cachedDevices;
                 }
 
                 int structSize = Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo));
-                for (int i = 0; i < deviceList.nDevNum; i++)
+                Debug.WriteLine($"[MindVisionCamera] IMV_DeviceInfo struct size: {structSize} bytes");
+
+                for (int i = 0; i < (int)deviceList.nDevNum; i++)
                 {
-                    IntPtr ptr = IntPtr.Add(deviceList.pDevInfo, i * structSize);
-                    var info = Marshal.PtrToStructure<IMVDefine.IMV_DeviceInfo>(ptr);
+                    var info = (IMVDefine.IMV_DeviceInfo)Marshal.PtrToStructure(
+                        deviceList.pDevInfo + Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo)) * i,
+                        typeof(IMVDefine.IMV_DeviceInfo))!;
+
+                    string sn = info.serialNumber ?? "";
+                    Debug.WriteLine($"[MindVisionCamera] Device[{i}]: SN='{sn}'");
 
                     _cachedDevices.Add(new CameraDeviceInfo
                     {
-                        SerialNumber = info.serialNumber ?? "",
+                        SerialNumber = sn.Trim(),
                         Manufacturer = "Huaray",
                         Model = "Huaray Camera",
-                        UserDefinedName = info.serialNumber ?? "",
+                        UserDefinedName = sn.Trim(),
                         InterfaceType = "Unknown"
                     });
                 }
+
+                Debug.WriteLine($"[MindVisionCamera] Total devices found: {_cachedDevices.Count}");
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[MindVisionCamera] EnumerateDevices error: {ex.Message}");
+                Debug.WriteLine($"[MindVisionCamera] Stack trace: {ex.StackTrace}");
             }
 
             return _cachedDevices;
@@ -117,21 +87,14 @@ namespace ClearFrost.Hardware
 
             try
             {
-                // 先枚举设备
+                // 先枚举设备找到索引
                 if (_cachedDevices.Count == 0)
                     EnumerateDevices();
 
-                // 查找设备索引
                 int deviceIndex = -1;
-                var deviceList = new IMVDefine.IMV_DeviceList();
-                IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
-
-                int structSize = Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo));
-                for (int i = 0; i < deviceList.nDevNum; i++)
+                for (int i = 0; i < _cachedDevices.Count; i++)
                 {
-                    IntPtr ptr = IntPtr.Add(deviceList.pDevInfo, i * structSize);
-                    var info = Marshal.PtrToStructure<IMVDefine.IMV_DeviceInfo>(ptr);
-                    if (info.serialNumber == serialNumber)
+                    if (_cachedDevices[i].SerialNumber == serialNumber)
                     {
                         deviceIndex = i;
                         break;
@@ -144,8 +107,8 @@ namespace ClearFrost.Hardware
                     return false;
                 }
 
-                // 创建句柄
-                int result = IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode.modeByIndex, deviceIndex, ref _handle);
+                // 使用官方 MyCamera 创建句柄
+                int result = _cam.IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode.modeByIndex, deviceIndex);
                 if (result != IMVDefine.IMV_OK)
                 {
                     Debug.WriteLine($"[MindVisionCamera] CreateHandle failed: {result}");
@@ -153,20 +116,16 @@ namespace ClearFrost.Hardware
                 }
 
                 // 打开相机
-                result = IMV_Open(_handle);
+                result = _cam.IMV_Open();
                 if (result != IMVDefine.IMV_OK)
                 {
-                    IMV_DestroyHandle(_handle);
-                    _handle = IntPtr.Zero;
+                    _cam.IMV_DestroyHandle();
                     Debug.WriteLine($"[MindVisionCamera] Open failed: {result}");
                     return false;
                 }
 
-                // 设置缓冲区
-                IMV_SetBufferCount(_handle, 3);
-
                 _isConnected = true;
-                _currentDevice = _cachedDevices.Find(d => d.SerialNumber == serialNumber);
+                _currentDevice = _cachedDevices[deviceIndex];
                 Debug.WriteLine($"[MindVisionCamera] Opened: {serialNumber}");
                 return true;
             }
@@ -179,16 +138,15 @@ namespace ClearFrost.Hardware
 
         public bool Close()
         {
-            if (!IsConnected) return true;
+            if (!_isConnected) return true;
 
             try
             {
                 if (_isGrabbing)
                     StopGrabbing();
 
-                IMV_Close(_handle);
-                IMV_DestroyHandle(_handle);
-                _handle = IntPtr.Zero;
+                _cam.IMV_Close();
+                _cam.IMV_DestroyHandle();
                 _isConnected = false;
                 _currentDevice = null;
                 Debug.WriteLine("[MindVisionCamera] Closed");
@@ -203,49 +161,52 @@ namespace ClearFrost.Hardware
 
         public bool StartGrabbing()
         {
-            if (!IsConnected) return false;
+            if (!_isConnected) return false;
             if (_isGrabbing) return true;
 
-            int result = IMV_StartGrabbing(_handle);
+            int result = _cam.IMV_StartGrabbing();
             _isGrabbing = result == IMVDefine.IMV_OK;
+            Debug.WriteLine($"[MindVisionCamera] StartGrabbing: {(_isGrabbing ? "OK" : $"Failed {result}")}");
             return _isGrabbing;
         }
 
         public bool StopGrabbing()
         {
-            if (!IsConnected) return true;
+            if (!_isConnected) return true;
             if (!_isGrabbing) return true;
 
-            int result = IMV_StopGrabbing(_handle);
+            int result = _cam.IMV_StopGrabbing();
             _isGrabbing = false;
             return result == IMVDefine.IMV_OK;
         }
 
         public CameraFrame? GetFrame(int timeoutMs = 1000)
         {
-            if (!IsConnected || !_isGrabbing) return null;
+            if (!_isConnected || !_isGrabbing) return null;
 
             try
             {
-                _lastFrame = new IMVDefine.IMV_Frame();
-                int result = IMV_GetFrame(_handle, ref _lastFrame, timeoutMs);
-                if (result != IMVDefine.IMV_OK)
-                    return null;
+                var frame = new IMVDefine.IMV_Frame();
+                int result = _cam.IMV_GetFrame(ref frame, (uint)timeoutMs);
 
-                var frame = new CameraFrame
+                if (result != IMVDefine.IMV_OK)
                 {
-                    DataPtr = _lastFrame.pData,
-                    Width = (int)_lastFrame.frameInfo.width,
-                    Height = (int)_lastFrame.frameInfo.height,
-                    Size = (int)_lastFrame.frameInfo.size,
-                    PixelFormat = ConvertPixelFormat(_lastFrame.frameInfo.pixelFormat),
-                    FrameNumber = 0,  // SDK may not provide this
-                    Timestamp = (ulong)DateTime.Now.Ticks,
-                    NeedsNativeRelease = true,
-                    ReleaseCallback = ReleaseNativeFrame
+                    return null;
+                }
+
+                var cameraFrame = new CameraFrame
+                {
+                    DataPtr = frame.pData,
+                    Width = (int)frame.frameInfo.width,
+                    Height = (int)frame.frameInfo.height,
+                    Size = (int)frame.frameInfo.size,
+                    PixelFormat = ConvertPixelFormat((uint)frame.frameInfo.pixelFormat),
+                    FrameNumber = 0,
+                    Timestamp = 0,
+                    NeedsNativeRelease = true
                 };
 
-                return frame;
+                return cameraFrame;
             }
             catch (Exception ex)
             {
@@ -254,53 +215,58 @@ namespace ClearFrost.Hardware
             }
         }
 
-        private void ReleaseNativeFrame(CameraFrame frame)
+        public void ReleaseFrame(CameraFrame frame)
         {
-            if (_handle != IntPtr.Zero)
+            if (!_isConnected || !frame.NeedsNativeRelease) return;
+
+            try
             {
-                IMV_ReleaseFrame(_handle, ref _lastFrame);
+                var imvFrame = new IMVDefine.IMV_Frame { pData = frame.DataPtr };
+                _cam.IMV_ReleaseFrame(ref imvFrame);
             }
+            catch { }
         }
 
-        private static CameraPixelFormat ConvertPixelFormat(IMVDefine.IMV_EPixelType format)
+        private static CameraPixelFormat ConvertPixelFormat(uint pixelType)
         {
-            // Only use Mono8 which is guaranteed to exist, return Unknown for others
-            if (format == IMVDefine.IMV_EPixelType.gvspPixelMono8)
-                return CameraPixelFormat.Mono8;
-            return CameraPixelFormat.Unknown;
+            return (IMVDefine.IMV_EPixelType)pixelType switch
+            {
+                IMVDefine.IMV_EPixelType.gvspPixelMono8 => CameraPixelFormat.Mono8,
+                _ => CameraPixelFormat.Unknown
+            };
         }
 
         public bool SetExposure(double microseconds)
         {
-            if (!IsConnected) return false;
-            return IMV_SetDoubleFeatureValue(_handle, "ExposureTime", microseconds) == IMVDefine.IMV_OK;
+            if (!_isConnected) return false;
+            return _cam.IMV_SetDoubleFeatureValue("ExposureTime", microseconds) == IMVDefine.IMV_OK;
         }
 
         public bool SetGain(double value)
         {
-            if (!IsConnected) return false;
-            return IMV_SetDoubleFeatureValue(_handle, "GainRaw", value) == IMVDefine.IMV_OK;
+            if (!_isConnected) return false;
+            return _cam.IMV_SetDoubleFeatureValue("GainRaw", value) == IMVDefine.IMV_OK;
         }
 
         public bool SetTriggerMode(bool softwareTrigger)
         {
-            if (!IsConnected) return false;
+            if (!_isConnected) return false;
 
             if (softwareTrigger)
             {
-                IMV_SetEnumFeatureSymbol(_handle, "TriggerMode", "On");
-                return IMV_SetEnumFeatureSymbol(_handle, "TriggerSource", "Software") == IMVDefine.IMV_OK;
+                _cam.IMV_SetEnumFeatureSymbol("TriggerMode", "On");
+                return _cam.IMV_SetEnumFeatureSymbol("TriggerSource", "Software") == IMVDefine.IMV_OK;
             }
             else
             {
-                return IMV_SetEnumFeatureSymbol(_handle, "TriggerMode", "Off") == IMVDefine.IMV_OK;
+                return _cam.IMV_SetEnumFeatureSymbol("TriggerMode", "Off") == IMVDefine.IMV_OK;
             }
         }
 
         public bool ExecuteSoftwareTrigger()
         {
-            if (!IsConnected) return false;
-            return IMV_ExecuteCommandFeature(_handle, "TriggerSoftware") == IMVDefine.IMV_OK;
+            if (!_isConnected) return false;
+            return _cam.IMV_ExecuteCommandFeature("TriggerSoftware") == IMVDefine.IMV_OK;
         }
 
         #region IDisposable
@@ -334,5 +300,3 @@ namespace ClearFrost.Hardware
         #endregion
     }
 }
-
-

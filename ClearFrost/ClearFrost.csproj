@@ -18,6 +18,9 @@
     <!-- 修复4: 修复警告处理设置 -->
     <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>Error</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
     <SupportedOSPlatformVersion>8.0</SupportedOSPlatformVersion>
+    <Authors>蘅芜君</Authors>
+    <Company>蘅芜君</Company>
+    <Copyright>Copyright (c) 2026 蘅芜君</Copyright>
   </PropertyGroup>
 
   <!-- 修复5: 移除所有AnyCPU和x86配置 -->
@@ -41,10 +44,10 @@
     <!-- 移除 NuGet MVSDK 包，改用本地华睿官方 SDK -->
   </ItemGroup>
 
-  <!-- 本地华睿 MVSDK DLL 引用 -->
+  <!-- 本地华睿 MVSDK_Net DLL 引用 (官方托管 SDK，包含 MyCamera 类) -->
   <ItemGroup>
-    <Reference Include="MVSDK">
-      <HintPath>..\ClearFrost_Lite\MVSDK.dll</HintPath>
+    <Reference Include="MVSDK_Net">
+      <HintPath>..\ClearFrost_Lite\MVSDK_Net.dll</HintPath>
     </Reference>
   </ItemGroup>
 

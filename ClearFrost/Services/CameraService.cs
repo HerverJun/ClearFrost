@@ -1,13 +1,15 @@
 ﻿using ClearFrost.Config;
 using ClearFrost.Hardware;
 // ============================================================================
-// 
-// 
+// 文件名: CameraService.cs
+// 作者: 蘅芜君
+// 描述:   相机服务实现类
 //
-// 
-// 
-// 
-// 
+// 功能:
+//   - 管理相机的连接和断开
+//   - 提供统一的图像采集接口（自动抓取/软触发）
+//   - 管理曝光、增益等参数设置
+//   - 负责采集线程的生命周期管理
 // ============================================================================
 
 using System;
@@ -21,11 +23,11 @@ using ClearFrost.Interfaces;
 namespace ClearFrost.Services
 {
     /// <summary>
-    /// 
+    /// 相机服务实现类，提供相机的控制和图像获取功能
     /// </summary>
     public class CameraService : ICameraService
     {
-        #region ˽���ֶ�
+        #region 私有字段ֶ
 
         private readonly CameraManager _cameraManager;
         private CancellationTokenSource? _captureCts;
@@ -36,7 +38,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region �¼�
+        #region ¼
 
         public event Action<Mat>? FrameCaptured;
         public event Action<bool>? ConnectionChanged;
@@ -44,10 +46,10 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ����
+        #region 公共属性
 
         public bool IsOpen => _cameraManager.ActiveCamera?.IsOpen ?? false;
-        public string CameraName => _cameraManager.ActiveCamera?.Config.DisplayName ?? "δ����";
+        public string CameraName => _cameraManager.ActiveCamera?.Config.DisplayName ?? "未连接";
 
         public Mat? LastFrame
         {
@@ -78,6 +80,12 @@ namespace ClearFrost.Services
 
         #region ��/�ر�
 
+        /// <summary>
+        /// 打开指定序列号的相机
+        /// </summary>
+        /// <param name="serialNumber">相机序列号</param>
+        /// <param name="manufacturer">厂商名称</param>
+        /// <returns>成功返回 true</returns>
         public bool Open(string serialNumber, string manufacturer)
         {
             try
@@ -136,6 +144,9 @@ namespace ClearFrost.Services
             }
         }
 
+        /// <summary>
+        /// 关闭当前相机并停止采集
+        /// </summary>
         public void Close()
         {
             try
@@ -170,6 +181,9 @@ namespace ClearFrost.Services
 
         #region �ɼ�����
 
+        /// <summary>
+        /// 启动后台采集线程
+        /// </summary>
         public void StartCapture()
         {
             if (_captureThread != null && _captureThread.IsAlive)
@@ -188,6 +202,9 @@ namespace ClearFrost.Services
             Debug.WriteLine("[CameraService] ��ʼ�ɼ�");
         }
 
+        /// <summary>
+        /// 停止采集线程
+        /// </summary>
         public void StopCapture()
         {
             _captureCts?.Cancel();
@@ -204,6 +221,9 @@ namespace ClearFrost.Services
             Debug.WriteLine("[CameraService] ֹͣ�ɼ�");
         }
 
+        /// <summary>
+        /// 执行一次软触发（仅在软触发模式下有效）
+        /// </summary>
         public void TriggerOnce()
         {
             try
@@ -226,6 +246,9 @@ namespace ClearFrost.Services
             }
         }
 
+        /// <summary>
+        /// 后台采集循环方法
+        /// </summary>
         private void CaptureLoop()
         {
             var token = _captureCts?.Token ?? CancellationToken.None;
@@ -274,8 +297,12 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ��������
+        #region 参数设置��������
 
+        /// <summary>
+        /// 设置曝光时间
+        /// </summary>
+        /// <param name="exposureUs">曝光时间（微秒）</param>
         public void SetExposure(double exposureUs)
         {
             try
@@ -298,6 +325,10 @@ namespace ClearFrost.Services
             }
         }
 
+        /// <summary>
+        /// 设置增益值
+        /// </summary>
+        /// <param name="gain">增益值</param>
         public void SetGain(double gain)
         {
             try
