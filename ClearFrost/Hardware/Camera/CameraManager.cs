@@ -10,7 +10,7 @@ using MVSDK_Net;
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// Ïà»úÊµÀı£¬·â×°µ¥¸öÏà»úµÄ²Ù×÷
+    /// ç›¸æœºå®ä¾‹ï¼Œå°è£…å•ä¸ªç›¸æœºçš„æ“ä½œ
     /// </summary>
     public class CameraInstance : IDisposable
     {
@@ -37,7 +37,7 @@ namespace ClearFrost.Hardware
 
             if (IsOpen)
             {
-                // Ó¦ÓÃÅäÖÃ
+                // åº”ç”¨é…ç½®
                 Camera.IMV_SetDoubleFeatureValue("ExposureTime", Config.ExposureTime);
                 Camera.IMV_SetDoubleFeatureValue("GainRaw", Config.Gain);
                 Camera.IMV_SetEnumFeatureSymbol("TriggerMode", "On");
@@ -86,7 +86,7 @@ namespace ClearFrost.Hardware
     }
 
     /// <summary>
-    /// Ïà»ú¹ÜÀíÆ÷£¬Ö§³Ö¶àÏà»úµÄ·¢ÏÖ¡¢¹ÜÀíºÍÇĞ»»
+    /// ç›¸æœºç®¡ç†å™¨ï¼Œæ”¯æŒå¤šç›¸æœºçš„å‘ç°ã€ç®¡ç†å’Œåˆ‡æ¢
     /// </summary>
     public class CameraManager : IDisposable
     {
@@ -105,7 +105,7 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// »ñÈ¡ËùÓĞÏà»úÊµÀı
+        /// è·å–æ‰€æœ‰ç›¸æœºå®ä¾‹
         /// </summary>
         public IReadOnlyList<CameraInstance> Cameras
         {
@@ -119,7 +119,7 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// »ñÈ¡µ±Ç°»î¶¯Ïà»ú
+        /// è·å–å½“å‰æ´»åŠ¨ç›¸æœº
         /// </summary>
         public CameraInstance? ActiveCamera
         {
@@ -134,7 +134,7 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// »î¶¯Ïà»ú ID
+        /// æ´»åŠ¨ç›¸æœº ID
         /// </summary>
         public string ActiveCameraId
         {
@@ -153,8 +153,8 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// Ã¶¾ÙÏµÍ³ÖĞÁ¬½ÓµÄÏà»ú (¼ò»¯°æ£º·µ»ØĞòÁĞºÅÁĞ±í£¬½öÂõµÂÍşÊÓ)
-        /// ±£Áô´Ë·½·¨ÒÔ±£³ÖÏòºó¼æÈİ
+        /// æšä¸¾ç³»ç»Ÿä¸­è¿æ¥çš„ç›¸æœº (ç®€åŒ–ç‰ˆï¼šè¿”å›åºåˆ—å·åˆ—è¡¨ï¼Œä»…è¿ˆå¾·å¨è§†)
+        /// ä¿ç•™æ­¤æ–¹æ³•ä»¥ä¿æŒå‘åå…¼å®¹
         /// </summary>
         public List<string> DiscoverCameras()
         {
@@ -162,7 +162,7 @@ namespace ClearFrost.Hardware
 
             if (_isDebugMode)
             {
-                // µ÷ÊÔÄ£Ê½£º·µ»ØÄ£ÄâÏà»ú
+                // è°ƒè¯•æ¨¡å¼ï¼šè¿”å›æ¨¡æ‹Ÿç›¸æœº
                 result.Add("MOCK_CAM_001");
                 result.Add("MOCK_CAM_002");
                 return result;
@@ -171,7 +171,8 @@ namespace ClearFrost.Hardware
             try
             {
                 var deviceList = new IMVDefine.IMV_DeviceList();
-                int enumResult = RealCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
+                // ä½¿ç”¨ RealCamera é™æ€æ–¹æ³•è¿›è¡Œè®¾å¤‡æšä¸¾
+                int enumResult = RealCamera.EnumDevicesStatic(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
 
                 if (enumResult == IMVDefine.IMV_OK && deviceList.nDevNum > 0)
                 {
@@ -196,7 +197,7 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// Ã¶¾ÙËùÓĞÖ§³ÖÆ·ÅÆµÄÏà»ú (ĞÂ°æ£º·µ»ØÍêÕûÉè±¸ĞÅÏ¢)
+        /// æšä¸¾æ‰€æœ‰æ”¯æŒå“ç‰Œçš„ç›¸æœº (æ–°ç‰ˆï¼šè¿”å›å®Œæ•´è®¾å¤‡ä¿¡æ¯)
         /// </summary>
         public List<CameraDeviceInfo> DiscoverAllCameras()
         {
@@ -223,12 +224,12 @@ namespace ClearFrost.Hardware
                 };
             }
 
-            // Ê¹ÓÃ¹¤³§Àà·¢ÏÖËùÓĞÆ·ÅÆµÄÏà»ú
+            // ä½¿ç”¨å·¥å‚ç±»å‘ç°æ‰€æœ‰å“ç‰Œçš„ç›¸æœº
             return CameraProviderFactory.DiscoverAll();
         }
 
         /// <summary>
-        /// Ìí¼ÓÏà»ú
+        /// æ·»åŠ ç›¸æœº
         /// </summary>
         public bool AddCamera(CameraConfig config)
         {
@@ -243,17 +244,17 @@ namespace ClearFrost.Hardware
                 ICamera camera;
                 if (_isDebugMode)
                 {
-                    // µ÷ÊÔÄ£Ê½£ºÊ¹ÓÃÄ£ÄâÏà»ú£¬²»µ÷ÓÃÈÎºÎÕæÊµ SDK
+                    // è°ƒè¯•æ¨¡å¼ï¼šä½¿ç”¨æ¨¡æ‹Ÿç›¸æœºï¼Œä¸è°ƒç”¨ä»»ä½•çœŸå® SDK
                     camera = new MockCamera();
                 }
                 else
                 {
                     try
                     {
-                        // ¸ù¾İÖÆÔìÉÌÑ¡Ôñ²»Í¬µÄÏà»úÊµÏÖ
+                        // æ ¹æ®åˆ¶é€ å•†é€‰æ‹©ä¸åŒçš„ç›¸æœºå®ç°
                         if (config.Manufacturer == "Hikvision")
                         {
-                            // º£¿µÍşÊÓÏà»ú£ºÊ¹ÓÃĞÂµÄ ICameraProvider + ÊÊÅäÆ÷
+                            // æµ·åº·å¨è§†ç›¸æœºï¼šä½¿ç”¨æ–°çš„ ICameraProvider + é€‚é…å™¨
                             var hikCamera = new HikvisionCamera();
                             if (!hikCamera.Open(config.SerialNumber))
                             {
@@ -266,19 +267,20 @@ namespace ClearFrost.Hardware
                         }
                         else
                         {
-                            // ÂõµÂÍşÊÓÏà»ú (Ä¬ÈÏ)£ºÊ¹ÓÃÔ­ÓĞµÄ RealCamera ÊµÏÖ
+                            // è¿ˆå¾·å¨è§†ç›¸æœº (é»˜è®¤)ï¼šä½¿ç”¨åŸæœ‰çš„ RealCamera å®ç°
                             camera = new RealCamera();
 
-                            // ²éÕÒÏà»úË÷Òı
+                            // æŸ¥æ‰¾ç›¸æœºç´¢å¼•
                             var deviceList = new IMVDefine.IMV_DeviceList();
-                            RealCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
+                            // ä½¿ç”¨ RealCamera é™æ€æ–¹æ³•è¿›è¡Œè®¾å¤‡æšä¸¾
+                            RealCamera.EnumDevicesStatic(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
 
                             Debug.WriteLine($"[CameraManager] Enumerated {deviceList.nDevNum} MindVision devices");
 
                             int deviceIndex = -1;
                             int structSize = Marshal.SizeOf<IMVDefine.IMV_DeviceInfo>();
 
-                            // ÓÃ»§ÊäÈëµÄĞòÁĞºÅ£¬ÇåÀí¿Õ¸ñ
+                            // ç”¨æˆ·è¾“å…¥çš„åºåˆ—å·ï¼Œæ¸…ç†ç©ºæ ¼
                             string targetSerial = config.SerialNumber?.Trim() ?? "";
 
                             for (int i = 0; i < deviceList.nDevNum; i++)
@@ -289,7 +291,7 @@ namespace ClearFrost.Hardware
 
                                 Debug.WriteLine($"[CameraManager] Device[{i}] SerialNumber: '{foundSerial}'");
 
-                                // ºöÂÔ´óĞ¡Ğ´±È½Ï
+                                // å¿½ç•¥å¤§å°å†™æ¯”è¾ƒ
                                 if (string.Equals(foundSerial, targetSerial, StringComparison.OrdinalIgnoreCase))
                                 {
                                     deviceIndex = i;
@@ -315,7 +317,7 @@ namespace ClearFrost.Hardware
                     }
                     catch (Exception ex)
                     {
-                        // SDK DLL È±Ê§»ò¼ÓÔØÊ§°ÜÊ±£¬»ØÍËµ½Ä£ÄâÏà»ú
+                        // SDK DLL ç¼ºå¤±æˆ–åŠ è½½å¤±è´¥æ—¶ï¼Œå›é€€åˆ°æ¨¡æ‹Ÿç›¸æœº
                         Debug.WriteLine($"[CameraManager] SDK error, falling back to MockCamera: {ex.Message}");
                         camera = new MockCamera();
                     }
@@ -324,7 +326,7 @@ namespace ClearFrost.Hardware
                 var instance = new CameraInstance(config.Id, config, camera);
                 _cameras[config.Id] = instance;
 
-                // Èç¹ûÊÇµÚÒ»¸öÏà»ú£¬ÉèÎª»î¶¯Ïà»ú
+                // å¦‚æœæ˜¯ç¬¬ä¸€ä¸ªç›¸æœºï¼Œè®¾ä¸ºæ´»åŠ¨ç›¸æœº
                 if (_cameras.Count == 1)
                 {
                     _activeCameraId = config.Id;
@@ -337,7 +339,7 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// ÒÆ³ıÏà»ú
+        /// ç§»é™¤ç›¸æœº
         /// </summary>
         public bool RemoveCamera(string id)
         {
@@ -349,7 +351,7 @@ namespace ClearFrost.Hardware
                 instance.Dispose();
                 _cameras.Remove(id);
 
-                // Èç¹ûÒÆ³ıµÄÊÇ»î¶¯Ïà»ú£¬ÇĞ»»µ½µÚÒ»¸ö
+                // å¦‚æœç§»é™¤çš„æ˜¯æ´»åŠ¨ç›¸æœºï¼Œåˆ‡æ¢åˆ°ç¬¬ä¸€ä¸ª
                 if (_activeCameraId == id)
                 {
                     _activeCameraId = _cameras.Keys.FirstOrDefault() ?? "";
@@ -364,7 +366,7 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// »ñÈ¡Ö¸¶¨Ïà»ú
+        /// è·å–æŒ‡å®šç›¸æœº
         /// </summary>
         public CameraInstance? GetCamera(string id)
         {
@@ -375,7 +377,7 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// ´ÓÅäÖÃ¼ÓÔØÏà»ú
+        /// ä»é…ç½®åŠ è½½ç›¸æœº
         /// </summary>
         public void LoadFromConfig(AppConfig config)
         {
@@ -391,7 +393,7 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// ±£´æµ½ÅäÖÃ
+        /// ä¿å­˜åˆ°é…ç½®
         /// </summary>
         public void SaveToConfig(AppConfig config)
         {
