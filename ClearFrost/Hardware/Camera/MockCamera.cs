@@ -40,7 +40,7 @@ namespace ClearFrost.Hardware
         public int IMV_EnumDevices(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType)
         {
             // Mock finding one device
-            deviceList.nDevNum = 1;
+            deviceList.nDevNum = 1u;
 
             // Allocate unmanaged memory for one device info
             int size = Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo));
@@ -123,8 +123,8 @@ namespace ClearFrost.Hardware
             frame.pData = _bufferHandle.AddrOfPinnedObject();
             frame.frameInfo = new IMVDefine.IMV_FrameInfo
             {
-                width = 1280,
-                height = 1024,
+                width = 1280u,
+                height = 1024u,
                 size = (uint)_dummyBuffer.Length,
                 pixelFormat = IMVDefine.IMV_EPixelType.gvspPixelMono8
             };

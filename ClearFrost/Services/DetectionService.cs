@@ -1,5 +1,6 @@
 // ============================================================================
 // 文件名: DetectionService.cs
+// 作者: 蘅芜君
 // 描述:   检测服务实现
 //
 // 功能:
@@ -66,6 +67,12 @@ namespace ClearFrost.Services
 
         #region 模型管理
 
+        /// <summary>
+        /// 异步加载指定路径的 YOLO 模型
+        /// </summary>
+        /// <param name="modelPath">模型文件的完整路径</param>
+        /// <param name="useGpu">是否使用 GPU 进行推理</param>
+        /// <returns>如果是加载成功返回 true，否则返回 false</returns>
         public async Task<bool> LoadModelAsync(string modelPath, bool useGpu)
         {
             try
@@ -112,6 +119,12 @@ namespace ClearFrost.Services
             }
         }
 
+        /// <summary>
+        /// 扫描指定目录下的所有 ONNX 模型并加载第一个找到的模型
+        /// </summary>
+        /// <param name="modelsDirectory">模型目录路径</param>
+        /// <param name="useGpu">是否使用 GPU</param>
+        /// <returns>如果有模型加载成功返回 true，否则返回 false</returns>
         public async Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu)
         {
             try
@@ -161,6 +174,11 @@ namespace ClearFrost.Services
             }
         }
 
+        /// <summary>
+        /// 切换当前使用的模型
+        /// </summary>
+        /// <param name="modelName">模型名称（不含扩展名）</param>
+        /// <returns>切换成功返回 true</returns>
         public async Task<bool> SwitchModelAsync(string modelName)
         {
             try
@@ -201,6 +219,13 @@ namespace ClearFrost.Services
             return await DetectAsync(bitmap, confidence, iouThreshold);
         }
 
+        /// <summary>
+        /// 对图像执行检测（使用 Bitmap）
+        /// </summary>
+        /// <param name="image">输入图像</param>
+        /// <param name="confidence">置信度阈值</param>
+        /// <param name="iouThreshold">IOU 阈值</param>
+        /// <returns>检测结果数据对象</returns>
         public async Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold)
         {
             var result = new DetectionResultData
@@ -277,6 +302,13 @@ namespace ClearFrost.Services
 
         #region 结果可视化
 
+        /// <summary>
+        /// 生成包含检测结果标注的图像
+        /// </summary>
+        /// <param name="original">原始图像</param>
+        /// <param name="results">检测结果列表</param>
+        /// <param name="labels">标签数组</param>
+        /// <returns>标注后的图像</returns>
         public Bitmap GenerateResultImage(Bitmap original, List<YoloResult> results, string[] labels)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
@@ -302,6 +334,10 @@ namespace ClearFrost.Services
 
         #region 多模型管理
 
+        /// <summary>
+        /// 设置当前检测任务的模式（如检测、分割等）
+        /// </summary>
+        /// <param name="taskType">任务类型整数值</param>
         public void SetTaskMode(int taskType)
         {
             _modelManager?.SetTaskMode((YoloTaskType)taskType);

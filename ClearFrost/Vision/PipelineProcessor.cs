@@ -1,21 +1,20 @@
 ﻿// ============================================================================
-// 
-// 
-//         
-// 
-// 
-// 
-// 
-// 
+// 文件名: PipelineProcessor.cs
+// 作者: 蘅芜君
+// 描述:   视觉处理流水线处理器
 //
-// 
+// 功能:
+//   - 管理图像处理算子的有序集合
+//   - 依次执行算子处理图像
+//   - 支持算子的增删改查
+//   - 支持处理配置的导入导出
+//
+// 使用示例:
 //   var processor = new PipelineProcessor();
 //   processor.AddOperator(new GrayscaleOp());
 //   processor.AddOperator(new TemplateMatchOp());
 //   var result = await processor.ProcessAsync(inputMat);
 //
-// 
-// 
 // ============================================================================
 using OpenCvSharp;
 using System.Diagnostics;
@@ -23,8 +22,8 @@ using System.Diagnostics;
 namespace ClearFrost.Vision
 {
     /// <summary>
-    /// 
-    /// 
+    /// 视觉处理流水线处理器。
+    /// 负责按顺序执行一系列图像处理算子，并生成最终结果。
     /// </summary>
     public class PipelineProcessor : IVisionProcessor, IDisposable
     {
@@ -35,17 +34,18 @@ namespace ClearFrost.Vision
         public string Name => "流水线处理器";
 
         /// <summary>
-        /// 
+        /// 获取当前流水线中的所有算子实例
         /// </summary>
         public IReadOnlyList<OperatorInstance> Operators => _operators.AsReadOnly();
 
         /// <summary>
-        /// 
+        /// 获取或设置一个条件函数，用于判断整个流水线处理是否通过。
+        /// 如果为 null，则默认根据最后一个匹配算子的结果或无匹配算子时通过。
         /// </summary>
         public Func<List<OperatorInstance>, bool>? PassCondition { get; set; }
 
         /// <summary>
-        /// 
+        /// 获取流水线最后一个算子的输出图像
         /// </summary>
         public Mat? GetLastOutput()
         {
@@ -57,11 +57,11 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
+        /// 在流水线末尾添加一个新算子
         /// </summary>
-        /// 
-        /// 
-        /// 
+        /// <param name="op">图像算子实例</param>
+        /// <param name="instanceId">指定实列ID，如果为空则自动生成</param>
+        /// <returns>算子实例ID</returns>
         public string AddOperator(IImageOperator op, string? instanceId = null)
         {
             lock (_lock)
@@ -78,8 +78,12 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
+        /// 在指定位置插入一个算子
         /// </summary>
+        /// <param name="index">插入位置的索引</param>
+        /// <param name="op">要插入的图像算子</param>
+        /// <param name="instanceId">指定实例ID，如果为空则自动生成</param>
+        /// <returns>算子实例ID</returns>
         public string InsertOperator(int index, IImageOperator op, string? instanceId = null)
         {
             lock (_lock)
@@ -97,10 +101,10 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
+        /// 移除指定ID的算子
         /// </summary>
-        /// 
-        /// 
+        /// <param name="instanceId">算子实例ID</param>
+        /// <returns>如果移除成功返回 true</returns>
         public bool RemoveOperator(string instanceId)
         {
             lock (_lock)
@@ -184,7 +188,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
+        /// 异步执行整个视觉流水线处理
         /// </summary>
         public async Task<VisionResult> ProcessAsync(Mat input)
         {
@@ -329,7 +333,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
+        /// 获取流水线处理的预览结果（通常用于UI显示）
         /// </summary>
         public async Task<Mat> GetPreviewAsync(Mat input)
         {
@@ -399,7 +403,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
+        /// 导出当前流水线的配置
         /// </summary>
         public VisionConfig ExportConfig()
         {
@@ -419,7 +423,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
+        /// 从配置对象导入流水线设置（会清空现有算子）
         /// </summary>
         public void ImportConfig(VisionConfig config)
         {
@@ -458,11 +462,13 @@ namespace ClearFrost.Vision
     }
 
     /// <summary>
-    /// 
+    /// 算子实例包装类，包含算子对象及其元数据
     /// </summary>
     public class OperatorInstance
     {
-        /// 
+        /// <summary>
+        /// 唯一实例 ID
+        /// </summary>
         public string InstanceId { get; set; } = string.Empty;
 
         /// 

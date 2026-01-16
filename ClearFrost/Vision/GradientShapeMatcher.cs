@@ -4,6 +4,16 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using OpenCvSharp;
+// ============================================================================
+// 文件名: GradientShapeMatcher.cs
+// 作者: 蘅芜君
+// 描述:   基于梯度形状的模板匹配算子
+// 
+// 功能:
+//   - 训练模板：提取梯度方向特征
+//   - 匹配：在图像中搜索最佳匹配位置
+//   - 多目标匹配：支持 NMS 非极大值抑制
+// ============================================================================
 
 namespace ClearFrost.Vision
 {
@@ -121,11 +131,12 @@ namespace ClearFrost.Vision
         #region Public API
 
         /// <summary>
-        /// 
+        /// 训练模板
         /// </summary>
-        /// 
-        /// 
-        /// 
+        /// <param name="image">模板图像</param>
+        /// <param name="angleRange">旋转角度范围（+/-度）</param>
+        /// <param name="mask">掩码图像（可选）</param>
+        /// <exception cref="ArgumentException">图像为空</exception>
         public void Train(Mat image, int angleRange = 180, Mat? mask = null)
         {
             if (image == null || image.Empty())
@@ -165,12 +176,12 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
+        /// 在场景图像中查找最佳匹配
         /// </summary>
-        /// 
-        /// 
-        /// 
-        /// 
+        /// <param name="sceneImage">场景图像</param>
+        /// <param name="minScore">最小匹配得分 (0-100)</param>
+        /// <param name="searchRegion">搜索区域（可选）</param>
+        /// <returns>最佳匹配结果</returns>
         public MatchResult Match(Mat sceneImage, double minScore = 80, Rect? searchRegion = null)
         {
             if (!_isTrained)
@@ -195,13 +206,13 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
+        /// 查找所有满足条件的匹配结果
         /// </summary>
-        /// 
-        /// 
-        /// 
-        /// 
-        /// 
+        /// <param name="sceneImage">场景图像</param>
+        /// <param name="minScore">最小匹配得分</param>
+        /// <param name="maxMatches">最大返回数量</param>
+        /// <param name="minDistance">结果去重最小间距</param>
+        /// <returns>匹配结果列表</returns>
         public List<MatchResult> MatchAll(Mat sceneImage, double minScore = 80,
                                           int maxMatches = 10, double minDistance = 20)
         {
@@ -225,8 +236,11 @@ namespace ClearFrost.Vision
         #region Feature Extraction
 
         /// <summary>
-        /// 
+        /// 从图像中提取梯度特征点
         /// </summary>
+        /// <param name="gray">灰度图像</param>
+        /// <param name="mask">掩码图像</param>
+        /// <returns>特征点列表</returns>
         private unsafe List<FeaturePoint> ExtractFeatures(Mat gray, Mat? mask)
         {
             int width = gray.Width;
@@ -302,8 +316,11 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
+        /// 稀疏化特征点（减少密集特征，提高匹配速度）
         /// </summary>
+        /// <param name="features">原始特征点列表</param>
+        /// <param name="minDistance">最小间距</param>
+        /// <returns>稀疏化后的特征点列表</returns>
         private List<FeaturePoint> SparsifyFeatures(List<FeaturePoint> features, double minDistance)
         {
             if (minDistance <= 0 || features.Count < 100)
@@ -336,7 +353,7 @@ namespace ClearFrost.Vision
         #region Template Rotation
 
         /// <summary>
-        /// 
+        /// 创建旋转后的模板特征点集合
         /// </summary>
         private RotatedTemplate CreateRotatedTemplate(
             List<FeaturePoint> baseFeatures,
@@ -392,8 +409,10 @@ namespace ClearFrost.Vision
         #region Scene Gradient Computation
 
         /// <summary>
-        /// 
+        /// 计算场景图像的梯度方向和幅值
         /// </summary>
+        /// <param name="gray">灰度场景图像</param>
+        /// <returns>方向矩阵和幅值矩阵</returns>
         private unsafe (byte[,] directions, ushort[,] magnitudes) ComputeSceneGradients(Mat gray)
         {
             int width = gray.Width;
@@ -448,7 +467,7 @@ namespace ClearFrost.Vision
         #region Matching Core
 
         /// <summary>
-        /// 
+        /// 核心匹配算法：在梯度图中寻找最佳匹配
         /// </summary>
         private MatchResult FindBestMatch(
             byte[,] sceneDirections,
@@ -531,7 +550,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
+        /// 核心匹配算法：寻找所有匹配可能
         /// </summary>
         private List<MatchResult> FindAllMatches(
             byte[,] sceneDirections,
@@ -589,7 +608,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
+        /// 细化匹配位置（在邻域内搜索更高分数）
         /// </summary>
         private (int x, int y, double score) RefineMatch(
             byte[,] sceneDirections,
@@ -625,9 +644,14 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// 
-        /// 
+        /// 计算单个位置的匹配得分
         /// </summary>
+        /// <param name="sceneDirections">场景方向图</param>
+        /// <param name="sceneMagnitudes">场景梯度幅值图</param>
+        /// <param name="template">旋转后的模板</param>
+        /// <param name="cx">中心X坐标</param>
+        /// <param name="cy">中心Y坐标</param>
+        /// <returns>匹配得分 (0.0 - 1.0)</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private double ComputeMatchScore(
             byte[,] sceneDirections,
@@ -689,8 +713,12 @@ namespace ClearFrost.Vision
         #region Non-Maximum Suppression
 
         /// <summary>
-        /// 
+        /// 非极大值抑制（去除重叠的检测结果）
         /// </summary>
+        /// <param name="matches">原始匹配列表</param>
+        /// <param name="minDistance">最小距离阈值</param>
+        /// <param name="maxMatches">最大保留数量</param>
+        /// <returns>抑制后的结果列表</returns>
         private List<MatchResult> NonMaximumSuppression(
             List<MatchResult> matches,
             double minDistance,

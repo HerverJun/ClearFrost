@@ -1,14 +1,24 @@
 using System;
 using System.Windows.Forms;
 using System.IO;
+// ============================================================================
+// 文件名: Program.cs
+// 作者: 蘅芜君
+// 创建日期: 2024
+// 描述:   应用程序主入口点
+// ============================================================================
 using System.Text;
 
 namespace ClearFrost
 {
+    /// <summary>
+    /// 应用程序的主入口点类
+    /// </summary>
     internal static class Program
     {
         /// <summary>
-        ///  The main entry point for the application.
+        /// 应用程序的主入口点。
+        /// 负责初始化环境、日志记录和启动主窗口。
         /// </summary>
         [STAThread]
         static void Main()
