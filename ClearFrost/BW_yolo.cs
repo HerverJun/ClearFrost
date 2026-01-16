@@ -1,22 +1,14 @@
 ﻿// ============================================================================
-// 
-// 
+// 文件名: BW_yolo.cs
+// 作者: 蘅芜君
+// 描述:   基于 OnnxRuntime 的 YOLO 检测器封装
 //
-// 
-// 
-// 
-// 
-// 
+// 功能:
+//   - 支持 YOLOv5, YOLOv8 等模型
+//   - 支持检测、分割、姿态估计等多种任务
+//   - 提供同步和异步推理接口
+//   - 包含图像预处理和后处理逻辑
 //
-// 
-// 
-// 
-// 
-// 
-// 
-//
-// 
-// 
 // ============================================================================
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
@@ -32,28 +24,84 @@ using System.IO;
 
 namespace ClearFrost.Yolo
 {
+    /// <summary>
+    /// YOLO 任务类型枚举
+    /// </summary>
     public enum YoloTaskType
     {
+        /// <summary>
+        /// 分类任务
+        /// </summary>
         Classify = 0,
+        /// <summary>
+        /// 检测任务
+        /// </summary>
         Detect = 1,
+        /// <summary>
+        /// 分割任务（仅检测，不生成掩码）
+        /// </summary>
         SegmentDetectOnly = 2,
+        /// <summary>
+        /// 分割任务（检测并生成掩码）
+        /// </summary>
         SegmentWithMask = 3,
+        /// <summary>
+        /// 姿态估计任务（仅检测，不生成关键点）
+        /// </summary>
         PoseDetectOnly = 4,
+        /// <summary>
+        /// 姿态估计任务（检测并生成关键点）
+        /// </summary>
         PoseWithKeypoints = 5,
+        /// <summary>
+        /// 有向包围盒（Oriented Bounding Box）检测任务
+        /// </summary>
         Obb = 6
     }
 
+    /// <summary>
+    /// YOLO 检测器配置类
+    /// </summary>
     public class YoloDetectorConfig
     {
+        /// <summary>
+        /// ONNX 模型文件路径
+        /// </summary>
         public string ModelPath { get; set; } = string.Empty;
+        /// <summary>
+        /// 是否使用 GPU 进行推理
+        /// </summary>
         public bool UseGpu { get; set; } = false;
+        /// <summary>
+        /// GPU 设备ID，当 UseGpu 为 true 时有效
+        /// </summary>
         public int GpuDeviceId { get; set; } = 0;
+        /// <summary>
+        /// YOLO 模型版本 (例如 5, 8)。0 表示自动检测。
+        /// </summary>
         public int YoloVersion { get; set; } = 0;
+        /// <summary>
+        /// 默认置信度阈值
+        /// </summary>
         public float DefaultConfidence { get; set; } = 0.5f;
+        /// <summary>
+        /// 默认 IOU 阈值
+        /// </summary>
         public float DefaultIouThreshold { get; set; } = 0.45f;
+        /// <summary>
+        /// ONNX Runtime 内部操作线程数
+        /// </summary>
         public int IntraOpNumThreads { get; set; } = Environment.ProcessorCount;
+        /// <summary>
+        /// ONNX Runtime 跨操作线程数
+        /// </summary>
         public int InterOpNumThreads { get; set; } = 1;
 
+        /// <summary>
+        /// 验证配置参数
+        /// </summary>
+        /// <exception cref="ArgumentException">ModelPath 为空或无效</exception>
+        /// <exception cref="ArgumentOutOfRangeException">GpuDeviceId 小于 0</exception>
         public void Validate()
         {
             if (string.IsNullOrWhiteSpace(ModelPath))
@@ -63,9 +111,12 @@ namespace ClearFrost.Yolo
         }
     }
 
+    /// <summary>
+    /// YOLO 检测器实现类，封装了 ONNX Runtime 推理逻辑
+    /// </summary>
     partial class YoloDetector : IDisposable
     {
-        // ==================== �������� ====================
+        // ==================== 常量定义 ====================
 
         private const int YOLO_BOX_ELEMENTS = 4;
         private const int YOLO5_OBJECTNESS_INDEX = 4;
@@ -106,8 +157,14 @@ namespace ClearFrost.Yolo
         private float _scale = 1;
         private int _padLeft = 0;
         private int _padTop = 0;
+        /// <summary>
+        /// 模型识别的标签名称数组
+        /// </summary>
         public string[] Labels { get; set; } = Array.Empty<string>();
 
+        /// <summary>
+        /// 上次推理的性能指标
+        /// </summary>
         public InferenceMetrics? LastMetrics { get; private set; }
 
         private readonly object _inferenceLock = new object();
@@ -115,13 +172,35 @@ namespace ClearFrost.Yolo
 
         private YoloTaskType _executionTaskMode = YoloTaskType.Detect;
 
+        /// <summary>
+        /// 获取当前加载的 YOLO 模型版本
+        /// </summary>
         public int YoloVersion => _yoloVersion;
+        /// <summary>
+        /// 获取模型输入张量的宽度
+        /// </summary>
         public int InputWidth => _inputTensorInfo.Length > 3 ? _inputTensorInfo[3] : 0;
+        /// <summary>
+        /// 获取模型输入张量的高度
+        /// </summary>
         public int InputHeight => _inputTensorInfo.Length > 2 ? _inputTensorInfo[2] : 0;
+        /// <summary>
+        /// 获取模型支持的类别数量
+        /// </summary>
         public int ClassCount => Labels.Length;
+        /// <summary>
+        /// 获取模型的版本信息（从模型元数据中读取）
+        /// </summary>
         public string ModelVersion => _modelVersion;
+        /// <summary>
+        /// 获取模型检测到的原始任务类型（从模型元数据中读取）
+        /// </summary>
         public YoloTaskType TaskType => _executionTaskMode;
 
+        /// <summary>
+        /// 获取或设置当前执行的任务模式。
+        /// 设置时会根据模型实际支持的任务类型进行调整。
+        /// </summary>
         public YoloTaskType TaskMode
         {
             get { return _executionTaskMode; }
@@ -175,11 +254,25 @@ namespace ClearFrost.Yolo
             }
         }
 
+        /// <summary>
+        /// 使用配置对象初始化 YOLO 检测器的新实例。
+        /// </summary>
+        /// <param name="config">YOLO 检测器配置对象。</param>
         public YoloDetector(YoloDetectorConfig config) : this(config.ModelPath, config.YoloVersion, config.GpuDeviceId, config.UseGpu)
         {
             config.Validate();
         }
 
+        /// <summary>
+        /// 初始化 YOLO 检测器的新实例。
+        /// </summary>
+        /// <param name="modelPath">ONNX 模型文件路径。</param>
+        /// <param name="yoloVersion">YOLO 模型版本 (例如 5, 8)。0 表示自动检测。</param>
+        /// <param name="gpuIndex">GPU 设备ID，当 useGpu 为 true 时有效。</param>
+        /// <param name="useGpu">是否使用 GPU 进行推理。</param>
+        /// <exception cref="ArgumentNullException">modelPath 为空。</exception>
+        /// <exception cref="FileNotFoundException">模型文件不存在。</exception>
+        /// <exception cref="Exception">模型类型不受支持。</exception>
         public YoloDetector(string modelPath, int yoloVersion = 0, int gpuIndex = 0, bool useGpu = false)
         {
             if (string.IsNullOrWhiteSpace(modelPath))
@@ -272,6 +365,12 @@ namespace ClearFrost.Yolo
             _tensorHeight = _inputTensorInfo[2];
         }
 
+        /// <summary>
+        /// 创建 ONNX Runtime 会话选项。
+        /// </summary>
+        /// <param name="useGpu">是否使用 GPU。</param>
+        /// <param name="gpuIndex">GPU 设备ID。</param>
+        /// <returns>配置好的 SessionOptions 对象。</returns>
         private static SessionOptions CreateSessionOptions(bool useGpu, int gpuIndex)
         {
             var options = new SessionOptions();
@@ -295,6 +394,19 @@ namespace ClearFrost.Yolo
             return options;
         }
 
+        /// <summary>
+        /// 执行推理（同步）。
+        /// </summary>
+        /// <param name="image">输入图像。</param>
+        /// <param name="confidence">置信度阈值。</param>
+        /// <param name="iouThreshold">IOU 阈值。</param>
+        /// <param name="globalIou">是否全局 NMS。</param>
+        /// <param name="preprocessingMode">预处理模式 (0: Letterbox, 1: Resize)。</param>
+        /// <returns>检测结果列表。</returns>
+        /// <exception cref="ObjectDisposedException">如果检测器已被释放。</exception>
+        /// <exception cref="ArgumentNullException">image 为空。</exception>
+        /// <exception cref="ArgumentException">图像尺寸无效。</exception>
+        /// <exception cref="ArgumentOutOfRangeException">confidence 或 iouThreshold 超出有效范围。</exception>
         public List<YoloResult> Inference(Bitmap image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = 1)
         {
             ThrowIfDisposed();
@@ -313,6 +425,19 @@ namespace ClearFrost.Yolo
             }
         }
 
+        /// <summary>
+        /// 执行推理（异步）。
+        /// </summary>
+        /// <param name="image">输入图像。</param>
+        /// <param name="confidence">置信度阈值。</param>
+        /// <param name="iouThreshold">IOU 阈值。</param>
+        /// <param name="globalIou">是否全局 NMS。</param>
+        /// <param name="preprocessingMode">预处理模式。</param>
+        /// <param name="cancellationToken">取消令牌。</param>
+        /// <returns>检测结果列表。</returns>
+        /// <exception cref="ObjectDisposedException">如果检测器已被释放。</exception>
+        /// <exception cref="ArgumentNullException">image 为空。</exception>
+        /// <exception cref="OperationCanceledException">如果操作被取消。</exception>
         public async Task<List<YoloResult>> InferenceAsync(Bitmap image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = 1, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
@@ -331,6 +456,15 @@ namespace ClearFrost.Yolo
             }
         }
 
+        /// <summary>
+        /// 内部推理方法，执行图像预处理、模型推理和结果后处理。
+        /// </summary>
+        /// <param name="image">输入图像。</param>
+        /// <param name="confidence">置信度阈值。</param>
+        /// <param name="iouThreshold">IOU 阈值。</param>
+        /// <param name="globalIou">是否全局 NMS。</param>
+        /// <param name="preprocessingMode">预处理模式 (0: Letterbox, 1: Resize)。</param>
+        /// <returns>检测结果列表。</returns>
         private List<YoloResult> InferenceInternal(Bitmap image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = 1)
         {
             ThrowIfDisposed();

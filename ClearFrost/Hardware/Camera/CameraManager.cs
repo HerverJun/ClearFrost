@@ -171,16 +171,16 @@ namespace ClearFrost.Hardware
             try
             {
                 var deviceList = new IMVDefine.IMV_DeviceList();
-                // 使用 RealCamera 静态方法进行设备枚举
-                int enumResult = RealCamera.EnumDevicesStatic(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
+                // 使用官方 SDK 的 MyCamera 静态方法进行设备枚举
+                int enumResult = MyCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
 
                 if (enumResult == IMVDefine.IMV_OK && deviceList.nDevNum > 0)
                 {
-                    int structSize = Marshal.SizeOf<IMVDefine.IMV_DeviceInfo>();
-                    for (int i = 0; i < deviceList.nDevNum; i++)
+                    for (int i = 0; i < (int)deviceList.nDevNum; i++)
                     {
-                        IntPtr ptr = deviceList.pDevInfo + i * structSize;
-                        var devInfo = Marshal.PtrToStructure<IMVDefine.IMV_DeviceInfo>(ptr);
+                        var devInfo = (IMVDefine.IMV_DeviceInfo)Marshal.PtrToStructure(
+                            deviceList.pDevInfo + Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo)) * i,
+                            typeof(IMVDefine.IMV_DeviceInfo))!;
                         if (!string.IsNullOrEmpty(devInfo.serialNumber))
                         {
                             result.Add(devInfo.serialNumber);
@@ -272,21 +272,21 @@ namespace ClearFrost.Hardware
 
                             // 查找相机索引
                             var deviceList = new IMVDefine.IMV_DeviceList();
-                            // 使用 RealCamera 静态方法进行设备枚举
-                            RealCamera.EnumDevicesStatic(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
+                            // 使用官方 SDK 的 MyCamera 静态方法进行设备枚举
+                            MyCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
 
                             Debug.WriteLine($"[CameraManager] Enumerated {deviceList.nDevNum} MindVision devices");
 
                             int deviceIndex = -1;
-                            int structSize = Marshal.SizeOf<IMVDefine.IMV_DeviceInfo>();
 
                             // 用户输入的序列号，清理空格
                             string targetSerial = config.SerialNumber?.Trim() ?? "";
 
-                            for (int i = 0; i < deviceList.nDevNum; i++)
+                            for (int i = 0; i < (int)deviceList.nDevNum; i++)
                             {
-                                IntPtr ptr = deviceList.pDevInfo + i * structSize;
-                                var devInfo = Marshal.PtrToStructure<IMVDefine.IMV_DeviceInfo>(ptr);
+                                var devInfo = (IMVDefine.IMV_DeviceInfo)Marshal.PtrToStructure(
+                                    deviceList.pDevInfo + Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo)) * i,
+                                    typeof(IMVDefine.IMV_DeviceInfo))!;
                                 string foundSerial = devInfo.serialNumber?.Trim() ?? "";
 
                                 Debug.WriteLine($"[CameraManager] Device[{i}] SerialNumber: '{foundSerial}'");

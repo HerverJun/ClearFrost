@@ -19,7 +19,7 @@ using ClearFrost.Models;
 //   - 发送: UpdateUI(), UpdateImage(), LogToFrontend(), SendVisionConfig(), ...
 //   - 接收: 通过 { "cmd": "xxx", "value": ... } JSON 格式解析
 //
-// 作者: ClearFrost Team
+// 作者: 蘅芜君
 // 创建日期: 2024
 // ============================================================================
 using System;
