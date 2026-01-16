@@ -1,12 +1,12 @@
-using System;
+锘縰sing System;
 using System.Runtime.InteropServices;
 using MVSDK_Net;
 
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// ICameraProvider 到 ICamera 的适配器
-    /// 允许新的相机提供者与现有的 CameraManager 兼容
+    /// 
+    /// 
     /// </summary>
     public class CameraProviderAdapter : ICamera
     {
@@ -23,19 +23,19 @@ namespace ClearFrost.Hardware
 
         public int IMV_EnumDevices(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType)
         {
-            // 适配器不实现枚举，这应该在外部通过 CameraProviderFactory 完成
+            // 
             return IMVDefine.IMV_OK;
         }
 
         public int IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode mode, int index)
         {
-            // 新接口不需要这个步骤，返回成功
+            // 
             return IMVDefine.IMV_OK;
         }
 
         public int IMV_Open()
         {
-            // Open 应该已经在外部调用过
+            // 
             return _provider.IsConnected ? IMVDefine.IMV_OK : -1;
         }
 
@@ -59,7 +59,7 @@ namespace ClearFrost.Hardware
 
         public int IMV_SetBufferCount(int count)
         {
-            // 新接口内部管理缓冲区
+            // 
             return IMVDefine.IMV_OK;
         }
 
@@ -80,7 +80,7 @@ namespace ClearFrost.Hardware
 
         public int IMV_DestroyHandle()
         {
-            // 新接口通过 Dispose 释放
+            // 
             return IMVDefine.IMV_OK;
         }
 
@@ -104,7 +104,7 @@ namespace ClearFrost.Hardware
             if (_currentFrame == null)
                 return -1;
 
-            // 填充旧接口的帧结构
+            // 
             frame.pData = _currentFrame.DataPtr;
             frame.frameInfo = new IMVDefine.IMV_FrameInfo
             {
@@ -129,7 +129,7 @@ namespace ClearFrost.Hardware
             return format switch
             {
                 CameraPixelFormat.Mono8 => IMVDefine.IMV_EPixelType.gvspPixelMono8,
-                _ => IMVDefine.IMV_EPixelType.gvspPixelMono8  // 默认返回 Mono8
+                _ => IMVDefine.IMV_EPixelType.gvspPixelMono8  // 默锟较凤拷锟斤拷 Mono8
             };
         }
 

@@ -1,22 +1,22 @@
-// ============================================================================
-// ÎÄ¼şÃû: BW_yolo.cs
-// ÃèÊö:   YOLO Éî¶ÈÑ§Ï°Ä¿±ê¼ì²âÒıÇæ - »ùÓÚ ONNX Runtime µÄÍÆÀíºËĞÄ
+ï»¿// ============================================================================
+// 
+// 
 //
-// ¹¦ÄÜ¸ÅÊö:
-//   - Ö§³Ö YOLOv5/v6/v8/v9/v11 Ä£ĞÍ×Ô¶¯Ê¶±ğ
-//   - Ö§³Ö¶àÖÖÈÎÎñÀàĞÍ: ·ÖÀà(classify)¡¢¼ì²â(detect)¡¢·Ö¸î(segment)¡¢×ËÌ¬(pose)¡¢OBB
-//   - Ö§³Ö CPU ºÍ GPU (DirectML) ÍÆÀí¼ÓËÙ
-//   - ÄÚÖÃÁ½ÖÖÔ¤´¦ÀíÄ£Ê½: ¸ß¾«¶È/¸ßËÙ¶È
+// 
+// 
+// 
+// 
+// 
 //
-// Ä£¿é²ğ·Ö:
-//   - YoloPreprocessor.cs:  Ô¤´¦ÀíÄ£¿é (LetterboxËõ·Å¡¢Tensor×ª»»)
-//   - YoloPostprocessor.cs: ºó´¦ÀíÄ£¿é (ÖÃĞÅ¶È¹ıÂË¡¢×ø±ê»Ö¸´)
-//   - YoloNms.cs:           NMS Ä£¿é (·Ç¼«´óÖµÒÖÖÆ)
-//   - YoloRenderer.cs:      äÖÈ¾Ä£¿é (½á¹û¿ÉÊÓ»¯)
-//   - YoloDataTypes.cs:     Êı¾İ½á¹¹¶¨Òå
+// 
+// 
+// 
+// 
+// 
+// 
 //
-// ×÷Õß: ClearFrost Team (»ùÓÚ¿ªÔ´ YOLO ÍÆÀí¿â¸Ä½ø)
-// ´´½¨ÈÕÆÚ: 2024
+// 
+// 
 // ============================================================================
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
@@ -65,7 +65,7 @@ namespace ClearFrost.Yolo
 
     partial class YoloDetector : IDisposable
     {
-        // ==================== ³£Á¿¶¨Òå ====================
+        // ==================== ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ====================
 
         private const int YOLO_BOX_ELEMENTS = 4;
         private const int YOLO5_OBJECTNESS_INDEX = 4;
@@ -82,7 +82,7 @@ namespace ClearFrost.Yolo
         private const float DEFAULT_CONFIDENCE_THRESHOLD = 0.5f;
         private const float DEFAULT_IOU_THRESHOLD = 0.45f;
 
-        // ==================== ×Ö¶Î¶¨Òå ====================
+        // ==================== å­—æ®µå®šä¹‰ ====================
 
         private bool _disposed = false;
         private InferenceSession? _inferenceSession;
@@ -343,7 +343,7 @@ namespace ClearFrost.Yolo
 
             try
             {
-                // ==================== Ô¤´¦Àí½×¶Î ====================
+                // ==================== é¢„å¤„ç†é˜¶æ®µ ====================
                 EnsureTensorBuffer();
                 Array.Clear(_tensorBuffer!, 0, _tensorBuffer!.Length);
 
@@ -368,7 +368,7 @@ namespace ClearFrost.Yolo
                 metrics.PreprocessMs = sw.Elapsed.TotalMilliseconds;
                 sw.Restart();
 
-                // ==================== ÍÆÀí½×¶Î ====================
+                // ==================== ï¿½ï¿½ï¿½ï¿½ï¿½×¶ï¿½ ====================
                 Tensor<float> output0;
                 Tensor<float> output1;
                 List<YoloResult> filteredDataList;
@@ -435,7 +435,7 @@ namespace ClearFrost.Yolo
                     finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
                 }
 
-                // ==================== ºó´¦Àí½×¶Î ====================
+                // ==================== ï¿½ï¿½ï¿½ï¿½ï¿½×¶ï¿½ ====================
                 RestoreCoordinates(ref finalResult);
                 if (_executionTaskMode != YoloTaskType.Classify)
                 {

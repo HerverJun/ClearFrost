@@ -1,6 +1,6 @@
-// ============================================================================
-// ÎÄ¼şÃû: TemplateMatchOp.cs
-// ÃèÊö:   Ä£°åÆ¥ÅäËã×Ó - Ê¹ÓÃ OpenCV matchTemplate ²éÕÒÄ¿±ê
+ï»¿// ============================================================================
+// 
+// 
 // ============================================================================
 using OpenCvSharp;
 using System;
@@ -10,12 +10,12 @@ using System.IO;
 namespace ClearFrost.Vision
 {
     /// <summary>
-    /// Ä£°åÆ¥ÅäËã×Ó
-    /// Ê¹ÓÃÄ£°åÆ¥Åä²éÕÒÄ¿±ê
+    /// 
+    /// 
     /// </summary>
     public class TemplateMatchOp : IImageOperator, ITemplateTrainable
     {
-        public string Name => "Ä£°åÆ¥Åä";
+        public string Name => "æ¨¡æ¿åŒ¹é…";
         public string TypeId => "template_match";
 
         public bool IsTrained => _templateImage != null && !_templateImage.Empty();
@@ -47,7 +47,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// Ä£°åÍ¼Ïñ
+        /// 
         /// </summary>
         public Mat? TemplateImage
         {
@@ -63,7 +63,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// Æ¥Åä·ÖÊıãĞÖµ
+        /// 
         /// </summary>
         public double ScoreThreshold
         {
@@ -72,7 +72,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// Æ¥Åä·½·¨
+        /// 
         /// </summary>
         public TemplateMatchModes MatchMethod
         {
@@ -81,7 +81,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ×îºóÒ»´ÎÆ¥ÅäµÄ½á¹û
+        /// 
         /// </summary>
         public TemplateMatchResult? LastMatchResult { get; private set; }
 
@@ -185,7 +185,7 @@ namespace ClearFrost.Vision
                     new OperatorParameterInfo
                     {
                         Name = "scoreThreshold",
-                        DisplayName = "Æ¥ÅäãĞÖµ",
+                        DisplayName = "åŒ¹é…é˜ˆå€¼",
                         Type = "slider",
                         Min = 0.1,
                         Max = 1.0,
@@ -196,7 +196,7 @@ namespace ClearFrost.Vision
                     new OperatorParameterInfo
                     {
                         Name = "templatePath",
-                        DisplayName = "Ä£°åÍ¼Ïñ",
+                        DisplayName = "æ¨¡æ¿å›¾åƒ",
                         Type = "file",
                         DefaultValue = "",
                         CurrentValue = _templatePath
@@ -206,7 +206,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ¼ÓÔØÄ£°åÍ¼Ïñ
+        /// 
         /// </summary>
         private void LoadTemplate(string path)
         {
@@ -221,12 +221,12 @@ namespace ClearFrost.Vision
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[TemplateMatchOp] ¼ÓÔØÄ£°åÊ§°Ü: {ex.Message}");
+                Console.WriteLine($"[TemplateMatchOp] åŠ è½½æ¨¡æ¿å¤±è´¥: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// ´Ó Mat ÉèÖÃÄ£°å
+        /// 
         /// </summary>
         public void SetTemplateFromMat(Mat template)
         {

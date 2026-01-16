@@ -7,7 +7,8 @@ using MVSDK_Net;
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// 迈德威视相机实现
+    /// 华睿 (Huaray) 工业相机实现 - 基于 MVSDK
+    /// 注意：类名保留 MindVisionCamera 以兼容现有代码
     /// </summary>
     public class MindVisionCamera : ICameraProvider
     {
@@ -67,7 +68,7 @@ namespace ClearFrost.Hardware
         private IMVDefine.IMV_Frame _lastFrame;
         private List<CameraDeviceInfo> _cachedDevices = new();
 
-        public string ProviderName => "MindVision";
+        public string ProviderName => "Huaray";
         public bool IsConnected => _isConnected && _handle != IntPtr.Zero;
         public bool IsGrabbing => _isGrabbing && _handle != IntPtr.Zero && IMV_IsGrabbing(_handle);
         public CameraDeviceInfo? CurrentDevice => _currentDevice;
@@ -95,8 +96,8 @@ namespace ClearFrost.Hardware
                     _cachedDevices.Add(new CameraDeviceInfo
                     {
                         SerialNumber = info.serialNumber ?? "",
-                        Manufacturer = "MindVision",
-                        Model = "MindVision Camera",
+                        Manufacturer = "Huaray",
+                        Model = "Huaray Camera",
                         UserDefinedName = info.serialNumber ?? "",
                         InterfaceType = "Unknown"
                     });

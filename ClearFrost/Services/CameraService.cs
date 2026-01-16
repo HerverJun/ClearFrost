@@ -1,13 +1,13 @@
-using ClearFrost.Config;
+ï»¿using ClearFrost.Config;
 using ClearFrost.Hardware;
 // ============================================================================
-// ÎÄ¼þÃû: CameraService.cs
-// ÃèÊö:   Ïà»ú·þÎñÊµÏÖ
+// 
+// 
 //
-// ¹¦ÄÜ:
-//   - ·â×° CameraManager Ìá¹©Í³Ò»µÄÏà»ú¿ØÖÆ
-//   - Òì²½Ö¡²É¼¯ºÍÊÂ¼þÍ¨Öª
-//   - Ö§³Ö¶àÆ·ÅÆÏà»ú (MindVision, Hikvision)
+// 
+// 
+// 
+// 
 // ============================================================================
 
 using System;
@@ -21,11 +21,11 @@ using ClearFrost.Interfaces;
 namespace ClearFrost.Services
 {
     /// <summary>
-    /// Ïà»ú·þÎñÊµÏÖ
+    /// 
     /// </summary>
     public class CameraService : ICameraService
     {
-        #region Ë½ÓÐ×Ö¶Î
+        #region Ë½ï¿½ï¿½ï¿½Ö¶ï¿½
 
         private readonly CameraManager _cameraManager;
         private CancellationTokenSource? _captureCts;
@@ -36,7 +36,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ÊÂ¼þ
+        #region ï¿½Â¼ï¿½
 
         public event Action<Mat>? FrameCaptured;
         public event Action<bool>? ConnectionChanged;
@@ -44,10 +44,10 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ÊôÐÔ
+        #region ï¿½ï¿½ï¿½ï¿½
 
         public bool IsOpen => _cameraManager.ActiveCamera?.IsOpen ?? false;
-        public string CameraName => _cameraManager.ActiveCamera?.Config.DisplayName ?? "Î´Á¬½Ó";
+        public string CameraName => _cameraManager.ActiveCamera?.Config.DisplayName ?? "Î´ï¿½ï¿½ï¿½ï¿½";
 
         public Mat? LastFrame
         {
@@ -62,7 +62,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ¹¹Ôìº¯Êý
+        #region ï¿½ï¿½ï¿½ìº¯ï¿½ï¿½
 
         public CameraService(bool debugMode = false)
         {
@@ -76,18 +76,18 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ´ò¿ª/¹Ø±Õ
+        #region ï¿½ï¿½/ï¿½Ø±ï¿½
 
         public bool Open(string serialNumber, string manufacturer)
         {
             try
             {
-                // ²éÕÒÆ¥ÅäµÄÏà»úÅäÖÃ
+                // 
                 var instance = _cameraManager.Cameras.FirstOrDefault(c => c.Config.SerialNumber == serialNumber);
 
                 if (instance == null)
                 {
-                    // ´´½¨ÐÂÅäÖÃ
+                    // 
                     var newConfig = new CameraConfig
                     {
                         SerialNumber = serialNumber,
@@ -101,37 +101,37 @@ namespace ClearFrost.Services
 
                 if (instance == null)
                 {
-                    ErrorOccurred?.Invoke("ÎÞ·¨´´½¨Ïà»úÅäÖÃ");
+                    ErrorOccurred?.Invoke("ï¿½Þ·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½");
                     return false;
                 }
 
-                // ³¢ÊÔÍ¨¹ý ICameraProvider ½Ó¿Ú´ò¿ª
+                // 
                 if (instance.Camera is ICameraProvider provider)
                 {
                     bool opened = provider.Open(serialNumber);
                     if (opened)
                     {
                         ConnectionChanged?.Invoke(true);
-                        Debug.WriteLine($"[CameraService] Ïà»úÒÑ´ò¿ª: {serialNumber}");
+                        Debug.WriteLine($"[CameraService] ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½: {serialNumber}");
                         return true;
                     }
                 }
 
-                // ³¢ÊÔÊ¹ÓÃ´«Í³ SDK ½Ó¿Ú´ò¿ª
+                // 
                 bool success = instance.Open();
                 if (success)
                 {
                     ConnectionChanged?.Invoke(true);
-                    Debug.WriteLine($"[CameraService] Ïà»úÒÑ´ò¿ª (SDK): {serialNumber}");
+                    Debug.WriteLine($"[CameraService] ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½ (SDK): {serialNumber}");
                     return true;
                 }
 
-                ErrorOccurred?.Invoke("´ò¿ªÏà»úÊ§°Ü");
+                ErrorOccurred?.Invoke("ï¿½ï¿½ï¿½ï¿½ï¿½Ê§ï¿½ï¿½");
                 return false;
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"´ò¿ªÏà»úÒì³£: {ex.Message}");
+                ErrorOccurred?.Invoke($"ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ì³£: {ex.Message}");
                 return false;
             }
         }
@@ -157,18 +157,18 @@ namespace ClearFrost.Services
                     }
 
                     ConnectionChanged?.Invoke(false);
-                    Debug.WriteLine("[CameraService] Ïà»úÒÑ¹Ø±Õ");
+                    Debug.WriteLine("[CameraService] ï¿½ï¿½ï¿½ï¿½Ñ¹Ø±ï¿½");
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[CameraService] ¹Ø±ÕÏà»úÒì³£: {ex.Message}");
+                Debug.WriteLine($"[CameraService] ï¿½Ø±ï¿½ï¿½ï¿½ï¿½ï¿½ì³£: {ex.Message}");
             }
         }
 
         #endregion
 
-        #region ²É¼¯¿ØÖÆ
+        #region ï¿½É¼ï¿½ï¿½ï¿½ï¿½ï¿½
 
         public void StartCapture()
         {
@@ -185,7 +185,7 @@ namespace ClearFrost.Services
             };
             _captureThread.Start();
 
-            Debug.WriteLine("[CameraService] ¿ªÊ¼²É¼¯");
+            Debug.WriteLine("[CameraService] ï¿½ï¿½Ê¼ï¿½É¼ï¿½");
         }
 
         public void StopCapture()
@@ -201,7 +201,7 @@ namespace ClearFrost.Services
             _captureCts = null;
             _captureThread = null;
 
-            Debug.WriteLine("[CameraService] Í£Ö¹²É¼¯");
+            Debug.WriteLine("[CameraService] Í£Ö¹ï¿½É¼ï¿½");
         }
 
         public void TriggerOnce()
@@ -222,7 +222,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"´¥·¢²É¼¯Ê§°Ü: {ex.Message}");
+                ErrorOccurred?.Invoke($"ï¿½ï¿½ï¿½ï¿½ï¿½É¼ï¿½Ê§ï¿½ï¿½: {ex.Message}");
             }
         }
 
@@ -242,7 +242,7 @@ namespace ClearFrost.Services
                         using var cameraFrame = provider.GetFrame(500);
                         if (cameraFrame != null && cameraFrame.DataPtr != IntPtr.Zero && cameraFrame.Width > 0 && cameraFrame.Height > 0)
                         {
-                            // ½« CameraFrame ×ª»»Îª Mat
+                            // 
                             var matType = cameraFrame.PixelFormat == CameraPixelFormat.Mono8
                                 ? MatType.CV_8UC1
                                 : MatType.CV_8UC3;
@@ -266,7 +266,7 @@ namespace ClearFrost.Services
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[CameraService] ²É¼¯Òì³£: {ex.Message}");
+                    Debug.WriteLine($"[CameraService] ï¿½É¼ï¿½ï¿½ì³£: {ex.Message}");
                     Thread.Sleep(100);
                 }
             }
@@ -274,7 +274,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ²ÎÊýÉèÖÃ
+        #region ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
         public void SetExposure(double exposureUs)
         {
@@ -294,7 +294,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"ÉèÖÃÆØ¹âÊ§°Ü: {ex.Message}");
+                ErrorOccurred?.Invoke($"ï¿½ï¿½ï¿½ï¿½ï¿½Ø¹ï¿½Ê§ï¿½ï¿½: {ex.Message}");
             }
         }
 
@@ -316,7 +316,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"ÉèÖÃÔöÒæÊ§°Ü: {ex.Message}");
+                ErrorOccurred?.Invoke($"ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê§ï¿½ï¿½: {ex.Message}");
             }
         }
 

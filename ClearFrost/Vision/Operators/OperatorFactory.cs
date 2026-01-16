@@ -1,6 +1,6 @@
-// ============================================================================
-// ÎÄ¼şÃû: OperatorFactory.cs
-// ÃèÊö:   Ëã×Ó¹¤³§ºÍÏà¹ØÊı¾İÀà
+ï»¿// ============================================================================
+// 
+// 
 // ============================================================================
 using OpenCvSharp;
 using System.Collections.Generic;
@@ -8,7 +8,7 @@ using System.Collections.Generic;
 namespace ClearFrost.Vision
 {
     /// <summary>
-    /// ÓĞÎŞ¼ì²â½á¹û
+    /// 
     /// </summary>
     public class PresenceDetectionResult
     {
@@ -20,7 +20,7 @@ namespace ClearFrost.Vision
     }
 
     /// <summary>
-    /// Ä£°åÆ¥Åä½á¹û
+    /// 
     /// </summary>
     public class TemplateMatchResult
     {
@@ -34,7 +34,7 @@ namespace ClearFrost.Vision
     }
 
     /// <summary>
-    /// Ëã×Ó¹¤³§
+    /// 
     /// </summary>
     public static class OperatorFactory
     {
@@ -65,16 +65,16 @@ namespace ClearFrost.Vision
 
         public static List<OperatorInfo> GetAvailableOperators() => new()
         {
-            new OperatorInfo { TypeId = "template_match", Name = "Ä£°åÆ¥Åä", Description = "Ê¹ÓÃÄ£°å²éÕÒÄ¿±êÎ»ÖÃ" },
-            new OperatorInfo { TypeId = "feature_match", Name = "ÌØÕ÷Æ¥Åä (AKAZE)", Description = "»ùÓÚAKAZEÌØÕ÷µãµÄ¿¹Ğı×ªËõ·ÅÆ¥Åä" },
-            new OperatorInfo { TypeId = "orb_match", Name = "ÌØÕ÷Æ¥Åä (ORB)", Description = "»ùÓÚORBÌØÕ÷µãµÄ¸ßËÙÆ¥Åä" },
-            new OperatorInfo { TypeId = "pyramid_shape_match", Name = "ĞÎ×´Æ¥Åä (½ğ×ÖËş)", Description = "¹¤Òµ¼¶¿¹¹âÕÕÌİ¶È·½ÏòÆ¥Åä" },
-            new OperatorInfo { TypeId = "background_diff", Name = "ÓĞÎŞ¼ì²â (±³¾°²î·Ö)", Description = "»ùÓÚ±³¾°²î·ÖµÄÎïÌåÓĞÎŞ¼ì²â" }
+            new OperatorInfo { TypeId = "template_match", Name = "æ¨¡æ¿åŒ¹é…", Description = "ä½¿ç”¨æ¨¡æ¿å›¾åƒå®šä½ç›®æ ‡ä½ç½®" },
+            new OperatorInfo { TypeId = "feature_match", Name = "ç‰¹å¾åŒ¹é… (AKAZE)", Description = "åŸºäºAKAZEç®—æ³•çš„æ—‹è½¬ç¼©æ”¾åŒ¹é…" },
+            new OperatorInfo { TypeId = "orb_match", Name = "ç‰¹å¾åŒ¹é… (ORB)", Description = "åŸºäºORBç®—æ³•çš„é«˜é€Ÿæ—‹è½¬åŒ¹é…" },
+            new OperatorInfo { TypeId = "pyramid_shape_match", Name = "å½¢çŠ¶åŒ¹é… (é‡‘å­—å¡”)", Description = "å·¥ä¸šçº§é«˜æ€§èƒ½æ¢¯åº¦å½¢çŠ¶åŒ¹é…" },
+            new OperatorInfo { TypeId = "background_diff", Name = "æœ‰æ— æ£€æµ‹ (èƒŒæ™¯å·®åˆ†)", Description = "åŸºäºèƒŒæ™¯ç°åº¦å·®çš„æœ‰æ— æ£€æµ‹" }
         };
     }
 
     /// <summary>
-    /// Ëã×ÓĞÅÏ¢
+    /// 
     /// </summary>
     public class OperatorInfo
     {

@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using HslCommunication;
@@ -10,29 +10,29 @@ using HslCommunication.ModBus;
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// PLCĞ­ÒéÀàĞÍÃ¶¾Ù
+    /// 
     /// </summary>
     public enum PlcProtocolType
     {
-        /// <summary>ÈıÁâMC ASCIIĞ­Òé</summary>
+        /// 
         Mitsubishi_MC_ASCII,
-        /// <summary>ÈıÁâMC BinaryĞ­Òé</summary>
+        /// 
         Mitsubishi_MC_Binary,
-        /// <summary>Modbus TCPĞ­Òé</summary>
+        /// 
         Modbus_TCP,
-        /// <summary>Î÷ÃÅ×ÓS7Ğ­Òé (S7-1200/1500)</summary>
+        /// 
         Siemens_S7,
-        /// <summary>Å·Ä·ÁúFins TCPĞ­Òé</summary>
+        /// 
         Omron_Fins
     }
 
     /// <summary>
-    /// PLCÉè±¸¹¤³§Àà
+    /// 
     /// </summary>
     public static class PlcFactory
     {
         /// <summary>
-        /// ¸ù¾İĞ­ÒéÀàĞÍ´´½¨¶ÔÓ¦µÄPLCÉè±¸ÊÊÅäÆ÷
+        /// 
         /// </summary>
         public static IPlcDevice Create(PlcProtocolType protocol, string ip, int port)
         {
@@ -43,23 +43,23 @@ namespace ClearFrost.Hardware
                 PlcProtocolType.Modbus_TCP => new ModbusTcpAdapter(ip, port),
                 PlcProtocolType.Siemens_S7 => new SiemensS7Adapter(ip, port),
                 PlcProtocolType.Omron_Fins => new OmronFinsAdapter(ip, port),
-                _ => throw new NotSupportedException($"²»Ö§³ÖµÄĞ­ÒéÀàĞÍ: {protocol}")
+                _ => throw new NotSupportedException($"ï¿½ï¿½Ö§ï¿½Öµï¿½Ğ­ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½: {protocol}")
             };
         }
 
         /// <summary>
-        /// ´Ó×Ö·û´®½âÎöĞ­ÒéÀàĞÍ
+        /// 
         /// </summary>
         public static PlcProtocolType ParseProtocol(string protocolStr)
         {
             if (Enum.TryParse<PlcProtocolType>(protocolStr, true, out var result))
                 return result;
-            return PlcProtocolType.Mitsubishi_MC_ASCII; // Ä¬ÈÏÖµ
+            return PlcProtocolType.Mitsubishi_MC_ASCII; // Ä¬ï¿½ï¿½Öµ
         }
     }
 
     /// <summary>
-    /// ÈıÁâMC ASCIIĞ­ÒéÊÊÅäÆ÷£¨Ô­ÓĞÊµÏÖ£©
+    /// 
     /// </summary>
     public class MitsubishiMcAsciiAdapter : IPlcDevice
     {
@@ -68,7 +68,7 @@ namespace ClearFrost.Hardware
 
         public string LastError { get; private set; } = string.Empty;
         public bool IsConnected => _isConnected;
-        public string ProtocolName => "ÈıÁâMC ASCII";
+        public string ProtocolName => "ï¿½ï¿½ï¿½ï¿½MC ASCII";
 
         public MitsubishiMcAsciiAdapter(string ip, int port)
         {
@@ -145,7 +145,7 @@ namespace ClearFrost.Hardware
     }
 
     /// <summary>
-    /// ÈıÁâMC BinaryĞ­ÒéÊÊÅäÆ÷
+    /// 
     /// </summary>
     public class MitsubishiMcBinaryAdapter : IPlcDevice
     {
@@ -154,7 +154,7 @@ namespace ClearFrost.Hardware
 
         public string LastError { get; private set; } = string.Empty;
         public bool IsConnected => _isConnected;
-        public string ProtocolName => "ÈıÁâMC Binary";
+        public string ProtocolName => "ï¿½ï¿½ï¿½ï¿½MC Binary";
 
         public MitsubishiMcBinaryAdapter(string ip, int port)
         {
@@ -231,7 +231,7 @@ namespace ClearFrost.Hardware
     }
 
     /// <summary>
-    /// Modbus TCPĞ­ÒéÊÊÅäÆ÷
+    /// 
     /// </summary>
     public class ModbusTcpAdapter : IPlcDevice
     {
@@ -245,7 +245,7 @@ namespace ClearFrost.Hardware
         public ModbusTcpAdapter(string ip, int port)
         {
             _plc = new ModbusTcpNet(ip, port);
-            // ModbusÄ¬ÈÏÕ¾ºÅÎª1
+            // 
             _plc.Station = 1;
         }
 
@@ -286,7 +286,7 @@ namespace ClearFrost.Hardware
         {
             try
             {
-                // ModbusµØÖ·¸ñÊ½£ºÖ±½ÓÊ¹ÓÃÊı×ÖµØÖ·
+                // 
                 var result = await Task.Run(() => _plc.ReadInt16(address));
                 if (!result.IsSuccess)
                 {
@@ -320,7 +320,7 @@ namespace ClearFrost.Hardware
     }
 
     /// <summary>
-    /// Î÷ÃÅ×ÓS7Ğ­ÒéÊÊÅäÆ÷ (Ö§³ÖS7-1200/1500)
+    /// 
     /// </summary>
     public class SiemensS7Adapter : IPlcDevice
     {
@@ -329,13 +329,13 @@ namespace ClearFrost.Hardware
 
         public string LastError { get; private set; } = string.Empty;
         public bool IsConnected => _isConnected;
-        public string ProtocolName => "Î÷ÃÅ×ÓS7";
+        public string ProtocolName => "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½S7";
 
         public SiemensS7Adapter(string ip, int port)
         {
-            // Ä¬ÈÏÊ¹ÓÃS7-1200£¬¶Ë¿ÚÍ¨³£Îª102
+            // 
             _plc = new SiemensS7Net(SiemensPLCS.S1200, ip);
-            if (port != 102) // ·ÇÄ¬ÈÏ¶Ë¿ÚÊ±ÉèÖÃ
+            if (port != 102) // ï¿½ï¿½Ä¬ï¿½Ï¶Ë¿ï¿½Ê±ï¿½ï¿½ï¿½ï¿½
             {
                 _plc.Port = port;
             }
@@ -378,7 +378,7 @@ namespace ClearFrost.Hardware
         {
             try
             {
-                // Î÷ÃÅ×ÓµØÖ·¸ñÊ½£ºDB1.0, M0, I0, Q0 µÈ
+                // 
                 var result = await Task.Run(() => _plc.ReadInt16(address));
                 if (!result.IsSuccess)
                 {
@@ -412,7 +412,7 @@ namespace ClearFrost.Hardware
     }
 
     /// <summary>
-    /// Å·Ä·ÁúFins TCPĞ­ÒéÊÊÅäÆ÷
+    /// 
     /// </summary>
     public class OmronFinsAdapter : IPlcDevice
     {
@@ -421,14 +421,14 @@ namespace ClearFrost.Hardware
 
         public string LastError { get; private set; } = string.Empty;
         public bool IsConnected => _isConnected;
-        public string ProtocolName => "Å·Ä·ÁúFins";
+        public string ProtocolName => "Å·Ä·ï¿½ï¿½Fins";
 
         public OmronFinsAdapter(string ip, int port)
         {
             _plc = new OmronFinsNet(ip, port);
-            // Ä¬ÈÏ½ÚµãµØÖ·
-            _plc.SA1 = 0x00; // Ô´½Úµã
-            _plc.DA1 = 0x00; // Ä¿±ê½Úµã
+            // 
+            _plc.SA1 = 0x00; // Ô´ï¿½Úµï¿½
+            _plc.DA1 = 0x00; // Ä¿ï¿½ï¿½Úµï¿½
         }
 
         public async Task<bool> ConnectAsync()
@@ -468,7 +468,7 @@ namespace ClearFrost.Hardware
         {
             try
             {
-                // Å·Ä·ÁúµØÖ·¸ñÊ½£ºD100, W100, H100 µÈ
+                // 
                 var result = await Task.Run(() => _plc.ReadInt16(address));
                 if (!result.IsSuccess)
                 {

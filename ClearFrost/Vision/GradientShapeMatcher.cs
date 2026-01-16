@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -8,14 +8,14 @@ using OpenCvSharp;
 namespace ClearFrost.Vision
 {
     /// <summary>
-    /// Æ¥Åä½á¹ûÊı¾İ½á¹¹
+    /// åŒ¹é…ç»“æœç»“æ„ä½“
     /// </summary>
     public readonly struct MatchResult
     {
-        public readonly OpenCvSharp.Point Position;      // Æ¥ÅäÖĞĞÄÎ»ÖÃ
-        public readonly double Angle;         // Æ¥Åä½Ç¶È (¶È)
-        public readonly double Score;         // Æ¥Åä·ÖÊı (0-100)
-        public readonly bool IsValid;         // ÊÇ·ñÕÒµ½ÓĞĞ§Æ¥Åä
+        public readonly OpenCvSharp.Point Position;      // åŒ¹é…ç»“æœä¸­å¿ƒä½ç½®
+        public readonly double Angle;         // åŒ¹é…è§’åº¦ (åº¦)
+        public readonly double Score;         // åŒ¹é…å¾—åˆ† (0-100)
+        public readonly bool IsValid;         // æ˜¯å¦æ‰¾åˆ°æœ‰æ•ˆåŒ¹é…
 
         public MatchResult(OpenCvSharp.Point position, double angle, double score)
         {
@@ -28,17 +28,17 @@ namespace ClearFrost.Vision
         public static MatchResult Empty => new MatchResult(new OpenCvSharp.Point(-1, -1), 0, 0);
 
         public override string ToString() =>
-            $"Position: ({Position.X}, {Position.Y}), Angle: {Angle:F2}¡ã, Score: {Score:F2}%";
+            $"Position: ({Position.X}, {Position.Y}), Angle: {Angle:F2}Â°, Score: {Score:F2}%";
     }
 
     /// <summary>
-    /// ÌØÕ÷µã½á¹¹ - ´æ´¢Ïà¶Ô×ø±êºÍÁ¿»¯·½Ïò
+    /// ç‰¹å¾ç‚¹ç»“æ„ä½“
     /// </summary>
     internal readonly struct FeaturePoint
     {
-        public readonly short X;          // Ïà¶ÔÓÚÄ£°åÖĞĞÄµÄXÆ«ÒÆ
-        public readonly short Y;          // Ïà¶ÔÓÚÄ£°åÖĞĞÄµÄYÆ«ÒÆ
-        public readonly byte Direction;   // Á¿»¯·½Ïò (0-7)
+        public readonly short X;          // ç›¸å¯¹æ¨¡æ¿ä¸­å¿ƒç‚¹Xåç§»
+        public readonly short Y;          // ç›¸å¯¹æ¨¡æ¿ä¸­å¿ƒç‚¹Yåç§»
+        public readonly byte Direction;   // æ¢¯åº¦æ–¹å‘ (0-7)
 
         public FeaturePoint(short x, short y, byte direction)
         {
@@ -49,16 +49,16 @@ namespace ClearFrost.Vision
     }
 
     /// <summary>
-    /// Ğı×ªÄ£°å - ´æ´¢Ä³Ò»½Ç¶ÈÏÂµÄËùÓĞÌØÕ÷µã
+    /// æ—‹è½¬åçš„æ¨¡æ¿ç»“æ„ä½“
     /// </summary>
     internal sealed class RotatedTemplate
     {
-        public readonly double Angle;                    // Ğı×ª½Ç¶È (¶È)
-        public readonly FeaturePoint[] Features;         // ÌØÕ÷µãÊı×é
-        public readonly int MinX, MaxX;                  // Êµ¼ÊÌØÕ÷Æ«ÒÆ·¶Î§
+        public readonly double Angle;                    // æ—‹è½¬è§’åº¦ (åº¦)
+        public readonly FeaturePoint[] Features;         // æ—‹è½¬åçš„ç‰¹å¾ç‚¹
+        public readonly int MinX, MaxX;                  // å®é™…ç‰¹å¾ç‚¹åç§»èŒƒå›´
         public readonly int MinY, MaxY;
-        public readonly int Width;                       // Ä£°å°üÎ§ºĞ¿í¶È
-        public readonly int Height;                      // Ä£°å°üÎ§ºĞ¸ß¶È
+        public readonly int Width;                       // æ¨¡æ¿åŒ…å›´ç›’å®½åº¦
+        public readonly int Height;                      // æ¨¡æ¿åŒ…å›´ç›’é«˜åº¦
 
         public RotatedTemplate(double angle, FeaturePoint[] features, int minX, int maxX, int minY, int maxY)
         {
@@ -74,23 +74,21 @@ namespace ClearFrost.Vision
     }
 
     /// <summary>
-    /// ¹¤Òµ¼¶¿¹¹âÕÕĞÎ×´Æ¥ÅäÆ÷
-    /// »ùÓÚÌİ¶È·½Ïò (Gradient Orientation) ½øĞĞÆ¥Åä
-    /// Ô­Àí²Î¿¼ Halcon create_shape_model / Line2Dup Ëã·¨
+    /// åŸºäºæ¢¯åº¦å½¢çŠ¶çš„æ¨¡æ¿åŒ¹é…å™¨
     /// </summary>
     public sealed class GradientShapeMatcher : IDisposable
     {
         #region Constants & Configuration
 
-        // ·½ÏòÁ¿»¯: 8¸ö·½Ïò, Ã¿¸ö45¶È
+        // æ¢¯åº¦æ–¹å‘æ•°é‡
         private const int NumDirections = 8;
-        private const double DirectionStep = Math.PI / 4.0;  // 45¶È = ¦Ğ/4
+        private const double DirectionStep = Math.PI / 4.0;  // 45åº¦ = Ï€/4
 
-        // Ä¬ÈÏ²ÎÊı
-        private const int DefaultMagnitudeThreshold = 30;    // Ìİ¶È·ùÖµãĞÖµ
-        private const int DefaultAngleStep = 1;              // ½Ç¶È²½³¤ (¶È)
-        private const int DefaultPyramidLevels = 3;          // ½ğ×ÖËş²ãÊı
-        private const double DefaultMinFeatureDistance = 2;  // ×îĞ¡ÌØÕ÷µã¼ä¾à
+        // é»˜è®¤é…ç½®å‚æ•°
+        private const int DefaultMagnitudeThreshold = 30;    // é»˜è®¤æ¢¯åº¦é˜ˆå€¼
+        private const int DefaultAngleStep = 1;              // é»˜è®¤è§’åº¦æ­¥é•¿ (åº¦)
+        private const int DefaultPyramidLevels = 3;          // é»˜è®¤é‡‘å­—å¡”å±‚æ•°
+        private const double DefaultMinFeatureDistance = 2;  // æœ€å°ç‰¹å¾ç‚¹è·ç¦»
 
         #endregion
 
@@ -102,7 +100,7 @@ namespace ClearFrost.Vision
         private bool _isDisposed;
         private bool _isTrained;
 
-        // Ô¤¼ÆËãµÄ·½Ïò²î²éÕÒ±í (ÓÃÓÚ¿ìËÙÅĞ¶Ï·½ÏòÊÇ·ñÆ¥Åä)
+        // 
         private readonly bool[,] _directionMatchLut;
 
         #endregion
@@ -123,20 +121,20 @@ namespace ClearFrost.Vision
         #region Public API
 
         /// <summary>
-        /// ÑµÁ·Ä£°å
+        /// 
         /// </summary>
-        /// <param name="image">Ä£°åÍ¼Ïñ (»Ò¶ÈÍ¼)</param>
-        /// <param name="angleRange">Ğı×ª·¶Î§ (Õı¸º½Ç¶È, ÀıÈç180±íÊ¾-180~+180¶È)</param>
-        /// <param name="mask">¿ÉÑ¡µÄÑÚÄ¤Í¼Ïñ</param>
+        /// 
+        /// 
+        /// 
         public void Train(Mat image, int angleRange = 180, Mat? mask = null)
         {
             if (image == null || image.Empty())
                 throw new ArgumentException("Template image cannot be null or empty.", nameof(image));
 
-            // È·±£ÊÇ»Ò¶ÈÍ¼
+            // 
             using var gray = EnsureGray(image);
 
-            // ÌáÈ¡»ù×¼Ä£°å (0¶È) µÄÌØÕ÷µã
+            // 
             var baseFeatures = ExtractFeatures(gray, mask);
 
             if (baseFeatures.Count < 10)
@@ -147,7 +145,7 @@ namespace ClearFrost.Vision
             int centerX = gray.Width / 2;
             int centerY = gray.Height / 2;
 
-            // Éú³ÉËùÓĞĞı×ª½Ç¶ÈµÄÄ£°å
+            // 
             _templates.Clear();
 
             for (int angle = -angleRange; angle <= angleRange; angle += _angleStep)
@@ -167,12 +165,12 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ÔÚ³¡¾°Í¼ÏñÖĞÆ¥ÅäÄ£°å
+        /// 
         /// </summary>
-        /// <param name="sceneImage">³¡¾°Í¼Ïñ</param>
-        /// <param name="minScore">×îµÍÆ¥Åä·ÖÊı (0-100)</param>
-        /// <param name="searchRegion">¿ÉÑ¡µÄËÑË÷ÇøÓò</param>
-        /// <returns>×î¼ÑÆ¥Åä½á¹û</returns>
+        /// 
+        /// 
+        /// 
+        /// 
         public MatchResult Match(Mat sceneImage, double minScore = 80, Rect? searchRegion = null)
         {
             if (!_isTrained)
@@ -181,29 +179,29 @@ namespace ClearFrost.Vision
             if (sceneImage == null || sceneImage.Empty())
                 throw new ArgumentException("Scene image cannot be null or empty.", nameof(sceneImage));
 
-            // È·±£ÊÇ»Ò¶ÈÍ¼
+            // 
             using var gray = EnsureGray(sceneImage);
 
-            // Ô¤¼ÆËã³¡¾°Í¼µÄÈ«Í¼Ìİ¶È·½Ïò¾ØÕó
+            // 
             var (sceneDirections, sceneMagnitudes) = ComputeSceneGradients(gray);
 
-            // È·¶¨ËÑË÷ÇøÓò
+            // 
             Rect region = searchRegion ?? new Rect(0, 0, gray.Width, gray.Height);
 
-            // Ê¹ÓÃ²¢ĞĞËÑË÷ËùÓĞĞı×ªÄ£°å
+            // 
             var bestMatch = FindBestMatch(sceneDirections, sceneMagnitudes, region, minScore);
 
             return bestMatch;
         }
 
         /// <summary>
-        /// ÔÚ³¡¾°Í¼ÏñÖĞ²éÕÒËùÓĞÆ¥Åä (¶àÊµÀıÆ¥Åä)
+        /// 
         /// </summary>
-        /// <param name="sceneImage">³¡¾°Í¼Ïñ</param>
-        /// <param name="minScore">×îµÍÆ¥Åä·ÖÊı (0-100)</param>
-        /// <param name="maxMatches">×î´óÆ¥ÅäÊıÁ¿</param>
-        /// <param name="minDistance">Æ¥Åä½á¹ûÖ®¼äµÄ×îĞ¡¾àÀë</param>
-        /// <returns>ËùÓĞÆ¥Åä½á¹ûÁĞ±í</returns>
+        /// 
+        /// 
+        /// 
+        /// 
+        /// 
         public List<MatchResult> MatchAll(Mat sceneImage, double minScore = 80,
                                           int maxMatches = 10, double minDistance = 20)
         {
@@ -216,7 +214,7 @@ namespace ClearFrost.Vision
             var region = new Rect(0, 0, gray.Width, gray.Height);
             var allMatches = FindAllMatches(sceneDirections, sceneMagnitudes, region, minScore);
 
-            // ·Ç¼«´óÖµÒÖÖÆ
+            // 
             var results = NonMaximumSuppression(allMatches, minDistance, maxMatches);
 
             return results;
@@ -227,14 +225,14 @@ namespace ClearFrost.Vision
         #region Feature Extraction
 
         /// <summary>
-        /// ´ÓÍ¼ÏñÖĞÌáÈ¡Ìİ¶ÈÌØÕ÷µã
+        /// 
         /// </summary>
         private unsafe List<FeaturePoint> ExtractFeatures(Mat gray, Mat? mask)
         {
             int width = gray.Width;
             int height = gray.Height;
 
-            // ¼ÆËã Sobel Ìİ¶È
+            // 
             using var gradX = new Mat();
             using var gradY = new Mat();
 
@@ -246,7 +244,7 @@ namespace ClearFrost.Vision
 
             var features = new List<FeaturePoint>(width * height / 16);
 
-            // Ê¹ÓÃ unsafe ´úÂë¿é¸ßËÙ±éÀú
+            // 
             fixed (bool* hasMask = new bool[1])
             {
                 byte* maskPtr = null;
@@ -264,7 +262,7 @@ namespace ClearFrost.Vision
                 int gxStep = (int)gradX.Step() / sizeof(short);
                 int gyStep = (int)gradY.Step() / sizeof(short);
 
-                // Ìø¹ı±ßÔµÏñËØ
+                // 
                 for (int y = 1; y < height - 1; y++)
                 {
                     short* gxRow = gxPtr + y * gxStep;
@@ -273,24 +271,24 @@ namespace ClearFrost.Vision
 
                     for (int x = 1; x < width - 1; x++)
                     {
-                        // ¼ì²éÑÚÄ¤
+                        // 
                         if (maskRow != null && maskRow[x] == 0)
                             continue;
 
                         short gx = gxRow[x];
                         short gy = gyRow[x];
 
-                        // ¼ÆËãÌİ¶È·ùÖµ
+                        // 
                         int magnitude = FastMagnitude(gx, gy);
 
-                        // Ö»±£ÁôÇ¿Ìİ¶Èµã
+                        // 
                         if (magnitude < _magnitudeThreshold)
                             continue;
 
-                        // ¼ÆËã²¢Á¿»¯·½Ïò (0-7)
+                        // 
                         byte direction = QuantizeDirection(gx, gy);
 
-                        // ´æ´¢Ïà¶ÔÓÚÖĞĞÄµÄÆ«ÒÆ
+                        // 
                         short relX = (short)(x - centerX);
                         short relY = (short)(y - centerY);
 
@@ -299,12 +297,12 @@ namespace ClearFrost.Vision
                 }
             }
 
-            // Ï¡Êè»¯ÌØÕ÷µã (¿ÉÑ¡, Ìá¸ßËÙ¶È)
+            // 
             return SparsifyFeatures(features, DefaultMinFeatureDistance);
         }
 
         /// <summary>
-        /// Ï¡Êè»¯ÌØÕ÷µã, ±£³Ö¿Õ¼ä¾ùÔÈ·Ö²¼
+        /// 
         /// </summary>
         private List<FeaturePoint> SparsifyFeatures(List<FeaturePoint> features, double minDistance)
         {
@@ -338,7 +336,7 @@ namespace ClearFrost.Vision
         #region Template Rotation
 
         /// <summary>
-        /// Í¨¹ı×ø±ê±ä»»Éú³ÉĞı×ªÄ£°å
+        /// 
         /// </summary>
         private RotatedTemplate CreateRotatedTemplate(
             List<FeaturePoint> baseFeatures,
@@ -352,10 +350,10 @@ namespace ClearFrost.Vision
             double cosA = Math.Cos(angleRad);
             double sinA = Math.Sin(angleRad);
 
-            // ·½ÏòÆ«ÒÆÁ¿ (Ã¿45¶ÈÆ«ÒÆ1¸öÁ¿»¯¼¶±ğ)
+            // 
             int directionOffset = (int)Math.Round(angleDeg / 45.0);
 
-            // ¹æ·¶»¯µ½ 0-7 ·¶Î§
+            // 
             directionOffset = ((directionOffset % NumDirections) + NumDirections) % NumDirections;
 
             var rotatedFeatures = new FeaturePoint[baseFeatures.Count];
@@ -367,19 +365,19 @@ namespace ClearFrost.Vision
             {
                 var f = baseFeatures[i];
 
-                // Ğı×ª×ø±ê
+                // 
                 double newX = f.X * cosA - f.Y * sinA;
                 double newY = f.X * sinA + f.Y * cosA;
 
                 short rx = (short)Math.Round(newX);
                 short ry = (short)Math.Round(newY);
 
-                // Ğı×ª·½Ïò
+                // 
                 byte newDir = (byte)((f.Direction + directionOffset) % NumDirections);
 
                 rotatedFeatures[i] = new FeaturePoint(rx, ry, newDir);
 
-                // ¸üĞÂ°üÎ§ºĞ
+                // 
                 if (rx < minX) minX = rx;
                 if (rx > maxX) maxX = rx;
                 if (ry < minY) minY = ry;
@@ -394,7 +392,7 @@ namespace ClearFrost.Vision
         #region Scene Gradient Computation
 
         /// <summary>
-        /// Ô¤¼ÆËã³¡¾°Í¼µÄÈ«Í¼Ìİ¶È·½ÏòºÍ·ùÖµ
+        /// 
         /// </summary>
         private unsafe (byte[,] directions, ushort[,] magnitudes) ComputeSceneGradients(Mat gray)
         {
@@ -416,7 +414,7 @@ namespace ClearFrost.Vision
             int gxStep = (int)gradX.Step() / sizeof(short);
             int gyStep = (int)gradY.Step() / sizeof(short);
 
-            // ²¢ĞĞ¼ÆËãÌİ¶È·½Ïò
+            // 
             Parallel.For(0, height, y =>
             {
                 short* gxRow = gxPtr + y * gxStep;
@@ -436,7 +434,7 @@ namespace ClearFrost.Vision
                     }
                     else
                     {
-                        // Ê¹ÓÃÌØÊâÖµ±íÊ¾ÎŞĞ§µã
+                        // 
                         directions[y, x] = 0xFF;
                     }
                 }
@@ -450,7 +448,7 @@ namespace ClearFrost.Vision
         #region Matching Core
 
         /// <summary>
-        /// ²¢ĞĞËÑË÷ËùÓĞÄ£°å, ÕÒµ½×î¼ÑÆ¥Åä
+        /// 
         /// </summary>
         private MatchResult FindBestMatch(
             byte[,] sceneDirections,
@@ -461,27 +459,27 @@ namespace ClearFrost.Vision
             int sceneWidth = sceneDirections.GetLength(1);
             int sceneHeight = sceneDirections.GetLength(0);
 
-            // ²¢·¢ÊÕ¼¯½á¹û
+            // 
             var results = new ConcurrentBag<MatchResult>();
             double minScoreNormalized = minScore / 100.0;
 
-            // ²¢ĞĞ±éÀúËùÓĞĞı×ªÄ£°å
+            // 
             Parallel.ForEach(_templates, template =>
             {
-                // ¼ÆËãËÑË÷±ß½ç (¿¼ÂÇÄ£°å´óĞ¡)
+                // 
                 int startX = Math.Max(searchRegion.X - template.MinX, -template.MinX);
                 int startY = Math.Max(searchRegion.Y - template.MinY, -template.MinY);
                 int endX = Math.Min(searchRegion.X + searchRegion.Width - template.MaxX, sceneWidth - template.MaxX);
                 int endY = Math.Min(searchRegion.Y + searchRegion.Height - template.MaxY, sceneHeight - template.MaxY);
 
-                // ²½³¤ (´ÖËÑË÷ÓÃ½Ï´ó²½³¤, ºóĞø¿ÉÒÔ¾«Ï¸»¯)
+                // 
                 int stepX = 2;
                 int stepY = 2;
 
                 double bestScore = 0;
                 int bestX = -1, bestY = -1;
 
-                // ´ÖËÑË÷
+                // 
                 for (int y = startY; y < endY; y += stepY)
                 {
                     for (int x = startX; x < endX; x += stepX)
@@ -501,7 +499,7 @@ namespace ClearFrost.Vision
                     }
                 }
 
-                // Èç¹û´ÖËÑË÷·ÖÊı×ã¹»¸ß, ½øĞĞ¾«Ï¸ËÑË÷
+                // 
                 if (bestScore >= minScoreNormalized * 0.8 && bestX >= 0)
                 {
                     (bestX, bestY, bestScore) = RefineMatch(
@@ -521,7 +519,7 @@ namespace ClearFrost.Vision
                 }
             });
 
-            // ÕÒ³ö×î¼Ñ½á¹û
+            // 
             MatchResult best = MatchResult.Empty;
             foreach (var r in results)
             {
@@ -533,7 +531,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ²éÕÒËùÓĞÂú×ãÌõ¼şµÄÆ¥Åä
+        /// 
         /// </summary>
         private List<MatchResult> FindAllMatches(
             byte[,] sceneDirections,
@@ -591,7 +589,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ¾«Ï¸»¯Æ¥ÅäÎ»ÖÃ
+        /// 
         /// </summary>
         private (int x, int y, double score) RefineMatch(
             byte[,] sceneDirections,
@@ -627,8 +625,8 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ¼ÆËãµ¥¸öÎ»ÖÃµÄÆ¥Åä·ÖÊı
-        /// Ê¹ÓÃ·½ÏòÒ»ÖÂĞÔÆÀ·Ö: Ö»ÓĞ·½ÏòÆ«²îÔÚ1ÒÔÄÚ²Å¼Æ·Ö
+        /// 
+        /// 
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private double ComputeMatchScore(
@@ -646,7 +644,7 @@ namespace ClearFrost.Vision
             var features = template.Features;
             int featureCount = features.Length;
 
-            // ÔçÆÚÖÕÖ¹ãĞÖµ
+            // 
             int minRequired = featureCount * 2 / 3;
 
             for (int i = 0; i < featureCount; i++)
@@ -656,7 +654,7 @@ namespace ClearFrost.Vision
                 int sx = cx + f.X;
                 int sy = cy + f.Y;
 
-                // ±ß½ç¼ì²é
+                // 
                 if (sx < 0 || sx >= sceneWidth || sy < 0 || sy >= sceneHeight)
                     continue;
 
@@ -664,17 +662,17 @@ namespace ClearFrost.Vision
 
                 byte sceneDir = sceneDirections[sy, sx];
 
-                // Ìø¹ıÎŞĞ§µã (µÍÌİ¶ÈÇøÓò)
+                // 
                 if (sceneDir == 0xFF)
                     continue;
 
-                // Ê¹ÓÃ²éÕÒ±íÅĞ¶Ï·½ÏòÊÇ·ñÆ¥Åä
+                // 
                 if (_directionMatchLut[f.Direction, sceneDir])
                 {
                     matchCount++;
                 }
 
-                // ÔçÆÚÖÕÖ¹: Èç¹ûÊ£ÓàµãÈ«²¿Æ¥ÅäÒ²´ï²»µ½ãĞÖµ
+                // 
                 int remaining = featureCount - i - 1;
                 if (matchCount + remaining < minRequired)
                     break;
@@ -691,7 +689,7 @@ namespace ClearFrost.Vision
         #region Non-Maximum Suppression
 
         /// <summary>
-        /// ·Ç¼«´óÖµÒÖÖÆ, È¥³ıÖØ¸´¼ì²â
+        /// 
         /// </summary>
         private List<MatchResult> NonMaximumSuppression(
             List<MatchResult> matches,
@@ -701,7 +699,7 @@ namespace ClearFrost.Vision
             if (matches.Count == 0)
                 return new List<MatchResult>();
 
-            // °´·ÖÊı½µĞòÅÅĞò
+            // 
             matches.Sort((a, b) => b.Score.CompareTo(a.Score));
 
             var results = new List<MatchResult>();
@@ -740,8 +738,8 @@ namespace ClearFrost.Vision
         #region Helper Methods
 
         /// <summary>
-        /// ¹¹½¨·½ÏòÆ¥Åä²éÕÒ±í
-        /// ÔÊĞíÆ«²îÔÚ1ÒÔÄÚ (°üÀ¨»·ÈÆ)
+        /// 
+        /// 
         /// </summary>
         private static bool[,] BuildDirectionMatchLut()
         {
@@ -753,7 +751,7 @@ namespace ClearFrost.Vision
                 {
                     int diff = Math.Abs(t - s);
 
-                    // ¿¼ÂÇ»·ÈÆ (ÀıÈç 0 ºÍ 7 µÄ²îÎª 1)
+                    // 
                     if (diff > NumDirections / 2)
                         diff = NumDirections - diff;
 
@@ -765,8 +763,8 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ¿ìËÙ¼ÆËãÌİ¶È·ùÖµ (½üËÆ)
-        /// Ê¹ÓÃ |gx| + |gy| ½üËÆ sqrt(gx2 + gy2)
+        /// 
+        /// 
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static int FastMagnitude(int gx, int gy)
@@ -774,7 +772,7 @@ namespace ClearFrost.Vision
             int absX = gx >= 0 ? gx : -gx;
             int absY = gy >= 0 ? gy : -gy;
 
-            // ¸ü¾«È·µÄ½üËÆ: max + 0.4 * min
+            // 
             if (absX > absY)
                 return absX + (absY * 3 >> 3);
             else
@@ -782,27 +780,27 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ½«Ìİ¶È·½ÏòÁ¿»¯Îª 0-7
-        /// Ê¹ÓÃ atan2 ¼ÆËã½Ç¶È, È»ºóÁ¿»¯
+        /// 
+        /// 
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static byte QuantizeDirection(int gx, int gy)
         {
-            // ¼ÆËã½Ç¶È (-¦Ğ µ½ ¦Ğ)
+            // 
             double angle = Math.Atan2(gy, gx);
 
-            // ×ª»»µ½ [0, 2¦Ğ)
+            // 
             if (angle < 0)
                 angle += 2 * Math.PI;
 
-            // Á¿»¯µ½ 0-7
+            // 
             int quantized = (int)((angle + DirectionStep / 2) / DirectionStep) % NumDirections;
 
             return (byte)quantized;
         }
 
         /// <summary>
-        /// È·±£Í¼ÏñÎª»Ò¶ÈÍ¼
+        /// 
         /// </summary>
         private static Mat EnsureGray(Mat image)
         {

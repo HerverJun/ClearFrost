@@ -1,6 +1,6 @@
-// ============================================================================
-// ÎÄ¼şÃû: PyramidShapeMatchOp.cs
-// ÃèÊö:   ½ğ×ÖËşĞÎ×´Æ¥ÅäËã×Ó - ¹¤Òµ¼¶¿¹¹âÕÕÌİ¶È·½ÏòÆ¥Åä
+ï»¿// ============================================================================
+// 
+// 
 // ============================================================================
 using OpenCvSharp;
 using System;
@@ -11,34 +11,34 @@ using ShapeMatcher = ClearFrost.Vision;
 namespace ClearFrost.Vision
 {
     /// <summary>
-    /// ½ğ×ÖËşĞÎ×´Æ¥ÅäËã×Ó (¹¤Òµ¼¶, ¿¹¹âÕÕ)
-    /// »ùÓÚ VisionPro/Halcon ·ç¸ñµÄÌİ¶È·½ÏòÆ¥Åä
+    /// 
+    /// 
     /// </summary>
     public class PyramidShapeMatchOp : IImageOperator, IDisposable, ITemplateTrainable
     {
-        public string Name => "ĞÎ×´Æ¥Åä (½ğ×ÖËş)";
+        public string Name => "å½¢çŠ¶åŒ¹é… (é‡‘å­—å¡”)";
         public string TypeId => "pyramid_shape_match";
 
         public bool IsTrained => _isTrained;
 
-        // ºËĞÄÆ¥ÅäÆ÷ÊµÀı
+        // 
         private ShapeMatcher.PyramidShapeMatcher? _matcher;
         private bool _isTrained = false;
         private ShapeMatcher.MatchResult _lastResult = ShapeMatcher.MatchResult.Empty;
 
-        // ¿Éµ÷²ÎÊı
+        // 
         private int _pyramidLevels = 3;
         private int _magnitudeThreshold = 30;
         private int _angleRange = 180;
         private int _angleStep = 1;
         private double _minScore = 80;
 
-        // Ä£°å³ß´ç (ÑµÁ·Ê±¼ÇÂ¼)
+        // 
         private int _templateWidth = 100;
         private int _templateHeight = 100;
         private string _thumbnailBase64 = string.Empty;
 
-        // Ïß³Ì°²È«Ëø
+        // 
         private readonly object _opLock = new();
         private bool _disposed = false;
 
@@ -57,7 +57,7 @@ namespace ClearFrost.Vision
         public TemplateMatchResult? LastMatchResult { get; private set; }
 
         /// <summary>
-        /// ÑµÁ·Ä£°å (´Ó ROI ÇøÓò)
+        /// 
         /// </summary>
         public void Train(Mat templateImage, int angleRange = 180)
         {
@@ -84,7 +84,7 @@ namespace ClearFrost.Vision
                     {
                         Score = 0,
                         IsMatch = false,
-                        Message = "Î´ÑµÁ·Ä£°å"
+                        Message = "æ¨¡æ¿æœªè®­ç»ƒ"
                     };
                     return input.Clone();
                 }
@@ -99,7 +99,7 @@ namespace ClearFrost.Vision
                     {
                         Score = 0,
                         IsMatch = false,
-                        Message = $"Æ¥ÅäÒì³£: {ex.Message}"
+                        Message = $"åŒ¹é…å¼‚å¸¸: {ex.Message}"
                     };
                     return input.Clone();
                 }
@@ -112,10 +112,10 @@ namespace ClearFrost.Vision
                     Width = _templateWidth,
                     Height = _templateHeight,
                     IsMatch = isMatch,
-                    Message = isMatch ? "OK" : $"·ÖÊı²»×ã ({_lastResult.Score:F1} < {_minScore})"
+                    Message = isMatch ? "OK" : $"åˆ†æ•°ä½äºé˜ˆå€¼ ({_lastResult.Score:F1} < {_minScore})"
                 };
 
-                // »æÖÆ½á¹û
+                // 
                 Mat output;
                 if (input.Channels() == 1)
                 {
@@ -133,17 +133,17 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// »æÖÆÆ¥Åä½á¹û£¨Ğı×ª¾ØĞÎ£©
+        /// 
         /// </summary>
         private void DrawResult(Mat display)
         {
             if (!_lastResult.IsValid) return;
 
             var color = LastMatchResult?.IsMatch == true
-                ? new Scalar(0, 255, 0)   // ÁÁÂÌÉ«
-                : new Scalar(0, 0, 255);  // ºìÉ«
+                ? new Scalar(0, 255, 0)   // ç»¿è‰²
+                : new Scalar(0, 0, 255);  // çº¢è‰²
 
-            // ¼ÆËãĞı×ª¾ØĞÎËÄ¸ö½Çµã
+            // 
             double angleRad = _lastResult.Angle * Math.PI / 180.0;
             double cos = Math.Cos(angleRad);
             double sin = Math.Sin(angleRad);
@@ -159,13 +159,13 @@ namespace ClearFrost.Vision
 
             var pts = corners.Select(p => new OpenCvSharp.Point((int)p.X, (int)p.Y)).ToArray();
 
-            // »æÖÆĞı×ª¾ØĞÎ (Ê¹ÓÃ Polylines)
+            // 
             Cv2.Polylines(display, new[] { pts }, true, color, 2);
 
-            // »æÖÆÖĞĞÄÊ®×Ö
+            // 
             Cv2.DrawMarker(display, _lastResult.Position, color, MarkerTypes.Cross, 20, 2);
 
-            // »æÖÆ·ÖÊıºÍ½Ç¶È
+            // 
             string info = $"Score: {_lastResult.Score:F1}% | Angle: {_lastResult.Angle:F1}";
             Cv2.PutText(display, info,
                 new OpenCvSharp.Point(_lastResult.Position.X - 80, _lastResult.Position.Y - 30),
@@ -212,11 +212,11 @@ namespace ClearFrost.Vision
 
         public List<OperatorParameterInfo> GetParameterInfo() => new()
         {
-            new() { Name = "pyramidLevels", DisplayName = "½ğ×ÖËş²ãÊı", Type = "slider", Min = 1, Max = 5, Step = 1, DefaultValue = 3, CurrentValue = _pyramidLevels },
-            new() { Name = "magnitudeThreshold", DisplayName = "Ìİ¶ÈãĞÖµ", Type = "slider", Min = 10, Max = 100, Step = 5, DefaultValue = 30, CurrentValue = _magnitudeThreshold },
-            new() { Name = "angleRange", DisplayName = "ËÑË÷½Ç¶È·¶Î§ (¡À¶È)", Type = "slider", Min = 0, Max = 180, Step = 15, DefaultValue = 180, CurrentValue = _angleRange },
-            new() { Name = "angleStep", DisplayName = "½Ç¶È²½½ø", Type = "slider", Min = 1, Max = 10, Step = 1, DefaultValue = 1, CurrentValue = _angleStep },
-            new() { Name = "minScore", DisplayName = "×îĞ¡Æ¥Åä·ÖÊı (%)", Type = "slider", Min = 50, Max = 99, Step = 1, DefaultValue = 80, CurrentValue = _minScore }
+            new() { Name = "pyramidLevels", DisplayName = "é‡‘å­—å¡”å±‚æ•°", Type = "slider", Min = 1, Max = 5, Step = 1, DefaultValue = 3, CurrentValue = _pyramidLevels },
+            new() { Name = "magnitudeThreshold", DisplayName = "æ¢¯åº¦é˜ˆå€¼", Type = "slider", Min = 10, Max = 100, Step = 5, DefaultValue = 30, CurrentValue = _magnitudeThreshold },
+            new() { Name = "angleRange", DisplayName = "åŒ¹é…è§’åº¦èŒƒå›´ (æ­£è´Ÿ)", Type = "slider", Min = 0, Max = 180, Step = 15, DefaultValue = 180, CurrentValue = _angleRange },
+            new() { Name = "angleStep", DisplayName = "è§’åº¦æ­¥é•¿", Type = "slider", Min = 1, Max = 10, Step = 1, DefaultValue = 1, CurrentValue = _angleStep },
+            new() { Name = "minScore", DisplayName = "æœ€å°åŒ¹é…åˆ†æ•° (%)", Type = "slider", Min = 50, Max = 99, Step = 1, DefaultValue = 80, CurrentValue = _minScore }
         };
 
         public void SetTemplateFromMat(Mat template) => Train(template, _angleRange);

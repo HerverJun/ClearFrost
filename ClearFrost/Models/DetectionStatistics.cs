@@ -1,4 +1,4 @@
-using System;
+锘縰sing System;
 using ClearFrost.Models;
 using System.Diagnostics;
 using System.IO;
@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace ClearFrost.Models
 {
     /// <summary>
-    /// 检测统计数据类，支持持久化存储和跨日重置
+    /// 
     /// </summary>
     public class DetectionStatistics
     {
@@ -16,21 +16,21 @@ namespace ClearFrost.Models
         public int UnqualifiedCount { get; set; }
 
         /// <summary>
-        /// 当前数据对应的日期 (yyyy-MM-dd 格式)
+        /// 
         /// </summary>
         public string CurrentDate { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
 
-        // 计算合格率
+        // 
         public double QualifiedPercentage => TotalCount > 0 ? (double)QualifiedCount / TotalCount * 100 : 0;
 
-        // 计算不合格率
+        // 
         public double UnqualifiedPercentage => TotalCount > 0 ? (double)UnqualifiedCount / TotalCount * 100 : 0;
 
-        // 持久化文件路径 (由外部设置)
+        // 
         private string _savePath = "";
 
         /// <summary>
-        /// 最后一次操作的错误信息
+        /// 
         /// </summary>
         [System.Text.Json.Serialization.JsonIgnore]
         public string? LastError { get; private set; }
@@ -41,7 +41,7 @@ namespace ClearFrost.Models
         }
 
         /// <summary>
-        /// 设置保存路径
+        /// 
         /// </summary>
         public void SetSavePath(string basePath)
         {
@@ -51,7 +51,7 @@ namespace ClearFrost.Models
         }
 
         /// <summary>
-        /// 添加检测结果
+        /// 
         /// </summary>
         public void AddRecord(bool isQualified)
         {
@@ -61,12 +61,12 @@ namespace ClearFrost.Models
             else
                 UnqualifiedCount++;
 
-            // 每次检测后自动保存
+            // 
             Save();
         }
 
         /// <summary>
-        /// 重置统计数据
+        /// 
         /// </summary>
         public void Reset()
         {
@@ -77,16 +77,16 @@ namespace ClearFrost.Models
         }
 
         /// <summary>
-        /// 检测是否跨日，如果是则保存历史并重置
+        /// 
         /// </summary>
-        /// <param name="history">历史记录对象</param>
-        /// <returns>true 表示发生了跨日重置</returns>
+        /// 
+        /// 
         public bool CheckAndResetForNewDay(StatisticsHistory history)
         {
             string today = DateTime.Now.ToString("yyyy-MM-dd");
             if (CurrentDate != today)
             {
-                // 保存昨日数据到历史
+                // 
                 if (TotalCount > 0)
                 {
                     history.AddRecord(new DailyStatisticsRecord
@@ -98,7 +98,7 @@ namespace ClearFrost.Models
                     });
                 }
 
-                // 重置当日数据
+                // 
                 Reset();
                 Save();
                 return true;
@@ -107,7 +107,7 @@ namespace ClearFrost.Models
         }
 
         /// <summary>
-        /// 从文件加载统计数据
+        /// 
         /// </summary>
         public static DetectionStatistics Load(string basePath)
         {
@@ -132,14 +132,14 @@ namespace ClearFrost.Models
                 LogError("Load", ex);
             }
 
-            // 返回新实例
+            // 
             var newStats = new DetectionStatistics();
             newStats.SetSavePath(basePath);
             return newStats;
         }
 
         /// <summary>
-        /// 保存统计数据到文件
+        /// 
         /// </summary>
         public bool Save()
         {

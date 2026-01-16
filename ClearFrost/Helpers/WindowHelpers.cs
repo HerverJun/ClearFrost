@@ -1,7 +1,7 @@
-// ============================================================================
-// ÎÄ¼þÃû: WindowHelpers.cs
-// ÃèÊö:   Windows ÏµÍ³½»»¥¹¤¾ßÀà
-//         °üº¬×èÖ¹ÐÝÃßºÍ´°¿ÚÍÏ¶¯µÄ Win32 API ·â×°
+ï»¿// ============================================================================
+// 
+// 
+// 
 // ============================================================================
 
 using System;
@@ -11,11 +11,11 @@ using System.Windows.Forms;
 namespace ClearFrost.Helpers
 {
     /// <summary>
-    /// Windows ÏµÍ³½»»¥¹¤¾ßÀà
+    /// 
     /// </summary>
     public static class WindowHelpers
     {
-        #region ×èÖ¹ÐÝÃß
+        #region ï¿½ï¿½Ö¹ï¿½ï¿½ï¿½ï¿½
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern uint SetThreadExecutionState(uint esFlags);
@@ -25,7 +25,7 @@ namespace ClearFrost.Helpers
         private const uint ES_CONTINUOUS = 0x80000000;
 
         /// <summary>
-        /// ×èÖ¹ÏµÍ³ÐÝÃßºÍÆÁÄ»¹Ø±Õ
+        /// 
         /// </summary>
         public static void PreventSleep()
         {
@@ -40,7 +40,7 @@ namespace ClearFrost.Helpers
         }
 
         /// <summary>
-        /// »Ö¸´ÏµÍ³Õý³£ÐÝÃß²ßÂÔ
+        /// 
         /// </summary>
         public static void RestoreSleep()
         {
@@ -56,7 +56,7 @@ namespace ClearFrost.Helpers
 
         #endregion
 
-        #region ´°¿ÚÍÏ¶¯
+        #region ï¿½ï¿½ï¿½ï¿½ï¿½Ï¶ï¿½
 
         [DllImport("user32.dll")]
         private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
@@ -68,9 +68,9 @@ namespace ClearFrost.Helpers
         private const int HT_CAPTION = 0x2;
 
         /// <summary>
-        /// Æô¶¯´°¿ÚÍÏ¶¯£¨Ä£Äâ±êÌâÀ¸ÍÏ¶¯£©
+        /// 
         /// </summary>
-        /// <param name="form">ÒªÍÏ¶¯µÄ´°Ìå</param>
+        /// 
         public static void StartWindowDrag(Form form)
         {
             if (form == null) return;

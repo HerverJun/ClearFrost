@@ -6,7 +6,7 @@ using MVSDK_Net;
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// 真实工业相机实现，封装迈德威视 SDK
+    /// 真实工业相机实现，封装华睿 (Huaray) MVSDK
     /// </summary>
     public class RealCamera : ICamera
     {

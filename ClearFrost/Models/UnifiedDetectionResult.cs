@@ -1,11 +1,11 @@
-// ============================================================================
-// ÎÄ¼şÃû: UnifiedDetectionResult.cs
-// ÃèÊö:   Í³Ò»¼ì²â½á¹ûÀàĞÍ - Í¬Ê±Ö§³Ö YOLO ºÍ´«Í³ÊÓ¾õ¼ì²â
+ï»¿// ============================================================================
+// 
+// 
 //
-// Éè¼ÆÄ¿±ê:
-//   - ºÏ²¢Ô­ DetectionResultData ºÍ VisionResult
-//   - Ìá¹©Í³Ò»µÄ¼ì²â½á¹û½Ó¿Ú
-//   - Í¬Ê±Ö§³ÖÉî¶ÈÑ§Ï°ºÍ´«Í³ÊÓ¾õËã·¨
+// 
+// 
+// 
+// 
 // ============================================================================
 
 using System.Drawing;
@@ -14,63 +14,63 @@ using OpenCvSharp;
 namespace ClearFrost.Models
 {
     /// <summary>
-    /// Í³Ò»µÄ¼ì²â½á¹ûÀàĞÍ
+    /// 
     /// </summary>
     public class UnifiedDetectionResult
     {
-        #region Í¨ÓÃÊôĞÔ
+        #region Í¨ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
         /// <summary>
-        /// ÊÇ·ñºÏ¸ñ/Í¨¹ı
+        /// 
         /// </summary>
         public bool IsQualified { get; set; }
 
         /// <summary>
-        /// ¼ì²âµÃ·Ö (0-1 »ò 0-100£¬È¡¾öÓÚ¼ì²âÀàĞÍ)
+        /// 
         /// </summary>
         public double Score { get; set; }
 
         /// <summary>
-        /// ´¦ÀíºÄÊ± (ºÁÃë)
+        /// 
         /// </summary>
         public long ProcessingTimeMs { get; set; }
 
         /// <summary>
-        /// ½á¹ûÃèÊö/ÏûÏ¢
+        /// 
         /// </summary>
         public string Message { get; set; } = string.Empty;
 
         /// <summary>
-        /// ¼ì²âµ½µÄ¶ÔÏóÁĞ±í (Í³Ò»¸ñÊ½)
+        /// 
         /// </summary>
         public List<DetectedObject> Objects { get; set; } = new();
 
         /// <summary>
-        /// Ô­Ê¼Í¼Ïñ
+        /// 
         /// </summary>
         public Bitmap? OriginalBitmap { get; set; }
 
         #endregion
 
-        #region YOLO ÌØÓĞÊôĞÔ
+        #region YOLO ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
         /// <summary>
-        /// YOLO ¼ì²â½á¹ûÁĞ±í (Ô­Ê¼¸ñÊ½)
+        /// 
         /// </summary>
         public List<ClearFrost.Yolo.YoloResult>? YoloResults { get; set; }
 
         /// <summary>
-        /// Ê¹ÓÃµÄÄ£ĞÍÃû³Æ
+        /// 
         /// </summary>
         public string? UsedModelName { get; set; }
 
         /// <summary>
-        /// Ê¹ÓÃµÄÄ£ĞÍ±êÇ©ÁĞ±í
+        /// 
         /// </summary>
         public string[]? UsedModelLabels { get; set; }
 
         /// <summary>
-        /// ÊÇ·ñ·¢ÉúÁËÄ£ĞÍ»ØÍË
+        /// 
         /// </summary>
         public bool WasFallback { get; set; }
 
@@ -78,20 +78,20 @@ namespace ClearFrost.Models
     }
 
     /// <summary>
-    /// ¼ì²âµ½µÄ¶ÔÏó (Í³Ò»¸ñÊ½)
+    /// 
     /// </summary>
     public class DetectedObject
     {
-        /// <summary>¶ÔÏó±êÇ©/Ãû³Æ</summary>
+        /// 
         public string Label { get; set; } = string.Empty;
 
-        /// <summary>ÖÃĞÅ¶È/Æ¥Åä·ÖÊı</summary>
+        /// 
         public double Confidence { get; set; }
 
-        /// <summary>±ß½ç¿ò</summary>
+        /// 
         public Rect BoundingBox { get; set; }
 
-        /// <summary>ÖĞĞÄµã</summary>
+        /// 
         public OpenCvSharp.Point Center => new OpenCvSharp.Point(
             BoundingBox.X + BoundingBox.Width / 2,
             BoundingBox.Y + BoundingBox.Height / 2);
