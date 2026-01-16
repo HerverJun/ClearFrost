@@ -1,4 +1,4 @@
-using System;
+锘縰sing System;
 using ClearFrost.Models;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -9,7 +9,7 @@ using System.Text.Json;
 namespace ClearFrost.Models
 {
     /// <summary>
-    /// 单日统计记录
+    /// 
     /// </summary>
     public class DailyStatisticsRecord
     {
@@ -22,7 +22,7 @@ namespace ClearFrost.Models
     }
 
     /// <summary>
-    /// 历史统计数据管理类，保留最近 7 天的记录
+    /// 
     /// </summary>
     public class StatisticsHistory
     {
@@ -32,7 +32,7 @@ namespace ClearFrost.Models
         private const int MaxDays = 7;
 
         /// <summary>
-        /// 最后一次操作的错误信息
+        /// 
         /// </summary>
         [System.Text.Json.Serialization.JsonIgnore]
         public string? LastError { get; private set; }
@@ -43,7 +43,7 @@ namespace ClearFrost.Models
         }
 
         /// <summary>
-        /// 设置保存路径
+        /// 
         /// </summary>
         public void SetSavePath(string basePath)
         {
@@ -53,27 +53,27 @@ namespace ClearFrost.Models
         }
 
         /// <summary>
-        /// 添加历史记录
+        /// 
         /// </summary>
         public void AddRecord(DailyStatisticsRecord record)
         {
-            // 避免重复添加同一天的记录
+            // 
             Records.RemoveAll(r => r.Date == record.Date);
             Records.Add(record);
 
-            // 保持最多 7 天
+            // 
             TrimToMaxDays();
             Save();
         }
 
         /// <summary>
-        /// 保留最近 N 天的记录
+        /// 
         /// </summary>
         public void TrimToMaxDays()
         {
             if (Records.Count > MaxDays)
             {
-                // 按日期排序，保留最新的 N 条
+                // 
                 Records = Records
                     .OrderByDescending(r => r.Date)
                     .Take(MaxDays)
@@ -82,7 +82,7 @@ namespace ClearFrost.Models
         }
 
         /// <summary>
-        /// 从文件加载历史数据
+        /// 
         /// </summary>
         public static StatisticsHistory Load(string basePath)
         {
@@ -113,7 +113,7 @@ namespace ClearFrost.Models
         }
 
         /// <summary>
-        /// 保存历史数据到文件
+        /// 
         /// </summary>
         public bool Save()
         {
@@ -135,7 +135,7 @@ namespace ClearFrost.Models
         }
 
         /// <summary>
-        /// 获取用于前端显示的记录列表（按日期降序）
+        /// 
         /// </summary>
         public List<DailyStatisticsRecord> GetOrderedRecords()
         {

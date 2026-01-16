@@ -146,7 +146,7 @@ namespace ClearFrost
             {
                 _statisticsService.ResetToday();
                 await _uiController.UpdateUI(0, 0, 0);
-                await _uiController.LogToFrontend("? 今日统计已清除", "success");
+                await _uiController.LogToFrontend("✅ 今日统计已清除", "success");
             };
 
             // ================== 模板管理器事件 ==================
@@ -227,11 +227,11 @@ namespace ClearFrost
                         // 2. 训练/设置模板 (确保这是最后一步，保证 _templateImage 会被正确赋值且 IsTrained 为 true)
                         trainable.SetTemplateFromMat(mat);
 
-                        await _uiController.LogToFrontend($"? 算子 [{opNode.Operator.Name}] 模板已更新并训练");
+                        await _uiController.LogToFrontend($"✅ 算子 [{opNode.Operator.Name}] 模板已更新并训练");
                     }
                     else
                     {
-                        await _uiController.LogToFrontend($"? 算子 [{opNode.Operator.Name}] 不支持模板训练", "warning");
+                        await _uiController.LogToFrontend($"ℹ️ 算子 [{opNode.Operator.Name}] 不支持模板训练", "warning");
                     }
 
                     // 刷新UI参数（通知前端更新 isTrained 状态）
@@ -342,7 +342,7 @@ namespace ClearFrost
                                 }
                                 var instanceId = _pipelineProcessor.AddOperator(newOp);
                                 await _uiController.LogToFrontend($"[DEBUG] 添加后算子数: {_pipelineProcessor.Operators.Count}, InstanceId={instanceId}");
-                                await _uiController.LogToFrontend($"? 已添加算子: {newOp.Name}");
+                                await _uiController.LogToFrontend($"✅ 已添加算子: {newOp.Name}");
                             }
                             else
                             {
@@ -352,7 +352,7 @@ namespace ClearFrost
                         case "remove":
                             if (_pipelineProcessor.RemoveOperator(request.InstanceId ?? ""))
                             {
-                                await _uiController.LogToFrontend($"? 已移除算子");
+                                await _uiController.LogToFrontend($"✅ 已移除算子");
                             }
                             break;
                         case "update":
@@ -476,7 +476,7 @@ namespace ClearFrost
                                 _appConfig.Save();
                             }
 
-                            await _uiController.LogToFrontend($"? 模板已加载: {Path.GetFileName(ofd.FileName)}");
+                            await _uiController.LogToFrontend($"✅ 模板已加载: {Path.GetFileName(ofd.FileName)}");
 
                             // 发送模板预览到前端
                             try
@@ -646,7 +646,7 @@ namespace ClearFrost
                                     }
                                 }
 
-                                await _uiController.LogToFrontend("? 高分辨率模板已应用");
+                                await _uiController.LogToFrontend("✅ 高分辨率模板已应用");
 
                                 using var preview = new Mat();
                                 double pScale = 128.0 / Math.Max(iw, ih);
@@ -703,7 +703,7 @@ namespace ClearFrost
                         _cameraManager.SaveToConfig(_appConfig);
                         _appConfig.Save();
 
-                        await _uiController.LogToFrontend($"? 已切换到相机: {newCam.Config.DisplayName}");
+                        await _uiController.LogToFrontend($"✅ 已切换到相机: {newCam.Config.DisplayName}");
                     }
                     else
                     {
@@ -714,7 +714,7 @@ namespace ClearFrost
                             _appConfig.ActiveCameraId = cameraId;
                             _appConfig.Save();
                             // 虽然离线，但更新了配置，后续点击"连接相机"时会尝试连接此相机
-                            await _uiController.LogToFrontend($"? 已切换到相机 (未连接): {cfgCam.DisplayName}", "warning");
+                            await _uiController.LogToFrontend($"ℹ️ 已切换到相机 (未连接): {cfgCam.DisplayName}", "warning");
                         }
                         else
                         {
@@ -737,7 +737,7 @@ namespace ClearFrost
 
                     string displayName = r.TryGetProperty("displayName", out var dn) ? dn.GetString()?.Trim() ?? "" : "";
                     string serialNumber = r.TryGetProperty("serialNumber", out var sn) ? sn.GetString()?.Trim() ?? "" : "";
-                    string manufacturer = r.TryGetProperty("manufacturer", out var mf) ? mf.GetString() ?? "MindVision" : "MindVision";
+                    string manufacturer = r.TryGetProperty("manufacturer", out var mf) ? mf.GetString() ?? "Huaray" : "Huaray";
                     double exposure = r.TryGetProperty("exposureTime", out var exp) ? exp.GetDouble() : 50000;
                     double gain = r.TryGetProperty("gain", out var g) ? g.GetDouble() : 1.0;
 
@@ -755,7 +755,7 @@ namespace ClearFrost
                         existing.Manufacturer = manufacturer;
                         existing.ExposureTime = exposure;
                         existing.Gain = gain;
-                        await _uiController.LogToFrontend($"? 已更新相机配置: {displayName} ({manufacturer})");
+                        await _uiController.LogToFrontend($"✅ 已更新相机配置: {displayName} ({manufacturer})");
                     }
                     else
                     {
@@ -775,11 +775,11 @@ namespace ClearFrost
                         bool added = _cameraManager.AddCamera(newConfig);
                         if (added)
                         {
-                            await _uiController.LogToFrontend($"? 已添加新相机: {displayName} ({manufacturer})");
+                            await _uiController.LogToFrontend($"✅ 已添加新相机: {displayName} ({manufacturer})");
                         }
                         else
                         {
-                            await _uiController.LogToFrontend($"? 相机配置已保存，但设备未连接或SDK加载失败: {displayName}", "warning");
+                            await _uiController.LogToFrontend($"ℹ️ 相机配置已保存，但设备未连接或SDK加载失败: {displayName}", "warning");
                         }
                     }
 

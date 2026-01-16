@@ -1,59 +1,59 @@
-using System;
+ï»¿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// Ïà»úÌá¹©Õß¹¤³§
+    /// 
     /// </summary>
     public static class CameraProviderFactory
     {
         /// <summary>
-        /// Ö§³ÖµÄÏà»úÖÆÔìÉÌÁĞ±í
+        /// 
         /// </summary>
-        public static readonly string[] SupportedManufacturers = { "MindVision", "Hikvision" };
+        public static readonly string[] SupportedManufacturers = { "Huaray", "MindVision", "Hikvision" };
 
         /// <summary>
-        /// ¸ù¾İÖÆÔìÉÌ´´½¨Ïà»úÊµÀı
+        /// 
         /// </summary>
         public static ICameraProvider Create(string manufacturer)
         {
             return manufacturer switch
             {
-                "MindVision" => new MindVisionCamera(),
+                "Huaray" or "MindVision" => new MindVisionCamera(),  // MindVision ä¸ºå†å²å…¼å®¹åˆ«å
                 "Hikvision" => new HikvisionCamera(),
                 _ => throw new NotSupportedException($"Unsupported camera manufacturer: {manufacturer}")
             };
         }
 
         /// <summary>
-        /// ´´½¨Ä£ÄâÏà»ú
+        /// 
         /// </summary>
         public static ICameraProvider CreateMock() => new MockCameraProvider();
 
         /// <summary>
-        /// Ì½²âËùÓĞÖ§³ÖÆ·ÅÆµÄÏà»ú
+        /// 
         /// </summary>
-        /// <returns>ËùÓĞ·¢ÏÖµÄÏà»úÉè±¸ÁĞ±í</returns>
+        /// 
         public static List<CameraDeviceInfo> DiscoverAll()
         {
             var allDevices = new List<CameraDeviceInfo>();
 
-            // ³¢ÊÔÂõµÂÍşÊÓ
+            // 
             try
             {
                 using var mv = new MindVisionCamera();
                 var devices = mv.EnumerateDevices();
                 allDevices.AddRange(devices);
-                Debug.WriteLine($"[CameraProviderFactory] MindVision: found {devices.Count} devices");
+                Debug.WriteLine($"[CameraProviderFactory] Huaray: found {devices.Count} devices");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[CameraProviderFactory] MindVision enum failed: {ex.Message}");
+                Debug.WriteLine($"[CameraProviderFactory] Huaray enum failed: {ex.Message}");
             }
 
-            // ³¢ÊÔº£¿µÍşÊÓ
+            // 
             try
             {
                 using var hik = new HikvisionCamera();
@@ -70,11 +70,11 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// ³¢ÊÔ×Ô¶¯¼ì²âÏà»ú²¢·µ»Ø¶ÔÓ¦µÄÌá¹©Õß
+        /// 
         /// </summary>
         public static ICameraProvider? AutoDetect(string serialNumber)
         {
-            // ÏÈ³¢ÊÔÂõµÂÍşÊÓ
+            // 
             try
             {
                 var mv = new MindVisionCamera();
@@ -87,7 +87,7 @@ namespace ClearFrost.Hardware
             }
             catch { }
 
-            // ÔÙ³¢ÊÔº£¿µÍşÊÓ
+            // 
             try
             {
                 var hik = new HikvisionCamera();
@@ -105,7 +105,7 @@ namespace ClearFrost.Hardware
     }
 
     /// <summary>
-    /// Ä£ÄâÏà»úÌá¹©Õß (ÓÃÓÚµ÷ÊÔ)
+    /// 
     /// </summary>
     public class MockCameraProvider : ICameraProvider
     {
@@ -140,7 +140,7 @@ namespace ClearFrost.Hardware
         {
             if (_disposed) return false;
 
-            // ´´½¨²âÊÔÍ¼Ïñ (1280x1024 »Ò¶È½¥±ä)
+            // 
             int w = 1280, h = 1024;
             _dummyBuffer = new byte[w * h];
             for (int y = 0; y < h; y++)
@@ -186,7 +186,7 @@ namespace ClearFrost.Hardware
         {
             if (!_isConnected || !_isGrabbing || _dummyBuffer == null) return null;
 
-            System.Threading.Thread.Sleep(50); // Ä£Äâ²É¼¯ÑÓ³Ù
+            System.Threading.Thread.Sleep(50); // Ä£ï¿½ï¿½É¼ï¿½ï¿½Ó³ï¿½
 
             return new CameraFrame
             {

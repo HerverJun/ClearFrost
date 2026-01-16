@@ -213,7 +213,7 @@ window.onCameraSelected = onCameraSelected;
 function addNewCamera() {
     // 收集表单中的相机配置信息
     const displayName = document.getElementById('cfg-cam-name')?.value || `相机 ${(window.cameraList?.length || 0) + 1}`;
-    const manufacturer = document.getElementById('cfg-cam-manufacturer')?.value || 'MindVision';
+    const manufacturer = document.getElementById('cfg-cam-manufacturer')?.value || 'Huaray';
     const serialNumber = document.getElementById('cfg-cam-serial')?.value || '';
     const exposureTime = parseFloat(document.getElementById('cfg-cam-exposure')?.value) || 50000;
     const gain = parseFloat(document.getElementById('cfg-cam-gain')?.value) || 1.0;

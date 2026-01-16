@@ -1,4 +1,4 @@
-using System;
+锘縰sing System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -7,7 +7,7 @@ using MVSDK_Net;
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// 模拟相机实现，用于调试和测试
+    /// 
     /// </summary>
     public class MockCamera : ICamera
     {
@@ -17,7 +17,7 @@ namespace ClearFrost.Hardware
         private GCHandle _bufferHandle;
 
         /// <summary>
-        /// 相机是否已连接（模拟相机始终返回 true）
+        /// 
         /// </summary>
         public bool IsConnected => !_disposed;
 
@@ -137,7 +137,7 @@ namespace ClearFrost.Hardware
             return IMVDefine.IMV_OK;
         }
 
-        #region IDisposable 实现
+        #region IDisposable 实锟斤拷
 
         public void Dispose()
         {

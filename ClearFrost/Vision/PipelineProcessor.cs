@@ -1,21 +1,21 @@
-// ============================================================================
-// ÎÄ¼şÃû: PipelineProcessor.cs
-// ÃèÊö:   ´«Í³ÊÓ¾õ´¦ÀíµÄºËĞÄÁ÷Ë®Ïß´¦ÀíÆ÷
+ï»¿// ============================================================================
+// 
+// 
 //         
-// ¹¦ÄÜ¸ÅÊö:
-//   - ¶¯Ì¬¹ÜÀíÍ¼Ïñ´¦ÀíËã×ÓÁ´ (Ìí¼Ó¡¢É¾³ı¡¢ÅÅĞò)
-//   - °´Ë³ĞòÖ´ĞĞËùÓĞËã×Ó£¬Ã¿¸öËã×ÓÊä³ö×÷ÎªÏÂÒ»¸öµÄÊäÈë
-//   - Ö§³Ö¶àÖÖÆ¥ÅäËã×Ó: Ä£°åÆ¥Åä¡¢AKAZEÌØÕ÷Æ¥Åä¡¢ORBÌØÕ÷Æ¥Åä¡¢½ğ×ÖËşĞÎ×´Æ¥Åä
-//   - Ìá¹©ÅäÖÃµ¼Èë/µ¼³ö¹¦ÄÜ£¬Ö§³ÖÁ÷Ë®Ïß³Ö¾Ã»¯
+// 
+// 
+// 
+// 
+// 
 //
-// Ê¹ÓÃÊ¾Àı:
+// 
 //   var processor = new PipelineProcessor();
 //   processor.AddOperator(new GrayscaleOp());
 //   processor.AddOperator(new TemplateMatchOp());
 //   var result = await processor.ProcessAsync(inputMat);
 //
-// ×÷Õß: ClearFrost Team
-// ´´½¨ÈÕÆÚ: 2024
+// 
+// 
 // ============================================================================
 using OpenCvSharp;
 using System.Diagnostics;
@@ -23,8 +23,8 @@ using System.Diagnostics;
 namespace ClearFrost.Vision
 {
     /// <summary>
-    /// Á÷³Ì´¦ÀíÆ÷
-    /// ÔÊĞí¶¯Ì¬Ìí¼ÓÍ¼Ïñ´¦Àí²½Öè£¬°´Ë³ĞòÖ´ĞĞËã×ÓÁ´
+    /// 
+    /// 
     /// </summary>
     public class PipelineProcessor : IVisionProcessor, IDisposable
     {
@@ -32,20 +32,20 @@ namespace ClearFrost.Vision
         private readonly object _lock = new();
         private bool _disposed = false;
 
-        public string Name => "Á÷³Ì´¦ÀíÆ÷";
+        public string Name => "æµæ°´çº¿å¤„ç†å™¨";
 
         /// <summary>
-        /// µ±Ç°Ëã×ÓÁĞ±í
+        /// 
         /// </summary>
         public IReadOnlyList<OperatorInstance> Operators => _operators.AsReadOnly();
 
         /// <summary>
-        /// ÓÃÓÚÅĞ¶¨Í¨¹ı/Ê§°ÜµÄ»Øµ÷º¯Êı
+        /// 
         /// </summary>
         public Func<List<OperatorInstance>, bool>? PassCondition { get; set; }
 
         /// <summary>
-        /// »ñÈ¡×îºóÒ»¸öËã×ÓµÄÊä³ö
+        /// 
         /// </summary>
         public Mat? GetLastOutput()
         {
@@ -57,11 +57,11 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// Ìí¼ÓËã×Ó
+        /// 
         /// </summary>
-        /// <param name="op">Ëã×ÓÊµÀı</param>
-        /// <param name="instanceId">ÊµÀıID£¨¿ÉÑ¡£©</param>
-        /// <returns>ÊµÀıID</returns>
+        /// 
+        /// 
+        /// 
         public string AddOperator(IImageOperator op, string? instanceId = null)
         {
             lock (_lock)
@@ -78,7 +78,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ÔÚÖ¸¶¨Î»ÖÃ²åÈëËã×Ó
+        /// 
         /// </summary>
         public string InsertOperator(int index, IImageOperator op, string? instanceId = null)
         {
@@ -97,10 +97,10 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ÒÆ³ıËã×Ó
+        /// 
         /// </summary>
-        /// <param name="instanceId">ÊµÀıID</param>
-        /// <returns>ÊÇ·ñÒÆ³ı³É¹¦</returns>
+        /// 
+        /// 
         public bool RemoveOperator(string instanceId)
         {
             lock (_lock)
@@ -114,7 +114,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ÒÆ¶¯Ëã×ÓÎ»ÖÃ
+        /// 
         /// </summary>
         public bool MoveOperator(string instanceId, int newIndex)
         {
@@ -132,7 +132,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// Çå¿ÕËùÓĞËã×Ó
+        /// 
         /// </summary>
         public void ClearOperators()
         {
@@ -143,7 +143,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ¸üĞÂËã×Ó²ÎÊı
+        /// 
         /// </summary>
         public bool UpdateOperatorParameter(string instanceId, string paramName, object value)
         {
@@ -157,7 +157,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// »ñÈ¡Ëã×Ó
+        /// 
         /// </summary>
         public OperatorInstance? GetOperator(string instanceId)
         {
@@ -168,7 +168,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// ÖØĞÂÅÅĞò
+        /// 
         /// </summary>
         private void ReorderOperators()
         {
@@ -180,11 +180,11 @@ namespace ClearFrost.Vision
 
         public void Initialize()
         {
-            // ³õÊ¼»¯Âß¼­£¨ÈçÓĞĞèÒª£©
+            // 
         }
 
         /// <summary>
-        /// ´¦ÀíÍ¼Ïñ²¢·µ»Ø½á¹û
+        /// 
         /// </summary>
         public async Task<VisionResult> ProcessAsync(Mat input)
         {
@@ -193,7 +193,7 @@ namespace ClearFrost.Vision
                 var sw = Stopwatch.StartNew();
                 var result = new VisionResult();
 
-                // ¶¨ÒåÔÚÍâ²¿ÒÔ±ã finally ¿é·ÃÎÊ
+                // 
                 Mat? current = null;
                 Mat? previous = null;
 
@@ -205,18 +205,18 @@ namespace ClearFrost.Vision
                     {
                         foreach (var opInstance in _operators.OrderBy(o => o.Order))
                         {
-                            // ÊÍ·ÅÉÏÒ»¸ö²½ÖèµÄÊä³ö£¨¼´µ±Ç°²½ÖèµÄÊäÈë£©
+                            // 
                             previous?.Dispose();
                             previous = current;
 
-                            // Ö´ĞĞµ±Ç°²½Öè
+                            // 
                             current = opInstance.Operator.Execute(previous);
 
-                            // ¸üĞÂ LastOutput (±ØĞë Clone£¬ÒòÎª current ¿ÉÄÜ»áÔÚºóĞø±» Dispose)
+                            // 
                             opInstance.LastOutput?.Dispose();
                             opInstance.LastOutput = current.Clone();
 
-                            // ¼ì²éÄ£°åÆ¥Åä½á¹û
+                            // 
                             if (opInstance.Operator is TemplateMatchOp tmOp && tmOp.LastMatchResult != null)
                             {
                                 result.Objects.Add(new DetectedObject
@@ -228,7 +228,7 @@ namespace ClearFrost.Vision
                                 result.Score = tmOp.LastMatchResult.Score;
                                 result.IsPass = tmOp.LastMatchResult.IsMatch;
                             }
-                            // ¼ì²éÌØÕ÷Æ¥Åä½á¹û
+                            // 
                             else if (opInstance.Operator is FeatureMatchOp fmOp && fmOp.LastMatchResult != null)
                             {
                                 result.Objects.Add(new DetectedObject
@@ -240,7 +240,7 @@ namespace ClearFrost.Vision
                                 result.Score = fmOp.LastMatchResult.Score;
                                 result.IsPass = fmOp.LastMatchResult.IsMatch;
                             }
-                            // ¼ì²é ORB Æ¥Åä½á¹û
+                            // 
                             else if (opInstance.Operator is OrbMatchOp orbOp && orbOp.LastMatchResult != null)
                             {
                                 result.Objects.Add(new DetectedObject
@@ -252,7 +252,7 @@ namespace ClearFrost.Vision
                                 result.Score = orbOp.LastMatchResult.Score;
                                 result.IsPass = orbOp.LastMatchResult.IsMatch;
                             }
-                            // ¼ì²é½ğ×ÖËşĞÎ×´Æ¥Åä½á¹û
+                            // 
                             else if (opInstance.Operator is PyramidShapeMatchOp pyrOp && pyrOp.LastMatchResult != null)
                             {
                                 result.Objects.Add(new DetectedObject
@@ -264,7 +264,7 @@ namespace ClearFrost.Vision
                                 result.Score = pyrOp.LastMatchResult.Score;
                                 result.IsPass = pyrOp.LastMatchResult.IsMatch;
                             }
-                            // ¼ì²é±³¾°²î·Ö½á¹û
+                            // 
                             else if (opInstance.Operator is BackgroundDiffOp bgOp && bgOp.LastResult != null)
                             {
                                 result.Objects.Add(new DetectedObject
@@ -280,22 +280,22 @@ namespace ClearFrost.Vision
                         }
                     }
 
-                    // Èç¹ûÓĞ×Ô¶¨ÒåÍ¨¹ıÌõ¼ş
+                    // 
                     if (PassCondition != null)
                     {
                         result.IsPass = PassCondition(_operators.ToList());
                     }
                     else if (result.Objects.Count == 0)
                     {
-                        // Èç¹ûÃ»ÓĞÄ£°åÆ¥Åä£¬Ä¬ÈÏÍ¨¹ı
+                        // 
                         result.IsPass = true;
                         result.Score = 1.0;
                     }
 
-                    // ÓÅÏÈÊ¹ÓÃËã×Ó·´À¡µÄÏêÏ¸ÏûÏ¢
+                    // 
                     if (string.IsNullOrEmpty(result.Message))
                     {
-                        // ²éÕÒ×îºóÒ»¸öÓĞÏûÏ¢µÄÆ¥Åä½á¹û
+                        // 
                         var lastMatchMsg = _operators
                             .Select(o => (o.Operator as dynamic).LastMatchResult?.Message as string)
                             .LastOrDefault(msg => !string.IsNullOrEmpty(msg));
@@ -306,18 +306,18 @@ namespace ClearFrost.Vision
                         }
                         else
                         {
-                            result.Message = result.IsPass ? "¼ì²âÍ¨¹ı" : "¼ì²âÎ´Í¨¹ı";
+                            result.Message = result.IsPass ? "æ£€æµ‹é€šè¿‡" : "æ£€æµ‹æœªé€šè¿‡";
                         }
                     }
                 }
                 catch (Exception ex)
                 {
                     result.IsPass = false;
-                    result.Message = $"´¦ÀíÊ§°Ü: {ex.Message}";
+                    result.Message = $"å¤„ç†å¤±è´¥: {ex.Message}";
                 }
                 finally
                 {
-                    // È·±£ÊÍ·ÅËùÓĞÖĞ¼ä¼°×îÖÕ²úÉúµÄ Mat
+                    // 
                     previous?.Dispose();
                     current?.Dispose();
                 }
@@ -329,7 +329,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// »ñÈ¡´¦ÀíºóµÄÔ¤ÀÀÍ¼Ïñ
+        /// 
         /// </summary>
         public async Task<Mat> GetPreviewAsync(Mat input)
         {
@@ -350,7 +350,7 @@ namespace ClearFrost.Vision
 
                 previous?.Dispose();
 
-                // Èç¹û½á¹ûÊÇµ¥Í¨µÀ£¬×ª»Ø²ÊÉ«ÒÔ±ãÏÔÊ¾
+                // 
                 if (current.Channels() == 1)
                 {
                     Mat colored = new Mat();
@@ -364,7 +364,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// »ñÈ¡Ö¸¶¨²½ÖèµÄÔ¤ÀÀ
+        /// 
         /// </summary>
         public async Task<Mat> GetStepPreviewAsync(Mat input, int stepIndex)
         {
@@ -399,7 +399,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// µ¼³öÅäÖÃ
+        /// 
         /// </summary>
         public VisionConfig ExportConfig()
         {
@@ -419,7 +419,7 @@ namespace ClearFrost.Vision
         }
 
         /// <summary>
-        /// µ¼ÈëÅäÖÃ
+        /// 
         /// </summary>
         public void ImportConfig(VisionConfig config)
         {
@@ -458,23 +458,23 @@ namespace ClearFrost.Vision
     }
 
     /// <summary>
-    /// Ëã×ÓÊµÀı
+    /// 
     /// </summary>
     public class OperatorInstance
     {
-        /// <summary>ÊµÀıID</summary>
+        /// 
         public string InstanceId { get; set; } = string.Empty;
 
-        /// <summary>Ëã×Ó</summary>
+        /// 
         public IImageOperator Operator { get; set; } = null!;
 
-        /// <summary>Ö´ĞĞË³Ğò</summary>
+        /// 
         public int Order { get; set; }
 
-        /// <summary>ÊÇ·ñÆôÓÃ</summary>
+        /// 
         public bool IsEnabled { get; set; } = true;
 
-        /// <summary>×îºóÊä³ö£¨ÓÃÓÚµ÷ÊÔÔ¤ÀÀ£©</summary>
+        /// 
         public Mat? LastOutput { get; set; }
     }
 }
