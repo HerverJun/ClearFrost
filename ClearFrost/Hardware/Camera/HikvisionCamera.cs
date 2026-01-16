@@ -1,4 +1,4 @@
-using System;
+锘縰sing System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -6,25 +6,25 @@ using System.Runtime.InteropServices;
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// 海康威视相机实现
+    /// 
     /// </summary>
     public class HikvisionCamera : ICameraProvider
     {
-        #region 海康 SDK 常量和结构
+        #region 锟斤拷锟斤拷 SDK 锟斤拷锟斤拷锟酵结构
 
         private const uint MV_OK = 0x00000000;
         private const uint MV_E_HANDLE = 0x80000000;
         private const uint MV_E_NETER = 0x80000006;
 
-        // 设备类型
+        // 
         private const uint MV_GIGE_DEVICE = 0x00000001;
         private const uint MV_USB_DEVICE = 0x00000004;
         private const uint MV_CAMERALINK_DEVICE = 0x00000008;
 
-        // 访问模式
+        // 
         private const uint MV_ACCESS_Exclusive = 1;
 
-        // 像素格式
+        // 
         private const uint PixelType_Gvsp_Mono8 = 0x01080001;
         private const uint PixelType_Gvsp_RGB8 = 0x02180014;
         private const uint PixelType_Gvsp_BGR8 = 0x02180015;
@@ -100,7 +100,7 @@ namespace ClearFrost.Hardware
 
         #endregion
 
-        #region P/Invoke 声明
+        #region P/Invoke 锟斤拷锟斤拷
 
         [DllImport("MvCameraControl.dll", EntryPoint = "MV_CC_EnumDevices")]
         private static extern int MV_CC_EnumDevices(uint nTLayerType, ref MV_CC_DEVICE_INFO_LIST pstDevList);
@@ -207,13 +207,13 @@ namespace ClearFrost.Hardware
 
         private string ExtractSerialNumber(MV_CC_DEVICE_INFO deviceInfo)
         {
-            // 从 SpecialInfo 中提取序列号 (根据设备类型不同，位置不同)
+            // 
             try
             {
                 if (deviceInfo.SpecialInfo != null && deviceInfo.SpecialInfo.Length > 0)
                 {
-                    // GigE 设备序列号在偏移 16 处，长度 16 字节
-                    // USB 设备序列号在偏移 64 处，长度 64 字节
+                    // 
+                    // 
                     int offset = deviceInfo.nTLayerType == MV_GIGE_DEVICE ? 16 : 64;
                     int length = deviceInfo.nTLayerType == MV_GIGE_DEVICE ? 16 : 64;
 
@@ -223,7 +223,7 @@ namespace ClearFrost.Hardware
             }
             catch { }
 
-            // 回退：生成唯一标识
+            // 
             return $"HIK-{deviceInfo.nMacAddrLow:X8}";
         }
 
@@ -233,11 +233,11 @@ namespace ClearFrost.Hardware
 
             try
             {
-                // 确保设备列表存在
+                // 
                 if (_cachedDevices.Count == 0)
                     EnumerateDevices();
 
-                // 查找设备索引
+                // 
                 _targetDeviceIndex = -1;
                 for (int i = 0; i < _cachedDevices.Count; i++)
                 {
@@ -254,7 +254,7 @@ namespace ClearFrost.Hardware
                     return false;
                 }
 
-                // 创建句柄
+                // 
                 int result = MV_CC_CreateHandle(ref _handle, _deviceList.pDeviceInfo[_targetDeviceIndex]);
                 if (result != MV_OK)
                 {
@@ -262,7 +262,7 @@ namespace ClearFrost.Hardware
                     return false;
                 }
 
-                // 打开设备
+                // 
                 result = MV_CC_OpenDevice(_handle, MV_ACCESS_Exclusive, 0);
                 if (result != MV_OK)
                 {
@@ -272,7 +272,7 @@ namespace ClearFrost.Hardware
                     return false;
                 }
 
-                // 分配帧缓冲区 (预估 4K 分辨率 * 3 通道)
+                // 
                 int bufferSize = 4096 * 3000 * 3;
                 _frameBuffer = new byte[bufferSize];
                 _frameBufferHandle = GCHandle.Alloc(_frameBuffer, GCHandleType.Pinned);
@@ -367,7 +367,7 @@ namespace ClearFrost.Hardware
                     PixelFormat = ConvertPixelFormat(frameInfo.enPixelType),
                     FrameNumber = frameInfo.nFrameNum,
                     Timestamp = (ulong)frameInfo.nHostTimeStamp,
-                    NeedsNativeRelease = false  // 使用预分配缓冲区，无需单独释放
+                    NeedsNativeRelease = false  // 使锟斤拷预锟斤拷锟戒缓锟斤拷锟斤拷锟斤拷锟斤拷锟借单锟斤拷锟酵凤拷
                 };
             }
             catch (Exception ex)

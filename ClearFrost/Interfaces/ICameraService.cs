@@ -4,7 +4,7 @@
 //
 // 功能:
 //   - 定义相机控制的标准接口
-//   - 支持多品牌相机 (MindVision, Hikvision)
+//   - 支持多品牌相机 (Huaray, Hikvision)
 // ============================================================================
 
 using System;
@@ -61,7 +61,7 @@ namespace ClearFrost.Interfaces
         /// 打开相机
         /// </summary>
         /// <param name="serialNumber">相机序列号</param>
-        /// <param name="manufacturer">制造商 (MindVision/Hikvision)</param>
+        /// <param name="manufacturer">制造商 (Huaray/Hikvision)</param>
         /// <returns>是否成功</returns>
         bool Open(string serialNumber, string manufacturer);
 

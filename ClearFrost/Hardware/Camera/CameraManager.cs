@@ -153,7 +153,7 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// 枚举系统中连接的相机 (简化版：返回序列号列表，仅迈德威视)
+        /// 枚举系统中连接的相机 (简化版：返回序列号列表，仅华睿)
         /// 保留此方法以保持向后兼容
         /// </summary>
         public List<string> DiscoverCameras()
@@ -267,7 +267,7 @@ namespace ClearFrost.Hardware
                         }
                         else
                         {
-                            // 迈德威视相机 (默认)：使用原有的 RealCamera 实现
+                            // 华睿相机 (默认)：使用原有的 RealCamera 实现
                             camera = new RealCamera();
 
                             // 查找相机索引

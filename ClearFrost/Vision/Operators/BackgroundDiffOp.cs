@@ -1,6 +1,6 @@
-// ============================================================================
-// ÎÄ¼şÃû: BackgroundDiffOp.cs
-// ÃèÊö:   ±³¾°²î·ÖÓĞÎŞ¼ì²âËã×Ó - »ùÓÚ±³¾°²î·ÖµÄÎïÌåÓĞÎŞ¼ì²â
+ï»¿// ============================================================================
+// 
+// 
 // ============================================================================
 using OpenCvSharp;
 using System;
@@ -9,11 +9,11 @@ using System.Collections.Generic;
 namespace ClearFrost.Vision
 {
     /// <summary>
-    /// ±³¾°²î·ÖÓĞÎŞ¼ì²âËã×Ó
+    /// 
     /// </summary>
     public class BackgroundDiffOp : IImageOperator, ITemplateTrainable, IDisposable
     {
-        public string Name => "ÓĞÎŞ¼ì²â (±³¾°²î·Ö)";
+        public string Name => "æœ‰æ— æ£€æµ‹ (èƒŒæ™¯å·®åˆ†)";
         public string TypeId => "background_diff";
         public bool IsTrained
         {
@@ -237,12 +237,12 @@ namespace ClearFrost.Vision
         {
             return new List<OperatorParameterInfo>
             {
-                new() { Name = "minArea", DisplayName = "×îĞ¡Ãæ»ı", Type = "number", DefaultValue = 5000, CurrentValue = _minArea },
-                new() { Name = "maxArea", DisplayName = "×î´óÃæ»ı", Type = "number", DefaultValue = 200000, CurrentValue = _maxArea },
-                new() { Name = "minAspectRatio", DisplayName = "×îĞ¡³¤¿í±È", Type = "number", DefaultValue = 1.5, CurrentValue = _minAspectRatio },
-                new() { Name = "maxAspectRatio", DisplayName = "×î´ó³¤¿í±È", Type = "number", DefaultValue = 6.0, CurrentValue = _maxAspectRatio },
-                new() { Name = "diffThreshold", DisplayName = "»Ò¶È²î·ÖãĞÖµ", Type = "number", DefaultValue = 30, CurrentValue = _diffThreshold },
-                new() { Name = "useEdgeDiff", DisplayName = "Ê¹ÓÃ±ßÔµ²î·Ö", Type = "boolean", DefaultValue = true, CurrentValue = _useEdgeDiff },
+                new() { Name = "minArea", DisplayName = "æœ€å°é¢ç§¯", Type = "number", DefaultValue = 5000, CurrentValue = _minArea },
+                new() { Name = "maxArea", DisplayName = "æœ€å¤§é¢ç§¯", Type = "number", DefaultValue = 200000, CurrentValue = _maxArea },
+                new() { Name = "minAspectRatio", DisplayName = "æœ€å°é•¿å®½æ¯”", Type = "number", DefaultValue = 1.5, CurrentValue = _minAspectRatio },
+                new() { Name = "maxAspectRatio", DisplayName = "æœ€å¤§é•¿å®½æ¯”", Type = "number", DefaultValue = 6.0, CurrentValue = _maxAspectRatio },
+                new() { Name = "diffThreshold", DisplayName = "ç°åº¦å·®é˜ˆå€¼", Type = "number", DefaultValue = 30, CurrentValue = _diffThreshold },
+                new() { Name = "useEdgeDiff", DisplayName = "ä½¿ç”¨è¾¹ç¼˜å·®åˆ†", Type = "boolean", DefaultValue = true, CurrentValue = _useEdgeDiff },
                 new() { Name = "roiX", DisplayName = "ROI X", Type = "number", DefaultValue = 0, CurrentValue = _roiX },
                 new() { Name = "roiY", DisplayName = "ROI Y", Type = "number", DefaultValue = 0, CurrentValue = _roiY },
                 new() { Name = "roiW", DisplayName = "ROI W", Type = "number", DefaultValue = 0, CurrentValue = _roiW },

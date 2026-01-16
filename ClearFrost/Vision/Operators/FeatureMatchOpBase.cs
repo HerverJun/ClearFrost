@@ -1,6 +1,6 @@
-// ============================================================================
-// ÎÄ¼şÃû: FeatureMatchOpBase.cs
-// ÃèÊö:   ÌØÕ÷Æ¥ÅäËã×Ó»ùÀà - ·â×°Ä£°å¼ÓÔØ¡¢ÌØÕ÷ÌáÈ¡¡¢Æ¥Åä¡¢RANSACÑéÖ¤ºÍ»æÍ¼µÄ¹«¹²Âß¼­
+ï»¿// ============================================================================
+// 
+// 
 // ============================================================================
 using OpenCvSharp;
 using System;
@@ -11,10 +11,10 @@ using System.Linq;
 namespace ClearFrost.Vision
 {
     /// <summary>
-    /// ÌØÕ÷Æ¥ÅäËã×Ó»ùÀà
-    /// ·â×°ÁËÄ£°å¼ÓÔØ¡¢ÌØÕ÷ÌáÈ¡¡¢Æ¥Åä¡¢RANSACÑéÖ¤ºÍ»æÍ¼µÄ¹«¹²Âß¼­
+    /// 
+    /// 
     /// </summary>
-    /// <typeparam name="TDetector">ÌØÕ÷¼ì²âÆ÷ÀàĞÍ</typeparam>
+    /// 
     public abstract class FeatureMatchOpBase<TDetector> : IImageOperator, IDisposable, ITemplateTrainable
         where TDetector : class
     {
@@ -127,7 +127,7 @@ namespace ClearFrost.Vision
                 {
                     if (sceneDescriptors.Empty() || sceneKeyPoints.Length < 4)
                     {
-                        LastMatchResult = CreateFailedResult($"³¡¾°ÌØÕ÷²»×ã (µãÊı: {sceneKeyPoints.Length} < 4)");
+                        LastMatchResult = CreateFailedResult($"åœºæ™¯ç‰¹å¾ç‚¹ä¸è¶³ (æ•°é‡: {sceneKeyPoints.Length} < 4)");
                         return CreateOutputImage(input);
                     }
 
@@ -208,14 +208,14 @@ namespace ClearFrost.Vision
 
                 if (!isMatch)
                 {
-                    if (!isInliersPass) failureReason = $"ÄÚµã²»×ã({inliers} < {_scoreThreshold})";
-                    else if (!isRatioPass) failureReason = $"ÄÚµãÂÊ¹ıµÍ({inlierRatio:F2})";
+                    if (!isInliersPass) failureReason = $"å†…ç‚¹æ•°ä¸è¶³ ({inliers} < {_scoreThreshold})";
+                    else if (!isRatioPass) failureReason = $"å†…ç‚¹æ¯”ä¾‹ä¸è¶³ ({inlierRatio:F2})";
                 }
             }
             else
             {
                 isMatch = score >= _scoreThreshold;
-                if (!isMatch) failureReason = ($"Æ¥Åäµã²»×ã({score} < {_scoreThreshold})");
+                if (!isMatch) failureReason = ($"åŒ¹é…ç‚¹æ•°ä¸è¶³ ({score} < {_scoreThreshold})");
             }
 
             using (validHomography)

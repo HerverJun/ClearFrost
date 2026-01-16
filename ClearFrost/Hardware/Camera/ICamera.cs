@@ -1,15 +1,15 @@
-using System;
+锘縰sing System;
 using MVSDK_Net;
 
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// 相机接口，定义工业相机的基本操作
+    /// 
     /// </summary>
     public interface ICamera : IDisposable
     {
         /// <summary>
-        /// 相机是否已连接
+        /// 
         /// </summary>
         bool IsConnected { get; }
 
