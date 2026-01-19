@@ -102,7 +102,7 @@ namespace ClearFrost
                     Debug.WriteLine("[主窗口-PLC] 🔍 开始执行检测...");
                     using (var mat = frameToProcess)
                     {
-                        lastResult = await _detectionService.DetectAsync(mat, _appConfig.Confidence, overlapThreshold);
+                        lastResult = await _detectionService.DetectAsync(mat, _appConfig.Confidence, overlapThreshold, _appConfig.TargetLabel, _appConfig.TargetCount);
                     }
                     Debug.WriteLine($"[主窗口-PLC] 🔍 检测完成 - 结果: {(lastResult?.IsQualified == true ? "合格" : "不合格")}");
 

@@ -11,10 +11,6 @@ namespace ClearFrost.Vision
     /// 
     /// 
     /// </summary>
-    /// <summary>
-    /// 
-    /// 
-    /// </summary>
     public sealed class PyramidShapeMatcher : IDisposable
     {
         #region Nested Types

@@ -100,7 +100,7 @@ namespace ClearFrost
                     var sw = Stopwatch.StartNew();
 
                     // 执行检测
-                    var result = await _detectionService.DetectAsync(originalBitmap, _appConfig.Confidence, overlapThreshold);
+                    var result = await _detectionService.DetectAsync(originalBitmap, _appConfig.Confidence, overlapThreshold, _appConfig.TargetLabel, _appConfig.TargetCount);
 
                     sw.Stop();
 
@@ -109,7 +109,7 @@ namespace ClearFrost
                     bool isQualified = result.IsQualified;
 
                     // 生成带标注的结果图像
-                    string[] labels = _detectionService.GetLabels() ?? Array.Empty<string>();
+                    string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
                     using (var resultImage = _detectionService.GenerateResultImage(originalBitmap, results, labels))
                     {
                         // 发送结果图像到前端
@@ -231,7 +231,7 @@ namespace ClearFrost
                     var sw = Stopwatch.StartNew();
 
                     // 执行检测
-                    var result = await _detectionService.DetectAsync(mat, _appConfig.Confidence, overlapThreshold);
+                    var result = await _detectionService.DetectAsync(mat, _appConfig.Confidence, overlapThreshold, _appConfig.TargetLabel, _appConfig.TargetCount);
 
                     sw.Stop();
 
@@ -242,10 +242,10 @@ namespace ClearFrost
                     await WriteDetectionResultToPlc(isQualified);
 
                     // 保存图像
-                    string imagePath = await SaveDetectionImage(mat, results, isQualified);
+                    string imagePath = await SaveDetectionImage(mat, results, isQualified, result.UsedModelLabels);
 
                     // 发送结果到前端
-                    string[] labels = _detectionService.GetLabels() ?? Array.Empty<string>();
+                    string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
                     using (var bitmap = mat.ToBitmap())
                     using (var resultImage = _detectionService.GenerateResultImage(bitmap, results, labels))
                     using (var ms = new MemoryStream())
@@ -282,7 +282,7 @@ namespace ClearFrost
             }
         }
 
-        private async Task<string> SaveDetectionImage(Mat image, List<YoloResult> results, bool isQualified)
+        private async Task<string> SaveDetectionImage(Mat image, List<YoloResult> results, bool isQualified, string[]? usedLabels = null)
         {
             try
             {
@@ -299,7 +299,7 @@ namespace ClearFrost
                 // 如果有检测结果，先绘制边框
                 if (results.Count > 0)
                 {
-                    string[] labels = _detectionService.GetLabels() ?? Array.Empty<string>();
+                    string[] labels = usedLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
                     using (var bitmap = image.ToBitmap())
                     using (var resultImage = _detectionService.GenerateResultImage(bitmap, results, labels))
                     {

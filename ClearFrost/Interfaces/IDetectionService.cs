@@ -134,12 +134,16 @@ namespace ClearFrost.Interfaces
         /// <param name="image">输入图像 (Mat)</param>
         /// <param name="confidence">置信度阈值</param>
         /// <param name="iouThreshold">IOU 阈值</param>
-        Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold);
+        /// <param name="targetLabel">目标标签名（用于判定合格）</param>
+        /// <param name="targetCount">期望目标数量（用于判定合格）</param>
+        Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold, string? targetLabel = null, int targetCount = 0);
 
         /// <summary>
         /// 执行检测 (Bitmap 输入)
         /// </summary>
-        Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold);
+        /// <param name="targetLabel">目标标签名（用于判定合格）</param>
+        /// <param name="targetCount">期望目标数量（用于判定合格）</param>
+        Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold, string? targetLabel = null, int targetCount = 0);
 
         /// <summary>
         /// 生成带标注的结果图像
