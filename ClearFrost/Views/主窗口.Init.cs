@@ -862,6 +862,30 @@ namespace ClearFrost
                 }
             };
 
+            // 相机超级搜索 (海康) - 使用海康SDK发现所有相机
+            _uiController.OnSuperSearchCamerasHik += async (s, e) =>
+            {
+                try
+                {
+                    await _uiController.LogToFrontend("正在通过海康SDK搜索局域网相机...");
+                    var allCameras = _cameraManager.DiscoverHikvisionCameras();
+                    var cameraList = allCameras.Select(c => new
+                    {
+                        serialNumber = c.SerialNumber,
+                        manufacturer = c.Manufacturer,
+                        model = c.Model,
+                        userDefinedName = c.UserDefinedName,
+                        interfaceType = c.InterfaceType
+                    }).ToList();
+                    await _uiController.SendDiscoveredCameras(cameraList);
+                    await _uiController.LogToFrontend($"海康SDK发现 {cameraList.Count} 台相机", cameraList.Count > 0 ? "success" : "warning");
+                }
+                catch (Exception ex)
+                {
+                    await _uiController.LogToFrontend($"海康搜索失败: {ex.Message}", "error");
+                }
+            };
+
             // 直接连接相机（无序列号过滤）
             _uiController.OnDirectConnectCamera += async (s, json) =>
             {

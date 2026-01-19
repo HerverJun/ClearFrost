@@ -85,6 +85,7 @@ namespace ClearFrost
         public event EventHandler<string>? OnAddCamera;  // JSON格式的相机数据
         public event EventHandler<string>? OnDeleteCamera;  // 相机ID
         public event EventHandler? OnSuperSearchCameras;  // 相机超级搜索
+        public event EventHandler? OnSuperSearchCamerasHik;  // 相机超级搜索 (海康)
         public event EventHandler<string>? OnDirectConnectCamera;  // 直接连接相机（JSON格式）
 
         // ================== 多模型切换事件 ==================
@@ -240,6 +241,9 @@ namespace ClearFrost
             // but for high FPS, PostWebMessageAsJson or shared buffer is better. 
             // Stick to requested specific function updateImage(base64).
             await _webView.ExecuteScriptAsync($"updateImage('{base64Image}')");
+
+            // 图像更新后重绘 ROI 矩形，保持 ROI 区域可见
+            await _webView.ExecuteScriptAsync("redrawROI()");
         }
 
         /// <summary>
@@ -524,6 +528,9 @@ namespace ClearFrost
                                 break;
                             case "super_search_cameras":
                                 OnSuperSearchCameras?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "super_search_cameras_hik":
+                                OnSuperSearchCamerasHik?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "direct_connect_camera":
                                 if (root.TryGetProperty("value", out JsonElement directConnectElement))
