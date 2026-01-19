@@ -213,20 +213,24 @@ namespace ClearFrost.Services
 
         #region 检测方法
 
-        public async Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold)
+        public async Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold,
+            string? targetLabel = null, int targetCount = 0)
         {
             using var bitmap = image.ToBitmap();
-            return await DetectAsync(bitmap, confidence, iouThreshold);
+            return await DetectAsync(bitmap, confidence, iouThreshold, targetLabel, targetCount);
         }
 
         /// <summary>
-        /// 对图像执行检测（使用 Bitmap）
+        /// 对图像执行检测（使用 Bitmap，支持目标标签和期望数量判定）
         /// </summary>
         /// <param name="image">输入图像</param>
         /// <param name="confidence">置信度阈值</param>
         /// <param name="iouThreshold">IOU 阈值</param>
+        /// <param name="targetLabel">目标标签名（用于判定合格）</param>
+        /// <param name="targetCount">期望目标数量（用于判定合格）</param>
         /// <returns>检测结果数据对象</returns>
-        public async Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold)
+        public async Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold,
+            string? targetLabel = null, int targetCount = 0)
         {
             var result = new DetectionResultData
             {
@@ -275,8 +279,32 @@ namespace ClearFrost.Services
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
 
-                // 简单判定：无检测结果视为合格
-                bool isQualified = allResults.Count == 0;
+                // ===== 判定逻辑：根据目标标签名和期望数量来判定 =====
+                bool isQualified;
+                if (!string.IsNullOrEmpty(targetLabel) && targetCount > 0)
+                {
+                    // 统计检测到的目标标签数量
+                    // 注意：YoloResult.ClassId 是整数索引，需要用 usedModelLabels 数组转换为标签名
+                    int actualCount = allResults.Count(r =>
+                    {
+                        // 通过 ClassId 获取标签名
+                        string detectedLabel = (r.ClassId >= 0 && r.ClassId < usedModelLabels.Length)
+                            ? usedModelLabels[r.ClassId]
+                            : "";
+                        return detectedLabel.Equals(targetLabel, StringComparison.OrdinalIgnoreCase);
+                    });
+
+                    // 判断是否等于期望数量
+                    isQualified = actualCount == targetCount;
+
+                    Debug.WriteLine($"[DetectionService] 判定: 目标标签='{targetLabel}', 期望数量={targetCount}, 实际数量={actualCount}, 是否合格={isQualified}");
+                }
+                else
+                {
+                    // 未配置目标标签时的回退逻辑：无检测结果视为合格（保持向后兼容）
+                    isQualified = allResults.Count == 0;
+                    Debug.WriteLine($"[DetectionService] 判定(默认): 检测结果数量={allResults.Count}, 是否合格={isQualified}");
+                }
 
                 result.IsQualified = isQualified;
                 result.Results = allResults;
