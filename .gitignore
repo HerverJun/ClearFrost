@@ -127,4 +127,39 @@ icon.ico
 
 # Scripts
 # publish.bat
-# publish.ps1
+# publish_lite.bat
+
+# =============================================
+# 个人文件和结题报告（不提交到远程仓库）
+# =============================================
+
+# 分享/说明文档
+如何分享代码给同事.md
+如何分享代码*.md
+
+# 结题报告和项目文档
+*结题报告*.md
+*操作手册*.docx
+*管理员手册*.docx
+
+# 旧版本代码备份
+旧主窗口.cs
+ShapeMatcherDemo.cs
+
+# 编译日志和错误文件
+build_*.txt
+err.txt
+msbuild.log
+
+# 工具脚本（按需保留）
+count_lines*.ps1
+package_dependencies.ps1
+share_code*.ps1
+check_env.bat
+一键打包分享.bat
+
+# 大型压缩包（zip/rar等已在上面配置）
+*依赖*.zip
+*_Lite_*.zip
+*_Source_*.zip
+*_Share*.zip
