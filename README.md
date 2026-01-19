@@ -1,140 +1,83 @@
-# 清霜视觉检测系统 V2
+# 清霜视觉检测系统 V3 (ClearFrost Pro)
 
-## 项目说明
+<p align="center">
+  <img src="ClearFrost/icon_transparent.png" width="120" alt="ClearFrost Logo">
+</p>
 
-这是一个基于 C# .NET 8.0 和 OpenCV 的工业视觉检测系统，支持传统视觉算法和 YOLO AI 检测。
+<p align="center">
+  <strong>工业级智能视觉检测平台</strong><br>
+  基于 C# .NET 8.0 | YOLO AI 检测 | 多模型自动切换 | 现代 Web UI
+</p>
 
-## ⚠️ 重要提示：运行前必读
-
-**Git仓库中只包含源代码（约470KB），不包含运行所需的依赖库和模型文件。**
-
-在另一台电脑上需要完成以下配置才能运行。
-
----
-
-## 📋 运行环境要求
-
-### 系统要求
-- **操作系统**: Windows 10/11 (x64)
-- **.NET SDK**: .NET 8.0 SDK 或更高版本
-- **Visual Studio**: 2022 或更高版本（推荐）
-
-### 硬件要求（可选）
-- **工业相机**: 支持华睿 (Huaray) 工业相机、海康威视 (Hikvision)
-- **PLC**: 支持 Modbus TCP 或西门子 S7 协议
-- **GPU**: 支持 DirectML 的显卡（用于 AI 推理加速）
+<p align="center">
+  <img src="https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet" alt=".NET 8.0">
+  <img src="https://img.shields.io/badge/YOLO-v8%2Fv11-00FFFF" alt="YOLO">
+  <img src="https://img.shields.io/badge/OpenCV-4.8-5C3EE8?logo=opencv" alt="OpenCV">
+  <img src="https://img.shields.io/badge/Platform-Windows%20x64-0078D6?logo=windows" alt="Windows">
+</p>
 
 ---
 
-## 🔧 配置步骤
+## ✨ V3 新特性
+
+- 🚀 **多模型自动切换**：主模型未检测到目标时，自动切换辅助模型
+- 🎨 **全新 Web UI**：基于 TailwindCSS 的现代化界面
+- 📊 **实时统计图表**：今日产出环形图 + 历史数据对比
+- 🔧 **模块化架构**：Services / Views / Vision 分层设计
+- 📷 **多品牌相机支持**：华睿 + 海康威视工业相机
+- 🔌 **多协议 PLC 通讯**：Modbus TCP / 三菱 MC / 西门子 S7
+
+---
+
+## 📋 系统要求
+
+| 项目 | 要求 |
+|------|------|
+| 操作系统 | Windows 10/11 (x64) |
+| .NET SDK | 8.0 或更高 |
+| 开发工具 | Visual Studio 2022 / VS Code |
+| GPU（可选） | 支持 DirectML 的显卡 |
+
+---
+
+## 🚀 快速开始
 
 ### 1. 克隆代码
+
 ```bash
 git clone https://gitee.com/jiao-xiake/ClearForst.git
 cd ClearForst
 ```
 
-### 2. **必需** - 安装 NuGet 包依赖
+### 2. 安装依赖
 
-在项目根目录执行：
 ```bash
 dotnet restore
 ```
 
-这将自动安装以下依赖：
-- `Microsoft.ML.OnnxRuntime.DirectML` (1.16.3) - ONNX 模型推理
-- `Microsoft.Web.WebView2` (1.0.3650.58) - 内嵌浏览器UI
-- `OpenCvSharp4.Windows` (4.8.0.20230708) - OpenCV 图像处理
-- `OpenCvSharp4.Extensions` (4.8.0.20230708) - OpenCV 扩展
+### 3. 编译运行
 
-### 3. **必需** - 手动添加第三方 DLL
-
-由于以下DLL文件较大且有版权限制，未包含在Git仓库中，需要手动配置：
-
-#### 3.1 创建 `ClearFrost/DLL/` 目录
 ```bash
-mkdir ClearFrost\DLL
+# 命令行方式
+dotnet build -c Debug -p:Platform=x64
+dotnet run --project ClearFrost/ClearFrost.csproj
+
+# 或使用 Visual Studio 打开 ClearFrost.sln，按 F5 运行
 ```
-
-#### 3.2 添加以下文件到 `ClearFrost/DLL/`:
-
-**HslCommunication.dll** (工业通讯库)
-- 用途: PLC 通讯（Modbus/S7）
-- 来源: 购买或使用开源版本
-- 官网: https://www.hslcommunication.cn/
-- 如果不需要PLC功能，可注释掉相关代码
-
-**MVSDK_Net.dll** (华睿相机SDK)
-- 用途: 工业相机驱动
-- 来源: 华睿科技官网下载相机SDK
-- 官网: https://www.huaray.com/
-- 如果不使用工业相机，可注释掉相关代码
-
-#### 3.3 创建 `x64依赖包/` 目录（相机SDK依赖）
-
-如果使用华睿工业相机，需要在项目根目录创建 `x64依赖包/` 文件夹，并放入以下文件：
-
-```
-x64依赖包/
-├── MVSDKmd.dll          (主SDK库 ~5MB)
-├── ImageConvert.dll
-├── ImageSave.dll
-├── VideoRender.dll
-├── GCBase_MD_VC120_v3_0.dll
-├── GenApi_MD_VC120_v3_0.dll
-├── ...（其他22个DLL文件）
-```
-
-**这些文件可以从华睿官方SDK包中获取。**
-
-### 4. **可选** - 添加 ONNX 模型文件
-
-如果要使用 AI 检测功能，需要准备训练好的 YOLO ONNX 模型：
-
-#### 4.1 创建 `ClearFrost/ONNX/` 目录
-```bash
-mkdir ClearFrost\ONNX
-```
-
-#### 4.2 放入你的 ONNX 模型文件
-```
-ClearFrost/ONNX/
-├── your-model.onnx
-├── yolo11n.onnx         (示例：YOLOv11 nano模型)
-└── ...
-```
-
-**注意**: ONNX 模型文件通常很大（10-100MB），需要自行训练或下载。
-
-推荐的 YOLO 模型来源：
-- Ultralytics YOLOv8/v11: https://github.com/ultralytics/ultralytics
-- 导出为 ONNX 格式: `yolo export model=yolo11n.pt format=onnx`
 
 ---
 
-## 🚀 编译和运行
+## ⚠️ 重要提示
 
-### 方式1: 使用 Visual Studio
-1. 打开 `ClearFrost.sln`
-2. 选择 **x64** + **Release** 配置
-3. 按 `F5` 或点击"▶ 开始"
+**Git 仓库中只包含源代码，不包含以下大文件：**
 
-### 方式2: 使用命令行
-```bash
-dotnet build -c Release --arch x64
-dotnet run --project ClearFrost/ClearFrost.csproj -c Release
-```
+| 文件类型 | 说明 | 如何获取 |
+|----------|------|----------|
+| `DLL/*.dll` | 工业通讯库 (HslCommunication) | 从厂商官网下载 |
+| `ONNX/*.onnx` | YOLO 模型文件 | 自行训练或下载预训练模型 |
+| `x64依赖包/` | 相机 SDK 依赖 | 从华睿/海康官网下载 |
 
-### 方式3: 发布独立可执行文件
-```bash
-# 使用提供的发布脚本
-.\publish.bat
-
-# 或手动执行
-dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=false -o ./PublishOutput
-```
-
-发布后的文件将在 `PublishOutput/` 目录中。
+详细配置步骤请参考下方「依赖配置」章节。
 
 ---
 
@@ -142,89 +85,135 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=false
 
 ```
 ClearForst/
-├── ClearFrost/                    # 主项目代码
-│   ├── Vision/                    # 视觉算法模块
-│   │   ├── Operators.cs          # 图像处理算子
-│   │   ├── PipelineProcessor.cs  # 处理流水线
-│   │   ├── RobustOrbExtractor.cs # ORB特征提取
-│   │   ├── GradientShapeMatcher.cs # 形状匹配
-│   │   └── ...
-│   ├── html/                      # WebView2 前端UI
-│   │   └── index.html
-│   ├── BW_yolo.cs                 # YOLO 检测器
-│   ├── WebUIController.cs         # UI控制器
-│   ├── 主窗口.cs                  # 主窗口
-│   ├── PlcAdapters.cs            # PLC通讯适配器
-│   ├── DLL/                       # ⚠️ 需手动添加
-│   └── ONNX/                      # ⚠️ 需手动添加
-├── x64依赖包/                     # ⚠️ 需手动添加
-├── .gitignore
-├── ClearFrost.sln
-├── README.md                      # 本文件
-└── publish.bat                    # 发布脚本
+├── ClearFrost/                 # 主项目
+│   ├── Services/               # 核心服务
+│   │   ├── DetectionService.cs # 检测服务（多模型支持）
+│   │   ├── CameraService.cs    # 相机服务
+│   │   ├── PlcService.cs       # PLC 通讯服务
+│   │   └── StatisticsService.cs# 统计服务
+│   ├── Views/                  # 界面逻辑（分模块）
+│   │   ├── 主窗口.Init.cs      # 初始化
+│   │   ├── 主窗口.Vision.cs    # 视觉检测
+│   │   ├── 主窗口.PLC.cs       # PLC 控制
+│   │   └── 主窗口.Camera.cs    # 相机控制
+│   ├── Core/                   # 核心模块
+│   │   └── MultiModelManager.cs# 多模型管理器
+│   ├── Yolo/                   # YOLO 推理引擎
+│   ├── Vision/                 # 传统视觉算法
+│   ├── Hardware/               # 硬件驱动
+│   ├── html/                   # Web UI 前端
+│   │   ├── index.html
+│   │   └── js/
+│   └── Config/                 # 配置管理
+├── ClearFrost_Lite/            # 简化版（SDK 依赖）
+└── README.md
 ```
 
 ---
 
 ## 🎯 功能特性
 
-### 传统视觉模式
-- ✅ 多种图像处理算子（二值化、形态学、边缘检测等）
-- ✅ ORB 特征匹配
-- ✅ 梯度形状匹配
-- ✅ 模板匹配
-- ✅ 处理流水线可视化配置
-
 ### AI 检测模式
-- ✅ YOLOv8/v11 ONNX 模型推理
+- ✅ YOLO v8/v11 ONNX 模型推理
+- ✅ **多模型自动切换**（主模型 + 2个辅助模型）
 - ✅ DirectML GPU 加速
-- ✅ 实时检测可视化
-- ✅ 多类别目标检测
+- ✅ 可配置置信度/IOU 阈值
+- ✅ 目标标签 + 数量判定逻辑
+
+### 传统视觉模式
+- ✅ 模板匹配 (Template Match)
+- ✅ 特征匹配 (AKAZE/ORB)
+- ✅ 形状匹配 (金字塔梯度)
+- ✅ 有无检测 (背景差分)
+- ✅ 可视化流水线配置
 
 ### 工业集成
-- ✅ 工业相机采集（华睿/海康威视）
-- ✅ PLC 通讯（Modbus TCP / S7）
-- ✅ 检测结果统计和历史记录
-- ✅ 友好的 Web UI 界面
+- ✅ 华睿/海康威视工业相机
+- ✅ 多协议 PLC 通讯
+- ✅ 检测结果自动写入 PLC
+- ✅ 重拍机制（可配置次数和间隔）
+- ✅ SQLite 历史记录存储
+
+### 用户界面
+- ✅ 现代 Web UI（WebView2）
+- ✅ 实时检测流水日志
+- ✅ 今日产出统计图表
+- ✅ 图像追溯库
+- ✅ 密码保护的管理员设置
+
+---
+
+## 🔧 依赖配置
+
+### 必需：工业通讯库
+
+在 `ClearFrost/DLL/` 目录放入：
+
+| 文件 | 用途 | 来源 |
+|------|------|------|
+| `HslCommunication.dll` | PLC 通讯 | [HSL 官网](https://www.hslcommunication.cn/) |
+| `MVSDK_Net.dll` | 相机 SDK | [华睿官网](https://www.huaray.com/) |
+
+### 可选：ONNX 模型
+
+在 `ClearFrost/ONNX/` 目录放入 YOLO 模型：
+
+```bash
+# 使用 Ultralytics 导出
+yolo export model=yolo11n.pt format=onnx
+```
+
+### 可选：相机 SDK 依赖
+
+在 `ClearFrost_Lite/` 目录放入华睿 SDK 的原生 DLL 文件。
 
 ---
 
 ## 🔍 常见问题
 
-### Q1: 缺少 DLL 导致编译失败
-**A**: 确保已按照"配置步骤3"正确放置 `HslCommunication.dll` 和 `MVSDK_Net.dll`。
+<details>
+<summary><strong>Q: 编译时报错缺少 DLL？</strong></summary>
 
-### Q2: 运行时提示找不到相机SDK
-**A**: 检查 `x64依赖包/` 目录是否包含所有22个DLL文件。
+确保 `ClearFrost/DLL/` 目录包含必要的 DLL 文件。如果不使用 PLC/相机功能，可以注释掉相关代码。
+</details>
 
-### Q3: 不使用相机和PLC，可以运行吗？
-**A**: 可以，但需要注释掉相关功能代码。建议在 `主窗口.cs` 中跳过相机和PLC初始化。
+<details>
+<summary><strong>Q: 多模型切换不生效？</strong></summary>
 
-### Q4: ONNX模型推理失败
-**A**: 确保：
-   - 模型文件在 `ClearFrost/ONNX/` 目录
-   - 模型是 YOLO 格式的 ONNX 文件
-   - 输入尺寸匹配（默认640x640）
+1. 确保在界面上勾选了「模型池」开关
+2. 检查辅助模型是否正确加载
+3. 查看调试日志确认切换逻辑
+</details>
 
----
+<details>
+<summary><strong>Q: GPU 加速未启用？</strong></summary>
 
-## 📝 开发文档
-
-详细的使用指南请参考：
-- `ClearFrost/传统视觉模式使用指南.md` - 传统视觉模式说明
+1. 确保显卡驱动是最新版本
+2. 在设置中勾选「启用 GPU 加速 (CUDA)」
+3. 确认安装了 DirectML 运行时
+</details>
 
 ---
 
 ## 📧 联系方式
 
-如有问题，请提交 Issue 或联系开发者。
+如有问题，请提交 Issue 或联系项目维护者。
 
 ---
 
-## 📄 许可证
+## 📝 更新日志
 
-[请根据实际情况添加许可证信息]
+### v3.2 (2026-01-19)
+- 修复多模型切换时标签显示错误
+- 优化今日产出图表位置
+- 添加代码分享说明文档
+
+### v3.0 (2026-01-14)
+- 全新多模型自动切换架构
+- 重构服务层（DetectionService/PlcService）
+- 新增目标标签+数量判定逻辑
+- 现代化 Web UI 界面
 
 ---
 
-**最后更新**: 2025-12-31
+**最后更新**: 2026-01-19
