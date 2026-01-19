@@ -1,4 +1,4 @@
-# 清霜视觉检测系统 V3 (ClearFrost Pro)
+# 清霜视觉检测系统 V3 (ClearFrost V3)
 
 <p align="center">
   <img src="ClearFrost/icon_transparent.png" width="120" alt="ClearFrost Logo">
