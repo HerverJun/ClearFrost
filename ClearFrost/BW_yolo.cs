@@ -4,7 +4,8 @@
 // 描述:   基于 OnnxRuntime 的 YOLO 检测器封装
 //
 // 功能:
-//   - 支持 YOLOv5, YOLOv8 等模型
+//   - 支持 YOLOv5, YOLOv8, YOLOv26 等模型
+//   - YOLOv26 支持 NMS-free 端到端推理
 //   - 支持检测、分割、姿态估计等多种任务
 //   - 提供同步和异步推理接口
 //   - 包含图像预处理和后处理逻辑
@@ -520,19 +521,26 @@ namespace ClearFrost.Yolo
                     output0 = _inferenceSession.Run(container).First().AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();
-                    if (_yoloVersion == 8)
+                    if (_yoloVersion == 26)
+                    {
+                        // YOLOv26 NMS-free: 直接过滤置信度，输出已是最终结果
+                        finalResult = FilterConfidence_Yolo26_Detect(output0, confidence);
+                    }
+                    else if (_yoloVersion == 8)
                     {
                         filteredDataList = FilterConfidence_Yolo8_9_11_Detect(output0, confidence);
+                        finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
                     }
                     else if (_yoloVersion == 5)
                     {
                         filteredDataList = FilterConfidence_Yolo5_Detect(output0, confidence);
+                        finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
                     }
                     else
                     {
                         filteredDataList = FilterConfidence_Yolo6_Detect(output0, confidence);
+                        finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
                     }
-                    finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
                 }
                 else if (_executionTaskMode == YoloTaskType.SegmentDetectOnly || _executionTaskMode == YoloTaskType.SegmentWithMask)
                 {
@@ -594,6 +602,27 @@ namespace ClearFrost.Yolo
             {
                 return 5;
             }
+            // YOLOv26+ 使用 NMS-free 推理，显式指定版本
+            if (version >= 26)
+            {
+                return 26;
+            }
+
+            // 根据输出张量形状自动检测 YOLOv26
+            // v26 NMS-free 输出格式: [1, ~300, 6] (batch, num_detections, 6)
+            // v8/v11 输出格式: [1, 84, 8400] 或 [1, 8400, 84]
+            if (_outputTensorInfo.Length == 3)
+            {
+                int dim1 = _outputTensorInfo[1];
+                int dim2 = _outputTensorInfo[2];
+                // v26 特征: 第三维度恰好是 6 (x1, y1, x2, y2, conf, class)
+                // 且第二维度通常是 300 (默认检测数量)
+                if (dim2 == 6 && dim1 >= 100 && dim1 <= 500)
+                {
+                    return 26;
+                }
+            }
+
             if (version >= 8)
             {
                 return 8;
@@ -602,10 +631,13 @@ namespace ClearFrost.Yolo
             {
                 return version;
             }
+            // 从模型元数据中读取版本
             if (_modelVersion != "")
             {
                 int ver = int.Parse(_modelVersion.Split('.')[0]);
-                return ver;
+                // 检测 v26+
+                if (ver >= 26) return 26;
+                return ver >= 8 ? 8 : ver;
             }
             int mid = _outputTensorInfo[1];
             int right = _outputTensorInfo[2];

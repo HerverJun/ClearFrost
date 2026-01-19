@@ -9,6 +9,8 @@ let roiCtx = null;
 let isDrawingROI = false;
 let roiStartX = 0;
 let roiStartY = 0;
+// 存储当前 ROI 坐标用于持久显示 (相对于 canvas 的像素坐标)
+let currentROIRect = null; // { x, y, w, h }
 let tmCropper = null;
 let windowDragging = false;
 let dragOffset = { x: 0, y: 0 };
@@ -1072,6 +1074,9 @@ function initRoiInteractions() {
 
         sendCommand('update_roi', { rect: [normX, normY, normW, normH] });
         addLog(`ROI Set: [${normX.toFixed(2)}, ${normY.toFixed(2)}, ${normW.toFixed(2)}, ${normH.toFixed(2)}]`);
+
+        // 保存当前 ROI 坐标用于持久显示
+        currentROIRect = { x, y, w, h };
     });
 
     roiCanvas.addEventListener('mouseleave', () => { isDrawingROI = false; });
@@ -1083,10 +1088,25 @@ function clearRoi() {
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
+    currentROIRect = null; // 清除存储的 ROI
     sendCommand('update_roi', { rect: [0, 0, 0, 0] });
     addLog("ROI Cleared");
 }
 window.clearRoi = clearRoi;
+
+// 重绘 ROI 矩形（用于在图像更新后保持显示）
+function redrawROI() {
+    if (!currentROIRect || !roiCanvas) return;
+    const ctx = roiCanvas.getContext('2d');
+    ctx.clearRect(0, 0, roiCanvas.width, roiCanvas.height);
+    ctx.strokeStyle = '#a4161a';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 4]);
+    ctx.strokeRect(currentROIRect.x, currentROIRect.y, currentROIRect.w, currentROIRect.h);
+    ctx.fillStyle = 'rgba(164, 22, 26, 0.05)';
+    ctx.fillRect(currentROIRect.x, currentROIRect.y, currentROIRect.w, currentROIRect.h);
+}
+window.redrawROI = redrawROI;
 
 
 // --- Initalization ---
@@ -1196,3 +1216,32 @@ function captureTemplate() {
     addLog('从相机截取模板...');
 }
 window.captureTemplate = captureTemplate;
+
+// --- Hikvision Super Search Stub ---
+function searchCamerasHik() {
+    const modal = document.getElementById('super-search-modal');
+    const resultsContainer = document.getElementById('super-search-results');
+    const emptyState = document.getElementById('super-search-empty');
+    const loadingState = document.getElementById('super-search-loading');
+    const modalTitle = modal ? modal.querySelector('h3') : null;
+
+    if (modal) modal.classList.remove('hidden');
+    if (resultsContainer) {
+        resultsContainer.innerHTML = '';
+        resultsContainer.classList.add('hidden');
+    }
+    if (emptyState) emptyState.classList.add('hidden');
+    if (loadingState) loadingState.classList.remove('hidden');
+
+    // Update title to indicate HIK search
+    if (modalTitle) modalTitle.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        相机超级搜索结果 (海康模式)
+    `;
+
+    // Send command
+    sendCommand('super_search_cameras_hik');
+}
+window.searchCamerasHik = searchCamerasHik;

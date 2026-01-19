@@ -441,7 +441,7 @@
                                 </path>
                             </svg>
                         </button>
-                        <h3 class="font-serif font-bold text-ink-800 text-sm">今日产出</h3>
+                        <h3 class="font-bold text-ink-800 text-sm" style="font-family: 'Microsoft YaHei'">今日产出</h3>
                     </div>
                     <div class="flex gap-1">
                         <button onclick="openGalleryModal()"
@@ -486,7 +486,7 @@
             <!-- Logs -->
             <div class="glass-panel flex-1 flex flex-col overflow-hidden rounded-2xl bg-porcelain-50/40 min-h-0">
                 <div class="p-3 border-b border-white/50 bg-white/30 flex justify-between items-center shrink-0">
-                    <span class="text-xs font-bold text-ink-600">检测流水</span>
+                    <span class="text-xs font-bold text-ink-600" style="font-family: 'Microsoft YaHei'">检测流水</span>
                     <div class="flex gap-1">
                         <button onclick="openLogHistoryModal()"
                             class="p-1 rounded-lg hover:bg-porcelain-100 text-ink-400 hover:text-celadon-600 transition-all border border-transparent hover:border-celadon-200"
@@ -513,7 +513,7 @@
             <!-- System Log (Mini) -->
             <div class="glass-panel h-32 flex flex-col overflow-hidden rounded-2xl bg-porcelain-800/10 shrink-0">
                 <div class="px-3 py-1.5 border-b border-white/10 flex justify-between items-center shrink-0">
-                    <span class="text-[10px] font-bold text-ink-500">System</span>
+                    <span class="text-[10px] font-bold text-ink-500" style="font-family: 'Microsoft YaHei'">系统日志</span>
                     <button onclick="clearLogs()" class="text-[9px] text-ink-400 hover:text-ink-600">Clear</button>
                 </div>
                 <div id="log-container" class="flex-1 p-2 overflow-y-auto scroller space-y-1 font-mono text-[9px]">
@@ -789,6 +789,15 @@
                                         d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                 </svg>
                                 相机超级搜索
+                            </button>
+                            <button onclick="searchCamerasHik()"
+                                class="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-all border border-indigo-100 hover:shadow-lg hover:scale-105 flex items-center gap-2 text-sm font-semibold">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                                超级搜索 (海康)
                             </button>
                             <button onclick="deleteCurrentCamera()"
                                 class="px-4 py-2 bg-rouge-50 hover:bg-rouge-100 text-rouge-600 text-[10px] font-bold rounded-lg transition-all border border-rouge-100">

@@ -229,6 +229,38 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
+        /// 专门使用海康SDK枚举相机 (用于超级搜索)
+        /// </summary>
+        public List<CameraDeviceInfo> DiscoverHikvisionCameras()
+        {
+            if (_isDebugMode)
+            {
+                return new List<CameraDeviceInfo>
+                {
+                    new CameraDeviceInfo
+                    {
+                        SerialNumber = "MOCK_HIK_001",
+                        Manufacturer = "Hikvision",
+                        Model = "HIK-GigE",
+                        UserDefinedName = "Mock Hikvision 1",
+                        InterfaceType = "GigE"
+                    }
+                };
+            }
+
+            try
+            {
+                using var hikContext = new HikvisionCamera();
+                return hikContext.EnumerateDevices();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CameraManager] Hikvision discovery failed: {ex.Message}");
+                return new List<CameraDeviceInfo>();
+            }
+        }
+
+        /// <summary>
         /// 添加相机
         /// </summary>
         public bool AddCamera(CameraConfig config)

@@ -108,6 +108,9 @@ namespace ClearFrost
                     var results = result.Results ?? new List<YoloResult>();
                     bool isQualified = result.IsQualified;
 
+                    // 应用 ROI 过滤
+                    results = FilterResultsByROI(results, originalBitmap.Width, originalBitmap.Height);
+
                     // 生成带标注的结果图像
                     string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
                     using (var resultImage = _detectionService.GenerateResultImage(originalBitmap, results, labels))
@@ -238,6 +241,9 @@ namespace ClearFrost
                     bool isQualified = result.IsQualified;
                     var results = result.Results ?? new List<YoloResult>();
 
+                    // 应用 ROI 过滤
+                    results = FilterResultsByROI(results, mat.Width, mat.Height);
+
                     // 将检测结果写入PLC
                     await WriteDetectionResultToPlc(isQualified);
 
@@ -341,6 +347,43 @@ namespace ClearFrost
         {
             // 打开设置对话框 (通过前端密码验证)
             SafeFireAndForget(_uiController.ExecuteScriptAsync("showPasswordModal()"), "显示密码框");
+        }
+
+        #endregion
+
+        #region ROI 过滤辅助方法
+
+        /// <summary>
+        /// 根据 ROI 区域过滤检测结果（仅保留中心点在 ROI 内的检测框）
+        /// </summary>
+        private List<YoloResult> FilterResultsByROI(List<YoloResult> results, int imageWidth, int imageHeight)
+        {
+            if (_currentROI == null || _currentROI.Length != 4)
+                return results; // 无 ROI 设置，返回全部结果
+
+            // 将归一化 ROI 转换为像素坐标
+            float roiX = _currentROI[0] * imageWidth;
+            float roiY = _currentROI[1] * imageHeight;
+            float roiW = _currentROI[2] * imageWidth;
+            float roiH = _currentROI[3] * imageHeight;
+
+            Debug.WriteLine($"[ROI过滤] ROI区域: X={roiX:F0}, Y={roiY:F0}, W={roiW:F0}, H={roiH:F0}");
+
+            // 过滤：仅保留检测框中心点在 ROI 内的结果
+            // 注意：YoloResult 直接有 CenterX, CenterY 属性
+            var filtered = results.Where(r =>
+            {
+                float centerX = r.CenterX;
+                float centerY = r.CenterY;
+                bool inROI = centerX >= roiX && centerX <= roiX + roiW &&
+                             centerY >= roiY && centerY <= roiY + roiH;
+                if (!inROI)
+                    Debug.WriteLine($"[ROI过滤] 过滤掉: 中心点({centerX:F0},{centerY:F0}) 不在ROI内");
+                return inROI;
+            }).ToList();
+
+            Debug.WriteLine($"[ROI过滤] 过滤前: {results.Count} 个, 过滤后: {filtered.Count} 个");
+            return filtered;
         }
 
         #endregion
