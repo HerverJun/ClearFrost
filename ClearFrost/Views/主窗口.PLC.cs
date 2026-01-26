@@ -83,12 +83,38 @@ namespace ClearFrost
 
                     // 获取当前帧进行检测
                     Mat? frameToProcess = null;
-                    lock (_frameLock)
+
+                    // 首先尝试触发相机拍照并获取实时图像
+                    try
                     {
-                        if (_lastCapturedFrame != null && !_lastCapturedFrame.Empty())
+                        int res = cam.IMV_ExecuteCommandFeature("TriggerSoftware");
+                        if (res == IMVDefine.IMV_OK)
                         {
-                            frameToProcess = _lastCapturedFrame.Clone();
-                            Debug.WriteLine($"[主窗口-PLC] 📷 获取到图像帧: {frameToProcess.Width}x{frameToProcess.Height}");
+                            IMVDefine.IMV_Frame frame = new IMVDefine.IMV_Frame();
+                            res = cam.IMV_GetFrame(ref frame, 2000); // 2秒超时
+                            if (res == IMVDefine.IMV_OK && frame.frameInfo.size > 0)
+                            {
+                                frameToProcess = ConvertFrameToMat(frame);
+                                cam.IMV_ReleaseFrame(ref frame);
+                                Debug.WriteLine($"[主窗口-PLC] 📷 主动拍照获取到图像帧: {frameToProcess.Width}x{frameToProcess.Height}");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[主窗口-PLC] ⚠ 触发拍照失败: {ex.Message}");
+                    }
+
+                    // 如果相机拍照失败，回退到缓存的最后一帧
+                    if (frameToProcess == null)
+                    {
+                        lock (_frameLock)
+                        {
+                            if (_lastCapturedFrame != null && !_lastCapturedFrame.Empty())
+                            {
+                                frameToProcess = _lastCapturedFrame.Clone();
+                                Debug.WriteLine($"[主窗口-PLC] 📷 使用缓存帧: {frameToProcess.Width}x{frameToProcess.Height}");
+                            }
                         }
                     }
 

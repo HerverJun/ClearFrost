@@ -131,8 +131,17 @@ function updateResult(isOk) {
 window.updateResult = updateResult;
 
 function updateConnection(type, isConnected) {
-    const el = document.getElementById(type === 'cam' ? 'status-cam' : 'status-plc');
-    if (el) el.className = isConnected ? 'status-dot status-on' : 'status-dot status-off';
+    const elId = type === 'cam' ? 'header-status-cam' : 'header-status-plc';
+    const el = document.getElementById(elId);
+    if (el) {
+        if (isConnected) {
+            el.classList.remove('bg-slate-300');
+            el.classList.add('bg-emerald-500', 'shadow-[0_0_8px_rgba(16,185,129,0.6)]');
+        } else {
+            el.classList.remove('bg-emerald-500', 'shadow-[0_0_8px_rgba(16,185,129,0.6)]');
+            el.classList.add('bg-slate-300');
+        }
+    }
 }
 window.updateConnection = updateConnection;
 
