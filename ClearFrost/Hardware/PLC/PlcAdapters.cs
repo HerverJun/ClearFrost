@@ -68,7 +68,7 @@ namespace ClearFrost.Hardware
 
         public string LastError { get; private set; } = string.Empty;
         public bool IsConnected => _isConnected;
-        public string ProtocolName => "����MC ASCII";
+        public string ProtocolName => "三菱MC ASCII";
 
         public MitsubishiMcAsciiAdapter(string ip, int port)
         {
@@ -154,7 +154,7 @@ namespace ClearFrost.Hardware
 
         public string LastError { get; private set; } = string.Empty;
         public bool IsConnected => _isConnected;
-        public string ProtocolName => "����MC Binary";
+        public string ProtocolName => "三菱MC Binary";
 
         public MitsubishiMcBinaryAdapter(string ip, int port)
         {
@@ -329,7 +329,7 @@ namespace ClearFrost.Hardware
 
         public string LastError { get; private set; } = string.Empty;
         public bool IsConnected => _isConnected;
-        public string ProtocolName => "������S7";
+        public string ProtocolName => "西门子S7";
 
         public SiemensS7Adapter(string ip, int port)
         {
@@ -421,7 +421,7 @@ namespace ClearFrost.Hardware
 
         public string LastError { get; private set; } = string.Empty;
         public bool IsConnected => _isConnected;
-        public string ProtocolName => "ŷķ��Fins";
+        public string ProtocolName => "欧姆龙Fins";
 
         public OmronFinsAdapter(string ip, int port)
         {

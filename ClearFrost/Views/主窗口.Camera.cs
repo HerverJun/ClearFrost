@@ -89,7 +89,13 @@ namespace ClearFrost
         /// </summary>
         private void btnOpenCamera_Logic()
         {
-            // 先查找目标相机
+            // 先释放之前可能存在的相机资源，避免重复打开错误 (-116)
+            ReleaseCameraResources();
+
+            // 重新初始化 CancellationTokenSource
+            m_cts = new CancellationTokenSource();
+
+            // 查找目标相机
             _targetCameraIndex = FindTargetCamera();
 
             if (_targetCameraIndex == -1)
@@ -113,6 +119,22 @@ namespace ClearFrost
 
                 res = cam.IMV_StartGrabbing();
                 if (res != IMVDefine.IMV_OK) throw new Exception($"启动采集失败:{res}");
+
+                // 验证相机真正工作：触发一次拍照并等待首帧
+                res = cam.IMV_ExecuteCommandFeature("TriggerSoftware");
+                if (res != IMVDefine.IMV_OK)
+                {
+                    throw new Exception($"软件触发失败，相机可能未正确连接:{res}");
+                }
+
+                // 等待并获取首帧验证相机工作正常
+                IMVDefine.IMV_Frame testFrame = new IMVDefine.IMV_Frame();
+                res = cam.IMV_GetFrame(ref testFrame, 2000); // 2秒超时
+                if (res != IMVDefine.IMV_OK || testFrame.frameInfo.size == 0)
+                {
+                    throw new Exception($"获取首帧失败，相机可能未正确工作:{res}");
+                }
+                cam.IMV_ReleaseFrame(ref testFrame);
 
                 if (renderThread != null && renderThread.IsAlive) renderThread.Join(100);
                 renderThread = new Thread(DisplayThread);
@@ -189,6 +211,29 @@ namespace ClearFrost
             CopyMemory(bmpData.Scan0, frame.pData, (uint)frame.frameInfo.size);
             bitmap.UnlockBits(bmpData);
             return bitmap;
+        }
+
+        /// <summary>
+        /// 将相机帧转换为 OpenCV Mat 格式
+        /// </summary>
+        private Mat ConvertFrameToMat(IMVDefine.IMV_Frame frame)
+        {
+            int width = (int)frame.frameInfo.width;
+            int height = (int)frame.frameInfo.height;
+
+            // 创建 Mono8 格式的 Mat
+            Mat mat = new Mat(height, width, MatType.CV_8UC1);
+
+            // 复制图像数据
+            unsafe
+            {
+                byte* srcPtr = (byte*)frame.pData.ToPointer();
+                byte* dstPtr = (byte*)mat.Data.ToPointer();
+                int totalBytes = width * height;
+                Buffer.MemoryCopy(srcPtr, dstPtr, totalBytes, totalBytes);
+            }
+
+            return mat;
         }
 
         [DllImport("kernel32.dll", EntryPoint = "RtlMoveMemory")]

@@ -11,8 +11,8 @@ namespace ClearFrost.Config
     public class AppConfig
     {
         // ================== PLC Settings ==================
-        public string PlcIp { get; set; } = "192.168.22.44";
-        public int PlcPort { get; set; } = 4999;
+        public string PlcIp { get; set; } = "192.168.250.1";
+        public int PlcPort { get; set; } = 5999;
         public short PlcTriggerAddress { get; set; } = 555;
         public short PlcResultAddress { get; set; } = 556;
         /// <summary>
@@ -33,9 +33,9 @@ namespace ClearFrost.Config
 
         // ================== Legacy Camera Settings (向后兼容) ==================
         [Obsolete("Use Cameras list instead")]
-        public string CameraName { get; set; } = "CAM: HIK-MV-01";
+        public string CameraName { get; set; } = "W6电加热螺钉视觉检测";
         [Obsolete("Use Cameras list instead")]
-        public string CameraSerialNumber { get; set; } = "EF59632AAK00074";
+        public string CameraSerialNumber { get; set; } = "EF59632AAK00291";
         [Obsolete("Use Cameras list instead")]
         public double ExposureTime { get; set; } = 50000.0;
         [Obsolete("Use Cameras list instead")]
@@ -89,6 +89,11 @@ namespace ClearFrost.Config
 
         private static string ConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
         private static string ErrorLogPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs", "config_errors.log");
+
+        public AppConfig()
+        {
+            MigrateLegacyCamera();
+        }
 
         private static void LogError(string operation, Exception ex)
         {
