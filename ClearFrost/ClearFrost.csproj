@@ -47,7 +47,7 @@
   <!-- 本地华睿 MVSDK_Net DLL 引用 (官方托管 SDK，包含 MyCamera 类) -->
   <ItemGroup>
     <Reference Include="MVSDK_Net">
-      <HintPath>..\ClearFrost_Lite\MVSDK_Net.dll</HintPath>
+      <HintPath>DLL\MVSDK_Net.dll</HintPath>
     </Reference>
   </ItemGroup>
 

@@ -71,15 +71,29 @@ namespace ClearFrost.Services
                 for (int i = 0; i < maxRetries; i++)
                 {
                     _plcDevice = PlcFactory.Create(protocolType, ip, port);
-                    bool connected = await _plcDevice.ConnectAsync();
+                    bool socketConnected = await _plcDevice.ConnectAsync();
 
-                    if (connected)
+                    if (socketConnected)
                     {
-                        IsConnected = true;
-                        LastError = null;
-                        ConnectionChanged?.Invoke(true);
-                        Debug.WriteLine($"[PlcService] 连接成功: {_plcDevice.ProtocolName}");
-                        return true;
+                        // Socket 连接成功后，进行一次读操作验证 PLC 是否真正可通信
+                        // HslCommunication 库的 ConnectServer 仅建立 TCP 连接，不验证 PLC 可用性
+                        var (readSuccess, _) = await _plcDevice.ReadInt16Async("D0");
+                        if (readSuccess)
+                        {
+                            IsConnected = true;
+                            LastError = null;
+                            ConnectionChanged?.Invoke(true);
+                            Debug.WriteLine($"[PlcService] 连接成功: {_plcDevice.ProtocolName}");
+                            return true;
+                        }
+                        else
+                        {
+                            // 读操作失败，说明 PLC 未真正可用
+                            LastError = _plcDevice.LastError ?? "PLC 连接验证失败：无法读取测试地址";
+                            Debug.WriteLine($"[PlcService] 连接验证失败 (读取 D0 失败): {LastError}");
+                            _plcDevice.Disconnect();
+                            continue; // 继续重试
+                        }
                     }
 
                     LastError = _plcDevice?.LastError ?? "未知错误";

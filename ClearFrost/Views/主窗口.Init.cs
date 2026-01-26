@@ -838,26 +838,54 @@ namespace ClearFrost
                 }
             };
 
-            // 相机超级搜索 - 发现局域网中所有相机
+            // 相机超级搜索 - 发现局域网中所有相机（使用与 FindTargetCamera 相同的 SDK 调用方式）
             _uiController.OnSuperSearchCameras += async (s, e) =>
             {
                 try
                 {
                     await _uiController.LogToFrontend("正在搜索局域网中的所有相机...");
-                    var allCameras = _cameraManager.DiscoverAllCameras();
-                    var cameraList = allCameras.Select(c => new
+
+                    // 在后台线程执行 SDK 调用，避免阻塞 UI
+                    var cameraList = await Task.Run(() =>
                     {
-                        serialNumber = c.SerialNumber,
-                        manufacturer = c.Manufacturer,
-                        model = c.Model,
-                        userDefinedName = c.UserDefinedName,
-                        interfaceType = c.InterfaceType
-                    }).ToList();
+                        var cameras = new List<Dictionary<string, string>>();
+
+                        // 直接使用静态 SDK 调用（与 FindTargetCamera 相同）
+                        IMVDefine.IMV_DeviceList deviceList = new IMVDefine.IMV_DeviceList();
+                        int res = MyCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
+
+                        Debug.WriteLine($"[超级搜索] IMV_EnumDevices 返回: {res}, 设备数: {deviceList.nDevNum}");
+
+                        if (res == IMVDefine.IMV_OK && deviceList.nDevNum > 0)
+                        {
+                            for (int i = 0; i < (int)deviceList.nDevNum; i++)
+                            {
+                                var info = (IMVDefine.IMV_DeviceInfo)System.Runtime.InteropServices.Marshal.PtrToStructure(
+                                    deviceList.pDevInfo + System.Runtime.InteropServices.Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo)) * i,
+                                    typeof(IMVDefine.IMV_DeviceInfo))!;
+
+                                string sn = info.serialNumber?.Trim() ?? "";
+                                Debug.WriteLine($"[超级搜索] 发现设备[{i}]: SN='{sn}'");
+                                cameras.Add(new Dictionary<string, string>
+                                {
+                                    ["serialNumber"] = sn,
+                                    ["manufacturer"] = "Huaray",
+                                    ["model"] = "Huaray Camera",
+                                    ["userDefinedName"] = sn,
+                                    ["interfaceType"] = "GigE/USB"
+                                });
+                            }
+                        }
+
+                        return cameras;
+                    });
+
                     await _uiController.SendDiscoveredCameras(cameraList);
                     await _uiController.LogToFrontend($"发现 {cameraList.Count} 台相机", cameraList.Count > 0 ? "success" : "warning");
                 }
                 catch (Exception ex)
                 {
+                    Debug.WriteLine($"[超级搜索] 异常: {ex}");
                     await _uiController.LogToFrontend($"相机搜索失败: {ex.Message}", "error");
                 }
             };
@@ -1082,6 +1110,17 @@ namespace ClearFrost
                     await _uiController.LogToFrontend("? WebUI已就绪");
                     await _uiController.LogToFrontend("系统初始化完成");
                     await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
+
+                    // 发送相机列表以消除前端“正在加载相机列表”的提示
+                    var cameras = _appConfig.Cameras.Select(c => new
+                    {
+                        id = c.Id,
+                        displayName = c.DisplayName,
+                        serialNumber = c.SerialNumber,
+                        exposureTime = c.ExposureTime,
+                        gain = c.Gain
+                    }).ToList();
+                    await _uiController.SendCameraList(cameras, _cameraManager.ActiveCameraId ?? _appConfig.ActiveCameraId);
 
                     // 初始化前端设置 (Sidebar Controls)
                     await _uiController.InitSettings(_appConfig);
