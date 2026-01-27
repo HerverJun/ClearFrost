@@ -386,8 +386,8 @@ namespace ClearFrost
         /// </summary>
         private List<YoloResult> FilterResultsByROI(List<YoloResult> results, int imageWidth, int imageHeight)
         {
-            if (_currentROI == null || _currentROI.Length != 4)
-                return results; // 无 ROI 设置，返回全部结果
+            if (_currentROI == null || _currentROI.Length != 4 || _currentROI[2] <= 0.001f || _currentROI[3] <= 0.001f)
+                return results; // 无 ROI 设置或 ROI 为空（宽度或高度约为0），返回全部结果
 
             // 将归一化 ROI 转换为像素坐标
             float roiX = _currentROI[0] * imageWidth;
