@@ -612,7 +612,7 @@
     <!-- Settings Modal -->
     <div id="settings-modal"
         class="fixed inset-0 bg-ink-900/40 backdrop-blur-sm z-[60] hidden flex items-center justify-center p-4">
-        <div class="glass-panel w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+        <div class="glass-panel w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             <div
                 class="h-16 border-b border-celadon-100 flex justify-between items-center px-8 bg-porcelain-50/50 shrink-0">
                 <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest">系统参数配置 <span
@@ -621,6 +621,30 @@
                     class="p-2 hover:bg-red-50 text-ink-400 hover:text-vermilion rounded-full transition-all text-xl">&times;</button>
             </div>
             <div class="flex-1 overflow-y-auto scroller p-8 space-y-8 bg-porcelain-100/30">
+                <!-- 项目快速切换 (仅填充现有字段，不锁定修改) -->
+                <div
+                    class="mb-2 p-4 bg-gradient-to-r from-celadon-50 to-porcelain-50 rounded-xl border border-celadon-200 shadow-sm">
+                    <label
+                        class="flex items-center gap-2 text-[10px] font-bold text-celadon-700 uppercase tracking-widest mb-3">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                        </svg>
+                        快速切换项目预设
+                    </label>
+                    <select id="project-preset-select" onchange="loadProjectPreset(this.value)"
+                        class="w-full tech-input px-4 py-3 rounded-xl text-sm font-bold cursor-pointer border-2 border-celadon-200 focus:border-celadon-500 transition-all">
+                        <option value="">-- 选择预设项目（可选）--</option>
+                        <option value="N5_remote">N5遥控器漏装视觉检测</option>
+                        <option value="N5_screw">N5螺钉视觉检测</option>
+                        <option value="N6_remote">N6遥控器漏装视觉检测</option>
+                        <option value="N6_screw">N6螺钉视觉检测</option>
+                        <option value="W5_screw">W5螺钉视觉检测</option>
+                        <option value="W6_screw">W6螺钉视觉检测</option>
+                    </select>
+                    <p class="text-[9px] text-ink-400 mt-2 italic">选择后自动填充下方配置项，填充后仍可手动修改各参数</p>
+                </div>
+
                 <div class="space-y-2">
                     <label class="text-[10px] font-bold text-ink-400 uppercase tracking-widest block">数据保存路径 /
                         Storage
@@ -633,7 +657,7 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-8">
+                <div class="grid grid-cols-3 gap-6">
                     <div class="space-y-4">
                         <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
                             PLC
@@ -710,99 +734,106 @@
                                 </label>
                             </div>
                         </div>
-                    </div>
-                </div>
 
-                <div class="space-y-4">
-                    <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
-                        相机参数配置
-                    </h3>
-                    <div class="space-y-3">
-                        <!-- 相机选择 -->
-                        <div>
-                            <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">选择相机</label>
-                            <div class="flex gap-2">
-                                <select id="cfg-cam-select"
-                                    class="flex-1 tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer"
-                                    onchange="onCameraSelected(this.value)">
-                                    <option value="">正在加载相机列表...</option>
-                                </select>
-                                <button onclick="sendCommand('get_camera_list')"
-                                    class="px-3 py-2 bg-celadon-50 text-celadon-600 hover:bg-celadon-100 text-[10px] font-bold rounded-lg transition-all"
-                                    title="刷新相机列表">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <!-- 相机操作按钮 (移至中间栏) -->
+                        <div class="mt-6 pt-4 border-t border-celadon-100/50">
+                            <label
+                                class="text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-3 block">相机操作</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button onclick="addNewCamera()"
+                                    class="py-2 bg-celadon-600 hover:bg-celadon-700 text-white text-[10px] font-bold rounded-lg transition-all flex items-center justify-center gap-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
-                                        </path>
+                                            d="M12 4v16m8-8H4"></path>
                                     </svg>
+                                    添加/更新
+                                </button>
+                                <button onclick="superSearchCameras()"
+                                    class="py-2 bg-celadon-500 hover:bg-celadon-600 text-white rounded-lg transition-all text-[10px] font-bold flex items-center justify-center gap-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                    华睿搜索
+                                </button>
+                                <button onclick="searchCamerasHik()"
+                                    class="py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-all text-[10px] font-bold flex items-center justify-center gap-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                    海康搜索
+                                </button>
+                                <button onclick="deleteCurrentCamera()"
+                                    class="py-2 bg-rouge-50 hover:bg-rouge-100 text-rouge-600 text-[10px] font-bold rounded-lg transition-all border border-rouge-100">
+                                    删除相机
                                 </button>
                             </div>
                         </div>
-                        <div>
-                            <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">显示名称</label>
-                            <input id="cfg-cam-name" class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold"
-                                placeholder="例: 主检测相机">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">相机品牌</label>
-                            <select id="cfg-cam-manufacturer"
-                                class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
-                                <option value="Huaray">华睿 (Huaray)</option>
-                                <option value="Hikvision">海康威视 (Hikvision)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">序列号 /
-                                URI</label>
-                            <input id="cfg-cam-serial" class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
-                                placeholder="例: EF59632AAK00074">
-                        </div>
-                        <div class="grid grid-cols-2 gap-3">
+                    </div>
+
+                    <!-- 相机参数配置 (第三列) -->
+                    <div class="space-y-4">
+                        <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
+                            相机参数配置
+                        </h3>
+                        <div class="space-y-3">
+                            <!-- 相机选择 -->
                             <div>
-                                <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">曝光
-                                    (μs)</label>
-                                <input id="cfg-cam-exposure"
+                                <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">选择相机</label>
+                                <div class="flex gap-2">
+                                    <select id="cfg-cam-select"
+                                        class="flex-1 tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer"
+                                        onchange="onCameraSelected(this.value)">
+                                        <option value="">正在加载相机列表...</option>
+                                    </select>
+                                    <button onclick="sendCommand('get_camera_list')"
+                                        class="px-3 py-2 bg-celadon-50 text-celadon-600 hover:bg-celadon-100 text-[10px] font-bold rounded-lg transition-all"
+                                        title="刷新相机列表">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                                            </path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">显示名称</label>
+                                <input id="cfg-cam-name"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold"
+                                    placeholder="例: 主检测相机">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">相机品牌</label>
+                                <select id="cfg-cam-manufacturer"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
+                                    <option value="Huaray">华睿 (Huaray)</option>
+                                    <option value="Hikvision">海康威视 (Hikvision)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">序列号 /
+                                    URI</label>
+                                <input id="cfg-cam-serial"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
-                                    placeholder="50000">
+                                    placeholder="例: EF59632AAK00074">
                             </div>
-                            <div>
-                                <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">增益</label>
-                                <input id="cfg-cam-gain"
-                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="1.0">
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">曝光
+                                        (μs)</label>
+                                    <input id="cfg-cam-exposure"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                                        placeholder="50000">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">增益</label>
+                                    <input id="cfg-cam-gain"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                                        placeholder="1.0">
+                                </div>
                             </div>
-                        </div>
-                        <!-- 相机操作按钮 -->
-                        <div class="flex gap-2 mt-3">
-                            <button onclick="addNewCamera()"
-                                class="flex-1 py-2 bg-celadon-600 hover:bg-celadon-700 text-white text-[10px] font-bold rounded-lg transition-all flex items-center justify-center gap-1">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M12 4v16m8-8H4"></path>
-                                </svg>
-                                添加/更新相机
-                            </button>
-                            <button onclick="superSearchCameras()"
-                                class="px-4 py-2 bg-celadon-500 hover:bg-celadon-600 text-white rounded-lg transition-all border border-celadon-100 hover:shadow-lg hover:scale-105 flex items-center gap-2 text-sm font-semibold">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                                    stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
-                                相机超级搜索
-                            </button>
-                            <button onclick="searchCamerasHik()"
-                                class="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-all border border-indigo-100 hover:shadow-lg hover:scale-105 flex items-center gap-2 text-sm font-semibold">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                                    stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
-                                超级搜索 (海康)
-                            </button>
-                            <button onclick="deleteCurrentCamera()"
-                                class="px-4 py-2 bg-rouge-50 hover:bg-rouge-100 text-rouge-600 text-[10px] font-bold rounded-lg transition-all border border-rouge-100">
-                                删除
-                            </button>
                         </div>
                     </div>
                 </div>
