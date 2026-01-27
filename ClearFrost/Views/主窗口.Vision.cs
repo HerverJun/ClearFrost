@@ -124,9 +124,10 @@ namespace ClearFrost
                         }
                     }
 
-                    // 更新UI
+                    // 更新UI (发送到检测流水，包含模型切换信息)
                     string objDesc = results.Count > 0 ? $"检测到 {results.Count} 个目标" : "未检测到目标";
-                    await _uiController.LogToFrontend($"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | 耗时: {sw.ElapsedMilliseconds}ms", isQualified ? "success" : "error");
+                    string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
+                    await _uiController.LogDetectionToFrontend($"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {sw.ElapsedMilliseconds}ms{modelInfo}", isQualified ? "success" : "error");
 
                     // 更新统计
                     _statisticsService.RecordDetection(isQualified);
@@ -289,9 +290,10 @@ namespace ClearFrost
                         await _uiController.UpdateImage(base64);
                     }
 
-                    // 日志
+                    // 日志 (发送到检测流水，包含模型切换信息)
                     string objDesc = results.Count > 0 ? $"检测到 {results.Count} 个目标" : "未检测到目标";
-                    await _uiController.LogToFrontend($"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | 耗时: {sw.ElapsedMilliseconds}ms", isQualified ? "success" : "error");
+                    string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
+                    await _uiController.LogDetectionToFrontend($"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {sw.ElapsedMilliseconds}ms{modelInfo}", isQualified ? "success" : "error");
 
                     // 更新统计
                     _statisticsService.RecordDetection(isQualified);
