@@ -527,6 +527,7 @@ namespace ClearFrost
                                 }
                                 break;
                             case "super_search_cameras":
+                                System.Diagnostics.Debug.WriteLine("[WebUIController] 收到 super_search_cameras 命令");
                                 OnSuperSearchCameras?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "super_search_cameras_hik":

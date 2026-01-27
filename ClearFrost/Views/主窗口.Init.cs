@@ -838,49 +838,63 @@ namespace ClearFrost
                 }
             };
 
-            // 相机超级搜索 - 发现局域网中所有相机（使用与 FindTargetCamera 相同的 SDK 调用方式）
+            // 相机超级搜索 - 发现局域网中所有相机（复用 CameraManager.AddCamera 的枚举逻辑）
             _uiController.OnSuperSearchCameras += async (s, e) =>
             {
+                var cameraList = new List<Dictionary<string, string>>();
+
                 try
                 {
+                    Debug.WriteLine("[超级搜索] 事件触发开始");
                     await _uiController.LogToFrontend("正在搜索局域网中的所有相机...");
 
-                    // 在后台线程执行 SDK 调用，避免阻塞 UI
-                    var cameraList = await Task.Run(() =>
+                    // 直接调用 SDK（与 CameraManager.AddCamera 完全一致的调用方式）
+                    var deviceList = new IMVDefine.IMV_DeviceList();
+                    int res = MyCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
+
+                    Debug.WriteLine($"[超级搜索] IMV_EnumDevices 返回码: {res}, 设备数: {deviceList.nDevNum}");
+
+                    if (res == IMVDefine.IMV_OK && deviceList.nDevNum > 0)
                     {
-                        var cameras = new List<Dictionary<string, string>>();
-
-                        // 直接使用静态 SDK 调用（与 FindTargetCamera 相同）
-                        IMVDefine.IMV_DeviceList deviceList = new IMVDefine.IMV_DeviceList();
-                        int res = MyCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
-
-                        Debug.WriteLine($"[超级搜索] IMV_EnumDevices 返回: {res}, 设备数: {deviceList.nDevNum}");
-
-                        if (res == IMVDefine.IMV_OK && deviceList.nDevNum > 0)
+                        int structSize = Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo));
+                        for (int i = 0; i < (int)deviceList.nDevNum; i++)
                         {
-                            for (int i = 0; i < (int)deviceList.nDevNum; i++)
+                            try
                             {
-                                var info = (IMVDefine.IMV_DeviceInfo)System.Runtime.InteropServices.Marshal.PtrToStructure(
-                                    deviceList.pDevInfo + System.Runtime.InteropServices.Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo)) * i,
+                                var info = (IMVDefine.IMV_DeviceInfo)Marshal.PtrToStructure(
+                                    deviceList.pDevInfo + structSize * i,
                                     typeof(IMVDefine.IMV_DeviceInfo))!;
 
                                 string sn = info.serialNumber?.Trim() ?? "";
                                 Debug.WriteLine($"[超级搜索] 发现设备[{i}]: SN='{sn}'");
-                                cameras.Add(new Dictionary<string, string>
+
+                                if (!string.IsNullOrEmpty(sn))
                                 {
-                                    ["serialNumber"] = sn,
-                                    ["manufacturer"] = "Huaray",
-                                    ["model"] = "Huaray Camera",
-                                    ["userDefinedName"] = sn,
-                                    ["interfaceType"] = "GigE/USB"
-                                });
+                                    cameraList.Add(new Dictionary<string, string>
+                                    {
+                                        ["serialNumber"] = sn,
+                                        ["manufacturer"] = "Huaray",
+                                        ["model"] = "Huaray Camera",
+                                        ["userDefinedName"] = sn,
+                                        ["interfaceType"] = "GigE/USB"
+                                    });
+                                }
+                            }
+                            catch (Exception innerEx)
+                            {
+                                Debug.WriteLine($"[超级搜索] 解析设备[{i}]失败: {innerEx.Message}");
                             }
                         }
+                    }
+                    else if (res != IMVDefine.IMV_OK)
+                    {
+                        Debug.WriteLine($"[超级搜索] SDK 枚举失败，错误码: {res}");
+                    }
+                    else
+                    {
+                        Debug.WriteLine("[超级搜索] 未发现任何设备");
+                    }
 
-                        return cameras;
-                    });
-
-                    await _uiController.SendDiscoveredCameras(cameraList);
                     await _uiController.LogToFrontend($"发现 {cameraList.Count} 台相机", cameraList.Count > 0 ? "success" : "warning");
                 }
                 catch (Exception ex)
@@ -888,6 +902,11 @@ namespace ClearFrost
                     Debug.WriteLine($"[超级搜索] 异常: {ex}");
                     await _uiController.LogToFrontend($"相机搜索失败: {ex.Message}", "error");
                 }
+
+                // 无论成功失败，必须通知前端结束加载状态
+                Debug.WriteLine($"[超级搜索] 准备发送 {cameraList.Count} 个结果到前端");
+                await _uiController.SendDiscoveredCameras(cameraList);
+                Debug.WriteLine("[超级搜索] 完成");
             };
 
             // 相机超级搜索 (海康) - 使用海康SDK发现所有相机
