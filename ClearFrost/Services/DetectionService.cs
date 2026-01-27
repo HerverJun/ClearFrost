@@ -97,6 +97,7 @@ namespace ClearFrost.Services
                     // 如果多模型管理器加载失败，回退到单模型模式
                     await Task.Run(() =>
                     {
+                        _yolo?.Dispose(); // 显式释放旧资源
                         _yolo = new YoloDetector(modelPath, 0, 0, useGpu);
                     });
                 }
@@ -149,7 +150,10 @@ namespace ClearFrost.Services
                     return false;
                 }
 
-                // 初始化多模型管理器
+                // 初始化多模型管理器 (显式回收旧资源以防内存泄漏)
+                _modelManager?.Dispose();
+                _yolo?.Dispose();
+                _yolo = null;
                 _modelManager = new MultiModelManager(useGpu);
 
                 // 加载主模型 (第一个找到的模型)

@@ -285,33 +285,9 @@ namespace ClearFrost.Yolo
                     {
                         var results = _primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
 
-                        // 判断是否需要切换模型
-                        bool shouldReturn = false;
-                        if (!string.IsNullOrEmpty(targetLabel))
-                        {
-                            // 如果指定了目标标签，检查是否检测到目标标签
-                            var labels = _primaryModel.Labels ?? Array.Empty<string>();
-                            int targetCount = results.Count(r =>
-                            {
-                                string detectedLabel = (r.ClassId >= 0 && r.ClassId < labels.Length)
-                                    ? labels[r.ClassId]
-                                    : "";
-                                return detectedLabel.Equals(targetLabel, StringComparison.OrdinalIgnoreCase);
-                            });
-                            shouldReturn = targetCount > 0;
-
-                            if (!shouldReturn)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型未检测到目标标签 '{targetLabel}'，尝试切换辅助模型...");
-                            }
-                        }
-                        else
-                        {
-                            // 未指定目标标签时，有任何结果就返回
-                            shouldReturn = results.Count > 0;
-                        }
-
-                        if (shouldReturn)
+                        // 只要有检测结果就返回，目标标签过滤在DetectionService层处理
+                        // 模型切换只在完全没有检测结果时触发
+                        if (results.Count > 0)
                         {
                             PrimaryHitCount++;
                             LastUsedModel = ModelRole.Primary;
@@ -321,6 +297,10 @@ namespace ClearFrost.Yolo
                             result.UsedModelLabels = _primaryModel.Labels ?? Array.Empty<string>();
                             result.WasFallback = false;
                             return result;
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型未检测到任何目标，尝试切换辅助模型...");
                         }
                     }
                     catch (Exception ex)
@@ -346,26 +326,8 @@ namespace ClearFrost.Yolo
                         System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型1进行检测...");
                         var results = _auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
 
-                        // 对辅助模型也应用目标标签过滤
-                        bool shouldReturn = false;
-                        if (!string.IsNullOrEmpty(targetLabel))
-                        {
-                            var labels = _auxiliary1Model.Labels ?? Array.Empty<string>();
-                            int targetCount = results.Count(r =>
-                            {
-                                string detectedLabel = (r.ClassId >= 0 && r.ClassId < labels.Length)
-                                    ? labels[r.ClassId]
-                                    : "";
-                                return detectedLabel.Equals(targetLabel, StringComparison.OrdinalIgnoreCase);
-                            });
-                            shouldReturn = targetCount > 0;
-                        }
-                        else
-                        {
-                            shouldReturn = results.Count > 0;
-                        }
-
-                        if (shouldReturn)
+                        // 有结果就返回
+                        if (results.Count > 0)
                         {
                             Auxiliary1HitCount++;
                             LastUsedModel = ModelRole.Auxiliary1;
