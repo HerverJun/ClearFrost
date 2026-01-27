@@ -14,6 +14,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -259,16 +260,16 @@ namespace ClearFrost.Yolo
         #region ��������
 
         /// <summary>
-        /// 
-        /// 
-        /// 
+        /// 执行多模型推理，支持自动切换到辅助模型
         /// </summary>
+        /// <param name="targetLabel">目标标签名（可选，用于判断是否需要切换模型）</param>
         public MultiModelInferenceResult InferenceWithFallback(
             Bitmap image,
             float confidence = 0.5f,
             float iouThreshold = 0.3f,
             bool globalIou = false,
-            int preprocessingMode = 1)
+            int preprocessingMode = 1,
+            string? targetLabel = null)
         {
             ThrowIfDisposed();
 
@@ -277,13 +278,40 @@ namespace ClearFrost.Yolo
 
             lock (_lock)
             {
-                // 
+                // 主模型推理
                 if (_primaryModel != null)
                 {
                     try
                     {
                         var results = _primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
-                        if (results.Count > 0)
+
+                        // 判断是否需要切换模型
+                        bool shouldReturn = false;
+                        if (!string.IsNullOrEmpty(targetLabel))
+                        {
+                            // 如果指定了目标标签，检查是否检测到目标标签
+                            var labels = _primaryModel.Labels ?? Array.Empty<string>();
+                            int targetCount = results.Count(r =>
+                            {
+                                string detectedLabel = (r.ClassId >= 0 && r.ClassId < labels.Length)
+                                    ? labels[r.ClassId]
+                                    : "";
+                                return detectedLabel.Equals(targetLabel, StringComparison.OrdinalIgnoreCase);
+                            });
+                            shouldReturn = targetCount > 0;
+
+                            if (!shouldReturn)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型未检测到目标标签 '{targetLabel}'，尝试切换辅助模型...");
+                            }
+                        }
+                        else
+                        {
+                            // 未指定目标标签时，有任何结果就返回
+                            shouldReturn = results.Count > 0;
+                        }
+
+                        if (shouldReturn)
                         {
                             PrimaryHitCount++;
                             LastUsedModel = ModelRole.Primary;
@@ -297,7 +325,7 @@ namespace ClearFrost.Yolo
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ��ģ�������쳣: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型推理异常: {ex.Message}");
                     }
                 }
 
@@ -310,13 +338,34 @@ namespace ClearFrost.Yolo
                     return result;
                 }
 
-                // 
+                // 尝试辅助模型1
                 if (_auxiliary1Model != null)
                 {
                     try
                     {
+                        System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型1进行检测...");
                         var results = _auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
-                        if (results.Count > 0)
+
+                        // 对辅助模型也应用目标标签过滤
+                        bool shouldReturn = false;
+                        if (!string.IsNullOrEmpty(targetLabel))
+                        {
+                            var labels = _auxiliary1Model.Labels ?? Array.Empty<string>();
+                            int targetCount = results.Count(r =>
+                            {
+                                string detectedLabel = (r.ClassId >= 0 && r.ClassId < labels.Length)
+                                    ? labels[r.ClassId]
+                                    : "";
+                                return detectedLabel.Equals(targetLabel, StringComparison.OrdinalIgnoreCase);
+                            });
+                            shouldReturn = targetCount > 0;
+                        }
+                        else
+                        {
+                            shouldReturn = results.Count > 0;
+                        }
+
+                        if (shouldReturn)
                         {
                             Auxiliary1HitCount++;
                             LastUsedModel = ModelRole.Auxiliary1;
@@ -325,12 +374,13 @@ namespace ClearFrost.Yolo
                             result.UsedModelName = System.IO.Path.GetFileName(_auxiliary1ModelPath);
                             result.UsedModelLabels = _auxiliary1Model.Labels ?? Array.Empty<string>();
                             result.WasFallback = true;
+                            System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1命中!");
                             return result;
                         }
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��1�����쳣: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1推理异常: {ex.Message}");
                     }
                 }
 
@@ -361,7 +411,7 @@ namespace ClearFrost.Yolo
         }
 
         /// <summary>
-        /// 
+        /// 异步执行多模型推理，支持自动切换到辅助模型
         /// </summary>
         public async Task<MultiModelInferenceResult> InferenceWithFallbackAsync(
             Bitmap image,
@@ -369,13 +419,14 @@ namespace ClearFrost.Yolo
             float iouThreshold = 0.3f,
             bool globalIou = false,
             int preprocessingMode = 1,
+            string? targetLabel = null,
             CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
             cancellationToken.ThrowIfCancellationRequested();
 
-            // 
-            return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode), cancellationToken);
+            // 异步执行推理
+            return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode, targetLabel), cancellationToken);
         }
 
         /// <summary>

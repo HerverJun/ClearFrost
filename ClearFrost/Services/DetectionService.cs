@@ -253,11 +253,11 @@ namespace ClearFrost.Services
                 string[] usedModelLabels = Array.Empty<string>();
                 bool wasFallback = false;
 
-                // 使用多模型管理器进行推理
+                // 使用多模型管理器进行推理（传入targetLabel用于切换判断）
                 if (_modelManager != null && _modelManager.IsPrimaryLoaded)
                 {
                     var inferenceResult = await _modelManager.InferenceWithFallbackAsync(
-                        image, confidence, iouThreshold, false, 1);
+                        image, confidence, iouThreshold, false, 1, targetLabel);
 
                     allResults = inferenceResult.Results;
                     usedModelName = inferenceResult.UsedModelName;

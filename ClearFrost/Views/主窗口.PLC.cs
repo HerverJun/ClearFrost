@@ -64,6 +64,9 @@ namespace ClearFrost
 
             Debug.WriteLine("[主窗口-PLC] ✅ 信号量获取成功");
 
+            Mat? lastFrameForSave = null; // 保留最后一帧用于保存
+            long lastInferenceMs = 0;     // 最后一次检测的推理时间
+
             try
             {
                 int maxRetries = _appConfig.MaxRetryCount;
@@ -126,11 +129,55 @@ namespace ClearFrost
                     }
 
                     Debug.WriteLine("[主窗口-PLC] 🔍 开始执行检测...");
+
+                    // 释放之前保存的帧（如果存在）
+                    lastFrameForSave?.Dispose();
+                    lastFrameForSave = frameToProcess.Clone(); // 保留副本用于最后保存
+
+                    var inferSw = Stopwatch.StartNew();
+
                     using (var mat = frameToProcess)
                     {
                         lastResult = await _detectionService.DetectAsync(mat, _appConfig.Confidence, overlapThreshold, _appConfig.TargetLabel, _appConfig.TargetCount);
+                        inferSw.Stop();
+                        lastInferenceMs = inferSw.ElapsedMilliseconds;
+                        Debug.WriteLine($"[主窗口-PLC] 🔍 检测完成 - 结果: {(lastResult?.IsQualified == true ? "合格" : "不合格")}");
+
+                        // 无论检测结果如何，都将图像发送到前端显示
+                        if (lastResult != null)
+                        {
+                            try
+                            {
+                                var results = lastResult.Results ?? new List<YoloResult>();
+                                // 应用 ROI 过滤
+                                results = FilterResultsByROI(results, mat.Width, mat.Height);
+
+                                // 生成带标注的结果图像并发送到前端
+                                string[] labels = lastResult.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
+                                using (var bitmap = mat.ToBitmap())
+                                using (var resultImage = _detectionService.GenerateResultImage(bitmap, results, labels))
+                                using (var ms = new MemoryStream())
+                                {
+                                    resultImage.Save(ms, ImageFormat.Jpeg);
+                                    string base64 = Convert.ToBase64String(ms.ToArray());
+                                    await _uiController.UpdateImage(base64);
+                                    Debug.WriteLine("[主窗口-PLC] 📷 结果图像已发送到前端");
+                                }
+
+                                // 更新 lastResult 中的 Results 为过滤后的结果
+                                lastResult = new DetectionResultData
+                                {
+                                    IsQualified = lastResult.IsQualified,
+                                    Results = results,
+                                    UsedModelLabels = lastResult.UsedModelLabels
+                                };
+                            }
+                            catch (Exception imgEx)
+                            {
+                                Debug.WriteLine($"[主窗口-PLC] ⚠ 发送图像失败: {imgEx.Message}");
+                            }
+                        }
                     }
-                    Debug.WriteLine($"[主窗口-PLC] 🔍 检测完成 - 结果: {(lastResult?.IsQualified == true ? "合格" : "不合格")}");
 
                     if (lastResult != null && lastResult.IsQualified)
                     {
@@ -149,14 +196,47 @@ namespace ClearFrost
                     Debug.WriteLine("[主窗口-PLC] 📝 写入PLC结果...");
                     await WriteDetectionResult(isQualified);
 
+                    // 保存检测图像（只保存最终结果）
+                    if (lastFrameForSave != null && !lastFrameForSave.Empty())
+                    {
+                        try
+                        {
+                            var results = lastResult.Results ?? new List<YoloResult>();
+                            await SaveDetectionImage(lastFrameForSave, results, isQualified, lastResult.UsedModelLabels);
+                            Debug.WriteLine("[主窗口-PLC] 💾 检测图像已保存");
+                        }
+                        catch (Exception saveEx)
+                        {
+                            Debug.WriteLine($"[主窗口-PLC] ⚠ 保存图像失败: {saveEx.Message}");
+                        }
+                    }
+
+                    // 写入数据库记录
+                    try
+                    {
+                        await _databaseService.SaveDetectionRecordAsync(new DetectionRecord
+                        {
+                            Timestamp = DateTime.Now,
+                            IsQualified = isQualified,
+                            ModelName = _detectionService.CurrentModelName,
+                            InferenceMs = (int)lastInferenceMs
+                        });
+                        Debug.WriteLine("[主窗口-PLC] 📀 数据库记录已保存");
+                    }
+                    catch (Exception dbEx)
+                    {
+                        Debug.WriteLine($"[主窗口-PLC] ⚠ 数据库写入失败: {dbEx.Message}");
+                    }
+
                     // 更新统计
                     _statisticsService.RecordDetection(isQualified);
                     Debug.WriteLine("[主窗口-PLC] 📈 统计已更新");
 
-                    // 日志
+                    // 日志（包含模型切换信息）
                     int detectedCount = lastResult.Results?.Count ?? 0;
                     string objDesc = detectedCount > 0 ? $"检测到 {detectedCount} 个目标" : "未检测到目标";
-                    await _uiController.LogToFrontend($"PLC触发检测: {(isQualified ? "合格" : "不合格")} | {objDesc}", isQualified ? "success" : "error");
+                    string modelInfo = lastResult.WasFallback ? $" [切换至: {lastResult.UsedModelName}]" : "";
+                    await _uiController.LogDetectionToFrontend($"PLC检测: {(isQualified ? "合格" : "不合格")} | {objDesc} | {lastInferenceMs}ms{modelInfo}", isQualified ? "success" : "error");
 
                     // 更新前端结果显示
                     await _uiController.UpdateResult(isQualified);
@@ -171,6 +251,9 @@ namespace ClearFrost
             }
             finally
             {
+                // 释放保存的帧
+                lastFrameForSave?.Dispose();
+
                 _detectionSemaphore.Release();
                 Debug.WriteLine("[主窗口-PLC] 🔓 信号量已释放");
             }
