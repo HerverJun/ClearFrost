@@ -98,6 +98,11 @@ namespace ClearFrost.Interfaces
         void SaveAll();
 
         /// <summary>
+        /// 清空历史记录
+        /// </summary>
+        void ClearHistory();
+
+        /// <summary>
         /// 加载所有数据
         /// </summary>
         void LoadAll();

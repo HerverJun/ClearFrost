@@ -141,6 +141,15 @@ namespace ClearFrost.Models
         {
             return Records.OrderByDescending(r => r.Date).ToList();
         }
+
+        /// <summary>
+        /// 清空所有历史记录
+        /// </summary>
+        public void ClearAll()
+        {
+            Records.Clear();
+            Save();
+        }
     }
 }
 

@@ -107,7 +107,7 @@ namespace ClearFrost.Hardware
                 }
                 mv.Dispose();
             }
-            catch { }
+            catch (Exception ex) { Debug.WriteLine($"[CameraProviderFactory] Huaray AutoDetect failed: {ex.Message}"); }
 
             // 
             try
@@ -120,7 +120,7 @@ namespace ClearFrost.Hardware
                 }
                 hik.Dispose();
             }
-            catch { }
+            catch (Exception ex) { Debug.WriteLine($"[CameraProviderFactory] Hikvision AutoDetect failed: {ex.Message}"); }
 
             return null;
         }
