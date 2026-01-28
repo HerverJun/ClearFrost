@@ -234,7 +234,9 @@ namespace ClearFrost
 
                     // 日志（包含模型切换信息）
                     int detectedCount = lastResult.Results?.Count ?? 0;
-                    string objDesc = detectedCount > 0 ? $"检测到 {detectedCount} 个目标" : "未检测到目标";
+                    // 使用 GetDetailedDetectionLog 生成详细日志
+                    string[] logLabels = lastResult.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
+                    string objDesc = GetDetailedDetectionLog(lastResult.Results ?? new List<YoloResult>(), logLabels);
                     string modelInfo = lastResult.WasFallback ? $" [切换至: {lastResult.UsedModelName}]" : "";
                     await _uiController.LogDetectionToFrontend($"PLC检测: {(isQualified ? "合格" : "不合格")} | {objDesc} | {lastInferenceMs}ms{modelInfo}", isQualified ? "success" : "error");
 

@@ -66,6 +66,7 @@ namespace ClearFrost
         public event EventHandler<string>? OnSaveSettings;
         public event EventHandler? OnSelectStorageFolder;
         public event EventHandler? OnGetStatisticsHistory;
+        public event EventHandler? OnClearStatisticsHistory;
         public event EventHandler? OnResetStatistics;
 
         // ================== 传统视觉模式事件 ==================
@@ -490,6 +491,9 @@ namespace ClearFrost
                                 break;
                             case "get_statistics_history":
                                 OnGetStatisticsHistory?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "clear_stats_history":
+                                OnClearStatisticsHistory?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "reset_statistics":
                                 OnResetStatistics?.Invoke(this, EventArgs.Empty);

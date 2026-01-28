@@ -125,9 +125,15 @@ namespace ClearFrost
                     }
 
                     // 更新UI (发送到检测流水，包含模型切换信息)
-                    string objDesc = results.Count > 0 ? $"检测到 {results.Count} 个目标" : "未检测到目标";
+                    string objDesc = GetDetailedDetectionLog(results, labels);
                     string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
                     await _uiController.LogDetectionToFrontend($"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {sw.ElapsedMilliseconds}ms{modelInfo}", isQualified ? "success" : "error");
+
+                    // 保存检测图像到追溯库
+                    using (var mat = OpenCvSharp.Extensions.BitmapConverter.ToMat(originalBitmap))
+                    {
+                        await SaveDetectionImage(mat, results, isQualified, result.UsedModelLabels);
+                    }
 
                     // 更新统计
                     _statisticsService.RecordDetection(isQualified);
@@ -202,6 +208,22 @@ namespace ClearFrost
         /// <summary>
         /// 手动检测逻辑 (PLC触发或手动按钮)
         /// </summary>
+        private string GetDetailedDetectionLog(List<YoloResult> results, string[]? labels)
+        {
+            if (results == null || results.Count == 0) return "未检测到目标";
+
+            // 格式: screw 0.98, body 0.99
+            var details = results.Select(r =>
+            {
+                string label = (labels != null && r.ClassId >= 0 && r.ClassId < labels.Length)
+                    ? labels[r.ClassId]
+                    : $"Class_{r.ClassId}";
+                return $"{label} {r.Confidence:F2}";
+            });
+
+            return $"Found {results.Count}: {string.Join(", ", details)}";
+        }
+
         private async Task btnCapture_LogicAsync()
         {
             // 使用信号量防止并发检测
@@ -291,7 +313,7 @@ namespace ClearFrost
                     }
 
                     // 日志 (发送到检测流水，包含模型切换信息)
-                    string objDesc = results.Count > 0 ? $"检测到 {results.Count} 个目标" : "未检测到目标";
+                    string objDesc = GetDetailedDetectionLog(results, labels);
                     string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
                     await _uiController.LogDetectionToFrontend($"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {sw.ElapsedMilliseconds}ms{modelInfo}", isQualified ? "success" : "error");
 
@@ -322,14 +344,16 @@ namespace ClearFrost
         {
             try
             {
-                string subFolder = isQualified ? "OK" : "NG";
-                string dateFolder = DateTime.Now.ToString("yyyy-MM-dd");
-                string directory = Path.Combine(Path_Images, subFolder, dateFolder);
+                DateTime now = DateTime.Now;
+                string subFolder = isQualified ? "Qualified" : "Unqualified";
+                string dateFolder = now.ToString("yyyy年MM月dd日");
+                string hourFolder = now.ToString("HH");
+                string directory = Path.Combine(Path_Images, subFolder, dateFolder, hourFolder);
 
                 if (!Directory.Exists(directory))
                     Directory.CreateDirectory(directory);
 
-                string fileName = $"{DateTime.Now:HHmmss_fff}.jpg";
+                string fileName = $"{(isQualified ? "PASS" : "FAIL")}_{now:HHmmssfff}.jpg";
                 string filePath = Path.Combine(directory, fileName);
 
                 // 如果有检测结果，先绘制边框

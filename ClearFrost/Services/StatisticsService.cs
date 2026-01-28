@@ -146,6 +146,13 @@ namespace ClearFrost.Services
             }
         }
 
+        public void ClearHistory()
+        {
+            _statisticsHistory.ClearAll();
+            StatisticsUpdated?.Invoke(Current);
+            Debug.WriteLine("[StatisticsService] 历史记录已清空");
+        }
+
         public void LoadAll()
         {
             try

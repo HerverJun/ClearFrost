@@ -795,7 +795,7 @@ function loadProjectPreset(presetId) {
     if (targetCount) targetCount.value = preset.TargetCount;
 
     addLog(`✓ 已加载预设: ${preset.name}`, 'success');
-    showMiniToast(`已加载预设: ${preset.name}`, 'success');
+    // showMiniToast(`已加载预设: ${preset.name}`, 'success');
 }
 window.loadProjectPreset = loadProjectPreset;
 
