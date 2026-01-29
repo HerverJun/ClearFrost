@@ -197,7 +197,7 @@ namespace ClearFrost
                     cam.IMV_DestroyHandle();
                 }
             }
-            catch { }
+            catch (Exception ex) { Debug.WriteLine($"[主窗口] ReleaseCameraResources failed: {ex.Message}"); }
         }
 
         private Bitmap ConvertFrameToBitmap(IMVDefine.IMV_Frame frame)

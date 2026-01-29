@@ -265,9 +265,7 @@ function superSearchCameras() {
     results.innerHTML = '';
 
     // 发送搜索命令
-    window.chrome.webview.postMessage(JSON.stringify({
-        cmd: 'super_search_cameras'
-    }));
+    sendCommand('super_search_cameras');
 }
 window.superSearchCameras = superSearchCameras;
 
@@ -320,15 +318,12 @@ window.receiveSuperSearchResult = receiveSuperSearchResult;
 
 // 直接连接相机（无序列号过滤）
 function directConnectCamera(serialNumber, manufacturer, model, userDefinedName) {
-    window.chrome.webview.postMessage(JSON.stringify({
-        cmd: 'direct_connect_camera',
-        value: {
-            serialNumber: serialNumber,
-            manufacturer: manufacturer,
-            model: model,
-            userDefinedName: userDefinedName
-        }
-    }));
+    sendCommand('direct_connect_camera', {
+        serialNumber: serialNumber,
+        manufacturer: manufacturer,
+        model: model,
+        userDefinedName: userDefinedName
+    });
     closeSuperSearchModal();
 }
 window.directConnectCamera = directConnectCamera;
@@ -671,6 +666,138 @@ function saveSettings() {
     closeSettingsModal();
 }
 window.saveSettings = saveSettings;
+
+// ===== 项目预设配置（填充现有表单字段）=====
+const PROJECT_PRESETS = {
+    'N5_remote': {
+        name: 'N5遥控器漏装视觉检测',
+        PlcIp: '10.182.82.19',
+        PlcPort: 2700,
+        PlcTriggerAddress: 100,
+        PlcResultAddress: 102,
+        CameraSerialNumber: '5G087BAGAK00018',
+        PlcProtocol: 'Mitsubishi_MC_Binary',
+        TargetLabel: 'remote',
+        TargetCount: 1,
+        ExposureTime: 3500,
+        Gain: 1.5
+    },
+    'N5_screw': {
+        name: 'N5螺钉视觉检测',
+        PlcIp: '10.182.82.19',
+        PlcPort: 3000,
+        PlcTriggerAddress: 90,
+        PlcResultAddress: 92,
+        CameraSerialNumber: 'EF59601AAK00030',
+        PlcProtocol: 'Mitsubishi_MC_Binary',
+        TargetLabel: 'screw',
+        TargetCount: 1,
+        ExposureTime: 3500,
+        Gain: 1.5
+    },
+    'N6_remote': {
+        name: 'N6遥控器漏装视觉检测',
+        PlcIp: '192.168.100.122',
+        PlcPort: 5777,
+        PlcTriggerAddress: 6607,
+        PlcResultAddress: 6608,
+        CameraSerialNumber: 'AM01040AAK00040',
+        PlcProtocol: 'Mitsubishi_MC_Binary',
+        TargetLabel: 'remote',
+        TargetCount: 1,
+        ExposureTime: 3500,
+        Gain: 1.5
+    },
+    'N6_screw': {
+        name: 'N6螺钉视觉检测',
+        PlcIp: '10.182.82.3',
+        PlcPort: 4300,
+        PlcTriggerAddress: 100,
+        PlcResultAddress: 102,
+        CameraSerialNumber: '',
+        PlcProtocol: 'Mitsubishi_MC_Binary',
+        TargetLabel: 'screw',
+        TargetCount: 1,
+        ExposureTime: 3500,
+        Gain: 1.5
+    },
+    'W5_screw': {
+        name: 'W5螺钉视觉检测',
+        PlcIp: '192.168.22.44',
+        PlcPort: 4999,
+        PlcTriggerAddress: 555,
+        PlcResultAddress: 556,
+        CameraSerialNumber: 'EF59632AAK00074',
+        PlcProtocol: 'Mitsubishi_MC_Binary',
+        TargetLabel: 'screw',
+        TargetCount: 4,
+        ExposureTime: 3500,
+        Gain: 1.5
+    },
+    'W6_screw': {
+        name: 'W6螺钉视觉检测',
+        PlcIp: '192.168.250.1',
+        PlcPort: 5999,
+        PlcTriggerAddress: 555,
+        PlcResultAddress: 556,
+        CameraSerialNumber: 'EF59632AAK00291',
+        PlcProtocol: 'Mitsubishi_MC_ASCII',
+        TargetLabel: 'screw',
+        TargetCount: 4,
+        ExposureTime: 3500,
+        Gain: 1.5
+    }
+};
+
+/**
+ * 加载项目预设配置到现有表单字段
+ */
+function loadProjectPreset(presetId) {
+    if (!presetId) return;
+
+    const preset = PROJECT_PRESETS[presetId];
+    if (!preset) {
+        addLog(`未找到预设配置: ${presetId}`, 'error');
+        return;
+    }
+
+    // 填充 PLC 配置（现有字段）
+    const plcIp = document.getElementById('cfg-plc-ip');
+    const plcPort = document.getElementById('cfg-plc-port');
+    const plcTrigger = document.getElementById('cfg-plc-trigger');
+    const plcResult = document.getElementById('cfg-plc-result');
+    const plcProtocol = document.getElementById('cfg-plc-protocol');
+
+    if (plcIp) plcIp.value = preset.PlcIp;
+    if (plcPort) plcPort.value = preset.PlcPort;
+    if (plcTrigger) plcTrigger.value = preset.PlcTriggerAddress;
+    if (plcResult) plcResult.value = preset.PlcResultAddress;
+    if (plcProtocol) plcProtocol.value = preset.PlcProtocol;
+
+    // 填充相机配置（现有字段）
+    const camName = document.getElementById('cfg-cam-name');
+    const camSerialNumber = document.getElementById('cfg-cam-serial');
+    const camManufacturer = document.getElementById('cfg-cam-manufacturer');
+    const camExposure = document.getElementById('cfg-cam-exposure');
+    const camGain = document.getElementById('cfg-cam-gain');
+
+    if (camName) camName.value = preset.name;  // 项目名称 -> 显示名称
+    if (camSerialNumber) camSerialNumber.value = preset.CameraSerialNumber;
+    if (camManufacturer) camManufacturer.value = 'Huaray';  // 所有项目均为华睿相机
+    if (camExposure) camExposure.value = preset.ExposureTime;
+    if (camGain) camGain.value = preset.Gain || 1.1; // 填充增益，默认为1.1
+
+    // 填充检测逻辑配置（现有字段）
+    const targetLabel = document.getElementById('cfg-logic-target-label');
+    const targetCount = document.getElementById('cfg-logic-target-count');
+
+    if (targetLabel) targetLabel.value = preset.TargetLabel;
+    if (targetCount) targetCount.value = preset.TargetCount;
+
+    addLog(`✓ 已加载预设: ${preset.name}`, 'success');
+    // showMiniToast(`已加载预设: ${preset.name}`, 'success');
+}
+window.loadProjectPreset = loadProjectPreset;
 
 function openPasswordModal() {
     document.getElementById('password-modal').classList.remove('hidden');
@@ -1238,7 +1365,7 @@ function searchCamerasHik() {
         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
-        相机超级搜索结果 (海康模式)
+        相机搜索结果
     `;
 
     // Send command

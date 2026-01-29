@@ -221,7 +221,7 @@ namespace ClearFrost.Hardware
                     return sn.TrimEnd('\0').Trim();
                 }
             }
-            catch { }
+            catch (Exception ex) { Debug.WriteLine($"[HikvisionCamera] ExtractSerialNumber failed: {ex.Message}"); }
 
             // 
             return $"HIK-{deviceInfo.nMacAddrLow:X8}";

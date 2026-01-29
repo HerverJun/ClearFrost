@@ -356,8 +356,8 @@ namespace ClearFrost
                 string fileName = $"{(isQualified ? "PASS" : "FAIL")}_{now:HHmmssfff}.jpg";
                 string filePath = Path.Combine(directory, fileName);
 
-                // 如果有检测结果，先绘制边框
-                if (results.Count > 0)
+                // 如果有检测结果，先绘制边框（仅当不合格时绘制，合格则保存原图）
+                if (!isQualified && results.Count > 0)
                 {
                     string[] labels = usedLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
                     using (var bitmap = image.ToBitmap())
