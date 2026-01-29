@@ -224,7 +224,7 @@ namespace ClearFrost.Hardware
                 var imvFrame = new IMVDefine.IMV_Frame { pData = frame.DataPtr };
                 _cam.IMV_ReleaseFrame(ref imvFrame);
             }
-            catch { }
+            catch (Exception ex) { Debug.WriteLine($"[MindVisionCamera] ReleaseFrame failed: {ex.Message}"); }
         }
 
         private static CameraPixelFormat ConvertPixelFormat(uint pixelType)
