@@ -53,7 +53,6 @@ TestResults/
 *.t7
 *.pkl
 ClearFrost/ONNX/
-YOLO/
 
 # Third-party Dependencies (第三方依赖库)
 # x64依赖包/ (Keep SDKs)
