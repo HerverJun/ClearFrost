@@ -10,5 +10,30 @@
   - 核心指令文件: `C:\Users\11234\.gemini\antigravity\global_skills\skills\ask\SKILL.md`
   - 功能描述: 专注于问题起因分析和教学引导，禁止在未经批准前修改代码。
 
+- **@senior-architect (资深架构师)**:
+  - 核心指令文件: `C:\Users\11234\.gemini\antigravity\global_skills\skills\senior-architect\SKILL.md`
+  - 功能描述: 负责系统设计、技术选型决策及复杂依赖分析，确保系统可扩展性。
+
+- **@brainstorming (脑暴与设计模式)**:
+  - 核心指令文件: `C:\Users\11234\.gemini\antigravity\global_skills\skills\brainstorming\SKILL.md`
+  - 功能描述: 在实现前将模糊想法转化为经验证的设计方案，通过结构化问答理清逻辑。
+
+- **@debug (系统化调试专家)**:
+  - 核心指令文件: `C:\Users\11234\.gemini\antigravity\global_skills\skills\debug\SKILL.md`
+  - 功能描述: 运用科学方法追踪 Bug 根因，禁止在未理解原理前进行试验性修复。
+
+- **@ui (现代视觉专家)**:
+  - 核心指令文件: `C:\Users\11234\.gemini\antigravity\global_skills\skills\ui\SKILL.md`
+  - 功能描述: 专注于打造高端、流畅的 UI 界面，包括动效设计和现代美学实现。
+
+- **@performance-profiling (性能优化专家)**:
+  - 核心指令文件: `C:\Users\11234\.gemini\antigravity\global_skills\skills\performance-profiling\SKILL.md`
+  - 功能描述: 识别计算瓶颈，优化算法内存效率，提升整体运行性能。
+
+- **@clean-code (代码整洁卫士)**:
+  - 核心指令文件: `C:\Users\11234\.gemini\antigravity\global_skills\skills\clean-code\SKILL.md`
+  - 功能描述: 审查代码异味，重构逻辑以提高可读性和长期的可维护性。
+
 ## 🤖 AI 指引
-在每次会话初始化或检测到相关关键词时，请优先确认上述路径是否存在。如果用户提到“进入 ask 模式”或使用 `@ask`，请务必读取对应的 `SKILL.md` 文件内容并严格遵守其中的规定。
+在每次会话初始化或检测到相关关键词时，请优先确认上述路径是否存在。如果用户提到“进入某模式”或使用对应 `@` 标签，请务必读取对应的 `SKILL.md` 文件内容并严格遵守其中的规定。
+
