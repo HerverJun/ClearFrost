@@ -278,12 +278,19 @@ namespace ClearFrost
         {
             try
             {
-                await _plcService.WriteReleaseSignalAsync(_appConfig.PlcResultAddress);
-                await _uiController.LogToFrontend("手动放行信号已发送", "success");
+                bool success = await _plcService.WriteReleaseSignalAsync(_appConfig.PlcResultAddress);
+                if (success)
+                {
+                    await _uiController.LogToFrontend("手动放行信号已发送", "success");
+                }
+                else
+                {
+                    await _uiController.LogToFrontend("放行失败: PLC未连接或写入错误", "error");
+                }
             }
             catch (Exception ex)
             {
-                await _uiController.LogToFrontend($"放行失败: {ex.Message}", "error");
+                await _uiController.LogToFrontend($"放行异常: {ex.Message}", "error");
             }
         }
 

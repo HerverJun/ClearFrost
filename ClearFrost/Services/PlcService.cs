@@ -266,18 +266,19 @@ namespace ClearFrost.Services
             }
         }
 
-        public async Task WriteReleaseSignalAsync(short resultAddress)
+        public async Task<bool> WriteReleaseSignalAsync(short resultAddress)
         {
-            if (!IsConnected || _plcDevice == null) return;
+            if (!IsConnected || _plcDevice == null) return false;
 
             string address = GetPlcAddress(resultAddress);
             try
             {
-                await _plcDevice.WriteInt16Async(address, 1);
+                return await _plcDevice.WriteInt16Async(address, 1);
             }
             catch (Exception ex)
             {
                 ErrorOccurred?.Invoke($"放行失败: {ex.Message}");
+                return false;
             }
         }
 

@@ -21,6 +21,7 @@
     <Authors>蘅芜君</Authors>
     <Company>蘅芜君</Company>
     <Copyright>Copyright (c) 2026 蘅芜君</Copyright>
+    <Version>3.95.0</Version>
   </PropertyGroup>
 
   <!-- 修复5: 移除所有AnyCPU和x86配置 -->

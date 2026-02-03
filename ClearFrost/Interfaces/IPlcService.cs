@@ -94,7 +94,7 @@ namespace ClearFrost.Interfaces
         /// 写入放行信号
         /// </summary>
         /// <param name="resultAddress">结果地址</param>
-        Task WriteReleaseSignalAsync(short resultAddress);
+        Task<bool> WriteReleaseSignalAsync(short resultAddress);
 
         #endregion
     }
