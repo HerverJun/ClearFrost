@@ -33,7 +33,7 @@
   "EnablePreprocessing": true,
   "EnableGpu": false,
   "GpuIndex": 0,
-  "IndustrialRenderMode": false,
+  "IndustrialRenderMode": true,
   "Auxiliary1ModelPath": "",
   "Auxiliary2ModelPath": "",
   "EnableMultiModelFallback": false,

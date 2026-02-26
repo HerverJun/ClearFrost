@@ -203,34 +203,78 @@ namespace ClearFrost
         private Bitmap ConvertFrameToBitmap(IMVDefine.IMV_Frame frame)
         {
             if (frame.frameInfo.pixelFormat != IMVDefine.IMV_EPixelType.gvspPixelMono8) throw new Exception("非Mono8格式");
-            var bitmap = new Bitmap((int)frame.frameInfo.width, (int)frame.frameInfo.height, PixelFormat.Format8bppIndexed);
+
+            int width = (int)frame.frameInfo.width;
+            int height = (int)frame.frameInfo.height;
+            int srcStride = width + (int)frame.frameInfo.paddingX; // SDK 帧的实际行步长
+
+            var bitmap = new Bitmap(width, height, PixelFormat.Format8bppIndexed);
             ColorPalette palette = bitmap.Palette;
             for (int i = 0; i < 256; i++) palette.Entries[i] = Color.FromArgb(i, i, i);
             bitmap.Palette = palette;
-            BitmapData bmpData = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.WriteOnly, bitmap.PixelFormat);
-            CopyMemory(bmpData.Scan0, frame.pData, (uint)frame.frameInfo.size);
+            BitmapData bmpData = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, bitmap.PixelFormat);
+
+            int dstStride = bmpData.Stride; // Bitmap 的行步长（可能含对齐填充）
+
+            if (srcStride == dstStride)
+            {
+                // stride 一致，可以整块拷贝
+                CopyMemory(bmpData.Scan0, frame.pData, (uint)(srcStride * height));
+            }
+            else
+            {
+                // stride 不一致，逐行拷贝有效像素
+                for (int row = 0; row < height; row++)
+                {
+                    CopyMemory(
+                        bmpData.Scan0 + row * dstStride,
+                        frame.pData + row * srcStride,
+                        (uint)width);
+                }
+            }
+
             bitmap.UnlockBits(bmpData);
             return bitmap;
         }
 
         /// <summary>
         /// 将相机帧转换为 OpenCV Mat 格式
+        /// 注意：SDK 帧可能有 paddingX 对齐，stride 不一定等于 width
         /// </summary>
         private Mat ConvertFrameToMat(IMVDefine.IMV_Frame frame)
         {
             int width = (int)frame.frameInfo.width;
             int height = (int)frame.frameInfo.height;
+            int srcStride = width + (int)frame.frameInfo.paddingX; // SDK 帧的实际行步长
 
             // 创建 Mono8 格式的 Mat
             Mat mat = new Mat(height, width, MatType.CV_8UC1);
+            int dstStride = (int)mat.Step(); // OpenCV Mat 的行步长
 
-            // 复制图像数据
+            // 复制图像数据（处理 stride 对齐）
             unsafe
             {
                 byte* srcPtr = (byte*)frame.pData.ToPointer();
                 byte* dstPtr = (byte*)mat.Data.ToPointer();
-                int totalBytes = width * height;
-                Buffer.MemoryCopy(srcPtr, dstPtr, totalBytes, totalBytes);
+
+                if (srcStride == dstStride)
+                {
+                    // stride 一致，整块高效拷贝
+                    long totalBytes = (long)srcStride * height;
+                    Buffer.MemoryCopy(srcPtr, dstPtr, totalBytes, totalBytes);
+                }
+                else
+                {
+                    // stride 不一致，逐行拷贝有效像素，跳过 padding
+                    for (int row = 0; row < height; row++)
+                    {
+                        Buffer.MemoryCopy(
+                            srcPtr + (long)row * srcStride,
+                            dstPtr + (long)row * dstStride,
+                            width,
+                            width);
+                    }
+                }
             }
 
             return mat;

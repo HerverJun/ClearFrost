@@ -57,7 +57,7 @@ namespace ClearFrost.Config
         public bool EnablePreprocessing { get; set; } = true;
         public bool EnableGpu { get; set; } = false;
         public int GpuIndex { get; set; } = 0;
-        public bool IndustrialRenderMode { get; set; } = false;
+        public bool IndustrialRenderMode { get; set; } = true;
 
         // ================== Multi-Model Fallback Settings ==================
         /// <summary>
