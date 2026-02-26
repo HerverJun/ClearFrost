@@ -53,6 +53,7 @@ namespace ClearFrost
 
             // 初始化 WebUI 控制器
             _uiController = new WebUIController();
+            YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
 
             // ====================== 初始化服务层 ======================
             // PLC 服务
@@ -70,6 +71,7 @@ namespace ClearFrost
             // Database 服务 (SQLite)
             _databaseService = new SqliteDatabaseService();
             SafeFireAndForget(_databaseService.InitializeAsync(), "数据库初始化");
+            _imageSaveQueue = new ImageSaveQueue();
 
             // 注册所有事件监听 (实现位于 主窗口.Init.cs)
             RegisterEvents();

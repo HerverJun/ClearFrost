@@ -42,7 +42,10 @@ namespace ClearFrost
             if (success)
             {
                 // 启动触发监控
-                _plcService.StartMonitoring(_appConfig.PlcTriggerAddress, 500);
+                _plcService.StartMonitoring(
+                    _appConfig.PlcTriggerAddress,
+                    _appConfig.PlcPollingIntervalMs,
+                    _appConfig.PlcTriggerDelayMs);
             }
         }
 
@@ -65,7 +68,18 @@ namespace ClearFrost
             Debug.WriteLine("[主窗口-PLC] ✅ 信号量获取成功");
 
             Mat? lastFrameForSave = null; // 保留最后一帧用于保存
+            Mat? lastRenderedForSave = null; // 保留最后一次渲染结果，供保存复用
             long lastInferenceMs = 0;     // 最后一次检测的推理时间
+            long captureMs = 0;
+            long inferenceMs = 0;
+            long roiFilterMs = 0;
+            long renderToUiMs = 0;
+            long saveQueueMs = 0;
+            long plcWriteMs = 0;
+            long dbWriteMs = 0;
+            int attemptsUsed = 0;
+            bool finalQualified = false;
+            int finalResultCount = 0;
 
             try
             {
@@ -77,6 +91,8 @@ namespace ClearFrost
 
                 for (int attempt = 0; attempt <= maxRetries; attempt++)
                 {
+                    attemptsUsed = attempt + 1;
+
                     if (attempt > 0)
                     {
                         Debug.WriteLine($"[主窗口-PLC] 🔄 重试 {attempt}/{maxRetries}");
@@ -86,6 +102,7 @@ namespace ClearFrost
 
                     // 获取当前帧进行检测
                     Mat? frameToProcess = null;
+                    var captureSw = Stopwatch.StartNew();
 
                     // 首先尝试触发相机拍照并获取实时图像
                     try
@@ -120,6 +137,8 @@ namespace ClearFrost
                             }
                         }
                     }
+                    captureSw.Stop();
+                    captureMs += captureSw.ElapsedMilliseconds;
 
                     if (frameToProcess == null)
                     {
@@ -141,6 +160,7 @@ namespace ClearFrost
                         lastResult = await _detectionService.DetectAsync(mat, _appConfig.Confidence, overlapThreshold, _appConfig.TargetLabel, _appConfig.TargetCount);
                         inferSw.Stop();
                         lastInferenceMs = inferSw.ElapsedMilliseconds;
+                        inferenceMs += lastInferenceMs;
                         Debug.WriteLine($"[主窗口-PLC] 🔍 检测完成 - 结果: {(lastResult?.IsQualified == true ? "合格" : "不合格")}");
 
                         // 无论检测结果如何，都将图像发送到前端显示
@@ -150,27 +170,40 @@ namespace ClearFrost
                             {
                                 var results = lastResult.Results ?? new List<YoloResult>();
                                 // 应用 ROI 过滤
+                                var roiSw = Stopwatch.StartNew();
                                 results = FilterResultsByROI(results, mat.Width, mat.Height);
+                                roiSw.Stop();
+                                roiFilterMs += roiSw.ElapsedMilliseconds;
 
                                 // 生成带标注的结果图像并发送到前端
                                 string[] labels = lastResult.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
-                                using (var bitmap = mat.ToBitmap())
-                                using (var resultImage = _detectionService.GenerateResultImage(bitmap, results, labels))
-                                using (var ms = new MemoryStream())
+                                lastRenderedForSave?.Dispose();
+                                lastRenderedForSave = TryRenderDetectionMat(mat, results, labels);
+
+                                var renderSw = Stopwatch.StartNew();
+                                if (lastRenderedForSave != null)
                                 {
-                                    resultImage.Save(ms, ImageFormat.Jpeg);
-                                    string base64 = Convert.ToBase64String(ms.ToArray());
-                                    await _uiController.UpdateImage(base64);
-                                    Debug.WriteLine("[主窗口-PLC] 📷 结果图像已发送到前端");
+                                    await _uiController.UpdateImage(lastRenderedForSave);
                                 }
+                                else
+                                {
+                                    await _uiController.UpdateImage(mat);
+                                }
+                                renderSw.Stop();
+                                renderToUiMs += renderSw.ElapsedMilliseconds;
+                                Debug.WriteLine("[主窗口-PLC] 📷 结果图像已发送到前端");
 
                                 // 更新 lastResult 中的 Results 为过滤后的结果
                                 lastResult = new DetectionResultData
                                 {
                                     IsQualified = lastResult.IsQualified,
                                     Results = results,
-                                    UsedModelLabels = lastResult.UsedModelLabels
+                                    UsedModelLabels = lastResult.UsedModelLabels,
+                                    UsedModelName = lastResult.UsedModelName,
+                                    WasFallback = lastResult.WasFallback
                                 };
+                                finalResultCount = results.Count;
+                                finalQualified = lastResult.IsQualified;
                             }
                             catch (Exception imgEx)
                             {
@@ -190,11 +223,16 @@ namespace ClearFrost
                 if (lastResult != null)
                 {
                     bool isQualified = lastResult.IsQualified;
+                    finalQualified = isQualified;
+                    finalResultCount = lastResult.Results?.Count ?? 0;
                     Debug.WriteLine($"[主窗口-PLC] 📊 最终结果: {(isQualified ? "合格" : "不合格")}");
 
                     // 写入 PLC
                     Debug.WriteLine("[主窗口-PLC] 📝 写入PLC结果...");
+                    var plcSw = Stopwatch.StartNew();
                     await WriteDetectionResult(isQualified);
+                    plcSw.Stop();
+                    plcWriteMs += plcSw.ElapsedMilliseconds;
 
                     // 保存检测图像（只保存最终结果）
                     if (lastFrameForSave != null && !lastFrameForSave.Empty())
@@ -202,7 +240,10 @@ namespace ClearFrost
                         try
                         {
                             var results = lastResult.Results ?? new List<YoloResult>();
-                            await SaveDetectionImage(lastFrameForSave, results, isQualified, lastResult.UsedModelLabels);
+                            var saveSw = Stopwatch.StartNew();
+                            await SaveDetectionImage(lastFrameForSave, results, isQualified, lastResult.UsedModelLabels, lastRenderedForSave);
+                            saveSw.Stop();
+                            saveQueueMs += saveSw.ElapsedMilliseconds;
                             Debug.WriteLine("[主窗口-PLC] 💾 检测图像已保存");
                         }
                         catch (Exception saveEx)
@@ -214,6 +255,7 @@ namespace ClearFrost
                     // 写入数据库记录
                     try
                     {
+                        var dbSw = Stopwatch.StartNew();
                         await _databaseService.SaveDetectionRecordAsync(new DetectionRecord
                         {
                             Timestamp = DateTime.Now,
@@ -221,6 +263,8 @@ namespace ClearFrost
                             ModelName = _detectionService.CurrentModelName,
                             InferenceMs = (int)lastInferenceMs
                         });
+                        dbSw.Stop();
+                        dbWriteMs += dbSw.ElapsedMilliseconds;
                         Debug.WriteLine("[主窗口-PLC] 📀 数据库记录已保存");
                     }
                     catch (Exception dbEx)
@@ -253,8 +297,27 @@ namespace ClearFrost
             }
             finally
             {
+                sw.Stop();
+                if (captureMs > 0 || inferenceMs > 0 || roiFilterMs > 0 || renderToUiMs > 0 || saveQueueMs > 0 || plcWriteMs > 0 || dbWriteMs > 0)
+                {
+                    WritePerformanceProfileLog(
+                        "PLC",
+                        finalQualified,
+                        sw.ElapsedMilliseconds,
+                        captureMs,
+                        inferenceMs,
+                        roiFilterMs,
+                        renderToUiMs,
+                        saveQueueMs,
+                        plcWriteMs,
+                        dbWriteMs,
+                        attemptsUsed,
+                        finalResultCount);
+                }
+
                 // 释放保存的帧
                 lastFrameForSave?.Dispose();
+                lastRenderedForSave?.Dispose();
 
                 _detectionSemaphore.Release();
                 Debug.WriteLine("[主窗口-PLC] 🔓 信号量已释放");

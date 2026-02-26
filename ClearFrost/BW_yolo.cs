@@ -168,6 +168,11 @@ namespace ClearFrost.Yolo
         /// </summary>
         public InferenceMetrics? LastMetrics { get; private set; }
 
+        /// <summary>
+        /// 全局工业渲染模式开关。开启后使用轻量绘制路径。
+        /// </summary>
+        public static bool IndustrialRenderMode { get; set; } = false;
+
         private readonly object _inferenceLock = new object();
         private readonly SemaphoreSlim _inferenceSemaphore = new SemaphoreSlim(1, 1);
 

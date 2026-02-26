@@ -1308,6 +1308,8 @@ namespace ClearFrost
                         if (root.TryGetProperty("PlcPort", out var pp)) _appConfig.PlcPort = pp.TryGetInt32(out int ppVal) ? ppVal : _appConfig.PlcPort;
                         if (root.TryGetProperty("PlcTriggerAddress", out var pt)) _appConfig.PlcTriggerAddress = pt.TryGetInt16(out short ptVal) ? ptVal : _appConfig.PlcTriggerAddress;
                         if (root.TryGetProperty("PlcResultAddress", out var pr)) _appConfig.PlcResultAddress = pr.TryGetInt16(out short prVal) ? prVal : _appConfig.PlcResultAddress;
+                        if (root.TryGetProperty("PlcTriggerDelayMs", out var ptd)) _appConfig.PlcTriggerDelayMs = ptd.TryGetInt32(out int ptdVal) ? Math.Max(0, ptdVal) : _appConfig.PlcTriggerDelayMs;
+                        if (root.TryGetProperty("PlcPollingIntervalMs", out var ppi)) _appConfig.PlcPollingIntervalMs = ppi.TryGetInt32(out int ppiVal) ? Math.Max(50, ppiVal) : _appConfig.PlcPollingIntervalMs;
 #pragma warning disable CS0618
                         var activeCam = _appConfig.ActiveCamera;
                         if (root.TryGetProperty("CameraName", out var cn))
@@ -1336,6 +1338,8 @@ namespace ClearFrost
                         if (root.TryGetProperty("MaxRetryCount", out var mrc)) _appConfig.MaxRetryCount = mrc.TryGetInt32(out int mrcVal) ? mrcVal : _appConfig.MaxRetryCount;
                         if (root.TryGetProperty("RetryIntervalMs", out var rim)) _appConfig.RetryIntervalMs = rim.TryGetInt32(out int rimVal) ? rimVal : _appConfig.RetryIntervalMs;
                         if (root.TryGetProperty("EnableGpu", out var eg)) _appConfig.EnableGpu = eg.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("IndustrialRenderMode", out var irm)) _appConfig.IndustrialRenderMode = irm.ValueKind == JsonValueKind.True;
+                        YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
 
                         // 保存并重新加载
                         _appConfig.Save();
@@ -1385,6 +1389,9 @@ namespace ClearFrost
                 });
             };
 
+            // 模型加载与 WebView2 初始化并行，减少冷启动等待时间
+            Task initYoloTask = InitYoloAsync();
+
             // 初始化 WebUI
             if (webView21 != null)
             {
@@ -1396,6 +1403,8 @@ namespace ClearFrost
                 _uiController.LogBasePath = Path_Logs;
             }
 
+            await initYoloTask;
+
             // 统计数据已由 _statisticsService 在构造时加载
             // 检测跨日，如果需要则保存历史并重置今日数据
             bool isNewDay = _statisticsService.CheckAndResetForNewDay();
@@ -1404,8 +1413,6 @@ namespace ClearFrost
                 SafeFireAndForget(_uiController.LogToFrontend("检测到新的一天，统计数据已重置", "info"), "日志记录");
             }
 
-            // 初始化YOLO
-            InitYolo();
             InitDirectories();
 
             // 启动后台清理
@@ -1419,7 +1426,7 @@ namespace ClearFrost
             if (!Directory.Exists(模型路径))
             {
                 Directory.CreateDirectory(模型路径);
-                _uiController.LogToFrontend($"创建模型目录: {模型路径}");
+                await _uiController.LogToFrontend($"创建模型目录: {模型路径}");
             }
 
             var files = Directory.GetFiles(模型路径, "*.onnx");
@@ -1512,6 +1519,15 @@ namespace ClearFrost
                     catch (Exception ex)
                     {
                         Debug.WriteLine($"Pipeline Dispose Error: {ex.Message}");
+                    }
+
+                    try
+                    {
+                        _imageSaveQueue?.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"ImageSaveQueue Dispose Error: {ex.Message}");
                     }
                 });
 

@@ -15,6 +15,8 @@ namespace ClearFrost.Config
         public int PlcPort { get; set; } = 5999;
         public short PlcTriggerAddress { get; set; } = 555;
         public short PlcResultAddress { get; set; } = 556;
+        public int PlcTriggerDelayMs { get; set; } = 800;
+        public int PlcPollingIntervalMs { get; set; } = 500;
         /// <summary>
         /// PLC协议类型: Mitsubishi_MC_ASCII, Mitsubishi_MC_Binary, Modbus_TCP
         /// </summary>
@@ -55,6 +57,7 @@ namespace ClearFrost.Config
         public bool EnablePreprocessing { get; set; } = true;
         public bool EnableGpu { get; set; } = false;
         public int GpuIndex { get; set; } = 0;
+        public bool IndustrialRenderMode { get; set; } = false;
 
         // ================== Multi-Model Fallback Settings ==================
         /// <summary>

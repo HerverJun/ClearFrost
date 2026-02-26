@@ -588,6 +588,8 @@ function populateSettings(data) {
         'PlcPort': 'cfg-plc-port',
         'PlcTriggerAddress': 'cfg-plc-trigger',
         'PlcResultAddress': 'cfg-plc-result',
+        'PlcTriggerDelayMs': 'cfg-plc-trigger-delay',
+        'PlcPollingIntervalMs': 'cfg-plc-polling-interval',
         'CameraName': 'cfg-cam-name',
         'CameraSerialNumber': 'cfg-cam-serial',
         'ExposureTime': 'cfg-cam-exposure',
@@ -596,7 +598,8 @@ function populateSettings(data) {
         'TargetCount': 'cfg-logic-target-count',
         'MaxRetryCount': 'cfg-logic-retry-count',
         'RetryIntervalMs': 'cfg-logic-retry-interval',
-        'EnableGpu': 'cfg-yolo-gpu'
+        'EnableGpu': 'cfg-yolo-gpu',
+        'IndustrialRenderMode': 'cfg-industrial-render-mode'
     };
     for (const key in data) {
         const inputId = mapping[key];
@@ -630,6 +633,8 @@ function saveSettings() {
         'cfg-plc-port': 'PlcPort',
         'cfg-plc-trigger': 'PlcTriggerAddress',
         'cfg-plc-result': 'PlcResultAddress',
+        'cfg-plc-trigger-delay': 'PlcTriggerDelayMs',
+        'cfg-plc-polling-interval': 'PlcPollingIntervalMs',
         'cfg-cam-name': 'CameraName',
         'cfg-cam-serial': 'CameraSerialNumber',
         'cfg-cam-exposure': 'ExposureTime',
@@ -638,11 +643,12 @@ function saveSettings() {
         'cfg-logic-target-count': 'TargetCount',
         'cfg-logic-retry-count': 'MaxRetryCount',
         'cfg-logic-retry-interval': 'RetryIntervalMs',
-        'cfg-yolo-gpu': 'EnableGpu'
+        'cfg-yolo-gpu': 'EnableGpu',
+        'cfg-industrial-render-mode': 'IndustrialRenderMode'
     };
 
     const data = {};
-    const numericFields = ['PlcPort', 'PlcTriggerAddress', 'PlcResultAddress', 'ExposureTime', 'GainRaw', 'TargetCount', 'MaxRetryCount', 'RetryIntervalMs'];
+    const numericFields = ['PlcPort', 'PlcTriggerAddress', 'PlcResultAddress', 'PlcTriggerDelayMs', 'PlcPollingIntervalMs', 'ExposureTime', 'GainRaw', 'TargetCount', 'MaxRetryCount', 'RetryIntervalMs'];
 
     for (const [inputId, propName] of Object.entries(fieldMapping)) {
         const el = document.getElementById(inputId);
@@ -767,12 +773,16 @@ function loadProjectPreset(presetId) {
     const plcTrigger = document.getElementById('cfg-plc-trigger');
     const plcResult = document.getElementById('cfg-plc-result');
     const plcProtocol = document.getElementById('cfg-plc-protocol');
+    const plcTriggerDelay = document.getElementById('cfg-plc-trigger-delay');
+    const plcPollingInterval = document.getElementById('cfg-plc-polling-interval');
 
     if (plcIp) plcIp.value = preset.PlcIp;
     if (plcPort) plcPort.value = preset.PlcPort;
     if (plcTrigger) plcTrigger.value = preset.PlcTriggerAddress;
     if (plcResult) plcResult.value = preset.PlcResultAddress;
     if (plcProtocol) plcProtocol.value = preset.PlcProtocol;
+    if (plcTriggerDelay) plcTriggerDelay.value = preset.PlcTriggerDelayMs || 800;
+    if (plcPollingInterval) plcPollingInterval.value = preset.PlcPollingIntervalMs || 500;
 
     // 填充相机配置（现有字段）
     const camName = document.getElementById('cfg-cam-name');

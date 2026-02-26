@@ -7,7 +7,7 @@
     <AssemblyName>清霜视觉</AssemblyName>
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <UseWindowsForms>true</UseWindowsForms>
-    <UseWPF>true</UseWPF>
+    <UseWPF>false</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
     <!-- 修复2: 强制指定平台目标 -->

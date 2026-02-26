@@ -140,8 +140,11 @@ namespace ClearFrost.Services
 
                 string fileName = $"{now:yyyyMMddHH}.txt";
                 string fullContent = $"检测时间: {now}\r\n结果: {(isQualified ? "合格" : "不合格")}\r\n{content}\r\n";
+                string filePath = Path.Combine(dir, fileName);
 
-                File.AppendAllText(Path.Combine(dir, fileName), fullContent, Encoding.UTF8);
+                using FileStream fs = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite, 4096, FileOptions.SequentialScan);
+                using StreamWriter writer = new StreamWriter(fs, Encoding.UTF8, 4096);
+                writer.Write(fullContent);
             }
             catch (Exception ex)
             {

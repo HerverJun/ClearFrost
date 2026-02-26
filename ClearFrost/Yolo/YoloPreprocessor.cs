@@ -3,10 +3,11 @@
 // 描述:   YOLO 预处理模块 - Letterbox 缩放、图像转 Tensor
 // ============================================================================
 using Microsoft.ML.OnnxRuntime.Tensors;
+using OpenCvSharp;
+using OpenCvSharp.Extensions;
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 
 namespace ClearFrost.Yolo
@@ -47,23 +48,31 @@ namespace ClearFrost.Yolo
             float scaleH = (float)_tensorHeight / _inferenceImageHeight;
             _scale = Math.Min(scaleW, scaleH);
 
-            int newW = (int)(_inferenceImageWidth * _scale);
-            int newH = (int)(_inferenceImageHeight * _scale);
+            int newW = (int)Math.Round(_inferenceImageWidth * _scale);
+            int newH = (int)Math.Round(_inferenceImageHeight * _scale);
 
             // Calculate padding to center the image
             _padLeft = (_tensorWidth - newW) / 2;
             _padTop = (_tensorHeight - newH) / 2;
+            int padRight = Math.Max(0, _tensorWidth - newW - _padLeft);
+            int padBottom = Math.Max(0, _tensorHeight - newH - _padTop);
 
-            // Create letterboxed image with YOLO standard gray background
-            Bitmap letterboxedImage = new Bitmap(_tensorWidth, _tensorHeight);
-            using (Graphics graphics = Graphics.FromImage(letterboxedImage))
-            {
-                // Fill with YOLO standard gray (114, 114, 114)
-                graphics.Clear(Color.FromArgb(LETTERBOX_FILL_COLOR_R, LETTERBOX_FILL_COLOR_G, LETTERBOX_FILL_COLOR_B));
-                graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
-                graphics.DrawImage(image, _padLeft, _padTop, newW, newH);
-            }
-            return letterboxedImage;
+            using Mat src = BitmapConverter.ToMat(image);
+            using Mat resized = new Mat();
+            using Mat letterboxed = new Mat();
+
+            Cv2.Resize(src, resized, new OpenCvSharp.Size(newW, newH), 0, 0, InterpolationFlags.Linear);
+            Cv2.CopyMakeBorder(
+                resized,
+                letterboxed,
+                _padTop,
+                padBottom,
+                _padLeft,
+                padRight,
+                BorderTypes.Constant,
+                new Scalar(LETTERBOX_FILL_COLOR_B, LETTERBOX_FILL_COLOR_G, LETTERBOX_FILL_COLOR_R));
+
+            return BitmapConverter.ToBitmap(letterboxed);
         }
 
         /// <summary>
@@ -82,32 +91,30 @@ namespace ClearFrost.Yolo
         /// <summary>
         /// 高精度模式：并行图像转 Tensor
         /// </summary>
-        private void ImageToTensor_Parallel(Bitmap image, float[] buffer)
+        private unsafe void ImageToTensor_Parallel(Bitmap image, float[] buffer)
         {
             int height = image.Height;
             int width = image.Width;
-            int channels = _inputTensorInfo[1];
             int tensorHeight = _inputTensorInfo[2];
             int tensorWidth = _inputTensorInfo[3];
             int channelSize = tensorHeight * tensorWidth;
 
             BitmapData imageData = image.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
             int stride = imageData.Stride;
-            IntPtr scan0 = imageData.Scan0;
+            byte* scan0 = (byte*)imageData.Scan0.ToPointer();
             try
             {
                 Parallel.For(0, height, y =>
                 {
+                    byte* rowStart = scan0 + (y * stride);
                     for (int x = 0; x < width; x++)
                     {
-                        IntPtr pixel = IntPtr.Add(scan0, y * stride + x * 3);
+                        byte* pixel = rowStart + (x * 3);
                         // BGR -> RGB, channel-first layout
                         int baseIndex = y * tensorWidth + x;
-                        buffer[2 * channelSize + baseIndex] = Marshal.ReadByte(pixel) / PIXEL_NORMALIZE_FACTOR;  // B -> channel 2
-                        pixel = IntPtr.Add(pixel, 1);
-                        buffer[1 * channelSize + baseIndex] = Marshal.ReadByte(pixel) / PIXEL_NORMALIZE_FACTOR;  // G -> channel 1
-                        pixel = IntPtr.Add(pixel, 1);
-                        buffer[0 * channelSize + baseIndex] = Marshal.ReadByte(pixel) / PIXEL_NORMALIZE_FACTOR;  // R -> channel 0
+                        buffer[2 * channelSize + baseIndex] = pixel[0] / PIXEL_NORMALIZE_FACTOR;  // B -> channel 2
+                        buffer[1 * channelSize + baseIndex] = pixel[1] / PIXEL_NORMALIZE_FACTOR;  // G -> channel 1
+                        buffer[0 * channelSize + baseIndex] = pixel[2] / PIXEL_NORMALIZE_FACTOR;  // R -> channel 0
                     }
                 });
             }
@@ -128,7 +135,6 @@ namespace ClearFrost.Yolo
 
             BitmapData imageData = image.LockBits(new Rectangle(0, 0, image.Width, image.Height), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
             int stride = imageData.Stride;
-            IntPtr scan0 = imageData.Scan0;
 
             float scaledImageWidth = _inferenceImageWidth;
             float scaledImageHeight = _inferenceImageHeight;
@@ -140,20 +146,23 @@ namespace ClearFrost.Yolo
             }
 
             float factor = 1 / _scale;
-            for (int y = 0; y < (int)scaledImageHeight; y++)
+            unsafe
             {
-                for (int x = 0; x < (int)scaledImageWidth; x++)
+                byte* scan0 = (byte*)imageData.Scan0.ToPointer();
+
+                for (int y = 0; y < (int)scaledImageHeight; y++)
                 {
-                    int xPos = (int)(x * factor);
-                    int yPos = (int)(y * factor);
-                    IntPtr pixel = IntPtr.Add(scan0, yPos * stride + xPos * 3);
-                    // BGR -> RGB, channel-first layout
-                    int baseIndex = y * tensorWidth + x;
-                    buffer[2 * channelSize + baseIndex] = Marshal.ReadByte(pixel) / PIXEL_NORMALIZE_FACTOR;  // B -> channel 2
-                    pixel = IntPtr.Add(pixel, 1);
-                    buffer[1 * channelSize + baseIndex] = Marshal.ReadByte(pixel) / PIXEL_NORMALIZE_FACTOR;  // G -> channel 1
-                    pixel = IntPtr.Add(pixel, 1);
-                    buffer[0 * channelSize + baseIndex] = Marshal.ReadByte(pixel) / PIXEL_NORMALIZE_FACTOR;  // R -> channel 0
+                    for (int x = 0; x < (int)scaledImageWidth; x++)
+                    {
+                        int xPos = (int)(x * factor);
+                        int yPos = (int)(y * factor);
+                        byte* pixel = scan0 + (yPos * stride) + (xPos * 3);
+                        // BGR -> RGB, channel-first layout
+                        int baseIndex = y * tensorWidth + x;
+                        buffer[2 * channelSize + baseIndex] = pixel[0] / PIXEL_NORMALIZE_FACTOR;  // B -> channel 2
+                        buffer[1 * channelSize + baseIndex] = pixel[1] / PIXEL_NORMALIZE_FACTOR;  // G -> channel 1
+                        buffer[0 * channelSize + baseIndex] = pixel[2] / PIXEL_NORMALIZE_FACTOR;  // R -> channel 0
+                    }
                 }
             }
             image.UnlockBits(imageData);

@@ -33,6 +33,7 @@ using System.Text;
 using System.Linq;
 using System.Collections.Generic;
 using ClearFrost.Vision;
+using OpenCvSharp;
 
 namespace ClearFrost
 {
@@ -42,6 +43,9 @@ namespace ClearFrost
     public class WebUIController
     {
         private WebView2? _webView;
+        private readonly object _logThrottleLock = new object();
+        private long _lastFrontendLogTick;
+        private const int FrontendLogThrottleMs = 100;
 
         // Events to notify the main window about frontend actions
         public event EventHandler? OnFindCamera;
@@ -151,9 +155,6 @@ namespace ClearFrost
                 _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
                 _webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
-                // Clear cache to ensure latest HTML is loaded
-                await _webView.CoreWebView2.Profile.ClearBrowsingDataAsync();
-
                 // Register message received handler BEFORE navigation to ensure no messages (like app_ready) are missed
                 _webView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
 
@@ -241,10 +242,26 @@ namespace ClearFrost
             // Note: Sending very large strings via ExecuteScriptAsync can be performant enough for simple use cases,
             // but for high FPS, PostWebMessageAsJson or shared buffer is better. 
             // Stick to requested specific function updateImage(base64).
-            await _webView.ExecuteScriptAsync($"updateImage('{base64Image}')");
+            await _webView.ExecuteScriptAsync($"updateImage('{base64Image}');redrawROI();");
+        }
 
-            // 图像更新后重绘 ROI 矩形，保持 ROI 区域可见
-            await _webView.ExecuteScriptAsync("redrawROI()");
+        /// <summary>
+        /// Sends image from Mat after resizing and JPEG encoding to reduce WebView2 payload.
+        /// </summary>
+        public async Task UpdateImage(Mat image, int targetWidth = 960, int targetHeight = 540, int jpegQuality = 60)
+        {
+            if (_webView?.CoreWebView2 == null || image == null || image.Empty())
+            {
+                return;
+            }
+
+            using Mat resized = new Mat();
+            Cv2.Resize(image, resized, new OpenCvSharp.Size(targetWidth, targetHeight), 0, 0, InterpolationFlags.Linear);
+
+            int quality = Math.Clamp(jpegQuality, 1, 100);
+            Cv2.ImEncode(".jpg", resized, out byte[] encoded, new[] { new ImageEncodingParam(ImwriteFlags.JpegQuality, quality) });
+            string base64 = Convert.ToBase64String(encoded);
+            await UpdateImage(base64);
         }
 
         /// <summary>
@@ -670,6 +687,22 @@ namespace ClearFrost
         public async Task LogToFrontend(string message, string type = "normal")
         {
             if (_webView?.CoreWebView2 == null) return;
+
+            if (string.Equals(type, "normal", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(type, "info", StringComparison.OrdinalIgnoreCase))
+            {
+                long now = Environment.TickCount64;
+                lock (_logThrottleLock)
+                {
+                    if (now - _lastFrontendLogTick < FrontendLogThrottleMs)
+                    {
+                        return;
+                    }
+
+                    _lastFrontendLogTick = now;
+                }
+            }
+
             string safeMsg = message.Replace("'", "\\'").Replace("\n", "\\n");
             await _webView.ExecuteScriptAsync($"addLog('{safeMsg}', '{type}')");
         }

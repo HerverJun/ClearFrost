@@ -111,29 +111,20 @@ namespace ClearFrost
                     // 应用 ROI 过滤
                     results = FilterResultsByROI(results, originalBitmap.Width, originalBitmap.Height);
 
-                    // 生成带标注的结果图像
                     string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
-                    using (var resultImage = _detectionService.GenerateResultImage(originalBitmap, results, labels))
+                    using (var sourceMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(originalBitmap))
+                    using (var renderedMat = TryRenderDetectionMat(sourceMat, results, labels))
                     {
-                        // 发送结果图像到前端
-                        using (var ms = new MemoryStream())
-                        {
-                            resultImage.Save(ms, ImageFormat.Jpeg);
-                            string base64 = Convert.ToBase64String(ms.ToArray());
-                            await _uiController.UpdateImage(base64);
-                        }
+                        await _uiController.UpdateImage(renderedMat ?? sourceMat);
+
+                        // 保存检测图像到追溯库（不合格时复用渲染结果）
+                        await SaveDetectionImage(sourceMat, results, isQualified, result.UsedModelLabels, renderedMat);
                     }
 
                     // 更新UI (发送到检测流水，包含模型切换信息)
                     string objDesc = GetDetailedDetectionLog(results, labels);
                     string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
                     await _uiController.LogDetectionToFrontend($"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {sw.ElapsedMilliseconds}ms{modelInfo}", isQualified ? "success" : "error");
-
-                    // 保存检测图像到追溯库
-                    using (var mat = OpenCvSharp.Extensions.BitmapConverter.ToMat(originalBitmap))
-                    {
-                        await SaveDetectionImage(mat, results, isQualified, result.UsedModelLabels);
-                    }
 
                     // 更新统计
                     _statisticsService.RecordDetection(isQualified);
@@ -233,12 +224,24 @@ namespace ClearFrost
                 return;
             }
 
+            var totalSw = Stopwatch.StartNew();
+            long captureMs = 0;
+            long inferenceMs = 0;
+            long roiFilterMs = 0;
+            long plcWriteMs = 0;
+            long renderToUiMs = 0;
+            long saveQueueMs = 0;
+            long dbWriteMs = 0;
+            bool finalQualified = false;
+            int finalResultCount = 0;
+
             try
             {
                 await _uiController.LogToFrontend("开始检测...", "info");
 
                 Mat? frameToProcess = null;
 
+                var captureSw = Stopwatch.StartNew();
                 // 首先尝试触发相机拍照并获取实时图像
                 try
                 {
@@ -273,6 +276,8 @@ namespace ClearFrost
                         }
                     }
                 }
+                captureSw.Stop();
+                captureMs = captureSw.ElapsedMilliseconds;
 
                 if (frameToProcess == null)
                 {
@@ -282,52 +287,64 @@ namespace ClearFrost
 
                 using (var mat = frameToProcess)
                 {
-                    var sw = Stopwatch.StartNew();
-
+                    var inferSw = Stopwatch.StartNew();
                     // 执行检测
                     var result = await _detectionService.DetectAsync(mat, _appConfig.Confidence, overlapThreshold, _appConfig.TargetLabel, _appConfig.TargetCount);
-
-                    sw.Stop();
+                    inferSw.Stop();
+                    inferenceMs = inferSw.ElapsedMilliseconds;
 
                     bool isQualified = result.IsQualified;
+                    finalQualified = isQualified;
                     var results = result.Results ?? new List<YoloResult>();
 
                     // 应用 ROI 过滤
+                    var roiSw = Stopwatch.StartNew();
                     results = FilterResultsByROI(results, mat.Width, mat.Height);
+                    roiSw.Stop();
+                    roiFilterMs = roiSw.ElapsedMilliseconds;
+                    finalResultCount = results.Count;
 
                     // 将检测结果写入PLC
+                    var plcSw = Stopwatch.StartNew();
                     await WriteDetectionResultToPlc(isQualified);
+                    plcSw.Stop();
+                    plcWriteMs = plcSw.ElapsedMilliseconds;
 
-                    // 保存图像
-                    string imagePath = await SaveDetectionImage(mat, results, isQualified, result.UsedModelLabels);
-
-                    // 发送结果到前端
                     string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
-                    using (var bitmap = mat.ToBitmap())
-                    using (var resultImage = _detectionService.GenerateResultImage(bitmap, results, labels))
-                    using (var ms = new MemoryStream())
+                    using (var renderedMat = TryRenderDetectionMat(mat, results, labels))
                     {
-                        resultImage.Save(ms, ImageFormat.Jpeg);
-                        string base64 = Convert.ToBase64String(ms.ToArray());
-                        await _uiController.UpdateImage(base64);
+                        // 发送结果到前端
+                        var renderSw = Stopwatch.StartNew();
+                        await _uiController.UpdateImage(renderedMat ?? mat);
+                        renderSw.Stop();
+                        renderToUiMs = renderSw.ElapsedMilliseconds;
+
+                        // 保存图像（不合格时复用同一份渲染结果）
+                        var saveSw = Stopwatch.StartNew();
+                        _ = await SaveDetectionImage(mat, results, isQualified, result.UsedModelLabels, renderedMat);
+                        saveSw.Stop();
+                        saveQueueMs = saveSw.ElapsedMilliseconds;
                     }
 
                     // 日志 (发送到检测流水，包含模型切换信息)
                     string objDesc = GetDetailedDetectionLog(results, labels);
                     string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
-                    await _uiController.LogDetectionToFrontend($"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {sw.ElapsedMilliseconds}ms{modelInfo}", isQualified ? "success" : "error");
+                    await _uiController.LogDetectionToFrontend($"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {inferenceMs}ms{modelInfo}", isQualified ? "success" : "error");
 
                     // 更新统计
                     _statisticsService.RecordDetection(isQualified);
 
                     // 写入数据库
+                    var dbSw = Stopwatch.StartNew();
                     await _databaseService.SaveDetectionRecordAsync(new DetectionRecord
                     {
                         Timestamp = DateTime.Now,
                         IsQualified = isQualified,
                         ModelName = _detectionService.CurrentModelName,
-                        InferenceMs = (int)sw.ElapsedMilliseconds
+                        InferenceMs = (int)inferenceMs
                     });
+                    dbSw.Stop();
+                    dbWriteMs = dbSw.ElapsedMilliseconds;
                 }
             }
             catch (Exception ex)
@@ -336,11 +353,41 @@ namespace ClearFrost
             }
             finally
             {
+                totalSw.Stop();
+                if (captureMs > 0 || inferenceMs > 0 || roiFilterMs > 0 || plcWriteMs > 0 || renderToUiMs > 0 || saveQueueMs > 0 || dbWriteMs > 0)
+                {
+                    WritePerformanceProfileLog(
+                        "手动",
+                        finalQualified,
+                        totalSw.ElapsedMilliseconds,
+                        captureMs,
+                        inferenceMs,
+                        roiFilterMs,
+                        renderToUiMs,
+                        saveQueueMs,
+                        plcWriteMs,
+                        dbWriteMs,
+                        1,
+                        finalResultCount);
+                }
+
                 _detectionSemaphore.Release();
             }
         }
 
-        private async Task<string> SaveDetectionImage(Mat image, List<YoloResult> results, bool isQualified, string[]? usedLabels = null)
+        private Mat? TryRenderDetectionMat(Mat sourceImage, List<YoloResult> results, string[] labels)
+        {
+            if (results == null || results.Count == 0)
+            {
+                return null;
+            }
+
+            using var bitmap = sourceImage.ToBitmap();
+            using var resultImage = _detectionService.GenerateResultImage(bitmap, results, labels);
+            return OpenCvSharp.Extensions.BitmapConverter.ToMat(resultImage);
+        }
+
+        private Task<string> SaveDetectionImage(Mat image, List<YoloResult> results, bool isQualified, string[]? usedLabels = null, Mat? renderedImage = null)
         {
             try
             {
@@ -350,33 +397,76 @@ namespace ClearFrost
                 string hourFolder = now.ToString("HH");
                 string directory = Path.Combine(Path_Images, subFolder, dateFolder, hourFolder);
 
-                if (!Directory.Exists(directory))
-                    Directory.CreateDirectory(directory);
+                Directory.CreateDirectory(directory);
 
                 string fileName = $"{(isQualified ? "PASS" : "FAIL")}_{now:HHmmssfff}.jpg";
                 string filePath = Path.Combine(directory, fileName);
 
-                // 如果有检测结果，先绘制边框（仅当不合格时绘制，合格则保存原图）
+                // 不合格图像优先复用调用方已渲染结果，避免二次 ToBitmap + 渲染。
                 if (!isQualified && results.Count > 0)
                 {
-                    string[] labels = usedLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
-                    using (var bitmap = image.ToBitmap())
-                    using (var resultImage = _detectionService.GenerateResultImage(bitmap, results, labels))
+                    if (renderedImage != null && !renderedImage.Empty())
                     {
-                        resultImage.Save(filePath, ImageFormat.Jpeg);
+                        _imageSaveQueue.Enqueue(renderedImage, filePath);
+                    }
+                    else
+                    {
+                        string[] labels = usedLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
+                        using var bitmap = image.ToBitmap();
+                        using var resultImage = _detectionService.GenerateResultImage(bitmap, results, labels);
+                        using var renderedMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(resultImage);
+                        _imageSaveQueue.Enqueue(renderedMat, filePath);
                     }
                 }
                 else
                 {
-                    Cv2.ImWrite(filePath, image);
+                    _imageSaveQueue.Enqueue(image, filePath);
                 }
 
-                return filePath;
+                return Task.FromResult(filePath);
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"保存检测图像失败: {ex.Message}");
-                return "";
+                return Task.FromResult(string.Empty);
+            }
+        }
+
+        private void WritePerformanceProfileLog(
+            string mode,
+            bool isQualified,
+            long totalMs,
+            long captureMs,
+            long inferenceMs,
+            long roiFilterMs,
+            long renderToUiMs,
+            long saveQueueMs,
+            long plcWriteMs,
+            long dbWriteMs,
+            int attempts,
+            int resultCount)
+        {
+            try
+            {
+                StringBuilder sb = new StringBuilder(256);
+                sb.AppendLine($"模式: {mode}");
+                sb.AppendLine($"总耗时: {totalMs}ms");
+                sb.AppendLine($"尝试次数: {Math.Max(1, attempts)} (重试{Math.Max(0, attempts - 1)}次)");
+                sb.AppendLine($"目标数量: {resultCount}");
+                sb.AppendLine("阶段耗时:");
+                sb.AppendLine($"- 取图: {captureMs}ms");
+                sb.AppendLine($"- 推理: {inferenceMs}ms");
+                sb.AppendLine($"- ROI过滤: {roiFilterMs}ms");
+                sb.AppendLine($"- 前端渲染: {renderToUiMs}ms");
+                sb.AppendLine($"- 图像入队: {saveQueueMs}ms");
+                sb.AppendLine($"- PLC写入: {plcWriteMs}ms");
+                sb.AppendLine($"- 数据库写入: {dbWriteMs}ms");
+
+                _storageService.WriteDetectionLog(sb.ToString(), isQualified);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[主窗口-性能日志] 写入失败: {ex.Message}");
             }
         }
 
