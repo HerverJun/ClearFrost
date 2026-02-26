@@ -44,11 +44,14 @@ namespace ClearFrost
             _plcService.TriggerReceived += () =>
             {
                 Debug.WriteLine($"[主窗口] 📥 收到PLC触发事件 - {DateTime.Now:HH:mm:ss.fff}");
-                // 闪烁触发指示灯
-                SafeFireAndForget(_uiController.FlashPlcTrigger(), "PLC触发指示灯");
-                // 触发检测
-                Debug.WriteLine("[主窗口] 🔄 调用 HandlePlcTriggerAsync...");
-                InvokeOnUIThread(() => SafeFireAndForget(HandlePlcTriggerAsync(), "PLC触发"));
+                InvokeOnUIThread(() =>
+                {
+                    // 闪烁触发指示灯
+                    SafeFireAndForget(_uiController.FlashPlcTrigger(), "PLC触发指示灯");
+                    // 触发检测
+                    Debug.WriteLine("[主窗口] 🔄 调用 HandlePlcTriggerAsync...");
+                    SafeFireAndForget(HandlePlcTriggerAsync(), "PLC触发");
+                });
             };
             _plcService.ErrorOccurred += (error) =>
             {

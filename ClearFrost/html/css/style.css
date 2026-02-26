@@ -352,3 +352,62 @@
         .btn-press:active {
             transform: scale(0.95);
         }
+
+        /* 轻量消息飘窗 (Toast) */
+        .cf-toast-container {
+            position: fixed;
+            top: 96px;
+            right: 24px;
+            z-index: 80;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+        }
+
+        .cf-toast {
+            min-width: 220px;
+            max-width: 360px;
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid #d9e4ea;
+            box-shadow: 0 10px 24px rgba(26, 29, 33, 0.12);
+            font-size: 12px;
+            font-weight: 700;
+            color: #334155;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(6px);
+            transform: translateY(-6px);
+            opacity: 0;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .cf-toast-show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .cf-toast-info {
+            border-color: #d9e4ea;
+            background: rgba(255, 255, 255, 0.95);
+            color: #334155;
+        }
+
+        .cf-toast-success {
+            border-color: #8dd8b2;
+            background: rgba(240, 253, 247, 0.96);
+            color: #166534;
+        }
+
+        .cf-toast-warning {
+            border-color: #f3d5a3;
+            background: rgba(255, 250, 238, 0.96);
+            color: #9a5510;
+        }
+
+        .camera-open-pending {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: scale(0.98);
+            pointer-events: none;
+        }
