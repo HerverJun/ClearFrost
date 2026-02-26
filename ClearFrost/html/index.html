@@ -562,7 +562,7 @@
         </div>
         <div class="w-px h-8 bg-ink-900/10"></div>
         <div class="flex items-center gap-2">
-            <button onclick="sendCommand('open_camera')"
+            <button id="btn-open-camera" onclick="requestOpenCamera(this)"
                 class="p-2.5 rounded-xl hover:bg-white/50 text-ink-600 transition-all" title="打开相机">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

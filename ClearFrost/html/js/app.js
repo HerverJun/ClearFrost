@@ -21,6 +21,71 @@ function sendCommand(cmd, value = null) {
 }
 window.sendCommand = sendCommand;
 
+let _openCameraCooldownUntil = 0;
+let _openCameraUnlockTimer = null;
+let _openCameraPending = false;
+
+function getToastContainer() {
+    let container = document.getElementById('cf-toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'cf-toast-container';
+        container.className = 'cf-toast-container';
+        document.body.appendChild(container);
+    }
+    return container;
+}
+
+function showToast(message, type = 'info', durationMs = 1400) {
+    if (!message) return;
+
+    const container = getToastContainer();
+    const toast = document.createElement('div');
+    toast.className = `cf-toast cf-toast-${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        toast.classList.add('cf-toast-show');
+    });
+
+    window.setTimeout(() => {
+        toast.classList.remove('cf-toast-show');
+        window.setTimeout(() => toast.remove(), 220);
+    }, durationMs);
+}
+window.showToast = showToast;
+
+function setOpenCameraButtonBusy(isBusy) {
+    const btn = document.getElementById('btn-open-camera');
+    if (!btn) return;
+
+    btn.disabled = isBusy;
+    btn.classList.toggle('camera-open-pending', isBusy);
+}
+
+function requestOpenCamera() {
+    const now = Date.now();
+    if (now < _openCameraCooldownUntil) {
+        showToast('相机正在打开中，请勿重复点击', 'warning', 1200);
+        return;
+    }
+
+    _openCameraCooldownUntil = now + 1500;
+    _openCameraPending = true;
+
+    setOpenCameraButtonBusy(true);
+    if (_openCameraUnlockTimer) window.clearTimeout(_openCameraUnlockTimer);
+    _openCameraUnlockTimer = window.setTimeout(() => {
+        setOpenCameraButtonBusy(false);
+        _openCameraUnlockTimer = null;
+    }, 1500);
+
+    sendCommand('open_camera');
+    showToast('打开相机指令已发送', 'info', 1200);
+}
+window.requestOpenCamera = requestOpenCamera;
+
 // --- Logging ---
 
 function addLog(msg, type = 'info') {
@@ -142,6 +207,16 @@ function updateConnection(type, isConnected) {
             el.classList.add('bg-slate-300');
         }
     }
+
+    if (type === 'cam' && isConnected && _openCameraPending) {
+        _openCameraPending = false;
+        setOpenCameraButtonBusy(false);
+        if (_openCameraUnlockTimer) {
+            window.clearTimeout(_openCameraUnlockTimer);
+            _openCameraUnlockTimer = null;
+        }
+        showToast('相机连接成功', 'success', 1300);
+    }
 }
 window.updateConnection = updateConnection;
 
@@ -256,6 +331,11 @@ function flashPlcTrigger() {
         void el.offsetWidth;
         // 添加动画类
         el.classList.add('status-trigger-flash');
+
+        // 动画结束后复位 class，确保后续每次触发都能稳定重播
+        el.addEventListener('animationend', () => {
+            el.classList.remove('status-trigger-flash');
+        }, { once: true });
     }
 }
 window.flashPlcTrigger = flashPlcTrigger;
