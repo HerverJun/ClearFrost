@@ -19,7 +19,7 @@
 
 ### 2. 渲染器增加工业精简模式
 
-- [x] **2.1** `AppConfig` 新增 `bool IndustrialRenderMode`（默认 `false`，工控机上手动开启）
+- [x] **2.1** `AppConfig` 新增 `bool IndustrialRenderMode`（默认 `true`，可在设置中取消勾选恢复美观渲染）
 - [x] **2.2** `YoloRenderer.DrawDetectionBoxes` 增加分支：`IndustrialRenderMode = true` 时仅绘制纯色矩形框 + 简单文本标签
   - 去掉 6 层辉光循环
   - 去掉 LinearGradientBrush 渐变
