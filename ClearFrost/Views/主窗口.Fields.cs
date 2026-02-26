@@ -33,6 +33,7 @@ namespace ClearFrost
         private readonly IStorageService _storageService;
         private readonly IStatisticsService _statisticsService;
         private readonly IDatabaseService _databaseService;
+        private readonly ImageSaveQueue _imageSaveQueue;
 
         // WebUI 控制器
         private WebUIController _uiController;

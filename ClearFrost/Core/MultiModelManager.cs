@@ -274,102 +274,126 @@ namespace ClearFrost.Yolo
             ThrowIfDisposed();
 
             var result = new MultiModelInferenceResult();
-            TotalInferenceCount++;
+            YoloDetector? primaryModel;
+            YoloDetector? auxiliary1Model;
+            YoloDetector? auxiliary2Model;
+            string primaryModelPath;
+            string auxiliary1ModelPath;
+            string auxiliary2ModelPath;
+            bool enableFallback;
 
+            // 仅保护模型引用读取，推理本身在锁外执行。
             lock (_lock)
             {
-                // 主模型推理
-                if (_primaryModel != null)
-                {
-                    try
-                    {
-                        var results = _primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                TotalInferenceCount++;
+                primaryModel = _primaryModel;
+                auxiliary1Model = _auxiliary1Model;
+                auxiliary2Model = _auxiliary2Model;
+                primaryModelPath = _primaryModelPath;
+                auxiliary1ModelPath = _auxiliary1ModelPath;
+                auxiliary2ModelPath = _auxiliary2ModelPath;
+                enableFallback = EnableFallback;
+            }
 
-                        // 只要有检测结果就返回，目标标签过滤在DetectionService层处理
-                        // 模型切换只在完全没有检测结果时触发
-                        if (results.Count > 0)
+            // 主模型推理
+            if (primaryModel != null)
+            {
+                try
+                {
+                    var primaryResults = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+
+                    // 只要有检测结果就返回，目标标签过滤在DetectionService层处理
+                    // 模型切换只在完全没有检测结果时触发
+                    if (primaryResults.Count > 0)
+                    {
+                        lock (_lock)
                         {
                             PrimaryHitCount++;
                             LastUsedModel = ModelRole.Primary;
-                            result.Results = results;
-                            result.UsedModel = ModelRole.Primary;
-                            result.UsedModelName = System.IO.Path.GetFileName(_primaryModelPath);
-                            result.UsedModelLabels = _primaryModel.Labels ?? Array.Empty<string>();
-                            result.WasFallback = false;
-                            return result;
                         }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型未检测到任何目标，尝试切换辅助模型...");
-                        }
+
+                        result.Results = primaryResults;
+                        result.UsedModel = ModelRole.Primary;
+                        result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
+                        result.UsedModelLabels = primaryModel.Labels ?? Array.Empty<string>();
+                        result.WasFallback = false;
+                        return result;
                     }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型推理异常: {ex.Message}");
-                    }
+
+                    System.Diagnostics.Debug.WriteLine("[MultiModelManager] 主模型未检测到任何目标，尝试切换辅助模型...");
                 }
-
-                // 
-                if (!EnableFallback)
+                catch (Exception ex)
                 {
-                    result.UsedModel = ModelRole.Primary;
-                    result.UsedModelName = System.IO.Path.GetFileName(_primaryModelPath);
-                    result.UsedModelLabels = _primaryModel?.Labels ?? Array.Empty<string>();
-                    return result;
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型推理异常: {ex.Message}");
                 }
+            }
 
-                // 尝试辅助模型1
-                if (_auxiliary1Model != null)
+            if (!enableFallback)
+            {
+                result.UsedModel = ModelRole.Primary;
+                result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
+                result.UsedModelLabels = primaryModel?.Labels ?? Array.Empty<string>();
+                return result;
+            }
+
+            // 尝试辅助模型1
+            if (auxiliary1Model != null)
+            {
+                try
                 {
-                    try
-                    {
-                        System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型1进行检测...");
-                        var results = _auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型1进行检测...");
+                    var aux1Results = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
 
-                        // 有结果就返回
-                        if (results.Count > 0)
+                    if (aux1Results.Count > 0)
+                    {
+                        lock (_lock)
                         {
                             Auxiliary1HitCount++;
                             LastUsedModel = ModelRole.Auxiliary1;
-                            result.Results = results;
-                            result.UsedModel = ModelRole.Auxiliary1;
-                            result.UsedModelName = System.IO.Path.GetFileName(_auxiliary1ModelPath);
-                            result.UsedModelLabels = _auxiliary1Model.Labels ?? Array.Empty<string>();
-                            result.WasFallback = true;
-                            System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1命中!");
-                            return result;
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1推理异常: {ex.Message}");
-                    }
-                }
 
-                // 
-                if (_auxiliary2Model != null)
-                {
-                    try
-                    {
-                        var results = _auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
-                        Auxiliary2HitCount++;
-                        LastUsedModel = ModelRole.Auxiliary2;
-                        result.Results = results;
-                        result.UsedModel = ModelRole.Auxiliary2;
-                        result.UsedModelName = System.IO.Path.GetFileName(_auxiliary2ModelPath);
-                        result.UsedModelLabels = _auxiliary2Model.Labels ?? Array.Empty<string>();
+                        result.Results = aux1Results;
+                        result.UsedModel = ModelRole.Auxiliary1;
+                        result.UsedModelName = System.IO.Path.GetFileName(auxiliary1ModelPath);
+                        result.UsedModelLabels = auxiliary1Model.Labels ?? Array.Empty<string>();
                         result.WasFallback = true;
+                        System.Diagnostics.Debug.WriteLine("[MultiModelManager] 辅助模型1命中!");
                         return result;
                     }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��2�����쳣: {ex.Message}");
-                    }
                 }
-
-                // 
-                return result;
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1推理异常: {ex.Message}");
+                }
             }
+
+            // 尝试辅助模型2
+            if (auxiliary2Model != null)
+            {
+                try
+                {
+                    var aux2Results = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+
+                    lock (_lock)
+                    {
+                        Auxiliary2HitCount++;
+                        LastUsedModel = ModelRole.Auxiliary2;
+                    }
+
+                    result.Results = aux2Results;
+                    result.UsedModel = ModelRole.Auxiliary2;
+                    result.UsedModelName = System.IO.Path.GetFileName(auxiliary2ModelPath);
+                    result.UsedModelLabels = auxiliary2Model.Labels ?? Array.Empty<string>();
+                    result.WasFallback = true;
+                    return result;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��2�����쳣: {ex.Message}");
+                }
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -403,10 +427,16 @@ namespace ClearFrost.Yolo
         {
             ThrowIfDisposed();
 
-            if (_primaryModel == null)
+            YoloDetector? primaryModel;
+            lock (_lock)
+            {
+                primaryModel = _primaryModel;
+            }
+
+            if (primaryModel == null)
                 return new List<YoloResult>();
 
-            return _primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+            return primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
         }
 
         #endregion
@@ -448,12 +478,23 @@ namespace ClearFrost.Yolo
         /// </summary>
         public void SetTaskMode(YoloTaskType taskType)
         {
-            if (_primaryModel != null)
-                _primaryModel.TaskMode = taskType;
-            if (_auxiliary1Model != null)
-                _auxiliary1Model.TaskMode = taskType;
-            if (_auxiliary2Model != null)
-                _auxiliary2Model.TaskMode = taskType;
+            YoloDetector? primaryModel;
+            YoloDetector? auxiliary1Model;
+            YoloDetector? auxiliary2Model;
+
+            lock (_lock)
+            {
+                primaryModel = _primaryModel;
+                auxiliary1Model = _auxiliary1Model;
+                auxiliary2Model = _auxiliary2Model;
+            }
+
+            if (primaryModel != null)
+                primaryModel.TaskMode = taskType;
+            if (auxiliary1Model != null)
+                auxiliary1Model.TaskMode = taskType;
+            if (auxiliary2Model != null)
+                auxiliary2Model.TaskMode = taskType;
         }
 
         #endregion

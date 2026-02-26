@@ -6,7 +6,6 @@ using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using OpenCvSharp;
 
@@ -59,10 +58,7 @@ namespace ClearFrost.Yolo
                 using (Graphics g = Graphics.FromImage(returnImage))
                 {
                     g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
-                    float textWidth;
-                    float textHeight;
                     g.DrawImage(image, 0, 0, image.Width, image.Height);
-                    string textContent;
 
                     // Classify
                     if (_executionTaskMode == YoloTaskType.Classify)
@@ -189,13 +185,24 @@ namespace ClearFrost.Yolo
         {
             RestoreDrawingCoordinates(ref results);
 
-            // === 极致美观模式 (Ultra Aesthetic Mode) ===
-            // 开启最高质量渲染设置，不计性能成本
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
-            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            if (IndustrialRenderMode)
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.Default;
+                g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.Default;
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Default;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Default;
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.SystemDefault;
+            }
+            else
+            {
+                // === 极致美观模式 (Ultra Aesthetic Mode) ===
+                // 开启最高质量渲染设置，不计性能成本
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            }
 
             for (int i = 0; i < results.Count; i++)
             {
@@ -209,6 +216,13 @@ namespace ClearFrost.Yolo
                 string displayText = $"{labelName}  {confText}";
 
                 Color themeColor = GetColorForClass(classId); // 获取主题色
+
+                if (IndustrialRenderMode)
+                {
+                    DrawIndustrialDetectionBox(g, rect, displayText, themeColor, font);
+                    continue;
+                }
+
                 Color whiteColor = Color.FromArgb(240, 255, 255, 255);
 
                 // 1. 【动态辉光】(Outer Glow)
@@ -318,6 +332,30 @@ namespace ClearFrost.Yolo
                 }
             }
             RestoreCenterCoordinates(ref results);
+        }
+
+        private void DrawIndustrialDetectionBox(Graphics g, RectangleF rect, string displayText, Color themeColor, Font font)
+        {
+            using (Pen boxPen = new Pen(themeColor, 2f))
+            {
+                g.DrawRectangle(boxPen, rect.X, rect.Y, rect.Width, rect.Height);
+            }
+
+            SizeF textSize = g.MeasureString(displayText, font);
+            float labelX = rect.X;
+            float labelY = rect.Y - textSize.Height - 4;
+            if (labelY < 0)
+            {
+                labelY = rect.Y + 2;
+            }
+
+            RectangleF labelRect = new RectangleF(labelX, labelY, textSize.Width + 8, textSize.Height + 4);
+            using (SolidBrush bgBrush = new SolidBrush(Color.FromArgb(220, 0, 0, 0)))
+            using (SolidBrush fgBrush = new SolidBrush(Color.White))
+            {
+                g.FillRectangle(bgBrush, labelRect);
+                g.DrawString(displayText, font, fgBrush, labelX + 4, labelY + 2);
+            }
         }
 
         /// <summary>
@@ -464,25 +502,45 @@ namespace ClearFrost.Yolo
             }
         }
 
-        private Bitmap GenerateMaskImageParallel(Mat matData, Color color)
+        private unsafe Bitmap GenerateMaskImageParallel(Mat matData, Color color)
         {
             Bitmap maskImage = new Bitmap(matData.Width, matData.Height, PixelFormat.Format32bppArgb);
             BitmapData maskImageData = maskImage.LockBits(new Rectangle(0, 0, maskImage.Width, maskImage.Height), ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
             int height = maskImage.Height;
             int width = maskImage.Width;
-            Parallel.For(0, height, i =>
+
+            try
             {
-                for (int j = 0; j < width; j++)
+                byte* scan0 = (byte*)maskImageData.Scan0.ToPointer();
+                int stride = maskImageData.Stride;
+
+                Parallel.For(0, height, i =>
                 {
-                    if (matData.At<float>(i, j) == 1)
+                    Span<byte> colorInfo = stackalloc byte[4];
+                    colorInfo[0] = color.B;
+                    colorInfo[1] = color.G;
+                    colorInfo[2] = color.R;
+                    colorInfo[3] = color.A;
+
+                    byte* rowStart = scan0 + (i * stride);
+                    for (int j = 0; j < width; j++)
                     {
-                        IntPtr startPixel = IntPtr.Add(maskImageData.Scan0, i * maskImageData.Stride + j * 4);
-                        byte[] colorInfo = new byte[] { color.B, color.G, color.R, color.A };
-                        Marshal.Copy(colorInfo, 0, startPixel, 4);
+                        if (matData.At<float>(i, j) == 1)
+                        {
+                            byte* pixel = rowStart + (j * 4);
+                            pixel[0] = colorInfo[0];
+                            pixel[1] = colorInfo[1];
+                            pixel[2] = colorInfo[2];
+                            pixel[3] = colorInfo[3];
+                        }
                     }
-                }
-            });
-            maskImage.UnlockBits(maskImageData);
+                });
+            }
+            finally
+            {
+                maskImage.UnlockBits(maskImageData);
+            }
+
             return maskImage;
         }
 

@@ -270,14 +270,15 @@ namespace ClearFrost.Services
                                 ? MatType.CV_8UC1
                                 : MatType.CV_8UC3;
                             using var tempMat = new Mat(cameraFrame.Height, cameraFrame.Width, matType, cameraFrame.DataPtr);
+                            Mat capturedFrame = tempMat.Clone();
 
                             lock (_frameLock)
                             {
                                 _lastFrame?.Dispose();
-                                _lastFrame = tempMat.Clone();
+                                _lastFrame = capturedFrame;
                             }
 
-                            FrameCaptured?.Invoke(_lastFrame.Clone());
+                            FrameCaptured?.Invoke(capturedFrame);
                         }
                     }
 

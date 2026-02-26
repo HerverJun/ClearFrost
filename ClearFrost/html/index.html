@@ -696,6 +696,18 @@
                                 <input id="cfg-plc-result"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono">
                             </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[10px] text-ink-400 mb-1">触发延迟 (ms)</label>
+                                    <input id="cfg-plc-trigger-delay" type="number" min="0" step="50"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="800">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] text-ink-400 mb-1">轮询间隔 (ms)</label>
+                                    <input id="cfg-plc-polling-interval" type="number" min="50" step="50"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="500">
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -731,6 +743,13 @@
                                     <input id="cfg-yolo-gpu" type="checkbox"
                                         class="accent-celadon-600 w-3.5 h-3.5 rounded">
                                     <span class="text-[10px] font-bold text-ink-500">启用 GPU 加速 (CUDA)</span>
+                                </label>
+                            </div>
+                            <div class="col-span-2">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input id="cfg-industrial-render-mode" type="checkbox"
+                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
+                                    <span class="text-[10px] font-bold text-ink-500">工业渲染模式（轻量绘制）</span>
                                 </label>
                             </div>
                         </div>

@@ -142,7 +142,7 @@ namespace ClearFrost.Services
 
         #region 监听功能
 
-        public void StartMonitoring(short triggerAddress, int pollingIntervalMs = 500)
+        public void StartMonitoring(short triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800)
         {
             if (_monitoringCts != null) return;
 
@@ -151,10 +151,10 @@ namespace ClearFrost.Services
 
             _ = Task.Run(async () =>
             {
-                await MonitoringLoop(triggerAddress, pollingIntervalMs, token);
+                await MonitoringLoop(triggerAddress, pollingIntervalMs, triggerDelayMs, token);
             });
 
-            Debug.WriteLine($"[PlcService] 开始监听触发地址: {triggerAddress}");
+            Debug.WriteLine($"[PlcService] 开始监听触发地址: {triggerAddress}, 轮询间隔: {pollingIntervalMs}ms, 触发延迟: {triggerDelayMs}ms");
         }
 
         public void StopMonitoring()
@@ -179,12 +179,11 @@ namespace ClearFrost.Services
             _monitoringCts = null;
         }
 
-        private async Task MonitoringLoop(short triggerAddress, int pollingIntervalMs, CancellationToken token)
+        private async Task MonitoringLoop(short triggerAddress, int pollingIntervalMs, int triggerDelayMs, CancellationToken token)
         {
-            const int triggerDelay = 800;
             int pollCount = 0;
 
-            Debug.WriteLine($"[PlcService] ▶ 监听循环启动 - 地址: {triggerAddress}, 间隔: {pollingIntervalMs}ms");
+            Debug.WriteLine($"[PlcService] ▶ 监听循环启动 - 地址: {triggerAddress}, 间隔: {pollingIntervalMs}ms, 延迟: {triggerDelayMs}ms");
 
             while (!token.IsCancellationRequested)
             {
@@ -214,7 +213,7 @@ namespace ClearFrost.Services
                         bool resetSuccess = await _plcDevice.WriteInt16Async(address, 0);
                         Debug.WriteLine($"[PlcService] ↩ 复位信号 - {(resetSuccess ? "成功" : "失败")}");
 
-                        await Task.Delay(triggerDelay);
+                        await Task.Delay(triggerDelayMs, token);
 
                         // 触发事件通知
                         Debug.WriteLine("[PlcService] 📤 触发 TriggerReceived 事件...");

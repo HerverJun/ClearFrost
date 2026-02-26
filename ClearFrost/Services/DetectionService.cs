@@ -236,10 +236,7 @@ namespace ClearFrost.Services
         public async Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold,
             string? targetLabel = null, int targetCount = 0)
         {
-            var result = new DetectionResultData
-            {
-                OriginalBitmap = new Bitmap(image)
-            };
+            var result = new DetectionResultData();
 
             if (!IsModelLoaded)
             {

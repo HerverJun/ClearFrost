@@ -3,6 +3,8 @@
   "PlcPort": 4999,
   "PlcTriggerAddress": 555,
   "PlcResultAddress": 556,
+  "PlcTriggerDelayMs": 800,
+  "PlcPollingIntervalMs": 500,
   "PlcProtocol": "Mitsubishi_MC_ASCII",
   "Cameras": [
     {
@@ -31,6 +33,7 @@
   "EnablePreprocessing": true,
   "EnableGpu": false,
   "GpuIndex": 0,
+  "IndustrialRenderMode": false,
   "Auxiliary1ModelPath": "",
   "Auxiliary2ModelPath": "",
   "EnableMultiModelFallback": false,

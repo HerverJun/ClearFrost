@@ -16,19 +16,23 @@ public class AppConfigTests
         var config = new AppConfig();
 
         // Assert
-        config.PlcIp.Should().Be("192.168.22.44");
-        config.PlcPort.Should().Be(4999);
+        config.PlcIp.Should().Be("192.168.250.1");
+        config.PlcPort.Should().Be(5999);
         config.Confidence.Should().BeApproximately(0.5f, 0.001f);
         config.IouThreshold.Should().BeApproximately(0.3f, 0.001f);
         config.TargetCount.Should().Be(4);
         config.VisionMode.Should().Be(0);
-        config.Cameras.Should().BeEmpty();
+        config.Cameras.Should().ContainSingle();
+        config.ActiveCamera.Should().NotBeNull();
+        config.ActiveCamera!.Id.Should().Be("legacy_cam");
     }
 
     [Fact]
     public void ActiveCamera_无相机时返回Null()
     {
         var config = new AppConfig();
+        config.Cameras.Clear();
+        config.ActiveCameraId = "";
 
         config.ActiveCamera.Should().BeNull();
     }
@@ -53,6 +57,9 @@ public class AppConfigTests
     public void ActiveCamera_找不到Id时返回第一个启用的相机()
     {
         var config = new AppConfig();
+        config.Cameras.Clear();
+        config.ActiveCameraId = "";
+
         var cam1 = new CameraConfig { Id = "cam1", DisplayName = "相机1", IsEnabled = false };
         var cam2 = new CameraConfig { Id = "cam2", DisplayName = "相机2", IsEnabled = true };
         config.Cameras.Add(cam1);

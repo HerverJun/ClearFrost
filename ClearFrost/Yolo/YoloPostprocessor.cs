@@ -15,6 +15,34 @@ namespace ClearFrost.Yolo
     {
         // ==================== 置信度过滤方法 ====================
 
+        private static ReadOnlySpan<float> GetTensorSpan(Tensor<float> data)
+        {
+            if (data is DenseTensor<float> dense)
+            {
+                return dense.Buffer.Span;
+            }
+
+            return data.ToArray().AsSpan();
+        }
+
+        private static unsafe Mat CreateMatFromTensorBuffer(Tensor<float> data, int rows, int cols)
+        {
+            if (data is DenseTensor<float> dense)
+            {
+                var destination = new Mat(rows, cols, MatType.CV_32F);
+                ReadOnlySpan<float> span = dense.Buffer.Span;
+                fixed (float* srcPtr = span)
+                {
+                    using var source = new Mat(rows, cols, MatType.CV_32F, (IntPtr)srcPtr);
+                    source.CopyTo(destination);
+                }
+
+                return destination;
+            }
+
+            return new Mat(rows, cols, MatType.CV_32F, data.ToArray());
+        }
+
         private List<YoloResult> FilterConfidence_Yolo8_11_Segment(Tensor<float> data, float confidence)
         {
             bool isMidSize = data.Dimensions[1] < data.Dimensions[2] ? true : false;
@@ -65,18 +93,18 @@ namespace ClearFrost.Yolo
                 int outputSize = data.Dimensions[2];
                 float tempConfidence = 0f;
                 int index = -1;
-                float[] dataArray = data.ToArray();
-                for (int i = 0; i < dataArray.Length; i += outputSize)
+                ReadOnlySpan<float> dataSpan = GetTensorSpan(data);
+                for (int i = 0; i < dataSpan.Length; i += outputSize)
                 {
                     tempConfidence = 0f;
                     index = -1;
                     for (int j = 0; j < outputSize - 4 - _segWidth; j++)
                     {
-                        if (dataArray[i + 4 + j] > confidence)
+                        if (dataSpan[i + 4 + j] > confidence)
                         {
-                            if (tempConfidence < dataArray[i + 4 + j])
+                            if (tempConfidence < dataSpan[i + 4 + j])
                             {
-                                tempConfidence = dataArray[i + 4 + j];
+                                tempConfidence = dataSpan[i + 4 + j];
                                 index = j;
                             }
                         }
@@ -86,16 +114,16 @@ namespace ClearFrost.Yolo
                         float[] basicData = new float[BASIC_DATA_LENGTH];
                         YoloResult temp = new YoloResult();
                         Mat mask = new Mat(1, DEFAULT_MASK_CHANNELS, MatType.CV_32F);
-                        basicData[0] = dataArray[i];
-                        basicData[1] = dataArray[i + 1];
-                        basicData[2] = dataArray[i + 2];
-                        basicData[3] = dataArray[i + 3];
+                        basicData[0] = dataSpan[i];
+                        basicData[1] = dataSpan[i + 1];
+                        basicData[2] = dataSpan[i + 2];
+                        basicData[3] = dataSpan[i + 3];
                         basicData[4] = tempConfidence;
                         basicData[5] = index;
                         for (int ii = 0; ii < _segWidth; ii++)
                         {
                             int pos = i + outputSize - _segWidth + ii;
-                            mask.At<float>(0, ii) = dataArray[pos];
+                            mask.At<float>(0, ii) = dataSpan[pos];
                         }
                         temp.MaskData = mask;
                         temp.BasicData = basicData;
@@ -159,24 +187,24 @@ namespace ClearFrost.Yolo
             else
             {
                 List<YoloResult> resultList = new List<YoloResult>();
-                float[] dataArray = data.ToArray();
+                ReadOnlySpan<float> dataSpan = GetTensorSpan(data);
                 int channelCount = dim2;
 
-                for (int i = 0; i < dataArray.Length; i += channelCount)
+                for (int i = 0; i < dataSpan.Length; i += channelCount)
                 {
                     float maxScore = 0f;
                     int maxClassIndex = -1;
 
                     if (hasObjectness)
                     {
-                        if (dataArray[i + 4] < confidence) continue;
+                        if (dataSpan[i + 4] < confidence) continue;
                     }
 
                     int loopStart = hasObjectness ? 5 : boxOffset;
 
                     for (int k = loopStart; k < channelCount - extraDecrement; k++)
                     {
-                        float score = dataArray[i + k];
+                        float score = dataSpan[i + k];
                         if (score >= confidence)
                         {
                             if (score > maxScore)
@@ -190,10 +218,10 @@ namespace ClearFrost.Yolo
                     if (maxClassIndex != -1)
                     {
                         YoloResult temp = new YoloResult();
-                        temp.CenterX = dataArray[i];
-                        temp.CenterY = dataArray[i + 1];
-                        temp.Width = dataArray[i + 2];
-                        temp.Height = dataArray[i + 3];
+                        temp.CenterX = dataSpan[i];
+                        temp.CenterY = dataSpan[i + 1];
+                        temp.Width = dataSpan[i + 2];
+                        temp.Height = dataSpan[i + 3];
                         temp.Confidence = maxScore;
                         temp.ClassId = maxClassIndex;
                         resultList.Add(temp);
@@ -293,17 +321,17 @@ namespace ClearFrost.Yolo
                 int outputSize = data.Dimensions[2];
                 float tempConfidence = 0f;
                 int index = -1;
-                float[] dataArray = data.ToArray();
-                for (int i = 0; i < dataArray.Length; i += outputSize)
+                ReadOnlySpan<float> dataSpan = GetTensorSpan(data);
+                for (int i = 0; i < dataSpan.Length; i += outputSize)
                 {
-                    if (dataArray[i + 4] >= confidence)
+                    if (dataSpan[i + 4] >= confidence)
                     {
                         tempConfidence = 0f;
                         for (int j = 0; j < outputSize - 5 - _segWidth; j++)
                         {
-                            if (tempConfidence < dataArray[i + 5 + j])
+                            if (tempConfidence < dataSpan[i + 5 + j])
                             {
-                                tempConfidence = dataArray[i + 5 + j];
+                                tempConfidence = dataSpan[i + 5 + j];
                                 index = j;
                             }
                         }
@@ -312,16 +340,16 @@ namespace ClearFrost.Yolo
                             float[] basicData = new float[BASIC_DATA_LENGTH];
                             YoloResult temp = new YoloResult();
                             Mat mask = new Mat(1, DEFAULT_MASK_CHANNELS, MatType.CV_32F);
-                            basicData[0] = dataArray[i];
-                            basicData[1] = dataArray[i + 1];
-                            basicData[2] = dataArray[i + 2];
-                            basicData[3] = dataArray[i + 3];
-                            basicData[4] = dataArray[i + 4];
+                            basicData[0] = dataSpan[i];
+                            basicData[1] = dataSpan[i + 1];
+                            basicData[2] = dataSpan[i + 2];
+                            basicData[3] = dataSpan[i + 3];
+                            basicData[4] = dataSpan[i + 4];
                             basicData[5] = index;
                             for (int ii = 0; ii < _segWidth; ii++)
                             {
                                 int pos = i + outputSize - _segWidth + ii;
-                                mask.At<float>(0, ii) = dataArray[pos];
+                                mask.At<float>(0, ii) = dataSpan[pos];
                             }
                             temp.BasicData = basicData;
                             temp.MaskData = mask;
@@ -414,21 +442,21 @@ namespace ClearFrost.Yolo
             else
             {
                 List<YoloResult> resultList = new List<YoloResult>();
-                float[] dataArray = data.ToArray();
+                ReadOnlySpan<float> dataSpan = GetTensorSpan(data);
                 int outputSize = data.Dimensions[2];
                 float tempConfidence = 0f;
                 int index = -1;
-                for (int i = 0; i < dataArray.Length; i += outputSize)
+                for (int i = 0; i < dataSpan.Length; i += outputSize)
                 {
                     tempConfidence = 0f;
                     index = -1;
                     for (int j = 0; j < outputSize - 4 - _poseWidth; j++)
                     {
-                        if (dataArray[i + 4 + j] > confidence)
+                        if (dataSpan[i + 4 + j] > confidence)
                         {
-                            if (tempConfidence < dataArray[i + 4 + j])
+                            if (tempConfidence < dataSpan[i + 4 + j])
                             {
-                                tempConfidence = dataArray[i + 4 + j];
+                                tempConfidence = dataSpan[i + 4 + j];
                                 index = j;
                             }
                         }
@@ -437,10 +465,10 @@ namespace ClearFrost.Yolo
                     {
                         float[] basicData = new float[BASIC_DATA_LENGTH];
                         YoloResult temp = new YoloResult();
-                        basicData[0] = dataArray[i];
-                        basicData[1] = dataArray[i + 1];
-                        basicData[2] = dataArray[i + 2];
-                        basicData[3] = dataArray[i + 3];
+                        basicData[0] = dataSpan[i];
+                        basicData[1] = dataSpan[i + 1];
+                        basicData[2] = dataSpan[i + 2];
+                        basicData[3] = dataSpan[i + 3];
                         basicData[4] = tempConfidence;
                         basicData[5] = index;
                         temp.BasicData = basicData;
@@ -449,9 +477,9 @@ namespace ClearFrost.Yolo
                         for (int ii = 0; ii < _poseWidth; ii += 3)
                         {
                             PosePoint p1 = new PosePoint();
-                            p1.X = dataArray[i + 5 + ii];
-                            p1.Y = dataArray[i + 6 + ii];
-                            p1.Score = dataArray[i + 7 + ii];
+                            p1.X = dataSpan[i + 5 + ii];
+                            p1.Y = dataSpan[i + 6 + ii];
+                            p1.Score = dataSpan[i + 7 + ii];
                             keyPoints[poseIndex] = p1;
                             poseIndex++;
                         }
@@ -508,18 +536,18 @@ namespace ClearFrost.Yolo
                 int outputSize = data.Dimensions[2];
                 float tempConfidence = 0f;
                 int index = -1;
-                float[] dataArray = data.ToArray();
-                for (int i = 0; i < dataArray.Length; i += outputSize)
+                ReadOnlySpan<float> dataSpan = GetTensorSpan(data);
+                for (int i = 0; i < dataSpan.Length; i += outputSize)
                 {
                     tempConfidence = 0f;
                     index = -1;
                     for (int j = 0; j < outputSize - 5; j++)
                     {
-                        if (dataArray[i + 4 + j] > confidence)
+                        if (dataSpan[i + 4 + j] > confidence)
                         {
-                            if (tempConfidence < dataArray[i + 4 + j])
+                            if (tempConfidence < dataSpan[i + 4 + j])
                             {
-                                tempConfidence = dataArray[i + 4 + j];
+                                tempConfidence = dataSpan[i + 4 + j];
                                 index = j;
                             }
                         }
@@ -528,13 +556,13 @@ namespace ClearFrost.Yolo
                     {
                         float[] basicData = new float[7];
                         YoloResult temp = new YoloResult();
-                        basicData[0] = dataArray[i];
-                        basicData[1] = dataArray[i + 1];
-                        basicData[2] = dataArray[i + 2];
-                        basicData[3] = dataArray[i + 3];
+                        basicData[0] = dataSpan[i];
+                        basicData[1] = dataSpan[i + 1];
+                        basicData[2] = dataSpan[i + 2];
+                        basicData[3] = dataSpan[i + 3];
                         basicData[4] = tempConfidence;
                         basicData[5] = index;
-                        basicData[6] = dataArray[i + outputSize - 1];
+                        basicData[6] = dataSpan[i + outputSize - 1];
                         temp.BasicData = basicData;
                         resultList.Add(temp);
                     }
@@ -614,9 +642,8 @@ namespace ClearFrost.Yolo
         {
             if (output1 == null) return;
             if (_outputTensorInfo2_Segment == null || _outputTensorInfo2_Segment.Length < 4) return;
-            var output1Array = output1.ToArray();
-            if (output1Array == null || output1Array.Length == 0) return;
-            Mat ot1 = new Mat(_segWidth, _outputTensorInfo2_Segment[2] * _outputTensorInfo2_Segment[3], MatType.CV_32F, output1Array);
+            using Mat ot1 = CreateMatFromTensorBuffer(output1, _segWidth, _outputTensorInfo2_Segment[2] * _outputTensorInfo2_Segment[3]);
+            if (ot1.Empty()) return;
             for (int i = 0; i < data.Count; i++)
             {
                 var currentMask = data[i].MaskData;

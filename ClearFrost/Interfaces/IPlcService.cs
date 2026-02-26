@@ -76,7 +76,8 @@ namespace ClearFrost.Interfaces
         /// </summary>
         /// <param name="triggerAddress">触发地址</param>
         /// <param name="pollingIntervalMs">轮询间隔 (毫秒)</param>
-        void StartMonitoring(short triggerAddress, int pollingIntervalMs = 500);
+        /// <param name="triggerDelayMs">触发后延迟 (毫秒)</param>
+        void StartMonitoring(short triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800);
 
         /// <summary>
         /// 停止触发信号监听
