@@ -46,17 +46,20 @@ namespace ClearFrost
                 Debug.WriteLine($"[主窗口] 📥 收到PLC触发事件 - {DateTime.Now:HH:mm:ss.fff}");
                 InvokeOnUIThread(() =>
                 {
-                    // 闪烁触发指示灯
                     SafeFireAndForget(_uiController.FlashPlcTrigger(), "PLC触发指示灯");
-                    // 触发检测
-                    Debug.WriteLine("[主窗口] 🔄 调用 HandlePlcTriggerAsync...");
-                    SafeFireAndForget(HandlePlcTriggerAsync(), "PLC触发");
                 });
+
+                if (!_plcTriggerQueue.Writer.TryWrite(DateTime.Now))
+                {
+                    SafeFireAndForget(_uiController.LogToFrontend("PLC触发队列已满，已丢弃最旧触发", "warning"), "PLC触发队列告警");
+                }
             };
             _plcService.ErrorOccurred += (error) =>
             {
                 SafeFireAndForget(_uiController.LogToFrontend($"PLC错误: {error}", "error"), "PLC错误日志");
             };
+
+            StartPlcTriggerConsumer();
 
             // Detection 服务事件
             _detectionService.DetectionCompleted += (result) =>
@@ -78,11 +81,17 @@ namespace ClearFrost
             // Statistics 服务事件
             _statisticsService.StatisticsUpdated += (snapshot) =>
             {
-                SafeFireAndForget(_uiController.UpdateUI(snapshot.TotalCount, snapshot.QualifiedCount, snapshot.UnqualifiedCount), "统计更新");
+                InvokeOnUIThread(() =>
+                {
+                    SafeFireAndForget(_uiController.UpdateUI(snapshot.TotalCount, snapshot.QualifiedCount, snapshot.UnqualifiedCount), "统计更新");
+                });
             };
             _statisticsService.DayReset += () =>
             {
-                SafeFireAndForget(_uiController.LogToFrontend("检测到跨日，统计已自动重置", "info"), "跨日重置日志");
+                InvokeOnUIThread(() =>
+                {
+                    SafeFireAndForget(_uiController.LogToFrontend("检测到跨日，统计已自动重置", "info"), "跨日重置日志");
+                });
             };
 
             // 订阅退出事件
@@ -130,7 +139,7 @@ namespace ClearFrost
             };
 
             // 绑定 WebUI 事件
-            _uiController.OnOpenCamera += (s, e) => InvokeOnUIThread(() => btnOpenCamera_Logic());
+            _uiController.OnOpenCamera += (s, e) => SafeFireAndForget(btnOpenCamera_LogicAsync(), "打开相机");
             _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(btnCapture_LogicAsync(), "手动检测"));
             _uiController.OnManualRelease += (s, e) => SafeFireAndForget(fx_btn_LogicAsync(), "手动放行"); // Async void handler
             _uiController.OnOpenSettings += (s, e) => InvokeOnUIThread(() => btnSettings_Logic());
@@ -584,9 +593,18 @@ namespace ClearFrost
                     double rotate = 0;
                     if (r.TryGetProperty("rotate", out var rotProp)) rotate = rotProp.GetDouble();
 
-                    if (_lastCapturedFrame != null && !_lastCapturedFrame.Empty())
+                    Mat? frameClone = null;
+                    lock (_frameLock)
                     {
-                        using var clone = _lastCapturedFrame.Clone();
+                        if (_lastCapturedFrame != null && !_lastCapturedFrame.Empty())
+                        {
+                            frameClone = _lastCapturedFrame.Clone();
+                        }
+                    }
+
+                    if (frameClone != null)
+                    {
+                        using var clone = frameClone;
                         Mat sourceToCrop = clone;
 
                         // 1. 处理旋转 (仅支持 90度 整数倍)
@@ -688,6 +706,7 @@ namespace ClearFrost
                     id = c.Id,
                     displayName = c.DisplayName,
                     serialNumber = c.SerialNumber,
+                    manufacturer = c.Manufacturer,
                     exposureTime = c.ExposureTime,
                     gain = c.Gain
                 }).ToList();
@@ -802,6 +821,7 @@ namespace ClearFrost
                         id = c.Id,
                         displayName = c.DisplayName,
                         serialNumber = c.SerialNumber,
+                        manufacturer = c.Manufacturer,
                         exposureTime = c.ExposureTime,
                         gain = c.Gain
                     }).ToList();
@@ -836,6 +856,7 @@ namespace ClearFrost
                         id = c.Id,
                         displayName = c.DisplayName,
                         serialNumber = c.SerialNumber,
+                        manufacturer = c.Manufacturer,
                         exposureTime = c.ExposureTime,
                         gain = c.Gain
                     }).ToList();
@@ -984,6 +1005,7 @@ namespace ClearFrost
                             id = c.Id,
                             displayName = c.DisplayName,
                             serialNumber = c.SerialNumber,
+                            manufacturer = c.Manufacturer,
                             exposureTime = c.ExposureTime,
                             gain = c.Gain
                         }).ToList();
@@ -1143,6 +1165,7 @@ namespace ClearFrost
                         id = c.Id,
                         displayName = c.DisplayName,
                         serialNumber = c.SerialNumber,
+                        manufacturer = c.Manufacturer,
                         exposureTime = c.ExposureTime,
                         gain = c.Gain
                     }).ToList();
@@ -1301,8 +1324,8 @@ namespace ClearFrost
                         if (root.TryGetProperty("PlcProtocol", out var ppr)) _appConfig.PlcProtocol = ppr.GetString() ?? _appConfig.PlcProtocol;
                         if (root.TryGetProperty("PlcIp", out var pi)) _appConfig.PlcIp = pi.GetString() ?? _appConfig.PlcIp;
                         if (root.TryGetProperty("PlcPort", out var pp)) _appConfig.PlcPort = pp.TryGetInt32(out int ppVal) ? ppVal : _appConfig.PlcPort;
-                        if (root.TryGetProperty("PlcTriggerAddress", out var pt)) _appConfig.PlcTriggerAddress = pt.TryGetInt16(out short ptVal) ? ptVal : _appConfig.PlcTriggerAddress;
-                        if (root.TryGetProperty("PlcResultAddress", out var pr)) _appConfig.PlcResultAddress = pr.TryGetInt16(out short prVal) ? prVal : _appConfig.PlcResultAddress;
+                        if (root.TryGetProperty("PlcTriggerAddress", out var pt)) _appConfig.PlcTriggerAddress = ParsePlcAddress(pt, _appConfig.PlcTriggerAddress);
+                        if (root.TryGetProperty("PlcResultAddress", out var pr)) _appConfig.PlcResultAddress = ParsePlcAddress(pr, _appConfig.PlcResultAddress);
                         if (root.TryGetProperty("PlcTriggerDelayMs", out var ptd)) _appConfig.PlcTriggerDelayMs = ptd.TryGetInt32(out int ptdVal) ? Math.Max(0, ptdVal) : _appConfig.PlcTriggerDelayMs;
                         if (root.TryGetProperty("PlcPollingIntervalMs", out var ppi)) _appConfig.PlcPollingIntervalMs = ppi.TryGetInt32(out int ppiVal) ? Math.Max(50, ppiVal) : _appConfig.PlcPollingIntervalMs;
 #pragma warning disable CS0618
@@ -1316,6 +1339,11 @@ namespace ClearFrost
                         {
                             _appConfig.CameraSerialNumber = cs.GetString()?.Trim() ?? _appConfig.CameraSerialNumber;
                             if (activeCam != null) activeCam.SerialNumber = _appConfig.CameraSerialNumber;
+                        }
+                        if (root.TryGetProperty("CameraManufacturer", out var cm))
+                        {
+                            _appConfig.CameraManufacturer = cm.GetString()?.Trim() ?? _appConfig.CameraManufacturer;
+                            if (activeCam != null) activeCam.Manufacturer = _appConfig.CameraManufacturer;
                         }
                         if (root.TryGetProperty("ExposureTime", out var et))
                         {
@@ -1332,9 +1360,11 @@ namespace ClearFrost
                         if (root.TryGetProperty("TargetCount", out var tc)) _appConfig.TargetCount = tc.TryGetInt32(out int tcVal) ? tcVal : _appConfig.TargetCount;
                         if (root.TryGetProperty("MaxRetryCount", out var mrc)) _appConfig.MaxRetryCount = mrc.TryGetInt32(out int mrcVal) ? mrcVal : _appConfig.MaxRetryCount;
                         if (root.TryGetProperty("RetryIntervalMs", out var rim)) _appConfig.RetryIntervalMs = rim.TryGetInt32(out int rimVal) ? rimVal : _appConfig.RetryIntervalMs;
+                        if (root.TryGetProperty("TaskType", out var taskType)) _appConfig.TaskType = taskType.TryGetInt32(out int taskTypeVal) ? taskTypeVal : _appConfig.TaskType;
                         if (root.TryGetProperty("EnableGpu", out var eg)) _appConfig.EnableGpu = eg.ValueKind == JsonValueKind.True;
                         if (root.TryGetProperty("IndustrialRenderMode", out var irm)) _appConfig.IndustrialRenderMode = irm.ValueKind == JsonValueKind.True;
                         YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
+                        _detectionService.SetTaskMode(_appConfig.TaskType);
 
                         // 保存并重新加载
                         _appConfig.Save();
@@ -1471,6 +1501,17 @@ namespace ClearFrost
                 // 停止后台任务
                 this.停止 = true;
                 _plcService?.StopMonitoring();
+                _plcTriggerQueue.Writer.TryComplete();
+                _plcTriggerQueueCts.Cancel();
+                try
+                {
+                    _plcTriggerConsumerTask?.Wait(300);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"PLC Trigger Consumer Stop Error: {ex.Message}");
+                }
+                _plcTriggerQueueCts.Dispose();
 
                 // 使用线程等待模式进行资源释放，防止界面卡死
                 // 给予500ms的尝试断开时间，超时强制退出
@@ -1536,6 +1577,53 @@ namespace ClearFrost
             {
                 // 确保任何错误都不阻止关闭
             }
+        }
+
+        private static short ParsePlcAddress(JsonElement value, short fallback)
+        {
+            if (value.ValueKind == JsonValueKind.Number)
+            {
+                if (value.TryGetInt16(out short shortValue))
+                {
+                    return shortValue;
+                }
+
+                if (value.TryGetInt32(out int intValue) && intValue >= short.MinValue && intValue <= short.MaxValue)
+                {
+                    return (short)intValue;
+                }
+
+                return fallback;
+            }
+
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                string raw = value.GetString()?.Trim() ?? string.Empty;
+                if (string.IsNullOrEmpty(raw))
+                {
+                    return fallback;
+                }
+
+                // 兼容现场输入: D100 / d100 / DB1.100 / 100
+                if (raw.StartsWith("DB", StringComparison.OrdinalIgnoreCase))
+                {
+                    int dotIndex = raw.LastIndexOf('.');
+                    raw = dotIndex >= 0 && dotIndex < raw.Length - 1
+                        ? raw.Substring(dotIndex + 1)
+                        : raw.Substring(2);
+                }
+                else if (char.IsLetter(raw[0]))
+                {
+                    raw = raw.Substring(1);
+                }
+
+                if (short.TryParse(raw, out short parsed))
+                {
+                    return parsed;
+                }
+            }
+
+            return fallback;
         }
 
         private void InvokeOnUIThread(Action action)

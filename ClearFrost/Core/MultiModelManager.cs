@@ -17,6 +17,7 @@ using System.Drawing;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using OpenCvSharp;
 
 namespace ClearFrost.Yolo
 {
@@ -259,6 +260,29 @@ namespace ClearFrost.Yolo
 
         #region ��������
 
+        private static bool HasTargetLabelHit(IReadOnlyList<YoloResult> results, string[] labels, string? targetLabel)
+        {
+            if (results == null || results.Count == 0)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(targetLabel))
+            {
+                return true;
+            }
+
+            return results.Any(r =>
+            {
+                if (r.ClassId < 0 || r.ClassId >= labels.Length)
+                {
+                    return false;
+                }
+
+                return string.Equals(labels[r.ClassId], targetLabel, StringComparison.OrdinalIgnoreCase);
+            });
+        }
+
         /// <summary>
         /// 执行多模型推理，支持自动切换到辅助模型
         /// </summary>
@@ -281,6 +305,25 @@ namespace ClearFrost.Yolo
             string auxiliary1ModelPath;
             string auxiliary2ModelPath;
             bool enableFallback;
+            List<YoloResult>? bestResults = null;
+            ModelRole bestModelRole = ModelRole.None;
+            string bestModelName = string.Empty;
+            string[] bestModelLabels = Array.Empty<string>();
+            bool bestWasFallback = false;
+
+            void CaptureBestResult(List<YoloResult> detections, ModelRole modelRole, string modelPath, string[] labels, bool wasFallback)
+            {
+                if (detections.Count == 0 || bestResults != null)
+                {
+                    return;
+                }
+
+                bestResults = detections;
+                bestModelRole = modelRole;
+                bestModelName = System.IO.Path.GetFileName(modelPath);
+                bestModelLabels = labels;
+                bestWasFallback = wasFallback;
+            }
 
             // 仅保护模型引用读取，推理本身在锁外执行。
             lock (_lock)
@@ -301,10 +344,12 @@ namespace ClearFrost.Yolo
                 try
                 {
                     var primaryResults = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    var primaryLabels = primaryModel.Labels ?? Array.Empty<string>();
+                    CaptureBestResult(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false);
+                    bool primaryHit = HasTargetLabelHit(primaryResults, primaryLabels, targetLabel);
 
-                    // 只要有检测结果就返回，目标标签过滤在DetectionService层处理
-                    // 模型切换只在完全没有检测结果时触发
-                    if (primaryResults.Count > 0)
+                    // 目标标签命中（或未配置目标标签时任意命中）才停止切换
+                    if (primaryHit)
                     {
                         lock (_lock)
                         {
@@ -315,12 +360,19 @@ namespace ClearFrost.Yolo
                         result.Results = primaryResults;
                         result.UsedModel = ModelRole.Primary;
                         result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
-                        result.UsedModelLabels = primaryModel.Labels ?? Array.Empty<string>();
+                        result.UsedModelLabels = primaryLabels;
                         result.WasFallback = false;
                         return result;
                     }
 
-                    System.Diagnostics.Debug.WriteLine("[MultiModelManager] 主模型未检测到任何目标，尝试切换辅助模型...");
+                    if (primaryResults.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型检测到非目标标签，继续切换（目标: {targetLabel}）");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[MultiModelManager] 主模型未检测到任何目标，尝试切换辅助模型...");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -330,6 +382,21 @@ namespace ClearFrost.Yolo
 
             if (!enableFallback)
             {
+                if (bestResults != null)
+                {
+                    lock (_lock)
+                    {
+                        LastUsedModel = bestModelRole;
+                    }
+
+                    result.Results = bestResults;
+                    result.UsedModel = bestModelRole;
+                    result.UsedModelName = bestModelName;
+                    result.UsedModelLabels = bestModelLabels;
+                    result.WasFallback = bestWasFallback;
+                    return result;
+                }
+
                 result.UsedModel = ModelRole.Primary;
                 result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
                 result.UsedModelLabels = primaryModel?.Labels ?? Array.Empty<string>();
@@ -343,8 +410,11 @@ namespace ClearFrost.Yolo
                 {
                     System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型1进行检测...");
                     var aux1Results = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    var aux1Labels = auxiliary1Model.Labels ?? Array.Empty<string>();
+                    CaptureBestResult(aux1Results, ModelRole.Auxiliary1, auxiliary1ModelPath, aux1Labels, true);
+                    bool aux1Hit = HasTargetLabelHit(aux1Results, aux1Labels, targetLabel);
 
-                    if (aux1Results.Count > 0)
+                    if (aux1Hit)
                     {
                         lock (_lock)
                         {
@@ -355,10 +425,15 @@ namespace ClearFrost.Yolo
                         result.Results = aux1Results;
                         result.UsedModel = ModelRole.Auxiliary1;
                         result.UsedModelName = System.IO.Path.GetFileName(auxiliary1ModelPath);
-                        result.UsedModelLabels = auxiliary1Model.Labels ?? Array.Empty<string>();
+                        result.UsedModelLabels = aux1Labels;
                         result.WasFallback = true;
                         System.Diagnostics.Debug.WriteLine("[MultiModelManager] 辅助模型1命中!");
                         return result;
+                    }
+
+                    if (aux1Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1检测到非目标标签，继续切换（目标: {targetLabel}）");
                     }
                 }
                 catch (Exception ex)
@@ -373,24 +448,52 @@ namespace ClearFrost.Yolo
                 try
                 {
                     var aux2Results = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    var aux2Labels = auxiliary2Model.Labels ?? Array.Empty<string>();
+                    CaptureBestResult(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true);
+                    bool aux2Hit = HasTargetLabelHit(aux2Results, aux2Labels, targetLabel);
 
                     lock (_lock)
                     {
-                        Auxiliary2HitCount++;
+                        if (aux2Hit)
+                        {
+                            Auxiliary2HitCount++;
+                        }
                         LastUsedModel = ModelRole.Auxiliary2;
                     }
 
-                    result.Results = aux2Results;
-                    result.UsedModel = ModelRole.Auxiliary2;
-                    result.UsedModelName = System.IO.Path.GetFileName(auxiliary2ModelPath);
-                    result.UsedModelLabels = auxiliary2Model.Labels ?? Array.Empty<string>();
-                    result.WasFallback = true;
-                    return result;
+                    if (aux2Hit)
+                    {
+                        result.Results = aux2Results;
+                        result.UsedModel = ModelRole.Auxiliary2;
+                        result.UsedModelName = System.IO.Path.GetFileName(auxiliary2ModelPath);
+                        result.UsedModelLabels = aux2Labels;
+                        result.WasFallback = true;
+                        return result;
+                    }
+
+                    if (aux2Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2检测到非目标标签，结束切换（目标: {targetLabel}）");
+                    }
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��2�����쳣: {ex.Message}");
                 }
+            }
+
+            if (bestResults != null)
+            {
+                lock (_lock)
+                {
+                    LastUsedModel = bestModelRole;
+                }
+
+                result.Results = bestResults;
+                result.UsedModel = bestModelRole;
+                result.UsedModelName = bestModelName;
+                result.UsedModelLabels = bestModelLabels;
+                result.WasFallback = bestWasFallback;
             }
 
             return result;
@@ -412,6 +515,235 @@ namespace ClearFrost.Yolo
             cancellationToken.ThrowIfCancellationRequested();
 
             // 异步执行推理
+            return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode, targetLabel), cancellationToken);
+        }
+
+        /// <summary>
+        /// Mat 版本：执行多模型推理，支持自动切换到辅助模型
+        /// </summary>
+        /// <param name="targetLabel">目标标签名（可选，用于判断是否需要切换模型）</param>
+        public MultiModelInferenceResult InferenceWithFallback(
+            Mat image,
+            float confidence = 0.5f,
+            float iouThreshold = 0.3f,
+            bool globalIou = false,
+            int preprocessingMode = 1,
+            string? targetLabel = null)
+        {
+            ThrowIfDisposed();
+
+            var result = new MultiModelInferenceResult();
+            YoloDetector? primaryModel;
+            YoloDetector? auxiliary1Model;
+            YoloDetector? auxiliary2Model;
+            string primaryModelPath;
+            string auxiliary1ModelPath;
+            string auxiliary2ModelPath;
+            bool enableFallback;
+            List<YoloResult>? bestResults = null;
+            ModelRole bestModelRole = ModelRole.None;
+            string bestModelName = string.Empty;
+            string[] bestModelLabels = Array.Empty<string>();
+            bool bestWasFallback = false;
+
+            void CaptureBestResult(List<YoloResult> detections, ModelRole modelRole, string modelPath, string[] labels, bool wasFallback)
+            {
+                if (detections.Count == 0 || bestResults != null)
+                {
+                    return;
+                }
+
+                bestResults = detections;
+                bestModelRole = modelRole;
+                bestModelName = System.IO.Path.GetFileName(modelPath);
+                bestModelLabels = labels;
+                bestWasFallback = wasFallback;
+            }
+
+            lock (_lock)
+            {
+                TotalInferenceCount++;
+                primaryModel = _primaryModel;
+                auxiliary1Model = _auxiliary1Model;
+                auxiliary2Model = _auxiliary2Model;
+                primaryModelPath = _primaryModelPath;
+                auxiliary1ModelPath = _auxiliary1ModelPath;
+                auxiliary2ModelPath = _auxiliary2ModelPath;
+                enableFallback = EnableFallback;
+            }
+
+            if (primaryModel != null)
+            {
+                try
+                {
+                    var primaryResults = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    var primaryLabels = primaryModel.Labels ?? Array.Empty<string>();
+                    CaptureBestResult(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false);
+                    bool primaryHit = HasTargetLabelHit(primaryResults, primaryLabels, targetLabel);
+
+                    if (primaryHit)
+                    {
+                        lock (_lock)
+                        {
+                            PrimaryHitCount++;
+                            LastUsedModel = ModelRole.Primary;
+                        }
+
+                        result.Results = primaryResults;
+                        result.UsedModel = ModelRole.Primary;
+                        result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
+                        result.UsedModelLabels = primaryLabels;
+                        result.WasFallback = false;
+                        return result;
+                    }
+
+                    if (primaryResults.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型检测到非目标标签，继续切换（目标: {targetLabel}）");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[MultiModelManager] 主模型未检测到任何目标，尝试切换辅助模型...");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型推理异常: {ex.Message}");
+                }
+            }
+
+            if (!enableFallback)
+            {
+                if (bestResults != null)
+                {
+                    lock (_lock)
+                    {
+                        LastUsedModel = bestModelRole;
+                    }
+
+                    result.Results = bestResults;
+                    result.UsedModel = bestModelRole;
+                    result.UsedModelName = bestModelName;
+                    result.UsedModelLabels = bestModelLabels;
+                    result.WasFallback = bestWasFallback;
+                    return result;
+                }
+
+                result.UsedModel = ModelRole.Primary;
+                result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
+                result.UsedModelLabels = primaryModel?.Labels ?? Array.Empty<string>();
+                return result;
+            }
+
+            if (auxiliary1Model != null)
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型1进行检测...");
+                    var aux1Results = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    var aux1Labels = auxiliary1Model.Labels ?? Array.Empty<string>();
+                    CaptureBestResult(aux1Results, ModelRole.Auxiliary1, auxiliary1ModelPath, aux1Labels, true);
+                    bool aux1Hit = HasTargetLabelHit(aux1Results, aux1Labels, targetLabel);
+
+                    if (aux1Hit)
+                    {
+                        lock (_lock)
+                        {
+                            Auxiliary1HitCount++;
+                            LastUsedModel = ModelRole.Auxiliary1;
+                        }
+
+                        result.Results = aux1Results;
+                        result.UsedModel = ModelRole.Auxiliary1;
+                        result.UsedModelName = System.IO.Path.GetFileName(auxiliary1ModelPath);
+                        result.UsedModelLabels = aux1Labels;
+                        result.WasFallback = true;
+                        System.Diagnostics.Debug.WriteLine("[MultiModelManager] 辅助模型1命中!");
+                        return result;
+                    }
+
+                    if (aux1Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1检测到非目标标签，继续切换（目标: {targetLabel}）");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1推理异常: {ex.Message}");
+                }
+            }
+
+            if (auxiliary2Model != null)
+            {
+                try
+                {
+                    var aux2Results = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    var aux2Labels = auxiliary2Model.Labels ?? Array.Empty<string>();
+                    CaptureBestResult(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true);
+                    bool aux2Hit = HasTargetLabelHit(aux2Results, aux2Labels, targetLabel);
+
+                    lock (_lock)
+                    {
+                        if (aux2Hit)
+                        {
+                            Auxiliary2HitCount++;
+                        }
+                        LastUsedModel = ModelRole.Auxiliary2;
+                    }
+
+                    if (aux2Hit)
+                    {
+                        result.Results = aux2Results;
+                        result.UsedModel = ModelRole.Auxiliary2;
+                        result.UsedModelName = System.IO.Path.GetFileName(auxiliary2ModelPath);
+                        result.UsedModelLabels = aux2Labels;
+                        result.WasFallback = true;
+                        return result;
+                    }
+
+                    if (aux2Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2检测到非目标标签，结束切换（目标: {targetLabel}）");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2推理异常: {ex.Message}");
+                }
+            }
+
+            if (bestResults != null)
+            {
+                lock (_lock)
+                {
+                    LastUsedModel = bestModelRole;
+                }
+
+                result.Results = bestResults;
+                result.UsedModel = bestModelRole;
+                result.UsedModelName = bestModelName;
+                result.UsedModelLabels = bestModelLabels;
+                result.WasFallback = bestWasFallback;
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Mat 异步版本：执行多模型推理，支持自动切换到辅助模型
+        /// </summary>
+        public async Task<MultiModelInferenceResult> InferenceWithFallbackAsync(
+            Mat image,
+            float confidence = 0.5f,
+            float iouThreshold = 0.3f,
+            bool globalIou = false,
+            int preprocessingMode = 1,
+            string? targetLabel = null,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+            cancellationToken.ThrowIfCancellationRequested();
+
             return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode, targetLabel), cancellationToken);
         }
 

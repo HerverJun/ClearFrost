@@ -366,10 +366,12 @@ function receiveCameraList(data) {
         const activeCam = window.cameraList.find(c => c.id === window.activeCameraId);
         if (activeCam) {
             const nameEl = document.getElementById('cfg-cam-name');
+            const manufacturerEl = document.getElementById('cfg-cam-manufacturer');
             const serialEl = document.getElementById('cfg-cam-serial');
             const expEl = document.getElementById('cfg-cam-exposure');
             const gainEl = document.getElementById('cfg-cam-gain');
             if (nameEl) nameEl.value = activeCam.displayName || '';
+            if (manufacturerEl) manufacturerEl.value = activeCam.manufacturer || 'Huaray';
             if (serialEl) serialEl.value = activeCam.serialNumber || '';
             if (expEl) expEl.value = activeCam.exposureTime || '';
             if (gainEl) gainEl.value = activeCam.gain || '';

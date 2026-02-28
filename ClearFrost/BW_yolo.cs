@@ -148,6 +148,7 @@ namespace ClearFrost.Yolo
         private DenseTensor<float>? _inputTensor;
         private float[]? _tensorBuffer;
         private bool _tensorBufferInitialized = false;
+        private DenseTensor<float>? _cachedInputTensor;
         private int _yoloVersion;
         private float _maskScaleW = 0;
         private float _maskScaleH = 0;
@@ -267,6 +268,7 @@ namespace ClearFrost.Yolo
         public YoloDetector(YoloDetectorConfig config) : this(config.ModelPath, config.YoloVersion, config.GpuDeviceId, config.UseGpu)
         {
             config.Validate();
+            // 当前构造链在 this(...) 内已创建 session，暂不在此处追溯修改线程数。
         }
 
         /// <summary>
@@ -286,7 +288,7 @@ namespace ClearFrost.Yolo
             if (!File.Exists(modelPath))
                 throw new FileNotFoundException($"Model file not found: {modelPath}", modelPath);
 
-            var options = CreateSessionOptions(useGpu, gpuIndex);
+            var options = CreateSessionOptions(useGpu, gpuIndex, 0);
 
             try
             {
@@ -377,13 +379,15 @@ namespace ClearFrost.Yolo
         /// <param name="useGpu">是否使用 GPU。</param>
         /// <param name="gpuIndex">GPU 设备ID。</param>
         /// <returns>配置好的 SessionOptions 对象。</returns>
-        private static SessionOptions CreateSessionOptions(bool useGpu, int gpuIndex)
+        private static SessionOptions CreateSessionOptions(bool useGpu, int gpuIndex, int intraOpThreads = 0)
         {
             var options = new SessionOptions();
             options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
             options.EnableMemoryPattern = true;
             options.EnableCpuMemArena = true;
-            options.IntraOpNumThreads = Environment.ProcessorCount;
+            options.IntraOpNumThreads = intraOpThreads > 0
+                ? intraOpThreads
+                : Math.Max(1, Environment.ProcessorCount / 2);
 
             if (useGpu)
             {
@@ -463,6 +467,63 @@ namespace ClearFrost.Yolo
         }
 
         /// <summary>
+        /// 执行推理（同步，Mat 输入）。
+        /// </summary>
+        /// <param name="image">输入图像。</param>
+        /// <param name="confidence">置信度阈值。</param>
+        /// <param name="iouThreshold">IOU 阈值。</param>
+        /// <param name="globalIou">是否全局 NMS。</param>
+        /// <param name="preprocessingMode">预处理模式 (0: Letterbox, 1: Resize)。</param>
+        /// <returns>检测结果列表。</returns>
+        public List<YoloResult> Inference(Mat image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = 1)
+        {
+            ThrowIfDisposed();
+            if (image == null)
+                throw new ArgumentNullException(nameof(image));
+            if (image.Empty())
+                throw new ArgumentException("Invalid image dimensions", nameof(image));
+            if (confidence < 0 || confidence > 1)
+                throw new ArgumentOutOfRangeException(nameof(confidence), "Must be between 0 and 1");
+            if (iouThreshold < 0 || iouThreshold > 1)
+                throw new ArgumentOutOfRangeException(nameof(iouThreshold), "Must be between 0 and 1");
+
+            lock (_inferenceLock)
+            {
+                return InferenceInternalMat(image, confidence, iouThreshold, globalIou, preprocessingMode);
+            }
+        }
+
+        /// <summary>
+        /// 执行推理（异步，Mat 输入）。
+        /// </summary>
+        /// <param name="image">输入图像。</param>
+        /// <param name="confidence">置信度阈值。</param>
+        /// <param name="iouThreshold">IOU 阈值。</param>
+        /// <param name="globalIou">是否全局 NMS。</param>
+        /// <param name="preprocessingMode">预处理模式。</param>
+        /// <param name="cancellationToken">取消令牌。</param>
+        /// <returns>检测结果列表。</returns>
+        public async Task<List<YoloResult>> InferenceAsync(Mat image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = 1, CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+            if (image == null)
+                throw new ArgumentNullException(nameof(image));
+            if (image.Empty())
+                throw new ArgumentException("Invalid image dimensions", nameof(image));
+
+            await _inferenceSemaphore.WaitAsync(cancellationToken);
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return await Task.Run(() => InferenceInternalMat(image, confidence, iouThreshold, globalIou, preprocessingMode), cancellationToken);
+            }
+            finally
+            {
+                _inferenceSemaphore.Release();
+            }
+        }
+
+        /// <summary>
         /// 内部推理方法，执行图像预处理、模型推理和结果后处理。
         /// </summary>
         /// <param name="image">输入图像。</param>
@@ -502,7 +563,11 @@ namespace ClearFrost.Yolo
                 {
                     ImageToTensor_NoInterpolation(image, _tensorBuffer!);
                 }
-                _inputTensor = new DenseTensor<float>(_tensorBuffer!, _inputTensorInfo);
+                if (_cachedInputTensor == null)
+                {
+                    _cachedInputTensor = new DenseTensor<float>(_tensorBuffer!, _inputTensorInfo);
+                }
+                _inputTensor = _cachedInputTensor;
                 IReadOnlyCollection<NamedOnnxValue> container = new List<NamedOnnxValue> { NamedOnnxValue.CreateFromTensor(_modelInputName, _inputTensor) };
 
                 metrics.PreprocessMs = sw.Elapsed.TotalMilliseconds;
@@ -603,6 +668,143 @@ namespace ClearFrost.Yolo
             }
         }
 
+        /// <summary>
+        /// 内部推理方法（Mat 输入）。
+        /// </summary>
+        /// <param name="image">输入图像。</param>
+        /// <param name="confidence">置信度阈值。</param>
+        /// <param name="iouThreshold">IOU 阈值。</param>
+        /// <param name="globalIou">是否全局 NMS。</param>
+        /// <param name="preprocessingMode">预处理模式 (0: Letterbox, 1: Resize)。</param>
+        /// <returns>检测结果列表。</returns>
+        private List<YoloResult> InferenceInternalMat(Mat image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = 1)
+        {
+            ThrowIfDisposed();
+            if (_inferenceSession == null) return new List<YoloResult>();
+
+            var metrics = new InferenceMetrics();
+            var sw = Stopwatch.StartNew();
+
+            // ==================== 预处理阶段 ====================
+            EnsureTensorBuffer();
+            Array.Clear(_tensorBuffer!, 0, _tensorBuffer!.Length);
+
+            _scale = 1;
+            _padLeft = 0;
+            _padTop = 0;
+            _inferenceImageWidth = image.Width;
+            _inferenceImageHeight = image.Height;
+
+            if (preprocessingMode == 0)
+            {
+                using Mat processedMat = LetterboxResizeMat(image);
+                MatToTensor_Parallel(processedMat, _tensorBuffer!);
+            }
+            else if (preprocessingMode == 1)
+            {
+                MatToTensor_NoInterpolation(image, _tensorBuffer!);
+            }
+
+            if (_cachedInputTensor == null)
+            {
+                _cachedInputTensor = new DenseTensor<float>(_tensorBuffer!, _inputTensorInfo);
+            }
+            _inputTensor = _cachedInputTensor;
+            IReadOnlyCollection<NamedOnnxValue> container = new List<NamedOnnxValue> { NamedOnnxValue.CreateFromTensor(_modelInputName, _inputTensor) };
+
+            metrics.PreprocessMs = sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
+
+            // ==================== 推理阶段 ====================
+            List<YoloResult> filteredDataList;
+            List<YoloResult> finalResult = new List<YoloResult>();
+
+            if (_executionTaskMode == YoloTaskType.Classify)
+            {
+                using var resultData = _inferenceSession.Run(container);
+                var output0 = resultData.First().AsTensor<float>();
+                metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
+                sw.Restart();
+                finalResult = FilterConfidence_Classify(output0, confidence);
+            }
+            else if (_executionTaskMode == YoloTaskType.Detect)
+            {
+                using var resultData = _inferenceSession.Run(container);
+                var output0 = resultData.First().AsTensor<float>();
+                metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
+                sw.Restart();
+                if (_yoloVersion == 26)
+                {
+                    // YOLOv26 NMS-free: 直接过滤置信度，输出已是最终结果
+                    finalResult = FilterConfidence_Yolo26_Detect(output0, confidence);
+                }
+                else if (_yoloVersion == 8)
+                {
+                    filteredDataList = FilterConfidence_Yolo8_9_11_Detect(output0, confidence);
+                    finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
+                }
+                else if (_yoloVersion == 5)
+                {
+                    filteredDataList = FilterConfidence_Yolo5_Detect(output0, confidence);
+                    finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
+                }
+                else
+                {
+                    filteredDataList = FilterConfidence_Yolo6_Detect(output0, confidence);
+                    finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
+                }
+            }
+            else if (_executionTaskMode == YoloTaskType.SegmentDetectOnly || _executionTaskMode == YoloTaskType.SegmentWithMask)
+            {
+                using var resultData = _inferenceSession.Run(container);
+                var output0 = resultData.First().AsTensor<float>();
+                var output1 = resultData.ElementAtOrDefault(1)?.AsTensor<float>();
+                metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
+                sw.Restart();
+                if (_yoloVersion == 8)
+                {
+                    filteredDataList = FilterConfidence_Yolo8_11_Segment(output0, confidence);
+                }
+                else
+                {
+                    filteredDataList = FilterConfidence_Yolo5_Segment(output0, confidence);
+                }
+                finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
+                RestoreMask(ref finalResult, output1);
+            }
+            else if (_executionTaskMode == YoloTaskType.PoseDetectOnly || _executionTaskMode == YoloTaskType.PoseWithKeypoints)
+            {
+                using var resultData = _inferenceSession.Run(container);
+                var output0 = resultData.First().AsTensor<float>();
+                metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
+                sw.Restart();
+                filteredDataList = FilterConfidence_Pose(output0, confidence);
+                finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
+            }
+            else if (_executionTaskMode == YoloTaskType.Obb)
+            {
+                using var resultData = _inferenceSession.Run(container);
+                var output0 = resultData.First().AsTensor<float>();
+                metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
+                sw.Restart();
+                filteredDataList = FilterConfidence_Obb(output0, confidence);
+                finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
+            }
+
+            // ==================== 后处理阶段 ====================
+            RestoreCoordinates(ref finalResult);
+            if (_executionTaskMode != YoloTaskType.Classify)
+            {
+                RemoveOutOfBoundsCoordinates(ref finalResult);
+            }
+
+            metrics.PostprocessMs = sw.Elapsed.TotalMilliseconds;
+            metrics.DetectionCount = finalResult.Count;
+            LastMetrics = metrics;
+
+            return finalResult;
+        }
+
         private int DetermineModelVersion(int version)
         {
             if (_taskType == "classify")
@@ -700,6 +902,7 @@ namespace ClearFrost.Yolo
                 _inferenceSession?.Dispose();
                 _inferenceSemaphore?.Dispose();
                 _inputTensor = null;
+                _cachedInputTensor = null;
                 _tensorBuffer = null;
                 _tensorBufferInitialized = false;
             }

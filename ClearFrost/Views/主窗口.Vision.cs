@@ -54,6 +54,7 @@ namespace ClearFrost
                     if (success)
                     {
                         await _uiController.LogToFrontend($"模型加载成功: {模型名}", "success");
+                        await RestoreMultiModelConfigAsync();
                     }
                     else
                     {
@@ -68,6 +69,45 @@ namespace ClearFrost
             else
             {
                 await _uiController.LogToFrontend("未找到模型文件，请在设置中下载或上传模型", "warning");
+            }
+        }
+
+        private async Task RestoreMultiModelConfigAsync()
+        {
+            _detectionService.SetEnableFallback(_appConfig.EnableMultiModelFallback);
+
+            if (!string.IsNullOrWhiteSpace(_appConfig.Auxiliary1ModelPath))
+            {
+                string aux1Path = Path.Combine(模型路径, _appConfig.Auxiliary1ModelPath);
+                if (File.Exists(aux1Path))
+                {
+                    bool ok = await _detectionService.LoadAuxiliary1ModelAsync(aux1Path);
+                    if (ok)
+                    {
+                        await _uiController.LogToFrontend($"已恢复辅助模型1: {_appConfig.Auxiliary1ModelPath}");
+                    }
+                }
+                else
+                {
+                    await _uiController.LogToFrontend($"辅助模型1文件不存在，跳过恢复: {_appConfig.Auxiliary1ModelPath}", "warning");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_appConfig.Auxiliary2ModelPath))
+            {
+                string aux2Path = Path.Combine(模型路径, _appConfig.Auxiliary2ModelPath);
+                if (File.Exists(aux2Path))
+                {
+                    bool ok = await _detectionService.LoadAuxiliary2ModelAsync(aux2Path);
+                    if (ok)
+                    {
+                        await _uiController.LogToFrontend($"已恢复辅助模型2: {_appConfig.Auxiliary2ModelPath}");
+                    }
+                }
+                else
+                {
+                    await _uiController.LogToFrontend($"辅助模型2文件不存在，跳过恢复: {_appConfig.Auxiliary2ModelPath}", "warning");
+                }
             }
         }
 
@@ -488,7 +528,11 @@ namespace ClearFrost
                 try
                 {
                     short resultAddress = (short)_appConfig.PlcResultAddress;
-                    await _plcService.WriteResultAsync(resultAddress, isQualified);
+                    bool success = await _plcService.WriteResultAsync(resultAddress, isQualified);
+                    if (!success)
+                    {
+                        await _uiController.LogToFrontend("PLC写入失败: 结果未成功落地", "error");
+                    }
                 }
                 catch (Exception ex)
                 {

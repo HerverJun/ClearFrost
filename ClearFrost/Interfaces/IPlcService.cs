@@ -89,7 +89,7 @@ namespace ClearFrost.Interfaces
         /// </summary>
         /// <param name="resultAddress">结果地址</param>
         /// <param name="isQualified">是否合格</param>
-        Task WriteResultAsync(short resultAddress, bool isQualified);
+        Task<bool> WriteResultAsync(short resultAddress, bool isQualified);
 
         /// <summary>
         /// 写入放行信号

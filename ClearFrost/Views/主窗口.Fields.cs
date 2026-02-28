@@ -14,6 +14,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using ClearFrost.Yolo;
 using ClearFrost.Vision;
@@ -102,6 +103,7 @@ namespace ClearFrost
         private Thread? renderThread = null;
         private BlockingCollection<IMVDefine.IMV_Frame> m_frameQueue = new BlockingCollection<IMVDefine.IMV_Frame>(10);
         private CancellationTokenSource m_cts = new CancellationTokenSource();
+        private volatile bool _isCameraOpening = false;
 
         // YOLO (由 _detectionService 管理)
         // 多模型管理器 (由 _detectionService 管理)
@@ -127,6 +129,19 @@ namespace ClearFrost
         /// 检测操作信号量，防止并发检测（如 PLC 快速触发）
         /// </summary>
         private readonly SemaphoreSlim _detectionSemaphore = new SemaphoreSlim(1, 1);
+
+        /// <summary>
+        /// PLC 触发有界队列：解耦触发采集与检测执行，避免忙时直接丢弃。
+        /// </summary>
+        private readonly Channel<DateTime> _plcTriggerQueue = Channel.CreateBounded<DateTime>(
+            new BoundedChannelOptions(16)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.DropOldest
+            });
+        private CancellationTokenSource _plcTriggerQueueCts = new CancellationTokenSource();
+        private Task? _plcTriggerConsumerTask;
 
         // Helper for safe fire-and-forget
         private void SafeFireAndForget(Task task, string name, Action<Exception>? onError = null)
