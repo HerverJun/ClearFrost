@@ -99,6 +99,134 @@ namespace ClearFrost.Yolo
             return returnImage;
         }
 
+        // ==================== Mat 纯路径渲染（工业模式专用） ====================
+
+        /// <summary>
+        /// 使用 OpenCvSharp 直接在 Mat 上绘制检测结果（工业模式）。
+        /// 避免 Mat↔Bitmap 格式转换，显著降低内存拷贝和延迟。
+        /// 仅支持 Detect 和 Classify 任务类型；其他类型返回 null，调用方回退到 Bitmap 路径。
+        /// </summary>
+        public Mat? GenerateImageMat(Mat image, List<YoloResult> results, string[] labels)
+        {
+            if (!IndustrialRenderMode) return null;
+
+            if (_executionTaskMode == YoloTaskType.Classify)
+            {
+                Mat output = image.Clone();
+                DrawClassificationResultsMat(output, results, labels);
+                return output;
+            }
+
+            if (_executionTaskMode == YoloTaskType.Detect)
+            {
+                Mat output = image.Clone();
+                DrawDetectionBoxesMat(output, results, labels);
+                return output;
+            }
+
+            // Segment/Pose/Obb 等复杂模式暂不支持，返回 null 走回退
+            return null;
+        }
+
+        /// <summary>
+        /// Mat 版工业检测框绘制。
+        /// </summary>
+        private void DrawDetectionBoxesMat(Mat image, List<YoloResult> results, string[] labels)
+        {
+            RestoreDrawingCoordinates(ref results);
+
+            // OpenCvSharp 颜色调色板（BGR 格式）
+            Scalar[] palette = new Scalar[]
+            {
+                new Scalar(127, 255, 0),   // 春绿
+                new Scalar(0, 69, 255),    // 橙红
+                new Scalar(255, 144, 30),  // 闪耀蓝
+                new Scalar(0, 215, 255),   // 金色
+                new Scalar(255, 0, 255),   // 品红
+                new Scalar(255, 255, 0),   // 青色
+                new Scalar(43, 43, 226),   // 红色
+                new Scalar(226, 43, 138)   // 蓝紫色
+            };
+
+            int fontScale = Math.Max(1, Math.Min(image.Width, image.Height) / 800);
+            int thickness = Math.Max(1, Math.Min(image.Width, image.Height) / 500);
+            double textScale = fontScale * 0.6;
+
+            for (int i = 0; i < results.Count; i++)
+            {
+                var data = results[i].BasicData;
+                int x = (int)data[0];
+                int y = (int)data[1];
+                int w = (int)data[2];
+                int h = (int)data[3];
+                int classId = (int)data[5];
+                float score = data[4];
+
+                string labelName = (classId < labels.Length) ? labels[classId] : "Unknown";
+                string displayText = $"{labelName} {score:P1}";
+
+                Scalar color = palette[classId % palette.Length];
+
+                // 绘制检测框
+                Cv2.Rectangle(image, new OpenCvSharp.Rect(x, y, w, h), color, 2);
+
+                // 计算文字大小
+                int baseline;
+                var textSize = Cv2.GetTextSize(displayText, HersheyFonts.HersheySimplex, textScale, thickness, out baseline);
+
+                int labelY = y - textSize.Height - 8;
+                if (labelY < 0) labelY = y + 2;
+
+                // 文字背景（半透明黑底）
+                Cv2.Rectangle(image,
+                    new OpenCvSharp.Rect(x, labelY, textSize.Width + 8, textSize.Height + 8),
+                    new Scalar(0, 0, 0), -1); // FILLED
+
+                // 文字
+                Cv2.PutText(image, displayText,
+                    new OpenCvSharp.Point(x + 4, labelY + textSize.Height + 4),
+                    HersheyFonts.HersheySimplex, textScale, new Scalar(255, 255, 255), thickness);
+            }
+
+            RestoreCenterCoordinates(ref results);
+        }
+
+        /// <summary>
+        /// Mat 版分类结果绘制。
+        /// </summary>
+        private void DrawClassificationResultsMat(Mat image, List<YoloResult> results, string[] labels, int classificationLimit = 5)
+        {
+            RestoreDrawingCoordinates(ref results);
+
+            int fontScale = Math.Max(1, Math.Min(image.Width, image.Height) / 800);
+            double textScale = fontScale * 0.6;
+            int thickness = Math.Max(1, fontScale);
+            int yPos = 20;
+
+            for (int i = 0; i < results.Count && i < classificationLimit; i++)
+            {
+                int labelIndex = (int)results[i].BasicData[1];
+                float confidence = results[i].BasicData[0];
+                string labelName = (labelIndex < labels.Length) ? labels[labelIndex] : "No Label";
+                string displayText = $"{labelName} {confidence:P1}";
+
+                int baseline;
+                var textSize = Cv2.GetTextSize(displayText, HersheyFonts.HersheySimplex, textScale, thickness, out baseline);
+
+                Cv2.Rectangle(image,
+                    new OpenCvSharp.Rect(8, yPos - textSize.Height - 4, textSize.Width + 12, textSize.Height + 12),
+                    new Scalar(0, 128, 255), -1);
+
+                Cv2.PutText(image, displayText,
+                    new OpenCvSharp.Point(12, yPos),
+                    HersheyFonts.HersheySimplex, textScale, new Scalar(0, 0, 0), thickness);
+
+                yPos += textSize.Height + 16;
+            }
+
+            RestoreCenterCoordinates(ref results);
+        }
+
         private void DrawClassificationResults(Graphics g, List<YoloResult> results, string[] labels, Font font, SolidBrush textColorBrush, SolidBrush textBackgroundBrush, int classificationLimit)
         {
             RestoreDrawingCoordinates(ref results);

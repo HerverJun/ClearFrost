@@ -1,4 +1,4 @@
-﻿using MVSDK_Net;
+using MVSDK_Net;
 using ClearFrost.Config;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
@@ -433,6 +433,18 @@ namespace ClearFrost
                 return null;
             }
 
+            // 工业模式：纯 Mat 快速路径（避免 MatBitmap 双重转换）
+            if (YoloDetector.IndustrialRenderMode)
+            {
+                var detector = _detectionService.PrimaryDetector;
+                if (detector != null)
+                {
+                    var matResult = detector.GenerateImageMat(sourceImage, results, labels);
+                    if (matResult != null) return matResult;
+                }
+            }
+
+            // 回退：Bitmap 路径（美观模式或不支持的任务类型）
             using var bitmap = sourceImage.ToBitmap();
             using var resultImage = _detectionService.GenerateResultImage(bitmap, results, labels);
             return OpenCvSharp.Extensions.BitmapConverter.ToMat(resultImage);

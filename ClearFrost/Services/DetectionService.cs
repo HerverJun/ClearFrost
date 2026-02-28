@@ -54,6 +54,11 @@ namespace ClearFrost.Services
         public IReadOnlyList<string> AvailableModels => _availableModels.AsReadOnly();
         public long LastInferenceMs { get; private set; }
 
+        /// <summary>
+        /// 获取当前主检测器实例（用于 Mat 直通渲染等优化路径）。
+        /// </summary>
+        internal YoloDetector? PrimaryDetector => _modelManager?.PrimaryDetector ?? _yolo;
+
         #endregion
 
         #region 构造函数
