@@ -152,6 +152,14 @@ function switchVisionMode(mode) {
 window.switchVisionMode = switchVisionMode;
 
 function toggleMultiModel(enabled) {
+    applyMultiModelUiState(enabled);
+
+    sendCommand('toggle_multi_model', enabled);
+    addLog(enabled ? '✓ 多模型自动切换已启用' : '多模型自动切换已禁用', enabled ? 'success' : 'info');
+}
+window.toggleMultiModel = toggleMultiModel;
+
+function applyMultiModelUiState(enabled) {
     const checkbox = document.getElementById('enable-multi-model');
     const statusText = document.getElementById('multi-model-status');
     const configSection = document.getElementById('multi-model-config');
@@ -179,11 +187,7 @@ function toggleMultiModel(enabled) {
             configSection.classList.add('opacity-50', 'pointer-events-none');
         }
     }
-
-    sendCommand('toggle_multi_model', enabled);
-    addLog(enabled ? '✓ 多模型自动切换已启用' : '多模型自动切换已禁用', enabled ? 'success' : 'info');
 }
-window.toggleMultiModel = toggleMultiModel;
 
 // --- Camera Management ---
 
@@ -198,10 +202,12 @@ function onCameraSelected(cameraId) {
     const cam = window.cameraList.find(c => c.id === id);
     if (cam) {
         const nameEl = document.getElementById('cfg-cam-name');
+        const manufacturerEl = document.getElementById('cfg-cam-manufacturer');
         const serialEl = document.getElementById('cfg-cam-serial');
         const expEl = document.getElementById('cfg-cam-exposure');
         const gainEl = document.getElementById('cfg-cam-gain');
         if (nameEl) nameEl.value = cam.displayName || '';
+        if (manufacturerEl) manufacturerEl.value = cam.manufacturer || 'Huaray';
         if (serialEl) serialEl.value = cam.serialNumber || '';
         if (expEl) expEl.value = cam.exposureTime || '';
         if (gainEl) gainEl.value = cam.gain || '';
@@ -592,6 +598,7 @@ function populateSettings(data) {
         'PlcPollingIntervalMs': 'cfg-plc-polling-interval',
         'CameraName': 'cfg-cam-name',
         'CameraSerialNumber': 'cfg-cam-serial',
+        'CameraManufacturer': 'cfg-cam-manufacturer',
         'ExposureTime': 'cfg-cam-exposure',
         'GainRaw': 'cfg-cam-gain',
         'TargetLabel': 'cfg-logic-target-label',
@@ -613,6 +620,9 @@ function populateSettings(data) {
     if (data.TaskType !== undefined) {
         const taskTypeSelect = document.getElementById('task-type-select');
         if (taskTypeSelect) taskTypeSelect.value = data.TaskType.toString();
+    }
+    if (data.EnableMultiModelFallback !== undefined) {
+        applyMultiModelUiState(!!data.EnableMultiModelFallback);
     }
 }
 window.populateSettings = populateSettings;
@@ -637,6 +647,7 @@ function saveSettings() {
         'cfg-plc-polling-interval': 'PlcPollingIntervalMs',
         'cfg-cam-name': 'CameraName',
         'cfg-cam-serial': 'CameraSerialNumber',
+        'cfg-cam-manufacturer': 'CameraManufacturer',
         'cfg-cam-exposure': 'ExposureTime',
         'cfg-cam-gain': 'GainRaw',
         'cfg-logic-target-label': 'TargetLabel',
@@ -648,7 +659,7 @@ function saveSettings() {
     };
 
     const data = {};
-    const numericFields = ['PlcPort', 'PlcTriggerAddress', 'PlcResultAddress', 'PlcTriggerDelayMs', 'PlcPollingIntervalMs', 'ExposureTime', 'GainRaw', 'TargetCount', 'MaxRetryCount', 'RetryIntervalMs'];
+    const numericFields = ['PlcPort', 'PlcTriggerDelayMs', 'PlcPollingIntervalMs', 'ExposureTime', 'GainRaw', 'TargetCount', 'MaxRetryCount', 'RetryIntervalMs'];
 
     for (const [inputId, propName] of Object.entries(fieldMapping)) {
         const el = document.getElementById(inputId);

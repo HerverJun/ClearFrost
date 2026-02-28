@@ -211,7 +211,7 @@ namespace ClearFrost
             string json = JsonSerializer.Serialize(data);
 
             // Calls JavaScript function: updateStatus(json)
-            await _webView.ExecuteScriptAsync($"updateStatus({json})");
+            await ExecuteScriptOnUiThreadAsync($"updateStatus({json})");
         }
 
         /// <summary>
@@ -223,7 +223,7 @@ namespace ClearFrost
             if (_webView?.CoreWebView2 == null) return;
 
             // Calls JavaScript function: updateResult(isOk)
-            await _webView.ExecuteScriptAsync($"updateResult({(isOk ? "true" : "false")})");
+            await ExecuteScriptOnUiThreadAsync($"updateResult({(isOk ? "true" : "false")})");
         }
 
         /// <summary>
@@ -233,7 +233,7 @@ namespace ClearFrost
         {
             if (_webView?.CoreWebView2 == null) return;
             string json = JsonSerializer.Serialize(metrics);
-            await _webView.ExecuteScriptAsync($"updateInferenceMetrics({json})");
+            await ExecuteScriptOnUiThreadAsync($"updateInferenceMetrics({json})");
         }
 
         /// <summary>
@@ -246,7 +246,7 @@ namespace ClearFrost
             // Note: Sending very large strings via ExecuteScriptAsync can be performant enough for simple use cases,
             // but for high FPS, PostWebMessageAsJson or shared buffer is better. 
             // Stick to requested specific function updateImage(base64).
-            await _webView.ExecuteScriptAsync($"updateImage('{base64Image}');redrawROI();");
+            await ExecuteScriptOnUiThreadAsync($"updateImage('{base64Image}');redrawROI();");
         }
 
         /// <summary>
@@ -304,7 +304,7 @@ namespace ClearFrost
             string json = JsonSerializer.Serialize(models);
 
             // Call the JS function as requested: initModelList(jsonList)
-            await _webView.ExecuteScriptAsync($"initModelList({json})");
+            await ExecuteScriptOnUiThreadAsync($"initModelList({json})");
         }
 
         /// <summary>
@@ -316,7 +316,7 @@ namespace ClearFrost
 
             // Escape the string to prevent JS injection
             string safeName = name.Replace("'", "\\'");
-            await _webView.ExecuteScriptAsync($"updateCameraName('{safeName}')");
+            await ExecuteScriptOnUiThreadAsync($"updateCameraName('{safeName}')");
         }
 
         /// <summary>
@@ -329,7 +329,7 @@ namespace ClearFrost
             if (_webView?.CoreWebView2 == null) return;
 
             string jsCode = $"updateConnection('{type}', {isConnected.ToString().ToLower()})";
-            await _webView.ExecuteScriptAsync(jsCode);
+            await ExecuteScriptOnUiThreadAsync(jsCode);
         }
 
         /// <summary>
@@ -339,7 +339,7 @@ namespace ClearFrost
         public async Task FlashPlcTrigger()
         {
             if (_webView?.CoreWebView2 == null) return;
-            await _webView.ExecuteScriptAsync("flashPlcTrigger()");
+            await ExecuteScriptOnUiThreadAsync("flashPlcTrigger()");
         }
 
         /// <summary>
@@ -350,14 +350,14 @@ namespace ClearFrost
             if (_webView?.CoreWebView2 == null) return;
 
             string json = JsonSerializer.Serialize(config);
-            await _webView.ExecuteScriptAsync($"openSettingsModal({json})");
+            await ExecuteScriptOnUiThreadAsync($"openSettingsModal({json})");
         }
 
         public async Task InitSettings(AppConfig config)
         {
             if (_webView?.CoreWebView2 == null) return;
             string json = JsonSerializer.Serialize(config);
-            await _webView.ExecuteScriptAsync($"initSettings({json})");
+            await ExecuteScriptOnUiThreadAsync($"initSettings({json})");
         }
 
         /// <summary>
@@ -366,7 +366,35 @@ namespace ClearFrost
         public async Task ExecuteScriptAsync(string script)
         {
             if (_webView?.CoreWebView2 == null) return;
-            await _webView.ExecuteScriptAsync(script);
+            await ExecuteScriptOnUiThreadAsync(script);
+        }
+
+        private Task ExecuteScriptOnUiThreadAsync(string script)
+        {
+            if (_webView?.CoreWebView2 == null)
+            {
+                return Task.CompletedTask;
+            }
+
+            if (_webView.InvokeRequired)
+            {
+                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _webView.BeginInvoke(new Action(async () =>
+                {
+                    try
+                    {
+                        await _webView.ExecuteScriptAsync(script);
+                        tcs.TrySetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.TrySetException(ex);
+                    }
+                }));
+                return tcs.Task;
+            }
+
+            return _webView.ExecuteScriptAsync(script);
         }
 
         /// <summary>
@@ -711,7 +739,7 @@ namespace ClearFrost
         {
             if (_webView?.CoreWebView2 == null) return;
             string safeMsg = message.Replace("'", "\\'").Replace("\n", "\\n");
-            await _webView.ExecuteScriptAsync($"addDetectionLog('{safeMsg}', '{type}')");
+            await ExecuteScriptOnUiThreadAsync($"addDetectionLog('{safeMsg}', '{type}')");
         }
 
         public async Task LogToFrontend(string message, string type = "normal")
@@ -734,14 +762,14 @@ namespace ClearFrost
             }
 
             string safeMsg = message.Replace("'", "\\'").Replace("\n", "\\n");
-            await _webView.ExecuteScriptAsync($"addLog('{safeMsg}', '{type}')");
+            await ExecuteScriptOnUiThreadAsync($"addLog('{safeMsg}', '{type}')");
         }
 
         public async Task UpdateStoragePathInUI(string path)
         {
             if (_webView?.CoreWebView2 == null) return;
             string safePath = path.Replace("\\", "\\\\").Replace("'", "\\'");
-            await _webView.ExecuteScriptAsync($"updateStoragePath('{safePath}')");
+            await ExecuteScriptOnUiThreadAsync($"updateStoragePath('{safePath}')");
         }
 
         private async Task SendNGDates()
@@ -757,11 +785,11 @@ namespace ClearFrost
                         .OrderByDescending(d => d) // Newest first
                         .ToArray();
                     string json = JsonSerializer.Serialize(dates);
-                    await _webView.ExecuteScriptAsync($"updateNGDates({json})");
+                    await ExecuteScriptOnUiThreadAsync($"updateNGDates({json})");
                 }
                 else
                 {
-                    await _webView.ExecuteScriptAsync("updateNGDates([])");
+                    await ExecuteScriptOnUiThreadAsync("updateNGDates([])");
                 }
             }
             catch (Exception ex)
@@ -783,14 +811,14 @@ namespace ClearFrost
                         .OrderByDescending(h => h)
                         .ToArray();
                     string json = JsonSerializer.Serialize(hours);
-                    await _webView.ExecuteScriptAsync($"updateNGHours({json})");
+                    await ExecuteScriptOnUiThreadAsync($"updateNGHours({json})");
                 }
                 else
                 {
-                    await _webView.ExecuteScriptAsync("updateNGHours([])");
+                    await ExecuteScriptOnUiThreadAsync("updateNGHours([])");
                 }
             }
-            catch { await _webView.ExecuteScriptAsync("updateNGHours([])"); }
+            catch { await ExecuteScriptOnUiThreadAsync("updateNGHours([])"); }
         }
 
         private async Task SendNGImages(string date, string hour)
@@ -807,14 +835,14 @@ namespace ClearFrost
                         .OrderByDescending(f => f)
                         .ToArray();
                     string json = JsonSerializer.Serialize(images);
-                    await _webView.ExecuteScriptAsync($"updateNGImages({json})");
+                    await ExecuteScriptOnUiThreadAsync($"updateNGImages({json})");
                 }
                 else
                 {
-                    await _webView.ExecuteScriptAsync("updateNGImages([])");
+                    await ExecuteScriptOnUiThreadAsync("updateNGImages([])");
                 }
             }
-            catch { await _webView.ExecuteScriptAsync("updateNGImages([])"); }
+            catch { await ExecuteScriptOnUiThreadAsync("updateNGImages([])"); }
         }
 
         /// <summary>
@@ -833,7 +861,7 @@ namespace ClearFrost
                 string logsDir = Path.Combine(LogBasePath, "DetectionLogs");
                 if (!Directory.Exists(logsDir))
                 {
-                    await _webView.ExecuteScriptAsync("updateDetectionLogTable([])");
+                    await ExecuteScriptOnUiThreadAsync("updateDetectionLogTable([])");
                     return;
                 }
 
@@ -908,12 +936,12 @@ namespace ClearFrost
                 }
 
                 string json = JsonSerializer.Serialize(logEntries);
-                await _webView.ExecuteScriptAsync($"updateDetectionLogTable({json})");
+                await ExecuteScriptOnUiThreadAsync($"updateDetectionLogTable({json})");
             }
             catch (Exception ex)
             {
                 await LogToFrontend($"读取检测日志失败: {ex.Message}", "error");
-                await _webView.ExecuteScriptAsync("updateDetectionLogTable([])");
+                await ExecuteScriptOnUiThreadAsync("updateDetectionLogTable([])");
             }
         }
 
@@ -952,7 +980,7 @@ namespace ClearFrost
                 }
 
                 string json = JsonSerializer.Serialize(allRecords);
-                await _webView.ExecuteScriptAsync($"receiveStatisticsHistory({json})");
+                await ExecuteScriptOnUiThreadAsync($"receiveStatisticsHistory({json})");
             }
             catch (Exception ex)
             {
@@ -969,7 +997,7 @@ namespace ClearFrost
         {
             if (_webView?.CoreWebView2 == null) return;
             string json = JsonSerializer.Serialize(config);
-            await _webView.ExecuteScriptAsync($"receiveVisionConfig({json})");
+            await ExecuteScriptOnUiThreadAsync($"receiveVisionConfig({json})");
         }
 
         /// <summary>
@@ -979,7 +1007,7 @@ namespace ClearFrost
         {
             if (_webView?.CoreWebView2 == null) return;
             string json = JsonSerializer.Serialize(preview);
-            await _webView.ExecuteScriptAsync($"updatePreviewImage({json})");
+            await ExecuteScriptOnUiThreadAsync($"updatePreviewImage({json})");
         }
 
         /// <summary>
@@ -990,7 +1018,7 @@ namespace ClearFrost
             if (_webView?.CoreWebView2 == null) return;
             var operators = OperatorFactory.GetAvailableOperators();
             string json = JsonSerializer.Serialize(operators);
-            await _webView.ExecuteScriptAsync($"receiveAvailableOperators({json})");
+            await ExecuteScriptOnUiThreadAsync($"receiveAvailableOperators({json})");
         }
 
         /// <summary>
@@ -1000,7 +1028,7 @@ namespace ClearFrost
         {
             if (_webView?.CoreWebView2 == null) return;
             string json = JsonSerializer.Serialize(config);
-            await _webView.ExecuteScriptAsync($"receivePipelineUpdate({json})");
+            await ExecuteScriptOnUiThreadAsync($"receivePipelineUpdate({json})");
         }
 
         /// <summary>
@@ -1010,7 +1038,7 @@ namespace ClearFrost
         {
             if (_webView?.CoreWebView2 == null) return;
             string json = JsonSerializer.Serialize(result);
-            await _webView.ExecuteScriptAsync($"receiveDetectionResult({json})");
+            await ExecuteScriptOnUiThreadAsync($"receiveDetectionResult({json})");
         }
 
         /// <summary>
@@ -1019,7 +1047,7 @@ namespace ClearFrost
         public async Task ReceiveTemplateFrame(string base64)
         {
             if (_webView?.CoreWebView2 == null) return;
-            await _webView.ExecuteScriptAsync($"receiveTemplateFrame('{base64}')");
+            await ExecuteScriptOnUiThreadAsync($"receiveTemplateFrame('{base64}')");
         }
 
         // ================== 多相机方法 ==================
@@ -1032,7 +1060,7 @@ namespace ClearFrost
             if (_webView?.CoreWebView2 == null) return;
             var data = new { cameras = cameras, activeId = activeCameraId };
             string json = JsonSerializer.Serialize(data);
-            await _webView.ExecuteScriptAsync($"receiveCameraList({json})");
+            await ExecuteScriptOnUiThreadAsync($"receiveCameraList({json})");
         }
 
         /// <summary>
@@ -1042,10 +1070,11 @@ namespace ClearFrost
         {
             if (_webView?.CoreWebView2 == null) return;
             string json = JsonSerializer.Serialize(new { cameras = cameras });
-            await _webView.ExecuteScriptAsync($"receiveSuperSearchResult({json})");
+            await ExecuteScriptOnUiThreadAsync($"receiveSuperSearchResult({json})");
         }
     }
 }
+
 
 
 

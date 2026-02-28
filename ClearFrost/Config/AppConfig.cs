@@ -39,6 +39,8 @@ namespace ClearFrost.Config
         [Obsolete("Use Cameras list instead")]
         public string CameraSerialNumber { get; set; } = "EF59632AAK00291";
         [Obsolete("Use Cameras list instead")]
+        public string CameraManufacturer { get; set; } = "Huaray";
+        [Obsolete("Use Cameras list instead")]
         public double ExposureTime { get; set; } = 50000.0;
         [Obsolete("Use Cameras list instead")]
         public double GainRaw { get; set; } = 1.1;
@@ -149,6 +151,7 @@ namespace ClearFrost.Config
                     Id = "legacy_cam",
                     SerialNumber = CameraSerialNumber?.Trim() ?? "",
                     DisplayName = CameraName?.Trim() ?? "",
+                    Manufacturer = string.IsNullOrWhiteSpace(CameraManufacturer) ? "Huaray" : CameraManufacturer.Trim(),
                     ExposureTime = ExposureTime,
                     Gain = GainRaw,
                     IsEnabled = true

@@ -13,6 +13,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using ClearFrost.Interfaces;
 
 namespace ClearFrost.Services
@@ -28,7 +29,13 @@ namespace ClearFrost.Services
         private DetectionStatistics _detectionStats;
         private StatisticsHistory _statisticsHistory;
         private System.Timers.Timer _checkDayTimer;
+        private System.Timers.Timer _flushTimer;
         private bool _disposed;
+        private readonly object _saveLock = new object();
+        private int _pendingSaveCount;
+
+        private const int SaveBatchSize = 20;
+        private const int SaveFlushIntervalMs = 5000;
 
         #endregion
 
@@ -86,6 +93,12 @@ namespace ClearFrost.Services
             _checkDayTimer.AutoReset = true;
             _checkDayTimer.Start();
 
+            // 批量落盘：定时刷新，避免每次检测都触发磁盘写入
+            _flushTimer = new System.Timers.Timer(SaveFlushIntervalMs);
+            _flushTimer.Elapsed += (s, e) => FlushPendingStatistics();
+            _flushTimer.AutoReset = true;
+            _flushTimer.Start();
+
             Debug.WriteLine($"[StatisticsService] 初始化完成 - 今日: {TodayTotal} 件, 历史: {_statisticsHistory.Records.Count} 天");
         }
 
@@ -98,7 +111,12 @@ namespace ClearFrost.Services
             // 记录前先检查是否跨日，防止数据计入错误日期
             CheckAndResetForNewDay();
 
-            _detectionStats.AddRecord(isQualified);
+            _detectionStats.AddRecord(isQualified, persist: false);
+            int pending = Interlocked.Increment(ref _pendingSaveCount);
+            if (pending >= SaveBatchSize)
+            {
+                FlushPendingStatistics();
+            }
 
             // 触发更新事件
             StatisticsUpdated?.Invoke(Current);
@@ -108,6 +126,7 @@ namespace ClearFrost.Services
 
         public void ResetToday()
         {
+            FlushPendingStatistics();
             _detectionStats.Reset();
             _detectionStats.Save();
             StatisticsUpdated?.Invoke(Current);
@@ -120,6 +139,7 @@ namespace ClearFrost.Services
 
             if (wasReset)
             {
+                Interlocked.Exchange(ref _pendingSaveCount, 0);
                 DayReset?.Invoke();
                 StatisticsUpdated?.Invoke(Current);
                 Debug.WriteLine("[StatisticsService] 检测到跨日，已自动重置");
@@ -132,10 +152,38 @@ namespace ClearFrost.Services
 
         #region 持久化
 
+        private void FlushPendingStatistics()
+        {
+            if (Interlocked.CompareExchange(ref _pendingSaveCount, 0, 0) <= 0)
+            {
+                return;
+            }
+
+            lock (_saveLock)
+            {
+                int pending = Interlocked.Exchange(ref _pendingSaveCount, 0);
+                if (pending <= 0)
+                {
+                    return;
+                }
+
+                try
+                {
+                    _detectionStats.Save();
+                    Debug.WriteLine($"[StatisticsService] 批量落盘完成: {pending} 条");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[StatisticsService] 批量落盘失败: {ex.Message}");
+                }
+            }
+        }
+
         public void SaveAll()
         {
             try
             {
+                FlushPendingStatistics();
                 _detectionStats.Save();
                 _statisticsHistory.Save();
                 Debug.WriteLine("[StatisticsService] 所有数据已保存");
@@ -159,6 +207,7 @@ namespace ClearFrost.Services
             {
                 _detectionStats = DetectionStatistics.Load(_basePath);
                 _statisticsHistory = StatisticsHistory.Load(_basePath);
+                Interlocked.Exchange(ref _pendingSaveCount, 0);
                 StatisticsUpdated?.Invoke(Current);
                 Debug.WriteLine("[StatisticsService] 所有数据已加载");
             }
@@ -196,6 +245,11 @@ namespace ClearFrost.Services
             {
                 _checkDayTimer.Stop();
                 _checkDayTimer.Dispose();
+            }
+            if (_flushTimer != null)
+            {
+                _flushTimer.Stop();
+                _flushTimer.Dispose();
             }
 
             // 保存数据

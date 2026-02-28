@@ -26,8 +26,21 @@ namespace ClearFrost.Services
 
         private IPlcDevice? _plcDevice;
         private CancellationTokenSource? _monitoringCts;
+        private Task? _monitoringTask;
         private bool _isConnecting;
         private bool _disposed;
+        private readonly object _stateLock = new object();
+        private long _lastAcceptedTriggerTicks;
+
+        private string _lastProtocol = "Mitsubishi_MC_ASCII";
+        private string _lastIp = "127.0.0.1";
+        private int _lastPort = 0;
+        private short _lastTriggerAddress;
+        private int _lastPollingIntervalMs = 500;
+        private int _lastTriggerDelayMs = 800;
+
+        private static readonly TimeSpan TriggerDebounceWindow = TimeSpan.FromSeconds(2);
+        private const int ReconnectRetryDelayMs = 2000;
 
         #endregion
 
@@ -55,7 +68,11 @@ namespace ClearFrost.Services
             _isConnecting = true;
 
             const int maxRetries = 3;
-            const int retryDelayMs = 2000;
+            var protocolType = PlcFactory.ParseProtocol(protocol);
+
+            _lastProtocol = protocol;
+            _lastIp = ip;
+            _lastPort = port;
 
             try
             {
@@ -65,7 +82,6 @@ namespace ClearFrost.Services
                 // 断开现有连接
                 Disconnect();
 
-                var protocolType = PlcFactory.ParseProtocol(protocol);
                 Debug.WriteLine($"[PlcService] 正在连接 {protocolType} @ {ip}:{port}");
 
                 for (int i = 0; i < maxRetries; i++)
@@ -80,12 +96,12 @@ namespace ClearFrost.Services
                     {
                         // Socket 连接成功后，进行一次读操作验证 PLC 是否真正可通信
                         // HslCommunication 库的 ConnectServer 仅建立 TCP 连接，不验证 PLC 可用性
-                        var (readSuccess, _) = await _plcDevice.ReadInt16Async("D0");
+                        string testAddress = GetConnectivityProbeAddress(protocolType);
+                        var (readSuccess, _) = await _plcDevice.ReadInt16Async(testAddress);
                         if (readSuccess)
                         {
-                            IsConnected = true;
                             LastError = null;
-                            ConnectionChanged?.Invoke(true);
+                            SetConnectionState(true);
                             Debug.WriteLine($"[PlcService] 连接成功: {_plcDevice.ProtocolName}");
                             return true;
                         }
@@ -107,18 +123,18 @@ namespace ClearFrost.Services
 
                     if (i < maxRetries - 1)
                     {
-                        await Task.Delay(retryDelayMs);
+                        await Task.Delay(ReconnectRetryDelayMs);
                     }
                 }
 
-                ConnectionChanged?.Invoke(false);
+                SetConnectionState(false);
                 return false;
             }
             catch (Exception ex)
             {
                 LastError = ex.Message;
                 ErrorOccurred?.Invoke($"连接异常: {ex.Message}");
-                ConnectionChanged?.Invoke(false);
+                SetConnectionState(false);
                 return false;
             }
             finally
@@ -140,7 +156,7 @@ namespace ClearFrost.Services
             finally
             {
                 _plcDevice = null;
-                IsConnected = false;
+                SetConnectionState(false);
             }
         }
 
@@ -150,17 +166,22 @@ namespace ClearFrost.Services
 
         public void StartMonitoring(short triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800)
         {
-            if (_monitoringCts != null) return;
+            if (_monitoringTask != null && !_monitoringTask.IsCompleted) return;
+
+            _lastTriggerAddress = triggerAddress;
+            _lastPollingIntervalMs = Math.Max(50, pollingIntervalMs);
+            _lastTriggerDelayMs = Math.Max(0, triggerDelayMs);
+            Interlocked.Exchange(ref _lastAcceptedTriggerTicks, 0);
 
             _monitoringCts = new CancellationTokenSource();
             var token = _monitoringCts.Token;
 
-            _ = Task.Run(async () =>
+            _monitoringTask = Task.Run(async () =>
             {
-                await MonitoringLoop(triggerAddress, pollingIntervalMs, triggerDelayMs, token);
-            });
+                await MonitoringLoop(_lastTriggerAddress, _lastPollingIntervalMs, _lastTriggerDelayMs, token);
+            }, token);
 
-            Debug.WriteLine($"[PlcService] 开始监听触发地址: {triggerAddress}, 轮询间隔: {pollingIntervalMs}ms, 触发延迟: {triggerDelayMs}ms");
+            Debug.WriteLine($"[PlcService] 开始监听触发地址: {_lastTriggerAddress}, 轮询间隔: {_lastPollingIntervalMs}ms, 触发延迟: {_lastTriggerDelayMs}ms");
         }
 
         public void StopMonitoring()
@@ -168,8 +189,17 @@ namespace ClearFrost.Services
             if (_monitoringCts != null)
             {
                 _monitoringCts.Cancel();
+                try
+                {
+                    _monitoringTask?.Wait(200);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[PlcService] 停止监听等待异常: {ex.Message}");
+                }
                 _monitoringCts.Dispose();
                 _monitoringCts = null;
+                _monitoringTask = null;
                 Debug.WriteLine("[PlcService] 停止监听");
             }
         }
@@ -179,10 +209,26 @@ namespace ClearFrost.Services
             if (_monitoringCts != null && !_monitoringCts.IsCancellationRequested)
             {
                 _monitoringCts.Cancel();
-                await Task.Delay(100); // 等待循环退出
             }
+            if (_monitoringTask != null)
+            {
+                try
+                {
+                    await _monitoringTask;
+                }
+                catch (OperationCanceledException)
+                {
+                    // ignore
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[PlcService] StopMonitoringAsync 异常: {ex.Message}");
+                }
+            }
+
             _monitoringCts?.Dispose();
             _monitoringCts = null;
+            _monitoringTask = null;
         }
 
         private async Task MonitoringLoop(short triggerAddress, int pollingIntervalMs, int triggerDelayMs, CancellationToken token)
@@ -195,30 +241,59 @@ namespace ClearFrost.Services
             {
                 try
                 {
-                    if (_plcDevice == null)
+                    if (_plcDevice == null || !_plcDevice.IsConnected)
                     {
-                        Debug.WriteLine("[PlcService] ⚠ PLC设备为空，退出监听");
-                        break;
+                        Debug.WriteLine("[PlcService] ⚠ PLC未连接，尝试自动重连...");
+                        bool reconnected = await TryReconnectAsync(token);
+                        if (!reconnected)
+                        {
+                            await Task.Delay(ReconnectRetryDelayMs, token);
+                            continue;
+                        }
+                    }
+
+                    var plc = _plcDevice;
+                    if (plc == null)
+                    {
+                        await Task.Delay(ReconnectRetryDelayMs, token);
+                        continue;
                     }
 
                     string address = GetPlcAddress(triggerAddress);
-                    var (success, value) = await _plcDevice.ReadInt16Async(address);
+                    var (success, value) = await plc.ReadInt16Async(address);
                     pollCount++;
+
+                    if (!success)
+                    {
+                        throw new InvalidOperationException(plc.LastError ?? "读取触发地址失败");
+                    }
 
                     // 每10次轮询输出一次状态（避免日志过多）
                     if (pollCount % 10 == 0)
                     {
-                        Debug.WriteLine($"[PlcService] 📡 轮询 #{pollCount} - 地址:{address} 读取:{(success ? "成功" : "失败")} 值:{value}");
+                        Debug.WriteLine($"[PlcService] 📡 轮询 #{pollCount} - 地址:{address} 读取:成功 值:{value}");
                     }
 
-                    if (success && value == 1)
+                    if (value == 1)
                     {
                         Debug.WriteLine($"[PlcService] 🎯 检测到触发信号! 地址:{address} 值:{value}");
 
                         // 收到触发信号，复位
-                        bool resetSuccess = await _plcDevice.WriteInt16Async(address, 0);
+                        bool resetSuccess = await plc.WriteInt16Async(address, 0);
                         Debug.WriteLine($"[PlcService] ↩ 复位信号 - {(resetSuccess ? "成功" : "失败")}");
 
+                        // 显式 2 秒防抖：窗口内只接受第一个触发
+                        long nowTicks = DateTime.UtcNow.Ticks;
+                        long lastTicks = Interlocked.Read(ref _lastAcceptedTriggerTicks);
+                        if (lastTicks > 0 && (nowTicks - lastTicks) > 0 &&
+                            TimeSpan.FromTicks(nowTicks - lastTicks) < TriggerDebounceWindow)
+                        {
+                            Debug.WriteLine("[PlcService] ⏱ 触发落入2秒防抖窗口，已忽略");
+                            await Task.Delay(pollingIntervalMs, token);
+                            continue;
+                        }
+
+                        Interlocked.Exchange(ref _lastAcceptedTriggerTicks, nowTicks);
                         await Task.Delay(triggerDelayMs, token);
 
                         // 触发事件通知
@@ -239,10 +314,20 @@ namespace ClearFrost.Services
                     Debug.WriteLine($"[PlcService] ❌ 监听异常: {ex.Message}");
                     LastError = ex.Message;
                     ErrorOccurred?.Invoke($"监听异常: {ex.Message}");
-                    break;
+                    SetConnectionState(false);
+
+                    try
+                    {
+                        await Task.Delay(ReconnectRetryDelayMs, token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
                 }
             }
 
+            SetConnectionState(false);
             Debug.WriteLine($"[PlcService] ⏹ 监听循环结束 - 共轮询 {pollCount} 次");
         }
 
@@ -250,9 +335,9 @@ namespace ClearFrost.Services
 
         #region 结果读写
 
-        public async Task WriteResultAsync(short resultAddress, bool isQualified)
+        public async Task<bool> WriteResultAsync(short resultAddress, bool isQualified)
         {
-            if (!IsConnected || _plcDevice == null) return;
+            if (!IsConnected || _plcDevice == null) return false;
 
             string address = GetPlcAddress(resultAddress);
             try
@@ -263,11 +348,13 @@ namespace ClearFrost.Services
                     LastError = _plcDevice.LastError;
                     ErrorOccurred?.Invoke($"写入失败: {LastError}");
                 }
+                return success;
             }
             catch (Exception ex)
             {
                 LastError = ex.Message;
                 ErrorOccurred?.Invoke($"写入异常: {ex.Message}");
+                return false;
             }
         }
 
@@ -290,6 +377,85 @@ namespace ClearFrost.Services
         #endregion
 
         #region 辅助方法
+
+        private void SetConnectionState(bool connected)
+        {
+            bool changed;
+            lock (_stateLock)
+            {
+                changed = IsConnected != connected;
+                IsConnected = connected;
+            }
+
+            if (changed)
+            {
+                ConnectionChanged?.Invoke(connected);
+            }
+        }
+
+        private async Task<bool> TryReconnectAsync(CancellationToken token)
+        {
+            if (_isConnecting || string.IsNullOrWhiteSpace(_lastIp))
+                return false;
+
+            _isConnecting = true;
+            try
+            {
+                var protocolType = PlcFactory.ParseProtocol(_lastProtocol);
+
+                _plcDevice?.Disconnect();
+                _plcDevice = PlcFactory.Create(protocolType, _lastIp, _lastPort);
+
+                bool socketConnected = await _plcDevice.ConnectAsync();
+                if (!socketConnected)
+                {
+                    LastError = _plcDevice.LastError;
+                    SetConnectionState(false);
+                    return false;
+                }
+
+                string testAddress = GetConnectivityProbeAddress(protocolType);
+                var (readSuccess, _) = await _plcDevice.ReadInt16Async(testAddress);
+                if (!readSuccess)
+                {
+                    LastError = _plcDevice.LastError;
+                    _plcDevice.Disconnect();
+                    _plcDevice = null;
+                    SetConnectionState(false);
+                    return false;
+                }
+
+                LastError = null;
+                SetConnectionState(true);
+                Debug.WriteLine($"[PlcService] 自动重连成功: {protocolType} @ {_lastIp}:{_lastPort}");
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                SetConnectionState(false);
+                ErrorOccurred?.Invoke($"自动重连失败: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                _isConnecting = false;
+            }
+        }
+
+        private static string GetConnectivityProbeAddress(PlcProtocolType protocolType)
+        {
+            return protocolType switch
+            {
+                PlcProtocolType.Modbus_TCP => "0",
+                PlcProtocolType.Siemens_S7 => "DB1.0",
+                _ => "D0"
+            };
+        }
 
         private string GetPlcAddress(short address)
         {

@@ -76,6 +76,39 @@ namespace ClearFrost.Yolo
         }
 
         /// <summary>
+        /// Mat 版 Letterbox resize：保持宽高比并填充到模型输入尺寸。
+        /// </summary>
+        private Mat LetterboxResizeMat(Mat image)
+        {
+            float scaleW = (float)_tensorWidth / _inferenceImageWidth;
+            float scaleH = (float)_tensorHeight / _inferenceImageHeight;
+            _scale = Math.Min(scaleW, scaleH);
+
+            int newW = (int)Math.Round(_inferenceImageWidth * _scale);
+            int newH = (int)Math.Round(_inferenceImageHeight * _scale);
+
+            _padLeft = (_tensorWidth - newW) / 2;
+            _padTop = (_tensorHeight - newH) / 2;
+            int padRight = Math.Max(0, _tensorWidth - newW - _padLeft);
+            int padBottom = Math.Max(0, _tensorHeight - newH - _padTop);
+
+            using Mat resized = new Mat();
+            Cv2.Resize(image, resized, new OpenCvSharp.Size(newW, newH), 0, 0, InterpolationFlags.Linear);
+
+            Mat letterboxed = new Mat();
+            Cv2.CopyMakeBorder(
+                resized,
+                letterboxed,
+                _padTop,
+                padBottom,
+                _padLeft,
+                padRight,
+                BorderTypes.Constant,
+                new Scalar(LETTERBOX_FILL_COLOR_B, LETTERBOX_FILL_COLOR_G, LETTERBOX_FILL_COLOR_R));
+            return letterboxed;
+        }
+
+        /// <summary>
         /// Ensures tensor buffer is allocated and ready for use.
         /// </summary>
         private void EnsureTensorBuffer()
@@ -85,6 +118,7 @@ namespace ClearFrost.Yolo
             {
                 _tensorBuffer = new float[requiredLength];
                 _tensorBufferInitialized = true;
+                _cachedInputTensor = null;
             }
         }
 
@@ -166,6 +200,89 @@ namespace ClearFrost.Yolo
                 }
             }
             image.UnlockBits(imageData);
+        }
+
+        /// <summary>
+        /// Mat 并行转 Tensor（跳过 Bitmap 中间层）。
+        /// </summary>
+        private unsafe void MatToTensor_Parallel(Mat image, float[] buffer)
+        {
+            int height = image.Rows;
+            int width = image.Cols;
+            int tensorHeight = _inputTensorInfo[2];
+            int tensorWidth = _inputTensorInfo[3];
+            int channelSize = tensorHeight * tensorWidth;
+            int channels = image.Channels();
+            long step = image.Step();
+
+            byte* scan0 = (byte*)image.DataPointer;
+
+            Parallel.For(0, height, y =>
+            {
+                byte* rowStart = scan0 + (y * step);
+                for (int x = 0; x < width; x++)
+                {
+                    byte* pixel = rowStart + (x * channels);
+                    int baseIndex = y * tensorWidth + x;
+                    if (channels >= 3)
+                    {
+                        buffer[2 * channelSize + baseIndex] = pixel[0] / PIXEL_NORMALIZE_FACTOR;
+                        buffer[1 * channelSize + baseIndex] = pixel[1] / PIXEL_NORMALIZE_FACTOR;
+                        buffer[0 * channelSize + baseIndex] = pixel[2] / PIXEL_NORMALIZE_FACTOR;
+                    }
+                    else
+                    {
+                        buffer[baseIndex] = pixel[0] / PIXEL_NORMALIZE_FACTOR;
+                    }
+                }
+            });
+        }
+
+        /// <summary>
+        /// Mat 高速无插值转 Tensor。
+        /// </summary>
+        private unsafe void MatToTensor_NoInterpolation(Mat image, float[] buffer)
+        {
+            int tensorHeight = _inputTensorInfo[2];
+            int tensorWidth = _inputTensorInfo[3];
+            int channelSize = tensorHeight * tensorWidth;
+            int channels = image.Channels();
+            long step = image.Step();
+
+            float scaledImageWidth = _inferenceImageWidth;
+            float scaledImageHeight = _inferenceImageHeight;
+            if (scaledImageWidth > _tensorWidth || scaledImageHeight > _tensorHeight)
+            {
+                _scale = (_tensorWidth / scaledImageWidth) < (_tensorHeight / scaledImageHeight)
+                    ? (_tensorWidth / scaledImageWidth)
+                    : (_tensorHeight / scaledImageHeight);
+                scaledImageWidth *= _scale;
+                scaledImageHeight *= _scale;
+            }
+
+            float factor = 1 / _scale;
+            byte* scan0 = (byte*)image.DataPointer;
+
+            for (int y = 0; y < (int)scaledImageHeight; y++)
+            {
+                for (int x = 0; x < (int)scaledImageWidth; x++)
+                {
+                    int xPos = (int)(x * factor);
+                    int yPos = (int)(y * factor);
+                    byte* pixel = scan0 + (yPos * step) + (xPos * channels);
+                    int baseIndex = y * tensorWidth + x;
+                    if (channels >= 3)
+                    {
+                        buffer[2 * channelSize + baseIndex] = pixel[0] / PIXEL_NORMALIZE_FACTOR;
+                        buffer[1 * channelSize + baseIndex] = pixel[1] / PIXEL_NORMALIZE_FACTOR;
+                        buffer[0 * channelSize + baseIndex] = pixel[2] / PIXEL_NORMALIZE_FACTOR;
+                    }
+                    else
+                    {
+                        buffer[baseIndex] = pixel[0] / PIXEL_NORMALIZE_FACTOR;
+                    }
+                }
+            }
         }
 
         /// <summary>

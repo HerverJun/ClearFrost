@@ -53,7 +53,7 @@ namespace ClearFrost.Models
         /// <summary>
         /// 
         /// </summary>
-        public void AddRecord(bool isQualified)
+        public void AddRecord(bool isQualified, bool persist = true)
         {
             TotalCount++;
             if (isQualified)
@@ -61,8 +61,10 @@ namespace ClearFrost.Models
             else
                 UnqualifiedCount++;
 
-            // 
-            Save();
+            if (persist)
+            {
+                Save();
+            }
         }
 
         /// <summary>
