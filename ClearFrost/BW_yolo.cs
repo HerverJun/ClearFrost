@@ -509,21 +509,21 @@ namespace ClearFrost.Yolo
                 sw.Restart();
 
                 // ==================== �����׶� ====================
-                Tensor<float> output0;
-                Tensor<float> output1;
                 List<YoloResult> filteredDataList;
                 List<YoloResult> finalResult = new List<YoloResult>();
 
                 if (_executionTaskMode == YoloTaskType.Classify)
                 {
-                    output0 = _inferenceSession.Run(container).First().AsTensor<float>();
+                    using var resultData = _inferenceSession.Run(container);
+                    var output0 = resultData.First().AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();
                     finalResult = FilterConfidence_Classify(output0, confidence);
                 }
                 else if (_executionTaskMode == YoloTaskType.Detect)
                 {
-                    output0 = _inferenceSession.Run(container).First().AsTensor<float>();
+                    using var resultData = _inferenceSession.Run(container);
+                    var output0 = resultData.First().AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();
                     if (_yoloVersion == 26)
@@ -549,9 +549,9 @@ namespace ClearFrost.Yolo
                 }
                 else if (_executionTaskMode == YoloTaskType.SegmentDetectOnly || _executionTaskMode == YoloTaskType.SegmentWithMask)
                 {
-                    var resultData = _inferenceSession.Run(container);
-                    output0 = resultData.First().AsTensor<float>();
-                    output1 = resultData.ElementAtOrDefault(1)?.AsTensor<float>();
+                    using var resultData = _inferenceSession.Run(container);
+                    var output0 = resultData.First().AsTensor<float>();
+                    var output1 = resultData.ElementAtOrDefault(1)?.AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();
                     if (_yoloVersion == 8)
@@ -567,7 +567,8 @@ namespace ClearFrost.Yolo
                 }
                 else if (_executionTaskMode == YoloTaskType.PoseDetectOnly || _executionTaskMode == YoloTaskType.PoseWithKeypoints)
                 {
-                    output0 = _inferenceSession.Run(container).First().AsTensor<float>();
+                    using var resultData = _inferenceSession.Run(container);
+                    var output0 = resultData.First().AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();
                     filteredDataList = FilterConfidence_Pose(output0, confidence);
@@ -575,7 +576,8 @@ namespace ClearFrost.Yolo
                 }
                 else if (_executionTaskMode == YoloTaskType.Obb)
                 {
-                    output0 = _inferenceSession.Run(container).First().AsTensor<float>();
+                    using var resultData = _inferenceSession.Run(container);
+                    var output0 = resultData.First().AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();
                     filteredDataList = FilterConfidence_Obb(output0, confidence);

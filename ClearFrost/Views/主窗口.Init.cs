@@ -1,4 +1,4 @@
-using MVSDK_Net;
+﻿using MVSDK_Net;
 using ClearFrost.Config;
 using ClearFrost.Models;
 using ClearFrost.Hardware;
@@ -535,11 +535,10 @@ namespace ClearFrost
                             int targetWidth = 1200;
                             double scale = 1.0;
                             Mat displayMat = clone;
-                            Mat resizedMat = null;
-                            if (clone.Width > targetWidth)
+                            using Mat? resizedMat = clone.Width > targetWidth ? new Mat() : null;
+                            if (resizedMat != null)
                             {
                                 scale = (double)targetWidth / clone.Width;
-                                resizedMat = new Mat();
                                 Cv2.Resize(clone, resizedMat, new OpenCvSharp.Size(0, 0), scale, scale);
                                 _currentCropScale = scale;
                                 displayMat = resizedMat;
@@ -553,8 +552,6 @@ namespace ClearFrost
                             using var ms = new MemoryStream();
                             bitmap.Save(ms, ImageFormat.Jpeg);
                             string base64 = Convert.ToBase64String(ms.ToArray());
-
-                            if (resizedMat != null) resizedMat.Dispose();
 
                             // 调用前端 openCropper
                             await _uiController.ExecuteScriptAsync($"openCropper('{base64}')");
@@ -1044,15 +1041,14 @@ namespace ClearFrost
                         }
 
                         // 确保是彩色图像
-                        Mat outputForDisplay;
+                        using Mat outputForDisplay = new Mat();
                         if (lastOutput.Channels() == 1)
                         {
-                            outputForDisplay = new Mat();
                             Cv2.CvtColor(lastOutput, outputForDisplay, ColorConversionCodes.GRAY2BGR);
                         }
                         else
                         {
-                            outputForDisplay = lastOutput.Clone();
+                            lastOutput.CopyTo(outputForDisplay);
                         }
 
                         // 转换为 Base64 并发送
@@ -1060,7 +1056,6 @@ namespace ClearFrost
                         using var ms = new MemoryStream();
                         bitmap.Save(ms, ImageFormat.Jpeg);
                         string base64 = Convert.ToBase64String(ms.ToArray());
-                        outputForDisplay.Dispose();
 
                         var response = new PreviewResponse
                         {
