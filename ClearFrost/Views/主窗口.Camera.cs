@@ -1,4 +1,4 @@
-using MVSDK_Net;
+﻿using MVSDK_Net;
 using ClearFrost.Hardware;
 using ClearFrost.Config;
 using OpenCvSharp;
@@ -129,12 +129,23 @@ namespace ClearFrost
 
                 // 等待并获取首帧验证相机工作正常
                 IMVDefine.IMV_Frame testFrame = new IMVDefine.IMV_Frame();
-                res = cam.IMV_GetFrame(ref testFrame, 2000); // 2秒超时
-                if (res != IMVDefine.IMV_OK || testFrame.frameInfo.size == 0)
+                bool shouldReleaseTestFrame = false;
+                try
                 {
-                    throw new Exception($"获取首帧失败，相机可能未正确工作:{res}");
+                    res = cam.IMV_GetFrame(ref testFrame, 2000); // 2秒超时
+                    shouldReleaseTestFrame = res == IMVDefine.IMV_OK;
+                    if (!shouldReleaseTestFrame || testFrame.frameInfo.size == 0)
+                    {
+                        throw new Exception($"获取首帧失败，相机可能未正确工作:{res}");
+                    }
                 }
-                cam.IMV_ReleaseFrame(ref testFrame);
+                finally
+                {
+                    if (shouldReleaseTestFrame)
+                    {
+                        cam.IMV_ReleaseFrame(ref testFrame);
+                    }
+                }
 
                 if (renderThread != null && renderThread.IsAlive) renderThread.Join(100);
                 renderThread = new Thread(DisplayThread);
@@ -209,32 +220,47 @@ namespace ClearFrost
             int srcStride = width + (int)frame.frameInfo.paddingX; // SDK 帧的实际行步长
 
             var bitmap = new Bitmap(width, height, PixelFormat.Format8bppIndexed);
-            ColorPalette palette = bitmap.Palette;
-            for (int i = 0; i < 256; i++) palette.Entries[i] = Color.FromArgb(i, i, i);
-            bitmap.Palette = palette;
-            BitmapData bmpData = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, bitmap.PixelFormat);
-
-            int dstStride = bmpData.Stride; // Bitmap 的行步长（可能含对齐填充）
-
-            if (srcStride == dstStride)
+            BitmapData? bmpData = null;
+            try
             {
-                // stride 一致，可以整块拷贝
-                CopyMemory(bmpData.Scan0, frame.pData, (uint)(srcStride * height));
-            }
-            else
-            {
-                // stride 不一致，逐行拷贝有效像素
-                for (int row = 0; row < height; row++)
+                ColorPalette palette = bitmap.Palette;
+                for (int i = 0; i < 256; i++) palette.Entries[i] = Color.FromArgb(i, i, i);
+                bitmap.Palette = palette;
+                bmpData = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, bitmap.PixelFormat);
+
+                int dstStride = bmpData.Stride; // Bitmap 的行步长（可能含对齐填充）
+
+                if (srcStride == dstStride)
                 {
-                    CopyMemory(
-                        bmpData.Scan0 + row * dstStride,
-                        frame.pData + row * srcStride,
-                        (uint)width);
+                    // stride 一致，可以整块拷贝
+                    CopyMemory(bmpData.Scan0, frame.pData, (uint)(srcStride * height));
+                }
+                else
+                {
+                    // stride 不一致，逐行拷贝有效像素
+                    for (int row = 0; row < height; row++)
+                    {
+                        CopyMemory(
+                            bmpData.Scan0 + row * dstStride,
+                            frame.pData + row * srcStride,
+                            (uint)width);
+                    }
+                }
+
+                return bitmap;
+            }
+            catch
+            {
+                bitmap.Dispose();
+                throw;
+            }
+            finally
+            {
+                if (bmpData != null)
+                {
+                    bitmap.UnlockBits(bmpData);
                 }
             }
-
-            bitmap.UnlockBits(bmpData);
-            return bitmap;
         }
 
         /// <summary>
@@ -249,35 +275,43 @@ namespace ClearFrost
 
             // 创建 Mono8 格式的 Mat
             Mat mat = new Mat(height, width, MatType.CV_8UC1);
-            int dstStride = (int)mat.Step(); // OpenCV Mat 的行步长
-
-            // 复制图像数据（处理 stride 对齐）
-            unsafe
+            try
             {
-                byte* srcPtr = (byte*)frame.pData.ToPointer();
-                byte* dstPtr = (byte*)mat.Data.ToPointer();
+                int dstStride = (int)mat.Step(); // OpenCV Mat 的行步长
 
-                if (srcStride == dstStride)
+                // 复制图像数据（处理 stride 对齐）
+                unsafe
                 {
-                    // stride 一致，整块高效拷贝
-                    long totalBytes = (long)srcStride * height;
-                    Buffer.MemoryCopy(srcPtr, dstPtr, totalBytes, totalBytes);
-                }
-                else
-                {
-                    // stride 不一致，逐行拷贝有效像素，跳过 padding
-                    for (int row = 0; row < height; row++)
+                    byte* srcPtr = (byte*)frame.pData.ToPointer();
+                    byte* dstPtr = (byte*)mat.Data.ToPointer();
+
+                    if (srcStride == dstStride)
                     {
-                        Buffer.MemoryCopy(
-                            srcPtr + (long)row * srcStride,
-                            dstPtr + (long)row * dstStride,
-                            width,
-                            width);
+                        // stride 一致，整块高效拷贝
+                        long totalBytes = (long)srcStride * height;
+                        Buffer.MemoryCopy(srcPtr, dstPtr, totalBytes, totalBytes);
+                    }
+                    else
+                    {
+                        // stride 不一致，逐行拷贝有效像素，跳过 padding
+                        for (int row = 0; row < height; row++)
+                        {
+                            Buffer.MemoryCopy(
+                                srcPtr + (long)row * srcStride,
+                                dstPtr + (long)row * dstStride,
+                                width,
+                                width);
+                        }
                     }
                 }
-            }
 
-            return mat;
+                return mat;
+            }
+            catch
+            {
+                mat.Dispose();
+                throw;
+            }
         }
 
         [DllImport("kernel32.dll", EntryPoint = "RtlMoveMemory")]

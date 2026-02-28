@@ -1,4 +1,4 @@
-using ClearFrost.Config;
+﻿using ClearFrost.Config;
 using ClearFrost.Models;
 // ============================================================================
 // 文件名: WebUIController.cs
@@ -32,6 +32,7 @@ using System.Text.Json;
 using System.Text;
 using System.Linq;
 using System.Collections.Generic;
+using System.Threading;
 using ClearFrost.Vision;
 using OpenCvSharp;
 
@@ -46,6 +47,9 @@ namespace ClearFrost
         private readonly object _logThrottleLock = new object();
         private long _lastFrontendLogTick;
         private const int FrontendLogThrottleMs = 100;
+        private long _lastImagePushTick;
+        private int _imagePushInProgress;
+        private const int ImagePushMinIntervalMs = 50;
 
         // Events to notify the main window about frontend actions
         public event EventHandler? OnFindCamera;
@@ -255,13 +259,39 @@ namespace ClearFrost
                 return;
             }
 
-            using Mat resized = new Mat();
-            Cv2.Resize(image, resized, new OpenCvSharp.Size(targetWidth, targetHeight), 0, 0, InterpolationFlags.Linear);
+            long nowTick = Environment.TickCount64;
+            if (nowTick - Volatile.Read(ref _lastImagePushTick) < ImagePushMinIntervalMs)
+            {
+                return;
+            }
 
-            int quality = Math.Clamp(jpegQuality, 1, 100);
-            Cv2.ImEncode(".jpg", resized, out byte[] encoded, new[] { new ImageEncodingParam(ImwriteFlags.JpegQuality, quality) });
-            string base64 = Convert.ToBase64String(encoded);
-            await UpdateImage(base64);
+            // Avoid async backlog and JS heap pressure when image updates arrive too frequently.
+            if (Interlocked.Exchange(ref _imagePushInProgress, 1) == 1)
+            {
+                return;
+            }
+
+            try
+            {
+                nowTick = Environment.TickCount64;
+                if (nowTick - Volatile.Read(ref _lastImagePushTick) < ImagePushMinIntervalMs)
+                {
+                    return;
+                }
+
+                using Mat resized = new Mat();
+                Cv2.Resize(image, resized, new OpenCvSharp.Size(targetWidth, targetHeight), 0, 0, InterpolationFlags.Linear);
+
+                int quality = Math.Clamp(jpegQuality, 1, 100);
+                Cv2.ImEncode(".jpg", resized, out byte[] encoded, new[] { new ImageEncodingParam(ImwriteFlags.JpegQuality, quality) });
+                string base64 = Convert.ToBase64String(encoded);
+                await UpdateImage(base64);
+                Volatile.Write(ref _lastImagePushTick, Environment.TickCount64);
+            }
+            finally
+            {
+                Volatile.Write(ref _imagePushInProgress, 0);
+            }
         }
 
         /// <summary>

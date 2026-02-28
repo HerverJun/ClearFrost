@@ -278,7 +278,12 @@ namespace ClearFrost.Services
                                 _lastFrame = capturedFrame;
                             }
 
-                            FrameCaptured?.Invoke(capturedFrame);
+                            var frameCapturedHandler = FrameCaptured;
+                            if (frameCapturedHandler != null)
+                            {
+                                using Mat eventFrame = capturedFrame.Clone();
+                                frameCapturedHandler.Invoke(eventFrame);
+                            }
                         }
                     }
 

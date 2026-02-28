@@ -1,4 +1,4 @@
-using MVSDK_Net;
+﻿using MVSDK_Net;
 using ClearFrost.Config;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
@@ -251,12 +251,23 @@ namespace ClearFrost
                     {
                         // 获取帧
                         IMVDefine.IMV_Frame frame = new IMVDefine.IMV_Frame();
-                        res = cam.IMV_GetFrame(ref frame, 2000); // 2秒超时
-                        if (res == IMVDefine.IMV_OK && frame.frameInfo.size > 0)
+                        bool shouldReleaseFrame = false;
+                        try
                         {
-                            // 转换为 Mat
-                            frameToProcess = ConvertFrameToMat(frame);
-                            cam.IMV_ReleaseFrame(ref frame);
+                            res = cam.IMV_GetFrame(ref frame, 2000); // 2秒超时
+                            shouldReleaseFrame = res == IMVDefine.IMV_OK;
+                            if (shouldReleaseFrame && frame.frameInfo.size > 0)
+                            {
+                                // 转换为 Mat
+                                frameToProcess = ConvertFrameToMat(frame);
+                            }
+                        }
+                        finally
+                        {
+                            if (shouldReleaseFrame)
+                            {
+                                cam.IMV_ReleaseFrame(ref frame);
+                            }
                         }
                     }
                 }

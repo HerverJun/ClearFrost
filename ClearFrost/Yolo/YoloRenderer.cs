@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: YoloRenderer.cs
 // 描述:   YOLO 渲染模块 - 结果可视化绘制
 // ============================================================================
@@ -505,12 +505,13 @@ namespace ClearFrost.Yolo
         private unsafe Bitmap GenerateMaskImageParallel(Mat matData, Color color)
         {
             Bitmap maskImage = new Bitmap(matData.Width, matData.Height, PixelFormat.Format32bppArgb);
-            BitmapData maskImageData = maskImage.LockBits(new Rectangle(0, 0, maskImage.Width, maskImage.Height), ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+            BitmapData? maskImageData = null;
             int height = maskImage.Height;
             int width = maskImage.Width;
 
             try
             {
+                maskImageData = maskImage.LockBits(new Rectangle(0, 0, maskImage.Width, maskImage.Height), ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
                 byte* scan0 = (byte*)maskImageData.Scan0.ToPointer();
                 int stride = maskImageData.Stride;
 
@@ -535,13 +536,21 @@ namespace ClearFrost.Yolo
                         }
                     }
                 });
+
+                return maskImage;
+            }
+            catch
+            {
+                maskImage.Dispose();
+                throw;
             }
             finally
             {
-                maskImage.UnlockBits(maskImageData);
+                if (maskImageData != null)
+                {
+                    maskImage.UnlockBits(maskImageData);
+                }
             }
-
-            return maskImage;
         }
 
         /// <returns>Returns ObbRectangle structure, representing logic of four points</returns>

@@ -1,4 +1,4 @@
-using MVSDK_Net;
+﻿using MVSDK_Net;
 using ClearFrost.Config;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
@@ -111,12 +111,23 @@ namespace ClearFrost
                         if (res == IMVDefine.IMV_OK)
                         {
                             IMVDefine.IMV_Frame frame = new IMVDefine.IMV_Frame();
-                            res = cam.IMV_GetFrame(ref frame, 2000); // 2秒超时
-                            if (res == IMVDefine.IMV_OK && frame.frameInfo.size > 0)
+                            bool shouldReleaseFrame = false;
+                            try
                             {
-                                frameToProcess = ConvertFrameToMat(frame);
-                                cam.IMV_ReleaseFrame(ref frame);
-                                Debug.WriteLine($"[主窗口-PLC] 📷 主动拍照获取到图像帧: {frameToProcess.Width}x{frameToProcess.Height}");
+                                res = cam.IMV_GetFrame(ref frame, 2000); // 2秒超时
+                                shouldReleaseFrame = res == IMVDefine.IMV_OK;
+                                if (shouldReleaseFrame && frame.frameInfo.size > 0)
+                                {
+                                    frameToProcess = ConvertFrameToMat(frame);
+                                    Debug.WriteLine($"[主窗口-PLC] 📷 主动拍照获取到图像帧: {frameToProcess.Width}x{frameToProcess.Height}");
+                                }
+                            }
+                            finally
+                            {
+                                if (shouldReleaseFrame)
+                                {
+                                    cam.IMV_ReleaseFrame(ref frame);
+                                }
                             }
                         }
                     }

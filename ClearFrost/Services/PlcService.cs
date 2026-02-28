@@ -1,4 +1,4 @@
-using ClearFrost.Hardware;
+﻿using ClearFrost.Hardware;
 // ============================================================================
 // 文件名: PlcService.cs
 // 描述:   PLC 通讯服务实现
@@ -70,6 +70,9 @@ namespace ClearFrost.Services
 
                 for (int i = 0; i < maxRetries; i++)
                 {
+                    _plcDevice?.Disconnect();
+                    _plcDevice = null;
+
                     _plcDevice = PlcFactory.Create(protocolType, ip, port);
                     bool socketConnected = await _plcDevice.ConnectAsync();
 
@@ -92,12 +95,15 @@ namespace ClearFrost.Services
                             LastError = _plcDevice.LastError ?? "PLC 连接验证失败：无法读取测试地址";
                             Debug.WriteLine($"[PlcService] 连接验证失败 (读取 D0 失败): {LastError}");
                             _plcDevice.Disconnect();
+                            _plcDevice = null;
                             continue; // 继续重试
                         }
                     }
 
                     LastError = _plcDevice?.LastError ?? "未知错误";
                     Debug.WriteLine($"[PlcService] 连接失败: {LastError}");
+                    _plcDevice?.Disconnect();
+                    _plcDevice = null;
 
                     if (i < maxRetries - 1)
                     {
