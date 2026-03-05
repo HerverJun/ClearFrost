@@ -18,6 +18,14 @@ namespace ClearFrost.Config
         public int PlcTriggerDelayMs { get; set; } = 800;
         public int PlcPollingIntervalMs { get; set; } = 500;
         /// <summary>
+        /// 合格时写入PLC的值
+        /// </summary>
+        public short PlcOkValue { get; set; } = 1;
+        /// <summary>
+        /// 不合格时写入PLC的值
+        /// </summary>
+        public short PlcNgValue { get; set; } = 2;
+        /// <summary>
         /// PLC协议类型: Mitsubishi_MC_ASCII, Mitsubishi_MC_Binary, Modbus_TCP
         /// </summary>
         public string PlcProtocol { get; set; } = "Mitsubishi_MC_ASCII";

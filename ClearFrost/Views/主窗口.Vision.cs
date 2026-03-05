@@ -1,4 +1,4 @@
-using MVSDK_Net;
+﻿using MVSDK_Net;
 using ClearFrost.Config;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
@@ -255,11 +255,14 @@ namespace ClearFrost
             return $"Found {results.Count}: {string.Join(", ", details)}";
         }
 
-        private async Task btnCapture_LogicAsync()
+        private async Task btnCapture_LogicAsync(string triggerSource = "手动")
         {
+            DiagLog($"▶ [{triggerSource}] btnCapture_LogicAsync 进入, 线程ID={Thread.CurrentThread.ManagedThreadId}");
+
             // 使用信号量防止并发检测
             if (!await _detectionSemaphore.WaitAsync(0))
             {
+                DiagLog($"⚠ [{triggerSource}] 信号量已被占用，跳过");
                 await _uiController.LogToFrontend("检测正在进行中，请稍候...", "warning");
                 return;
             }
@@ -277,7 +280,7 @@ namespace ClearFrost
 
             try
             {
-                await _uiController.LogToFrontend("开始检测...", "info");
+                await _uiController.LogToFrontend($"开始检测... ({triggerSource}触发)", "info");
 
                 Mat? frameToProcess = null;
 
@@ -286,9 +289,11 @@ namespace ClearFrost
                 try
                 {
                     frameToProcess = _cameraService.CaptureFrame(3000);
+                    DiagLog($"📷 [{triggerSource}] CaptureFrame 结果: {(frameToProcess != null ? "OK" : "FAIL")}");
                 }
                 catch (Exception ex)
                 {
+                    DiagLog($"❌ [{triggerSource}] CaptureFrame 异常: {ex.Message}");
                     Debug.WriteLine($"[手动检测] 触发拍照失败: {ex.Message}");
                 }
 
@@ -358,7 +363,7 @@ namespace ClearFrost
                     // 日志 (发送到检测流水，包含模型切换信息)
                     string objDesc = GetDetailedDetectionLog(results, labels);
                     string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
-                    await _uiController.LogDetectionToFrontend($"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {inferenceMs}ms{modelInfo}", isQualified ? "success" : "error");
+                    await _uiController.LogDetectionToFrontend($"[{triggerSource}] 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {inferenceMs}ms{modelInfo}", isQualified ? "success" : "error");
 
                     // 更新统计
                     _statisticsService.RecordDetection(isQualified);
@@ -378,6 +383,7 @@ namespace ClearFrost
             }
             catch (Exception ex)
             {
+                DiagLog($"❌ [{triggerSource}] 检测异常: {ex.Message}");
                 await _uiController.LogToFrontend($"检测异常: {ex.Message}", "error");
             }
             finally
@@ -386,7 +392,7 @@ namespace ClearFrost
                 if (captureMs > 0 || inferenceMs > 0 || roiFilterMs > 0 || plcWriteMs > 0 || renderToUiMs > 0 || saveQueueMs > 0 || dbWriteMs > 0)
                 {
                     WritePerformanceProfileLog(
-                        "手动",
+                        triggerSource,
                         finalQualified,
                         totalSw.ElapsedMilliseconds,
                         captureMs,
@@ -401,6 +407,7 @@ namespace ClearFrost
                 }
 
                 _detectionSemaphore.Release();
+                DiagLog($"✅ [{triggerSource}] btnCapture_LogicAsync 完成, 信号量已释放");
             }
         }
 
@@ -518,7 +525,8 @@ namespace ClearFrost
                 try
                 {
                     short resultAddress = (short)_appConfig.PlcResultAddress;
-                    bool success = await _plcService.WriteResultAsync(resultAddress, isQualified);
+                    short writeValue = isQualified ? _appConfig.PlcOkValue : _appConfig.PlcNgValue;
+                    bool success = await _plcService.WriteResultAsync(resultAddress, writeValue);
                     if (!success)
                     {
                         await _uiController.LogToFrontend("PLC写入失败: 结果未成功落地", "error");

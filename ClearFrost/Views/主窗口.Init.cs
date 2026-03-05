@@ -49,17 +49,12 @@ namespace ClearFrost
                     SafeFireAndForget(_uiController.FlashPlcTrigger(), "PLC触发指示灯");
                 });
 
-                if (!_plcTriggerQueue.Writer.TryWrite(DateTime.Now))
-                {
-                    SafeFireAndForget(_uiController.LogToFrontend("PLC触发队列已满，已丢弃最旧触发", "warning"), "PLC触发队列告警");
-                }
+                InvokeOnUIThread(() => SafeFireAndForget(btnCapture_LogicAsync("PLC半自动"), "PLC触发检测"));
             };
             _plcService.ErrorOccurred += (error) =>
             {
                 SafeFireAndForget(_uiController.LogToFrontend($"PLC错误: {error}", "error"), "PLC错误日志");
             };
-
-            StartPlcTriggerConsumer();
 
             // Detection 服务事件
             _detectionService.DetectionCompleted += (result) =>
@@ -1332,6 +1327,8 @@ namespace ClearFrost
                         if (root.TryGetProperty("PlcResultAddress", out var pr)) _appConfig.PlcResultAddress = ParsePlcAddress(pr, _appConfig.PlcResultAddress);
                         if (root.TryGetProperty("PlcTriggerDelayMs", out var ptd)) _appConfig.PlcTriggerDelayMs = ptd.TryGetInt32(out int ptdVal) ? Math.Max(0, ptdVal) : _appConfig.PlcTriggerDelayMs;
                         if (root.TryGetProperty("PlcPollingIntervalMs", out var ppi)) _appConfig.PlcPollingIntervalMs = ppi.TryGetInt32(out int ppiVal) ? Math.Max(50, ppiVal) : _appConfig.PlcPollingIntervalMs;
+                        if (root.TryGetProperty("PlcOkValue", out var pok)) _appConfig.PlcOkValue = pok.TryGetInt16(out short pokVal) ? pokVal : _appConfig.PlcOkValue;
+                        if (root.TryGetProperty("PlcNgValue", out var png)) _appConfig.PlcNgValue = png.TryGetInt16(out short pngVal) ? pngVal : _appConfig.PlcNgValue;
 #pragma warning disable CS0618
                         var activeCam = _appConfig.ActiveCamera;
                         if (root.TryGetProperty("CameraName", out var cn))
@@ -1506,17 +1503,6 @@ namespace ClearFrost
                 // 停止后台任务
                 this.停止 = true;
                 _plcService?.StopMonitoring();
-                _plcTriggerQueue.Writer.TryComplete();
-                _plcTriggerQueueCts.Cancel();
-                try
-                {
-                    _plcTriggerConsumerTask?.Wait(300);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"PLC Trigger Consumer Stop Error: {ex.Message}");
-                }
-                _plcTriggerQueueCts.Dispose();
 
                 // 相机资源释放（对齐厂商 Grab/Form1 的 OnClosed 模式：同步执行）
                 try

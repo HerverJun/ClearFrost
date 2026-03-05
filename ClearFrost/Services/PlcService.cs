@@ -358,6 +358,29 @@ namespace ClearFrost.Services
             }
         }
 
+        public async Task<bool> WriteResultAsync(short resultAddress, short valueToWrite)
+        {
+            if (!IsConnected || _plcDevice == null) return false;
+
+            string address = GetPlcAddress(resultAddress);
+            try
+            {
+                bool success = await _plcDevice.WriteInt16Async(address, valueToWrite);
+                if (!success)
+                {
+                    LastError = _plcDevice.LastError;
+                    ErrorOccurred?.Invoke($"写入失败: {LastError}");
+                }
+                return success;
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                ErrorOccurred?.Invoke($"写入异常: {ex.Message}");
+                return false;
+            }
+        }
+
         public async Task<bool> WriteReleaseSignalAsync(short resultAddress)
         {
             if (!IsConnected || _plcDevice == null) return false;

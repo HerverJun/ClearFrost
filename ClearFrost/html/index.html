@@ -708,6 +708,18 @@
                                         class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="500">
                                 </div>
                             </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[10px] text-ink-400 mb-1">合格写入值 (OK)</label>
+                                    <input id="cfg-plc-ok-value" type="number" min="0" max="32767" step="1"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="1">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] text-ink-400 mb-1">不合格写入值 (NG)</label>
+                                    <input id="cfg-plc-ng-value" type="number" min="0" max="32767" step="1"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="2">
+                                </div>
+                            </div>
                         </div>
                     </div>
 

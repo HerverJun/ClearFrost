@@ -92,6 +92,13 @@ namespace ClearFrost.Interfaces
         Task<bool> WriteResultAsync(short resultAddress, bool isQualified);
 
         /// <summary>
+        /// 写入指定值到 PLC 结果地址
+        /// </summary>
+        /// <param name="resultAddress">结果地址</param>
+        /// <param name="valueToWrite">要写入的值</param>
+        Task<bool> WriteResultAsync(short resultAddress, short valueToWrite);
+
+        /// <summary>
         /// 写入放行信号
         /// </summary>
         /// <param name="resultAddress">结果地址</param>
