@@ -158,39 +158,18 @@ namespace ClearFrost
                     try
                     {
                         // [PLC-DIAG] 埋点1: 采集状态 + 线程上下文
-                        bool isGrabbing = cam.IMV_IsGrabbing();
+                        bool isGrabbing = _cameraService.IsGrabbing;
                         DiagLog($"📷 采集状态: IsGrabbing={isGrabbing}, 线程ID={Thread.CurrentThread.ManagedThreadId}");
                         if (!isGrabbing)
                         {
                             await _uiController.LogToFrontend("❌ 相机未在采集状态(IsGrabbing=false)，无法拍照", "error");
                         }
 
-                        int res = cam.IMV_ExecuteCommandFeature("TriggerSoftware");
-                        // [PLC-DIAG] 埋点2: TriggerSoftware 结果
-                        DiagLog($"🎯 TriggerSoftware 结果: res={res} (期望OK={IMVDefine.IMV_OK})");
-                        if (res == IMVDefine.IMV_OK)
+                        frameToProcess = _cameraService.CaptureFrame(3000);
+                        DiagLog($"🎯 CaptureFrame 结果: {(frameToProcess != null ? "OK" : "FAIL")}");
+                        if (frameToProcess != null)
                         {
-                            IMVDefine.IMV_Frame frame = new IMVDefine.IMV_Frame();
-                            bool shouldReleaseFrame = false;
-                            try
-                            {
-                                res = cam.IMV_GetFrame(ref frame, 2000); // 2秒超时
-                                // [PLC-DIAG] 埋点3: GetFrame 结果
-                                DiagLog($"🖼 GetFrame 结果: res={res} (期望OK={IMVDefine.IMV_OK}), frameSize={frame.frameInfo.size}");
-                                shouldReleaseFrame = res == IMVDefine.IMV_OK;
-                                if (shouldReleaseFrame && frame.frameInfo.size > 0)
-                                {
-                                    frameToProcess = ConvertFrameToMat(frame);
-                                    Debug.WriteLine($"[主窗口-PLC] 📷 主动拍照获取到图像帧: {frameToProcess.Width}x{frameToProcess.Height}");
-                                }
-                            }
-                            finally
-                            {
-                                if (shouldReleaseFrame)
-                                {
-                                    cam.IMV_ReleaseFrame(ref frame);
-                                }
-                            }
+                            Debug.WriteLine($"[主窗口-PLC] 📷 主动拍照获取到图像帧: {frameToProcess.Width}x{frameToProcess.Height}");
                         }
                     }
                     catch (Exception ex)
@@ -201,15 +180,17 @@ namespace ClearFrost
                     // 如果相机拍照失败，回退到缓存的最后一帧
                     if (frameToProcess == null)
                     {
-                        // [PLC-DIAG] 埋点4: fallback 路径诊断
-                        DiagLog($"⚠ 主路径失败, 尝试fallback. _lastCapturedFrame={(_lastCapturedFrame != null ? "有值" : "NULL")}");
-                        lock (_frameLock)
+                        Mat? cachedFrame = _cameraService.LastFrame;
+                        DiagLog($"⚠ 主路径失败, 尝试fallback. _cameraService.LastFrame={(cachedFrame != null ? "有值" : "NULL")}");
+
+                        if (cachedFrame != null && !cachedFrame.Empty())
                         {
-                            if (_lastCapturedFrame != null && !_lastCapturedFrame.Empty())
-                            {
-                                frameToProcess = _lastCapturedFrame.Clone();
-                                Debug.WriteLine($"[主窗口-PLC] 📷 使用缓存帧: {frameToProcess.Width}x{frameToProcess.Height}");
-                            }
+                            frameToProcess = cachedFrame;
+                            Debug.WriteLine($"[主窗口-PLC] 📷 使用缓存帧: {frameToProcess.Width}x{frameToProcess.Height}");
+                        }
+                        else
+                        {
+                            cachedFrame?.Dispose();
                         }
                     }
                     captureSw.Stop();

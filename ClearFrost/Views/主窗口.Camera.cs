@@ -102,44 +102,6 @@ namespace ClearFrost
 
                 var (success, errorMessage) = await Task.Run(() =>
                 {
-                    // 方案A：轻量重连 — 先停线程，再通过 CameraInstance.Close() 同步状态
-                    // 对齐厂商 ResumeConnect demo：Close → Open 复用句柄，不销毁
-                    m_cts.Cancel();
-                    renderThread?.Join(1000);
-
-                    // 通过 CameraInstance.Close() 正确更新 IsOpen 状态
-                    // 这样后续 Open() 不会被 if(IsOpen) return true 短路跳过
-                    var activeCamera = _cameraManager.ActiveCamera;
-                    if (activeCamera != null)
-                    {
-                        // CameraManager 管理的相机：通过 CameraInstance 管理生命周期
-                        // IsOpen=true 才需要 Close()，IsOpen=false 说明未打开过，无需操作
-                        if (activeCamera.IsOpen)
-                        {
-                            activeCamera.Close();  // StopGrabbing + Close + IsOpen=false
-                        }
-                        // 注意：不能在此对 cam 执行 DestroyHandle！
-                        // 因为 cam 和 activeCamera.Camera 是同一个对象，
-                        // 句柄由 AddCamera→CreateHandle 创建，需要保留给 Open() 复用
-                    }
-                    else if (cam != null)
-                    {
-                        // 兜底：仅用于没有 CameraManager 管理的旧配置路径
-                        try
-                        {
-                            cam.IMV_StopGrabbing();
-                            cam.IMV_Close();
-                            cam.IMV_DestroyHandle();
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"[btnOpenCamera] 兜底清理: {ex.Message}");
-                        }
-                    }
-
-                    // 重新初始化 CancellationTokenSource
-                    m_cts = new CancellationTokenSource();
-
                     try
                     {
                         var activeConfig = _appConfig.ActiveCamera;
@@ -148,98 +110,46 @@ namespace ClearFrost
                             return (false, "未配置活动相机或序列号为空");
                         }
 
-                        int res;
-                        activeCamera = _cameraManager.ActiveCamera;
-                        if (activeCamera != null)
+                        // 先关闭旧连接，再重开当前配置相机（复用句柄，不销毁）
+                        _cameraService.Close();
+
+                        bool openOk = _cameraService.Open(activeConfig.SerialNumber, activeConfig.Manufacturer);
+                        if (!openOk)
                         {
-                            cam = activeCamera.Camera;
-                            bool openOk = activeCamera.Open();
-                            if (!openOk)
-                            {
-                                throw new Exception($"打开相机失败: {activeCamera.Config.DisplayName} (SDK ErrorCode: {activeCamera.LastOpenResult})");
-                            }
-
-                            getParam();
-                            res = cam.IMV_StartGrabbing();
-                            if (res != IMVDefine.IMV_OK) throw new Exception($"启动采集失败:{res}");
-                        }
-                        else
-                        {
-                            // 兼容旧配置：仅华睿路径使用 index + CreateHandle 打开
-                            _targetCameraIndex = FindTargetCamera();
-                            if (_targetCameraIndex == -1)
-                            {
-                                return (false, "未找到目标相机设备");
-                            }
-
-                            res = cam.IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode.modeByIndex, _targetCameraIndex);
-                            if (res != IMVDefine.IMV_OK) throw new Exception($"创建句柄失败:{res}");
-
-                            res = cam.IMV_Open();
-                            if (res != IMVDefine.IMV_OK) throw new Exception($"打开相机失败:{res}");
-
-                            cam.IMV_SetEnumFeatureSymbol("TriggerSource", "Software");
-                            cam.IMV_SetEnumFeatureSymbol("TriggerSelector", "FrameStart");
-                            cam.IMV_SetEnumFeatureSymbol("TriggerMode", "On");
-                            cam.IMV_SetBufferCount(8);
-
-                            getParam();
-
-                            res = cam.IMV_StartGrabbing();
-                            if (res != IMVDefine.IMV_OK) throw new Exception($"启动采集失败:{res}");
+                            string detail = _cameraService.LastError ?? $"打开相机失败: {activeConfig.DisplayName}";
+                            return (false, detail);
                         }
 
-                        // 验证相机真正工作：触发一次拍照并等待首帧
-                        res = cam.IMV_ExecuteCommandFeature("TriggerSoftware");
-                        if (res != IMVDefine.IMV_OK)
+                        var activeCamera = _cameraManager.ActiveCamera;
+                        if (activeCamera == null)
                         {
-                            throw new Exception($"软件触发失败，相机可能未正确连接:{res}");
+                            throw new Exception("相机已打开，但无法获取活动相机实例");
                         }
 
-                        // 等待并获取首帧验证相机工作正常
-                        IMVDefine.IMV_Frame testFrame = new IMVDefine.IMV_Frame();
-                        bool shouldReleaseTestFrame = false;
-                        try
+                        cam = activeCamera.Camera;
+
+                        getParam();
+                        _cameraService.StartCapture();
+
+                        Mat? testFrame = _cameraService.CaptureFrame(3000);
+                        if (testFrame == null || testFrame.Empty())
                         {
-                            res = cam.IMV_GetFrame(ref testFrame, 2000); // 2秒超时
-                            shouldReleaseTestFrame = res == IMVDefine.IMV_OK;
-                            if (!shouldReleaseTestFrame || testFrame.frameInfo.size == 0)
-                            {
-                                throw new Exception($"获取首帧失败，相机可能未正确工作:{res}");
-                            }
+                            testFrame?.Dispose();
+                            throw new Exception("获取首帧失败，相机可能未正确工作");
                         }
-                        finally
-                        {
-                            if (shouldReleaseTestFrame)
-                            {
-                                cam.IMV_ReleaseFrame(ref testFrame);
-                            }
-                        }
+                        testFrame.Dispose();
 
                         return (true, string.Empty);
                     }
                     catch (Exception ex)
                     {
-                        // 打开失败时通过 CameraInstance.Close() 正确清理状态
-                        if (activeCamera != null)
-                        {
-                            try { activeCamera.Close(); } catch { }
-                        }
-                        else
-                        {
-                            ReleaseCameraResources();
-                        }
+                        try { _cameraService.Close(); } catch { }
                         return (false, ex.Message);
                     }
                 });
 
                 if (success)
                 {
-                    if (renderThread != null && renderThread.IsAlive) renderThread.Join(100);
-                    renderThread = new Thread(DisplayThread);
-                    renderThread.IsBackground = true;
-                    renderThread.Start();
-
                     await _uiController.UpdateConnection("cam", true);
                     await _uiController.LogToFrontend("相机开启成功", "success");
                     SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC自动连接");
@@ -262,34 +172,15 @@ namespace ClearFrost
 
         private void getParam()
         {
-            cam.IMV_SetEnumFeatureSymbol("PixelFormat", "Mono8");
+            var activeCamera = _cameraManager.ActiveCamera?.Camera;
+            activeCamera?.IMV_SetEnumFeatureSymbol("PixelFormat", "Mono8");
 
             var config = _appConfig.ActiveCamera;
             if (config != null)
             {
-                cam.IMV_SetDoubleFeatureValue("ExposureTime", config.ExposureTime);
-                cam.IMV_SetDoubleFeatureValue("GainRaw", config.Gain);
+                _cameraService.SetExposure(config.ExposureTime);
+                _cameraService.SetGain(config.Gain);
             }
-        }
-
-        private void DisplayThread()
-        {
-            try
-            {
-                foreach (var frame in m_frameQueue.GetConsumingEnumerable(m_cts.Token))
-                {
-                    var temp = frame;
-                    try
-                    {
-                        cam.IMV_ReleaseFrame(ref temp);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[DisplayThread] 释放帧异常: {ex.Message}");
-                    }
-                }
-            }
-            catch (OperationCanceledException) { }
         }
 
         /// <summary>
@@ -300,20 +191,7 @@ namespace ClearFrost
         {
             try
             {
-                // 1. 先发出停止信号，让所有取图/渲染线程感知并退出
-                m_cts.Cancel();
-
-                // 2. 等待渲染线程完全退出（对齐厂商：先等线程结束再操作 SDK）
-                //    厂商用无限 Join，这里加 1 秒上限防死锁
-                renderThread?.Join(1000);
-
-                // 3. 线程已退出，安全执行 SDK 清理（厂商标准时序）
-                if (cam != null)
-                {
-                    cam.IMV_StopGrabbing();
-                    cam.IMV_Close();
-                    cam.IMV_DestroyHandle();
-                }
+                _cameraService.Close();
             }
             catch (Exception ex) { Debug.WriteLine($"[主窗口] ReleaseCameraResources failed: {ex.Message}"); }
         }

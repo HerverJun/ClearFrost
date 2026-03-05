@@ -187,13 +187,11 @@ namespace ClearFrost
             // ================== 模板管理器事件 ==================
             _uiController.OnGetFrameForTemplate += async (s, e) =>
             {
-                Mat? frameClone = null;
-                lock (_frameLock)
+                Mat? frameClone = _cameraService.LastFrame;
+                if (frameClone != null && frameClone.Empty())
                 {
-                    if (_lastCapturedFrame != null && !_lastCapturedFrame.Empty())
-                    {
-                        frameClone = _lastCapturedFrame.Clone();
-                    }
+                    frameClone.Dispose();
+                    frameClone = null;
                 }
 
                 if (frameClone != null)
@@ -431,13 +429,11 @@ namespace ClearFrost
 
             _uiController.OnGetPreview += async (s, e) =>
             {
-                Mat? frameClone = null;
-                lock (_frameLock)
+                Mat? frameClone = _cameraService.LastFrame;
+                if (frameClone != null && frameClone.Empty())
                 {
-                    if (_pipelineProcessor != null && _lastCapturedFrame != null && !_lastCapturedFrame.Empty())
-                    {
-                        frameClone = _lastCapturedFrame.Clone();
-                    }
+                    frameClone.Dispose();
+                    frameClone = null;
                 }
 
                 if (_pipelineProcessor == null || frameClone == null)
@@ -538,13 +534,11 @@ namespace ClearFrost
                 else if (action == "capture")
                 {
                     // 从当前帧截取 -> 打开前端裁剪弹窗
-                    Mat? frameClone = null;
-                    lock (_frameLock)
+                    Mat? frameClone = _cameraService.LastFrame;
+                    if (frameClone != null && frameClone.Empty())
                     {
-                        if (_lastCapturedFrame != null && !_lastCapturedFrame.Empty())
-                        {
-                            frameClone = _lastCapturedFrame.Clone();
-                        }
+                        frameClone.Dispose();
+                        frameClone = null;
                     }
 
                     if (frameClone != null)
@@ -605,13 +599,11 @@ namespace ClearFrost
                     double rotate = 0;
                     if (r.TryGetProperty("rotate", out var rotProp)) rotate = rotProp.GetDouble();
 
-                    Mat? frameClone = null;
-                    lock (_frameLock)
+                    Mat? frameClone = _cameraService.LastFrame;
+                    if (frameClone != null && frameClone.Empty())
                     {
-                        if (_lastCapturedFrame != null && !_lastCapturedFrame.Empty())
-                        {
-                            frameClone = _lastCapturedFrame.Clone();
-                        }
+                        frameClone.Dispose();
+                        frameClone = null;
                     }
 
                     if (frameClone != null)

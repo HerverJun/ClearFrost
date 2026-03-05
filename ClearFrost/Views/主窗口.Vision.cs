@@ -285,31 +285,7 @@ namespace ClearFrost
                 // 首先尝试触发相机拍照并获取实时图像
                 try
                 {
-                    // 触发软件拍照
-                    int res = cam.IMV_ExecuteCommandFeature("TriggerSoftware");
-                    if (res == IMVDefine.IMV_OK)
-                    {
-                        // 获取帧
-                        IMVDefine.IMV_Frame frame = new IMVDefine.IMV_Frame();
-                        bool shouldReleaseFrame = false;
-                        try
-                        {
-                            res = cam.IMV_GetFrame(ref frame, 2000); // 2秒超时
-                            shouldReleaseFrame = res == IMVDefine.IMV_OK;
-                            if (shouldReleaseFrame && frame.frameInfo.size > 0)
-                            {
-                                // 转换为 Mat
-                                frameToProcess = ConvertFrameToMat(frame);
-                            }
-                        }
-                        finally
-                        {
-                            if (shouldReleaseFrame)
-                            {
-                                cam.IMV_ReleaseFrame(ref frame);
-                            }
-                        }
-                    }
+                    frameToProcess = _cameraService.CaptureFrame(3000);
                 }
                 catch (Exception ex)
                 {
@@ -319,12 +295,14 @@ namespace ClearFrost
                 // 如果相机拍照失败，尝试使用缓存的最后一帧
                 if (frameToProcess == null)
                 {
-                    lock (_frameLock)
+                    Mat? cachedFrame = _cameraService.LastFrame;
+                    if (cachedFrame != null && !cachedFrame.Empty())
                     {
-                        if (_lastCapturedFrame != null && !_lastCapturedFrame.Empty())
-                        {
-                            frameToProcess = _lastCapturedFrame.Clone();
-                        }
+                        frameToProcess = cachedFrame;
+                    }
+                    else
+                    {
+                        cachedFrame?.Dispose();
                     }
                 }
                 captureSw.Stop();

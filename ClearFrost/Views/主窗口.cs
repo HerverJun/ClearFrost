@@ -34,6 +34,7 @@ namespace ClearFrost
             // 初始化相机管理器
             _cameraManager = new CameraManager(_appConfig.IsDebugMode);
             _cameraManager.LoadFromConfig(_appConfig);
+            _cameraService = new CameraService(_cameraManager);
 
             // 向后兼容：从 CameraManager 获取活动相机
             var activeCam = _cameraManager.ActiveCamera;

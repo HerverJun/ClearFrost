@@ -49,9 +49,19 @@ namespace ClearFrost.Interfaces
         string CameraName { get; }
 
         /// <summary>
+        /// 最近一次错误信息
+        /// </summary>
+        string? LastError { get; }
+
+        /// <summary>
         /// 最后一帧图像
         /// </summary>
         Mat? LastFrame { get; }
+
+        /// <summary>
+        /// 是否正在采集
+        /// </summary>
+        bool IsGrabbing { get; }
 
         #endregion
 
@@ -84,6 +94,13 @@ namespace ClearFrost.Interfaces
         /// 触发采集 (软触发模式)
         /// </summary>
         void TriggerOnce();
+
+        /// <summary>
+        /// 触发拍照并获取帧（原子操作: TriggerSoftware -> GetFrame -> 转 Mat -> ReleaseFrame）
+        /// </summary>
+        /// <param name="timeoutMs">取帧超时（毫秒）</param>
+        /// <returns>成功返回图像，失败返回 null</returns>
+        Mat? CaptureFrame(int timeoutMs = 3000);
 
         /// <summary>
         /// 设置曝光时间

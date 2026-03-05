@@ -19,6 +19,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using OpenCvSharp;
 using ClearFrost.Interfaces;
+using MVSDK_Net;
 
 namespace ClearFrost.Services
 {
@@ -50,6 +51,8 @@ namespace ClearFrost.Services
 
         public bool IsOpen => _cameraManager.ActiveCamera?.IsOpen ?? false;
         public string CameraName => _cameraManager.ActiveCamera?.Config.DisplayName ?? "未连接";
+        public bool IsGrabbing => _cameraManager.ActiveCamera?.Camera.IMV_IsGrabbing() ?? false;
+        public string? LastError { get; private set; }
 
         public Mat? LastFrame
         {
@@ -88,14 +91,21 @@ namespace ClearFrost.Services
         /// <returns>成功返回 true</returns>
         public bool Open(string serialNumber, string manufacturer)
         {
+            serialNumber = serialNumber?.Trim() ?? string.Empty;
+            manufacturer = string.IsNullOrWhiteSpace(manufacturer) ? "Huaray" : manufacturer.Trim();
+
             try
             {
-                // 
-                var instance = _cameraManager.Cameras.FirstOrDefault(c => c.Config.SerialNumber == serialNumber);
+                if (string.IsNullOrWhiteSpace(serialNumber))
+                {
+                    return FailOpen("未配置相机序列号，无法连接");
+                }
+
+                var instance = _cameraManager.Cameras.FirstOrDefault(c =>
+                    string.Equals(c.Config.SerialNumber?.Trim(), serialNumber, StringComparison.OrdinalIgnoreCase));
 
                 if (instance == null)
                 {
-                    // 
                     var newConfig = new CameraConfig
                     {
                         SerialNumber = serialNumber,
@@ -103,44 +113,39 @@ namespace ClearFrost.Services
                         DisplayName = $"Camera-{serialNumber}",
                         IsEnabled = true
                     };
-                    _cameraManager.AddCamera(newConfig);
-                    instance = _cameraManager.Cameras.FirstOrDefault(c => c.Config.SerialNumber == serialNumber);
+                    bool added = _cameraManager.AddCamera(newConfig);
+                    if (!added)
+                    {
+                        return FailOpen($"未找到序列号为 {serialNumber} 的相机（厂商: {manufacturer}）");
+                    }
+
+                    instance = _cameraManager.Cameras.FirstOrDefault(c =>
+                        string.Equals(c.Config.SerialNumber?.Trim(), serialNumber, StringComparison.OrdinalIgnoreCase));
                 }
 
                 if (instance == null)
                 {
-                    ErrorOccurred?.Invoke("�޷������������");
-                    return false;
+                    return FailOpen($"未找到序列号为 {serialNumber} 的相机（厂商: {manufacturer}）");
                 }
 
-                // 
-                if (instance.Camera is ICameraProvider provider)
-                {
-                    bool opened = provider.Open(serialNumber);
-                    if (opened)
-                    {
-                        ConnectionChanged?.Invoke(true);
-                        Debug.WriteLine($"[CameraService] ����Ѵ�: {serialNumber}");
-                        return true;
-                    }
-                }
+                // 同步活动相机，保证后续 StartCapture/CaptureFrame 操作目标一致
+                _cameraManager.ActiveCameraId = instance.Id;
 
-                // 
                 bool success = instance.Open();
                 if (success)
                 {
+                    LastError = null;
                     ConnectionChanged?.Invoke(true);
                     Debug.WriteLine($"[CameraService] ����Ѵ� (SDK): {serialNumber}");
                     return true;
                 }
 
-                ErrorOccurred?.Invoke("�����ʧ��");
-                return false;
+                return FailOpen(
+                    $"打开相机失败: {instance.Config.DisplayName} (序列号: {serialNumber}, 错误码: {instance.LastOpenResult})");
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"������쳣: {ex.Message}");
-                return false;
+                return FailOpen($"打开相机异常: {ex.Message} (序列号: {serialNumber})");
             }
         }
 
@@ -156,16 +161,8 @@ namespace ClearFrost.Services
                 var activeCamera = _cameraManager.ActiveCamera;
                 if (activeCamera != null)
                 {
-                    if (activeCamera.Camera is ICameraProvider provider)
-                    {
-                        provider.Dispose();
-                    }
-                    else
-                    {
-                        activeCamera.Camera.IMV_StopGrabbing();
-                        activeCamera.Camera.IMV_Close();
-                        activeCamera.Camera.IMV_DestroyHandle();
-                    }
+                    // 使用 CameraInstance.Close() 对齐生命周期，避免重复销毁句柄
+                    activeCamera.Close();
 
                     ConnectionChanged?.Invoke(false);
                     Debug.WriteLine("[CameraService] ����ѹر�");
@@ -177,6 +174,13 @@ namespace ClearFrost.Services
             }
         }
 
+        private bool FailOpen(string message)
+        {
+            LastError = message;
+            ErrorOccurred?.Invoke(message);
+            return false;
+        }
+
         #endregion
 
         #region �ɼ�����
@@ -186,6 +190,36 @@ namespace ClearFrost.Services
         /// </summary>
         public void StartCapture()
         {
+            var activeCamera = _cameraManager.ActiveCamera;
+            if (activeCamera == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!activeCamera.Camera.IMV_IsGrabbing())
+                {
+                    int res = activeCamera.Camera.IMV_StartGrabbing();
+                    if (res != IMVDefine.IMV_OK)
+                    {
+                        ErrorOccurred?.Invoke($"启动采集失败: {res}");
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ErrorOccurred?.Invoke($"启动采集异常: {ex.Message}");
+                return;
+            }
+
+            // 仅在直接 provider 实例下启动采集线程；适配器/SDK 模式不需要后台轮询线程
+            if (activeCamera.Camera is not ICameraProvider)
+            {
+                return;
+            }
+
             if (_captureThread != null && _captureThread.IsAlive)
             {
                 return;
@@ -218,6 +252,19 @@ namespace ClearFrost.Services
             _captureCts = null;
             _captureThread = null;
 
+            try
+            {
+                var activeCamera = _cameraManager.ActiveCamera;
+                if (activeCamera != null && activeCamera.Camera.IMV_IsGrabbing())
+                {
+                    activeCamera.Camera.IMV_StopGrabbing();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CameraService] StopGrabbing failed: {ex.Message}");
+            }
+
             Debug.WriteLine("[CameraService] ֹͣ�ɼ�");
         }
 
@@ -243,6 +290,65 @@ namespace ClearFrost.Services
             catch (Exception ex)
             {
                 ErrorOccurred?.Invoke($"�����ɼ�ʧ��: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 触发拍照并获取帧（原子操作: TriggerSoftware -> GetFrame -> 转 Mat -> ReleaseFrame）
+        /// </summary>
+        /// <param name="timeoutMs">取帧超时（毫秒）</param>
+        /// <returns>成功返回图像，失败返回 null</returns>
+        public Mat? CaptureFrame(int timeoutMs = 3000)
+        {
+            var camera = _cameraManager.ActiveCamera?.Camera;
+            if (camera == null)
+            {
+                return null;
+            }
+
+            IMVDefine.IMV_Frame frame = new IMVDefine.IMV_Frame();
+            bool shouldReleaseFrame = false;
+
+            try
+            {
+                int res = camera.IMV_ExecuteCommandFeature("TriggerSoftware");
+                if (res != IMVDefine.IMV_OK)
+                {
+                    return null;
+                }
+
+                res = camera.IMV_GetFrame(ref frame, timeoutMs);
+                shouldReleaseFrame = res == IMVDefine.IMV_OK;
+                if (!shouldReleaseFrame)
+                {
+                    return null;
+                }
+
+                if (frame.frameInfo.size == 0 || frame.pData == IntPtr.Zero)
+                {
+                    return null;
+                }
+
+                Mat mat = ConvertFrameToMat(frame);
+                lock (_frameLock)
+                {
+                    _lastFrame?.Dispose();
+                    _lastFrame = mat.Clone();
+                }
+
+                return mat;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CameraService] CaptureFrame failed: {ex.Message}");
+                return null;
+            }
+            finally
+            {
+                if (shouldReleaseFrame)
+                {
+                    camera.IMV_ReleaseFrame(ref frame);
+                }
             }
         }
 
@@ -298,6 +404,55 @@ namespace ClearFrost.Services
                     Debug.WriteLine($"[CameraService] �ɼ��쳣: {ex.Message}");
                     Thread.Sleep(100);
                 }
+            }
+        }
+
+        /// <summary>
+        /// 将相机帧转换为 OpenCV Mat 格式
+        /// </summary>
+        /// <param name="frame">SDK 原始帧</param>
+        /// <returns>OpenCV Mat（Mono8）</returns>
+        private static Mat ConvertFrameToMat(IMVDefine.IMV_Frame frame)
+        {
+            int width = (int)frame.frameInfo.width;
+            int height = (int)frame.frameInfo.height;
+            int srcStride = width + (int)frame.frameInfo.paddingX;
+
+            Mat mat = new Mat(height, width, MatType.CV_8UC1);
+
+            try
+            {
+                int dstStride = (int)mat.Step();
+
+                unsafe
+                {
+                    byte* srcPtr = (byte*)frame.pData.ToPointer();
+                    byte* dstPtr = (byte*)mat.Data.ToPointer();
+
+                    if (srcStride == dstStride)
+                    {
+                        long totalBytes = (long)srcStride * height;
+                        Buffer.MemoryCopy(srcPtr, dstPtr, totalBytes, totalBytes);
+                    }
+                    else
+                    {
+                        for (int row = 0; row < height; row++)
+                        {
+                            Buffer.MemoryCopy(
+                                srcPtr + (long)row * srcStride,
+                                dstPtr + (long)row * dstStride,
+                                width,
+                                width);
+                        }
+                    }
+                }
+
+                return mat;
+            }
+            catch
+            {
+                mat.Dispose();
+                throw;
             }
         }
 

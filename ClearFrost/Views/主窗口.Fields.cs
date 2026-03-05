@@ -34,6 +34,7 @@ namespace ClearFrost
         private readonly IStorageService _storageService;
         private readonly IStatisticsService _statisticsService;
         private readonly IDatabaseService _databaseService;
+        private readonly ICameraService _cameraService;
         private readonly ImageSaveQueue _imageSaveQueue;
 
         // WebUI 控制器
@@ -99,10 +100,6 @@ namespace ClearFrost
         // TODO: 后续版本考虑将 cam 的 SDK 调用封装到 ICameraService
         private CameraManager _cameraManager;
         private ICamera cam; // 活动相机 SDK 句柄 (由 _cameraManager.ActiveCamera 提供)
-        private int _targetCameraIndex = -1;
-        private Thread? renderThread = null;
-        private BlockingCollection<IMVDefine.IMV_Frame> m_frameQueue = new BlockingCollection<IMVDefine.IMV_Frame>(10);
-        private CancellationTokenSource m_cts = new CancellationTokenSource();
         private volatile bool _isCameraOpening = false;
 
         // YOLO (由 _detectionService 管理)
@@ -117,13 +114,6 @@ namespace ClearFrost
 
         // 传统视觉处理器
         private PipelineProcessor? _pipelineProcessor;
-
-        // ====================== 线程安全 ======================
-        /// <summary>
-        /// 用于保护 _lastCapturedFrame 的线程同步锁
-        /// </summary>
-        private readonly object _frameLock = new object();
-        private Mat? _lastCapturedFrame; // 用于预览的最后一帧
 
         /// <summary>
         /// 检测操作信号量，防止并发检测（如 PLC 快速触发）
