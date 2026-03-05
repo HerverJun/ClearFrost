@@ -102,8 +102,40 @@ namespace ClearFrost
 
                 var (success, errorMessage) = await Task.Run(() =>
                 {
-                    // 先释放之前可能存在的相机资源，避免重复打开错误 (-116)
-                    ReleaseCameraResources();
+                    // 方案A：轻量重连 — 先停线程，再通过 CameraInstance.Close() 同步状态
+                    // 对齐厂商 ResumeConnect demo：Close → Open 复用句柄，不销毁
+                    m_cts.Cancel();
+                    renderThread?.Join(1000);
+
+                    // 通过 CameraInstance.Close() 正确更新 IsOpen 状态
+                    // 这样后续 Open() 不会被 if(IsOpen) return true 短路跳过
+                    var activeCamera = _cameraManager.ActiveCamera;
+                    if (activeCamera != null)
+                    {
+                        // CameraManager 管理的相机：通过 CameraInstance 管理生命周期
+                        // IsOpen=true 才需要 Close()，IsOpen=false 说明未打开过，无需操作
+                        if (activeCamera.IsOpen)
+                        {
+                            activeCamera.Close();  // StopGrabbing + Close + IsOpen=false
+                        }
+                        // 注意：不能在此对 cam 执行 DestroyHandle！
+                        // 因为 cam 和 activeCamera.Camera 是同一个对象，
+                        // 句柄由 AddCamera→CreateHandle 创建，需要保留给 Open() 复用
+                    }
+                    else if (cam != null)
+                    {
+                        // 兜底：仅用于没有 CameraManager 管理的旧配置路径
+                        try
+                        {
+                            cam.IMV_StopGrabbing();
+                            cam.IMV_Close();
+                            cam.IMV_DestroyHandle();
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[btnOpenCamera] 兜底清理: {ex.Message}");
+                        }
+                    }
 
                     // 重新初始化 CancellationTokenSource
                     m_cts = new CancellationTokenSource();
@@ -117,14 +149,14 @@ namespace ClearFrost
                         }
 
                         int res;
-                        var activeCamera = _cameraManager.ActiveCamera;
+                        activeCamera = _cameraManager.ActiveCamera;
                         if (activeCamera != null)
                         {
                             cam = activeCamera.Camera;
                             bool openOk = activeCamera.Open();
                             if (!openOk)
                             {
-                                throw new Exception($"打开相机失败: {activeCamera.Config.DisplayName}");
+                                throw new Exception($"打开相机失败: {activeCamera.Config.DisplayName} (SDK ErrorCode: {activeCamera.LastOpenResult})");
                             }
 
                             getParam();
@@ -147,6 +179,7 @@ namespace ClearFrost
                             if (res != IMVDefine.IMV_OK) throw new Exception($"打开相机失败:{res}");
 
                             cam.IMV_SetEnumFeatureSymbol("TriggerSource", "Software");
+                            cam.IMV_SetEnumFeatureSymbol("TriggerSelector", "FrameStart");
                             cam.IMV_SetEnumFeatureSymbol("TriggerMode", "On");
                             cam.IMV_SetBufferCount(8);
 
@@ -187,7 +220,15 @@ namespace ClearFrost
                     }
                     catch (Exception ex)
                     {
-                        ReleaseCameraResources();
+                        // 打开失败时通过 CameraInstance.Close() 正确清理状态
+                        if (activeCamera != null)
+                        {
+                            try { activeCamera.Close(); } catch { }
+                        }
+                        else
+                        {
+                            ReleaseCameraResources();
+                        }
                         return (false, ex.Message);
                     }
                 });
@@ -251,12 +292,22 @@ namespace ClearFrost
             catch (OperationCanceledException) { }
         }
 
+        /// <summary>
+        /// 释放相机资源（对齐厂商 Grab/Form1 清理时序）
+        /// 顺序：停标志 → 等线程退出 → StopGrabbing → Close → DestroyHandle
+        /// </summary>
         private void ReleaseCameraResources()
         {
             try
             {
+                // 1. 先发出停止信号，让所有取图/渲染线程感知并退出
                 m_cts.Cancel();
-                renderThread?.Join(200);
+
+                // 2. 等待渲染线程完全退出（对齐厂商：先等线程结束再操作 SDK）
+                //    厂商用无限 Join，这里加 1 秒上限防死锁
+                renderThread?.Join(1000);
+
+                // 3. 线程已退出，安全执行 SDK 清理（厂商标准时序）
                 if (cam != null)
                 {
                     cam.IMV_StopGrabbing();

@@ -19,6 +19,11 @@ namespace ClearFrost.Hardware
         public ICamera Camera { get; }
         public bool IsOpen { get; private set; }
 
+        /// <summary>
+        /// 最近一次 IMV_Open 的 SDK 返回码（用于诊断）
+        /// </summary>
+        public int LastOpenResult { get; private set; }
+
         private bool _disposed;
 
         public CameraInstance(string id, CameraConfig config, ICamera camera)
@@ -33,13 +38,19 @@ namespace ClearFrost.Hardware
             if (IsOpen) return true;
 
             int result = Camera.IMV_Open();
+            LastOpenResult = result;
             IsOpen = result == IMVDefine.IMV_OK;
+            if (!IsOpen)
+            {
+                Debug.WriteLine($"[CameraInstance] IMV_Open failed: ErrorCode={result}, Camera={Config.DisplayName}");
+            }
 
             if (IsOpen)
             {
                 // 应用配置
                 Camera.IMV_SetDoubleFeatureValue("ExposureTime", Config.ExposureTime);
                 Camera.IMV_SetDoubleFeatureValue("GainRaw", Config.Gain);
+                Camera.IMV_SetEnumFeatureSymbol("TriggerSelector", "FrameStart");
                 Camera.IMV_SetEnumFeatureSymbol("TriggerMode", "On");
                 Camera.IMV_SetEnumFeatureSymbol("TriggerSource", "Software");
                 Camera.IMV_SetBufferCount(10);

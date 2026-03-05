@@ -103,6 +103,18 @@ namespace ClearFrost
                     this.停止 = true;
                     // 保存配置
                     _appConfig?.Save();
+                    // 先释放相机资源，再退出应用
+                    // 修复：原来直接 Application.Exit() 会触发 FormClosing，
+                    // 但 CloseReason=ApplicationExitCall 导致清理被跳过
+                    try
+                    {
+                        ReleaseCameraResources();
+                        _cameraManager?.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[OnExitApp] 相机资源释放失败: {ex.Message}");
+                    }
                     // 强制退出
                     Application.Exit();
                 });
@@ -1485,7 +1497,8 @@ namespace ClearFrost
 
         protected void OnFormClosingHandler(object? sender, FormClosingEventArgs e)
         {
-            // 防止重复调用
+            // 如果已经在 OnExitApp 中完成了清理，直接放行
+            // （Application.Exit 触发 FormClosing 时 CloseReason=ApplicationExitCall）
             if (e.CloseReason == CloseReason.ApplicationExitCall) return;
 
             try
@@ -1513,8 +1526,27 @@ namespace ClearFrost
                 }
                 _plcTriggerQueueCts.Dispose();
 
-                // 使用线程等待模式进行资源释放，防止界面卡死
-                // 给予500ms的尝试断开时间，超时强制退出
+                // 相机资源释放（对齐厂商 Grab/Form1 的 OnClosed 模式：同步执行）
+                try
+                {
+                    ReleaseCameraResources();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Camera Release Error: {ex.Message}");
+                }
+
+                // 释放 CameraManager 管理的所有相机实例及其 SDK 句柄
+                try
+                {
+                    _cameraManager?.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"CameraManager Dispose Error: {ex.Message}");
+                }
+
+                // 其他非相机资源的清理放入后台线程，防止界面卡死
                 var cleanupTask = Task.Run(() =>
                 {
                     try
@@ -1527,24 +1559,6 @@ namespace ClearFrost
                     catch (Exception ex)
                     {
                         Debug.WriteLine($"PLC Disconnect Error: {ex.Message}");
-                    }
-
-                    try
-                    {
-                        ReleaseCameraResources();
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"Camera Release Error: {ex.Message}");
-                    }
-
-                    try
-                    {
-                        // DetectionService 资源由其内部管理，此处无需手动释放
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"YOLO Dispose Error: {ex.Message}");
                     }
 
                     try
@@ -1567,10 +1581,10 @@ namespace ClearFrost
                     }
                 });
 
-                // 等待清理完成或超时 (800ms)
-                if (!cleanupTask.Wait(800))
+                // 等待非相机清理完成（3秒上限）
+                if (!cleanupTask.Wait(3000))
                 {
-                    // 超时，强制不再等待
+                    Debug.WriteLine("[OnFormClosing] 非相机资源清理超时，强制退出");
                 }
             }
             catch (Exception)

@@ -27,6 +27,22 @@ namespace ClearFrost
         #region 3. PLC控制逻辑 (PLC Control) - 委托给 PlcService
 
         /// <summary>
+        /// [PLC-DIAG] 诊断日志 → 追加写入 plc_diag.log（现场无需开发工具即可查看）
+        /// </summary>
+        private static readonly string _diagLogPath = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "plc_diag.log");
+        private static void DiagLog(string message)
+        {
+            try
+            {
+                string line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}";
+                Debug.WriteLine(line);
+                File.AppendAllText(_diagLogPath, line + Environment.NewLine);
+            }
+            catch { /* 诊断日志写入失败不影响业务 */ }
+        }
+
+        /// <summary>
         /// 通过服务层连接 PLC
         /// </summary>
         private async Task ConnectPlcViaServiceAsync()
@@ -46,6 +62,14 @@ namespace ClearFrost
                     _appConfig.PlcTriggerAddress,
                     _appConfig.PlcPollingIntervalMs,
                     _appConfig.PlcTriggerDelayMs);
+                await _uiController.LogToFrontend(
+                    $"✅ PLC连接成功，开始监听 D{_appConfig.PlcTriggerAddress}", "success");
+            }
+            else
+            {
+                string err = _plcService.LastError ?? "未知错误";
+                await _uiController.LogToFrontend(
+                    $"❌ PLC连接失败: {err}（协议: {protocol}, 地址: {ip}:{port}）", "error");
             }
         }
 
@@ -133,7 +157,17 @@ namespace ClearFrost
                     // 首先尝试触发相机拍照并获取实时图像
                     try
                     {
+                        // [PLC-DIAG] 埋点1: 采集状态 + 线程上下文
+                        bool isGrabbing = cam.IMV_IsGrabbing();
+                        DiagLog($"📷 采集状态: IsGrabbing={isGrabbing}, 线程ID={Thread.CurrentThread.ManagedThreadId}");
+                        if (!isGrabbing)
+                        {
+                            await _uiController.LogToFrontend("❌ 相机未在采集状态(IsGrabbing=false)，无法拍照", "error");
+                        }
+
                         int res = cam.IMV_ExecuteCommandFeature("TriggerSoftware");
+                        // [PLC-DIAG] 埋点2: TriggerSoftware 结果
+                        DiagLog($"🎯 TriggerSoftware 结果: res={res} (期望OK={IMVDefine.IMV_OK})");
                         if (res == IMVDefine.IMV_OK)
                         {
                             IMVDefine.IMV_Frame frame = new IMVDefine.IMV_Frame();
@@ -141,6 +175,8 @@ namespace ClearFrost
                             try
                             {
                                 res = cam.IMV_GetFrame(ref frame, 2000); // 2秒超时
+                                // [PLC-DIAG] 埋点3: GetFrame 结果
+                                DiagLog($"🖼 GetFrame 结果: res={res} (期望OK={IMVDefine.IMV_OK}), frameSize={frame.frameInfo.size}");
                                 shouldReleaseFrame = res == IMVDefine.IMV_OK;
                                 if (shouldReleaseFrame && frame.frameInfo.size > 0)
                                 {
@@ -165,6 +201,8 @@ namespace ClearFrost
                     // 如果相机拍照失败，回退到缓存的最后一帧
                     if (frameToProcess == null)
                     {
+                        // [PLC-DIAG] 埋点4: fallback 路径诊断
+                        DiagLog($"⚠ 主路径失败, 尝试fallback. _lastCapturedFrame={(_lastCapturedFrame != null ? "有值" : "NULL")}");
                         lock (_frameLock)
                         {
                             if (_lastCapturedFrame != null && !_lastCapturedFrame.Empty())

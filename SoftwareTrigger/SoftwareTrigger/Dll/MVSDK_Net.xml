@@ -1,0 +1,2589 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>MVSDK_Net</name>
+    </assembly>
+    <members>
+        <member name="T:MVSDK_Net.IMVDefine">
+            <summary>
+            数据结构类
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_OK">
+            <summary>
+            成功，无错误
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ERROR">
+            <summary>
+            通用的错误
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_INVALID_HANDLE">
+            <summary>
+            错误或无效的句柄
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_INVALID_PARAM">
+            <summary>
+            错误的参数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_INVALID_FRAME_HANDLE">
+            <summary>
+            错误或无效的帧句柄
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_INVALID_FRAME">
+            <summary>
+            无效的帧
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_INVALID_RESOURCE">
+            <summary>
+            相机/事件/流等资源无效
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_INVALID_IP">
+            <summary>
+            设备与主机的IP网段不匹配
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_NO_MEMORY">
+            <summary>
+            内存不足
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_INSUFFICIENT_MEMORY">
+            <summary>
+            传入的内存空间不足
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ERROR_PROPERTY_TYPE">
+            <summary>
+            属性类型错误
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_INVALID_ACCESS">
+            <summary>
+            属性不可访问、或不能读/写、或读/写失败
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_INVALID_RANGE">
+            <summary>
+            属性值超出范围、或者不是步长整数倍
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_NOT_SUPPORT">
+            <summary>
+            设备不支持的功能	
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_MAX_DEVICE_ENUM_NUM">
+            <summary>
+            支持设备最大个数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_MAX_STRING_LENTH">
+            <summary>
+            字符串最大长度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_MAX_ERROR_LIST_NUM">
+            <summary>
+            失败属性列表最大长度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_MSG_EVENT_ID_EXPOSURE_END">
+            <summary>
+            ExposureEnd事件ID
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_MSG_EVENT_ID_FRAME_TRIGGER">
+            <summary>
+            FrameTrigger事件ID
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_MSG_EVENT_ID_FRAME_START">
+            <summary>
+            FrameStart事件ID
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_MSG_EVENT_ID_ACQ_START">
+            <summary>
+            AcquisitionStart事件ID
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_MSG_EVENT_ID_ACQ_TRIGGER">
+            <summary>
+            AcquisitionTrigger事件ID
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_MSG_EVENT_ID_DATA_READ_OUT">
+            <summary>
+            ReadOut事件ID
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_EFeatureType">
+            <summary>
+            枚举：属性类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EFeatureType.featureInt">
+            <summary>
+            整型数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EFeatureType.featureFloat">
+            <summary>
+            浮点数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EFeatureType.featureEnum">
+            <summary>
+            枚举
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EFeatureType.featureBool">
+            <summary>
+            布尔
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EFeatureType.featureString">
+            <summary>
+            字符串
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EFeatureType.featureCommand">
+            <summary>
+            命令
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EFeatureType.featureGroup">
+            <summary>
+            分组节点
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EFeatureType.featureReg">
+            <summary>
+            寄存器节点
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EFeatureType.featureUndefined">
+            <summary>
+            未定义
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_EInterfaceType">
+            <summary>
+            枚举：接口类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EInterfaceType.interfaceTypeGige">
+            <summary>
+            网卡接口类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EInterfaceType.interfaceTypeUsb3">
+            <summary>
+            USB3.0接口类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EInterfaceType.interfaceTypeCL">
+            <summary>
+            CAMERALINK接口类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EInterfaceType.interfaceTypePCIe">
+            <summary>
+            PCIe接口类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EInterfaceType.interfaceTypeAll">
+            <summary>
+            忽略接口类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EInterfaceType.interfaceInvalidType">
+            <summary>
+            无效接口类型
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_ECameraType">
+            <summary>
+            枚举：设备类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECameraType.typeGigeCamera">
+            <summary>
+            GIGE相机
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECameraType.typeU3vCamera">
+            <summary>
+            USB3.0相机
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECameraType.typeCLCamera">
+            <summary>
+            CAMERALINK 相机
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECameraType.typePCIeCamera">
+            <summary>
+            PCIe相机
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECameraType.typeUndefinedCamera">
+            <summary>
+            未知类型
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_ECreateHandleMode">
+            <summary>
+            枚举：创建句柄方式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECreateHandleMode.modeByIndex">
+            <summary>
+            通过已枚举设备的索引(从0开始，比如 0, 1, 2...)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECreateHandleMode.modeByCameraKey">
+            <summary>
+            通过设备键"厂商:序列号"	
+            </summary>		
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECreateHandleMode.modeByDeviceUserID">
+            <summary>
+            通过设备自定义名
+            </summary>	
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECreateHandleMode.modeByIPAddress">
+            <summary>
+            通过设备IP地址
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_ECameraAccessPermission">
+            <summary>
+            枚举：访问权限
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECameraAccessPermission.accessPermissionOpen">
+            <summary>
+            GigE相机没有被连接
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECameraAccessPermission.accessPermissionExclusive">
+            <summary>
+            独占访问权限
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECameraAccessPermission.accessPermissionControl">
+            <summary>
+            非独占可读访问权限
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECameraAccessPermission.accessPermissionControlWithSwitchover">
+            <summary>
+            切换控制访问权限
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECameraAccessPermission.accessPermissionUnknown">
+            <summary>
+            无法确定
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ECameraAccessPermission.accessPermissionUndefined">
+            <summary>
+            未定义访问权限
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_EGrabStrategy">
+            <summary>
+            枚举：抓图策略
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EGrabStrategy.grabStrartegySequential">
+            <summary>
+            按到达顺序处理图片
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EGrabStrategy.grabStrartegyLatestImage">
+            <summary>
+            获取最新的图片
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EGrabStrategy.grabStrartegyUpcomingImage">
+            <summary>
+            等待获取下一张图片(只针对GigE相机)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EGrabStrategy.grabStrartegyUndefined">
+            <summary>
+            未定义
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_EEventStatus">
+            <summary>
+            枚举：流事件状态
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EEventStatus.streamEventNormal">
+            <summary>
+            正常流事件
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EEventStatus.streamEventLostFrame">
+            <summary>
+            丢帧事件
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EEventStatus.streamEventLostPacket">
+            <summary>
+            丢包事件
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EEventStatus.streamEventImageError">
+            <summary>
+            图像错误事件
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EEventStatus.streamEventStreamChannelError">
+            <summary>
+            取流错误事件
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EEventStatus.streamEventTooManyConsecutiveResends">
+            <summary>
+            太多连续重传
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EEventStatus.streamEventTooManyLostPacket">
+            <summary>
+            太多丢包
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_EBayerDemosaic">
+            <summary>
+            枚举：图像转换Bayer格式所用的算法
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EBayerDemosaic.demosaicNearestNeighbor">
+            <summary>
+            最近邻
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EBayerDemosaic.demosaicBilinear">
+            <summary>
+            双线性
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EBayerDemosaic.demosaicEdgeSensing">
+            <summary>
+            边缘检测
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EBayerDemosaic.demosaicNotSupport">
+            <summary>
+            不支持
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_EVType">
+            <summary>
+            枚举：事件类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EVType.offLine">
+            <summary>
+            设备离线通知
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EVType.onLine">
+            <summary>
+            设备在线通知
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_EVideoType">
+            <summary>
+            枚举：视频格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EVideoType.typeVideoFormatAVI">
+            <summary>
+            AVI格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EVideoType.typeVideoFormatNotSupport">
+            <summary>
+            不支持
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_EFlipType">
+            <summary>
+            枚举：图像翻转类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EFlipType.typeFlipVertical">
+            <summary>
+            垂直(Y轴)翻转
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EFlipType.typeFlipHorizontal">
+            <summary>
+            水平(X轴)翻转
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_ERotationAngle">
+            <summary>
+            枚举：顺时针旋转角度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ERotationAngle.rotationAngle90">
+            <summary>
+            顺时针旋转90度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ERotationAngle.rotationAngle180">
+            <summary>
+            顺时针旋转180度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ERotationAngle.rotationAngle270">
+            <summary>
+            顺时针旋转270度
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_ESaveFileType">
+            <summary>
+            枚举：图像保存格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ESaveFileType.typeSaveBmp">
+            <summary>
+            BMP图像格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ESaveFileType.typeSaveJpeg">
+            <summary>
+            JPEG图像格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ESaveFileType.typeSavePng">
+            <summary>
+            PNG图像格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ESaveFileType.typeSaveTiff">
+            <summary>
+            TIFF图像格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ESaveFileType.typeSaveUndefined">
+            <summary>
+            未定义的图像格式
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_EPixelType">
+            <summary>
+            枚举：图像格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelTypeUndefined">
+            <summary>
+            Undefined
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono1p">
+            <summary>
+            Mono1p
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono2p">
+            <summary>
+            Mono2p
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono4p">
+            <summary>
+            Mono4p
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono8">
+            <summary>
+            Mono8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono8S">
+            <summary>
+            Mono8S
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono10">
+            <summary>
+            Mono10
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono10Packed">
+            <summary>
+            Mono10Packed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono12">
+            <summary>
+            Mono12
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono12Packed">
+            <summary>
+            Mono12Packed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono14">
+            <summary>
+            Mono14
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono16">
+            <summary>
+            Mono16
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayGR8">
+            <summary>
+            BayGR8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayRG8">
+            <summary>
+            BayRG8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayGB8">
+            <summary>
+            BayGB8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayBG8">
+            <summary>
+            BayBG8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayGR10">
+            <summary>
+            BayGR10
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayRG10">
+            <summary>
+            BayRG10
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayGB10">
+            <summary>
+            BayGB10
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayBG10">
+            <summary>
+            BayBG10
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayGR12">
+            <summary>
+            BayGR12
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayRG12">
+            <summary>
+            BayRG12
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayGB12">
+            <summary>
+            BayGB12
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayBG12">
+            <summary>
+            BayBG12
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayGR10Packed">
+            <summary>
+            BayGR10Packed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayRG10Packed">
+            <summary>
+            BayRG10Packed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayGB10Packed">
+            <summary>
+            BayGB10Packed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayBG10Packed">
+            <summary>
+            BayBG10Packed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayGR12Packed">
+            <summary>
+            BayGR12Packed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayRG12Packed">
+            <summary>
+            BayRG12Packed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayGB12Packed">
+            <summary>
+            BayGB12Packed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayBG12Packed">
+            <summary>
+            BayBG12Packed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayGR16">
+            <summary>
+            BayGR16
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayRG16">
+            <summary>
+            BayRG16
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayGB16">
+            <summary>
+            BayGB16
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayBG16">
+            <summary>
+            BayBG16
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGB8">
+            <summary>
+            RGB8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBGR8">
+            <summary>
+            BGR8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGBA8">
+            <summary>
+            RGBA8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBGRA8">
+            <summary>
+            BGRA8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGB10">
+            <summary>
+            RGB10
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBGR10">
+            <summary>
+            BGR10
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGB12">
+            <summary>
+            RGB12
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBGR12">
+            <summary>
+            BGR12
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGB16">
+            <summary>
+            RGB16
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGB10V1Packed">
+            <summary>
+            RGB10V1Packed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGB10P32">
+            <summary>
+            RGB10P32
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGB12V1Packed">
+            <summary>
+            RGB12V1Packed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGB565P">
+            <summary>
+            RGB565P
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBGR565P">
+            <summary>
+            BGR565P
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYUV411_8_UYYVYY">
+            <summary>
+            YUV411_8_UYYVYY
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYUV422_8_UYVY">
+            <summary>
+            YUV422_8_UYVY
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYUV422_8">
+            <summary>
+            YUV422_8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYUV8_UYV">
+            <summary>
+            YUV8_UYV
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYCbCr8CbYCr">
+            <summary>
+            YCbCr8CbYCr
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYCbCr422_8">
+            <summary>
+            YCbCr422_8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYCbCr422_8_CbYCrY">
+            <summary>
+            YCbCr422_8_CbYCrY
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYCbCr411_8_CbYYCrYY">
+            <summary>
+            YCbCr411_8_CbYYCrYY
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYCbCr601_8_CbYCr">
+            <summary>
+            YCbCr601_8_CbYCr
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYCbCr601_422_8">
+            <summary>
+            YCbCr601_422_8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYCbCr601_422_8_CbYCrY">
+            <summary>
+            YCbCr601_422_8_CbYCrY
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYCbCr601_411_8_CbYYCrYY">
+            <summary>
+            YCbCr601_411_8_CbYYCrYY
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYCbCr709_8_CbYCr">
+            <summary>
+            YCbCr709_8_CbYCr
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYCbCr709_422_8">
+            <summary>
+            YCbCr709_422_8
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYCbCr709_422_8_CbYCrY">
+            <summary>
+            YCbCr709_422_8_CbYCrY
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelYCbCr709_411_8_CbYYCrYY">
+            <summary>
+            YCbCr709_411_8_CbYYCrYY
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGB8Planar">
+            <summary>
+            RGB8Planar
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGB10Planar">
+            <summary>
+            RGB10Planar
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGB12Planar">
+            <summary>
+            RGB12Planar 
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelRGB16Planar">
+            <summary>
+            RGB16Planar
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayRG10p">
+            <summary>
+            BayerRG10p, currently used for specific project, please do not use them
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelBayRG12p">
+            <summary>
+            BayerRG12p, currently used for specific project, please do not use them
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono1c">
+            <summary>
+            mono1c, customized image format, used for binary output
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EPixelType.gvspPixelMono1e">
+            <summary>
+            mono1e, customized image format, used for displaying connected domain
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_TransmissionType">
+            <summary>
+            枚举：传输模式(gige)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_TransmissionType.transTypeUnicast">
+            <summary>
+            单播模式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_TransmissionType.transTypeMulticast">
+            <summary>
+            组播模式
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_String">
+            <summary>
+            字符串信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_String.str">
+            <summary>
+            字符串.长度不超过256 
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_GigEInterfaceInfo">
+            <summary>
+            GigE网卡信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEInterfaceInfo.description">
+            <summary>
+            网卡描述信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEInterfaceInfo.macAddress">
+            <summary>
+            网卡Mac地址
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEInterfaceInfo.ipAddress">
+            <summary>
+            设备Ip地址
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEInterfaceInfo.subnetMask">
+            <summary>
+            子网掩码
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEInterfaceInfo.defaultGateWay">
+            <summary>
+            默认网关
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEInterfaceInfo.chReserved">
+            <summary>
+            保留
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_UsbInterfaceInfo">
+            <summary>
+            USB接口信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbInterfaceInfo.description">
+            <summary>
+            USB接口描述信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbInterfaceInfo.vendorID">
+            <summary>
+            USB接口Vendor ID
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbInterfaceInfo.deviceID">
+            <summary>
+            USB接口设备ID
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbInterfaceInfo.subsystemID">
+            <summary>
+            USB接口Subsystem ID
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbInterfaceInfo.revision">
+            <summary>
+            USB接口Revision
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbInterfaceInfo.speed">
+            <summary>
+            USB接口speed
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbInterfaceInfo.chReserved">
+            <summary>
+            保留
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_GigEDeviceInfo">
+            <summary>
+            GigE设备信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEDeviceInfo.nIpConfigOptions">
+            <summary>
+            设备支持的IP配置选项
+            </summary>
+            <remarks>
+            <para>value:4 相机只支持LLA</para>
+            <para>value:5 相机支持LLA和Persistent IP</para>
+            <para>value:6 相机支持LLA和DHCP</para>
+            <para>value:7 相机支持LLA、DHCP和Persistent IP</para>
+            <para>value:0 获取失败</para>
+            </remarks>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEDeviceInfo.nIpConfigCurrent">
+            <summary>
+            设备当前的IP配置选项
+            </summary>
+            <remarks>
+            <para>value:4 LLA处于活动状态</para>
+            <para>value:5 LLA和Persistent IP处于活动状态</para>
+            <para>value:6 LLA和DHCP处于活动状态</para>
+            <para>value:7 LLA、DHCP和Persistent IP处于活动状态</para>
+            <para>value:0 获取失败</para>
+            </remarks>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEDeviceInfo.nReserved">
+            <summary>
+            保留
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEDeviceInfo.macAddress">
+            <summary>
+            设备Mac地址
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEDeviceInfo.ipAddress">
+            <summary>
+            设备Ip地址
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEDeviceInfo.subnetMask">
+            <summary>
+            子网掩码
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEDeviceInfo.defaultGateWay">
+            <summary>
+            默认网关
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEDeviceInfo.protocolVersion">
+            <summary>
+            网络协议版本
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEDeviceInfo.ipConfiguration">
+            <summary>
+            Ip配置有效性
+            </summary>
+            <remarks>
+            <para>Ip配置有效时字符串值"Valid"</para>
+            <para>Ip配置无效时字符串值"Invalid On This Interface"</para>
+            </remarks>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEDeviceInfo.chReserved">
+            <summary>
+            保留
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo">
+            <summary>
+            Usb设备信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.bLowSpeedSupported">
+            <summary>
+            true支持，false不支持，其他值 非法。
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.bFullSpeedSupported">
+            <summary>
+            true支持，false不支持，其他值 非法。
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.bHighSpeedSupported">
+            <summary>
+            true支持，false不支持，其他值 非法。
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.bSuperSpeedSupported">
+            <summary>
+            true支持，false不支持，其他值 非法。
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.bDriverInstalled">
+            <summary>
+            true支持，false不支持，其他值 非法。
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.boolReserved">
+            <summary>
+            保留
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.Reserved">
+            <summary>
+            保留
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.configurationValid">
+            <summary>
+            配置有效性
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.genCPVersion">
+            <summary>
+            GenCP 版本
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.u3vVersion">
+            <summary>
+            U3V 版本号
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.deviceGUID">
+            <summary>
+            设备引导号
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.familyName">
+            <summary>
+            设备系列号
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.u3vSerialNumber">
+            <summary>
+            设备序列号
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.speed">
+            <summary>
+            设备传输速度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.maxPower">
+            <summary>
+            设备最大供电量
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_UsbDeviceInfo.chReserved">
+            <summary>
+            保留
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_DeviceInfo">
+            <summary>
+            设备通用信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.nCameraType">
+            <summary>
+            设备类别
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.nCameraReserved">
+            <summary>
+            保留
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.cameraKey">
+            <summary>
+            厂商:序列号
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.cameraName">
+            <summary>
+            用户自定义名
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.serialNumber">
+            <summary>
+            设备序列号
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.vendorName">
+            <summary>
+            厂商
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.modelName">
+            <summary>
+            设备型号
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.manufactureInfo">
+            <summary>
+            设备制造信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.deviceVersion">
+            <summary>
+            设备版本
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.cameraReserved">
+            <summary>
+            保留
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.deviceSpecificInfo">
+            <summary>
+            设备信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.nInterfaceType">
+            <summary>
+            接口类别
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.nInterfaceReserved">
+            <summary>
+            保留
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.interfaceName">
+            <summary>
+            接口名
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.interfaceReserved">
+            <summary>
+            保留
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.interfaceInfo">
+            <summary>
+            接口信息
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_DeviceInfo.DeviceSpecificInfo">
+            <summary>
+            设备信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.DeviceSpecificInfo.gigeDeviceInfo">
+            <summary>
+            Gige设备信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.DeviceSpecificInfo.usbDeviceInfo">
+            <summary>
+            Usb设备信息
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_DeviceInfo.InterfaceInfo">
+            <summary>
+            接口信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.InterfaceInfo.gigeInterfaceInfo">
+            <summary>
+            GigE网卡信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceInfo.InterfaceInfo.usbInterfaceInfo">
+            <summary>
+            Usb接口信息
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_TransMission_Type">
+            <summary>
+            网络传输模式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_TransMission_Type.eTransmissionType">
+            <summary>
+            传输模式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_TransMission_Type.nDesIp">
+            <summary>
+            目标ip地址
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_TransMission_Type.nDesPort">
+            <summary>
+            目标端口号
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_TransMission_Type.nReserved">
+            <summary>
+            预留位
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_ErrorList">
+            <summary>
+            加载失败的属性信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ErrorList.nParamCnt">
+            <summary>
+            加载失败的属性个数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ErrorList.paramNameList">
+            <summary>
+            加载失败的属性集合，上限128
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_DeviceList">
+            <summary>
+            设备信息列表
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceList.nDevNum">
+            <summary>
+            设备数量
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_DeviceList.pDevInfo">
+            <summary>
+            设备息列表(SDK内部缓存)，最多100设备
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_SConnectArg">
+            <summary>
+            连接事件信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SConnectArg.EvType">
+            <summary>
+            事件类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SConnectArg.nReserve">
+            <summary>
+            预留字段
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_SParamUpdateArg">
+            <summary>
+            参数更新事件信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SParamUpdateArg.isPoll">
+            <summary>
+            是否是定时更新,true:表示是定时更新，false:表示非定时更新
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SParamUpdateArg.nReserve">
+            <summary>
+            预留字段
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SParamUpdateArg.nParamCnt">
+            <summary>
+            更新的参数个数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SParamUpdateArg.pParamNameList">
+            <summary>
+            更新的参数名称集合(SDK内部缓存)
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_SStreamArg">
+            <summary>
+            流事件信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SStreamArg.channel">
+            <summary>
+            流通道号
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SStreamArg.blockId">
+            <summary>
+            流数据BlockID
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SStreamArg.timeStamp">
+            <summary>
+            时间戳
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SStreamArg.eStreamEventStatus">
+            <summary>
+            流事件状态码
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SStreamArg.status">
+            <summary>
+            事件状态错误码
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SStreamArg.nReserve">
+            <summary>
+            预留字段
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_SMsgChannelArg">
+            <summary>
+            消息通道事件信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SMsgChannelArg.eventId">
+            <summary>
+            事件Id
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SMsgChannelArg.channelId">
+            <summary>
+            消息通道号
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SMsgChannelArg.blockId">
+            <summary>
+            流数据BlockID
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SMsgChannelArg.timeStamp">
+            <summary>
+            时间戳
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SMsgChannelArg.nReserve">
+            <summary>
+            预留字段
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SMsgChannelArg.nParamCnt">
+            <summary>
+            参数个数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SMsgChannelArg.pParamNameList">
+            <summary>
+            事件相关的属性名列集合(SDK内部缓存)
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_ChunkDataInfo">
+            <summary>
+            Chunk数据信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ChunkDataInfo.chunkID">
+            <summary>
+            ChunkID
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ChunkDataInfo.nParamCnt">
+            <summary>
+            属性名个数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_ChunkDataInfo.pParamNameList">
+            <summary>
+            Chunk数据对应的属性名集合(SDK内部缓存)
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_FrameInfo">
+            <summary>
+            帧图像信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FrameInfo.blockId">
+            <summary>
+            帧Id(仅对GigE/Usb/PCIe相机有效)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FrameInfo.status">
+            <summary>
+            数据帧状态(0是正常状态)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FrameInfo.width">
+            <summary>
+            图像宽度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FrameInfo.height">
+            <summary>
+            图像高度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FrameInfo.size">
+            <summary>
+            图像大小
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FrameInfo.pixelFormat">
+            <summary>
+            图像像素格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FrameInfo.timeStamp">
+            <summary>
+            图像时间戳(仅对GigE/Usb/PCIe相机有效)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FrameInfo.chunkCount">
+            <summary>
+            帧数据中包含的Chunk个数(仅对GigE/Usb相机有效)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FrameInfo.paddingX">
+            <summary>
+            图像paddingX(仅对GigE/Usb/PCIe相机有效)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FrameInfo.paddingY">
+            <summary>
+            图像paddingY(仅对GigE/Usb/PCIe相机有效)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FrameInfo.recvFrameTime">
+            <summary>
+            图像在网络传输所用的时间(单位:微秒,非GigE相机该值为0)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FrameInfo.nReserved">
+            <summary>
+            预留字段
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_Frame">
+            <summary>
+            帧图像数据信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_Frame.frameHandle">
+            <summary>
+            帧图像句柄(SDK内部帧管理用)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_Frame.pData">
+            <summary>
+            帧图像数据的内存首地址
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_Frame.frameInfo">
+            <summary>
+            帧信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_Frame.nReserved">
+            <summary>
+            预留字段
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_PCIEStreamStatsInfo">
+            <summary>
+            PCIE设备统计流信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PCIEStreamStatsInfo.imageError">
+            <summary>
+            图像错误的帧数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PCIEStreamStatsInfo.lostPacketBlock">
+            <summary>
+            丢包的帧数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PCIEStreamStatsInfo.nReserved0">
+            <summary>
+            预留
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PCIEStreamStatsInfo.imageReceived">
+            <summary>
+            正常获取的帧数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PCIEStreamStatsInfo.fps">
+            <summary>
+            帧率
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PCIEStreamStatsInfo.bandwidth">
+            <summary>
+            带宽(Mbps)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PCIEStreamStatsInfo.nReserved">
+            <summary>
+            预留
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_U3VStreamStatsInfo">
+            <summary>
+            U3V设备统计流信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_U3VStreamStatsInfo.imageError">
+            <summary>
+            图像错误的帧数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_U3VStreamStatsInfo.lostPacketBlock">
+            <summary>
+            丢包的帧数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_U3VStreamStatsInfo.nReserved0">
+            <summary>
+            预留
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_U3VStreamStatsInfo.imageReceived">
+            <summary>
+            正常获取的帧数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_U3VStreamStatsInfo.fps">
+            <summary>
+            帧率
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_U3VStreamStatsInfo.bandwidth">
+            <summary>
+            带宽(Mbps)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_U3VStreamStatsInfo.nReserved">
+            <summary>
+            预留
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_GigEStreamStatsInfo">
+            <summary>
+            Gige设备统计流信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEStreamStatsInfo.nReserved0">
+            <summary>
+            预留
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEStreamStatsInfo.imageError">
+            <summary>
+            图像错误的帧数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEStreamStatsInfo.lostPacketBlock">
+            <summary>
+            丢包的帧数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEStreamStatsInfo.nReserved1">
+            <summary>
+            预留
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEStreamStatsInfo.nReserved2">
+            <summary>
+            预留
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEStreamStatsInfo.imageReceived">
+            <summary>
+            正常获取的帧数
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEStreamStatsInfo.fps">
+            <summary>
+            帧率
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEStreamStatsInfo.bandwidth">
+            <summary>
+            带宽(Mbps)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_GigEStreamStatsInfo.nReserved">
+            <summary>
+            预留
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_StreamStatisticsInfo">
+            <summary>
+            统计流信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_StreamStatisticsInfo.nCameraType">
+            <summary>
+            设备类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_StreamStatisticsInfo.pcieStatisticsInfo">
+            <summary>
+            PCIE设备统计信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_StreamStatisticsInfo.u3vStatisticsInfo">
+            <summary>
+            U3V设备统计信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_StreamStatisticsInfo.gigeStatisticsInfo">
+            <summary>
+            Gige设备统计信息
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_EnumEntryInfo">
+            <summary>
+            枚举属性的枚举值信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EnumEntryInfo.value">
+            <summary>
+            枚举值
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EnumEntryInfo.name">
+            <summary>
+            symbol名
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_EnumEntryList">
+            <summary>
+            枚举属性的可设枚举值列表信息
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EnumEntryList.nEnumEntryBufferSize">
+            <summary>
+            存放枚举值内存大小
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_EnumEntryList.pEnumEntryInfo">
+            <summary>
+            存放可设枚举值列表(调用者分配缓存)
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_PixelConvertParam">
+            <summary>
+            像素转换结构体
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.nWidth">
+            <summary>
+            图像宽
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.nHeight">
+            <summary>
+            图像高
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.ePixelFormat">
+            <summary>
+            像素格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.pSrcData">
+            <summary>
+            输入图像数据
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.nSrcDataLen">
+            <summary>
+            输入图像长度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.nPaddingX">
+            <summary>
+            图像宽填充
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.nPaddingY">
+            <summary>
+            图像高填充
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.eBayerDemosaic">
+            <summary>
+            转换Bayer格式算法
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.eDstPixelFormat">
+            <summary>
+            目标像素格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.pDstBuf">
+            <summary>
+            输出数据缓存(调用者分配缓存)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.nDstBufSize">
+            <summary>
+            提供的输出缓冲区大小
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.nDstDataLen">
+            <summary>
+            输出数据长度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_PixelConvertParam.nReserved">
+            <summary>
+            预留
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_FlipImageParam">
+            <summary>
+            图像翻转结构体
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FlipImageParam.nWidth">
+            <summary>
+            图像宽
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FlipImageParam.nHeight">
+            <summary>
+            图像高
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FlipImageParam.ePixelFormat">
+            <summary>
+            像素格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FlipImageParam.eFlipType">
+            <summary>
+            翻转类型
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FlipImageParam.pSrcData">
+            <summary>
+            输入图像数据
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FlipImageParam.nSrcDataLen">
+            <summary>
+            输入图像长度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FlipImageParam.pDstBuf">
+            <summary>
+            输出数据缓存(调用者分配缓存)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FlipImageParam.nDstBufSize">
+            <summary>
+            提供的输出缓冲区大小
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FlipImageParam.nDstDataLen">
+            <summary>
+            输出数据长度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_FlipImageParam.nReserved">
+            <summary>
+            预留
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_RotateImageParam">
+            <summary>
+            图像旋转结构体
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_RotateImageParam.nWidth">
+            <summary>
+            图像宽
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_RotateImageParam.nHeight">
+            <summary>
+            图像高
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_RotateImageParam.ePixelFormat">
+            <summary>
+            像素格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_RotateImageParam.eRotationAngle">
+            <summary>
+            旋转角度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_RotateImageParam.pSrcData">
+            <summary>
+            输入图像数据
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_RotateImageParam.nSrcDataLen">
+            <summary>
+            输入图像长度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_RotateImageParam.pDstBuf">
+            <summary>
+            输出数据缓存(调用者分配缓存)
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_RotateImageParam.nDstBufSize">
+            <summary>
+            提供的输出缓冲区大小
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_RotateImageParam.nDstDataLen">
+            <summary>
+            输出数据长度
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_RotateImageParam.nReserved">
+            <summary>
+            预留
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_SaveImageToFileParam">
+            <summary>
+            保存图像结构体
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SaveImageToFileParam.nWidth">
+            <summary>
+            图像宽
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SaveImageToFileParam.nHeight">
+            <summary>
+            图像高
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SaveImageToFileParam.ePixelFormat">
+            <summary>
+            像素格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SaveImageToFileParam.pSrcData">
+            <summary>
+            输入图像数据
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SaveImageToFileParam.nSrcDataLen">
+            <summary>
+            输入数据大小
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SaveImageToFileParam.eImageType">
+            <summary>
+            输入图片格式
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SaveImageToFileParam.pImagePath">
+            <summary>
+            输入文件路径
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SaveImageToFileParam.nQuality">
+            <summary>
+            JPG编码质量(50-99]，PNG编码质量[0-9]
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SaveImageToFileParam.eBayerDemosaic">
+            <summary>
+            转换Bayer格式算法 
+            </summary>
+        </member>
+        <member name="F:MVSDK_Net.IMVDefine.IMV_SaveImageToFileParam.nReserved">
+            <summary>
+            预留
+            </summary>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_ConnectCallBack">
+            <summary>
+            设备连接状态事件回调函数声明
+            </summary>
+            <param name="pConnectArg">[in] 回调时主动推送的设备连接状态事件信息</param>
+            <param name="pUser">[in] 用户自定义数据</param>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_ParamUpdateCallBack">
+            <summary>
+            参数更新事件回调函数声明
+            </summary>
+            <param name="pParamUpdateArg">[in] 回调时主动推送的参数更新事件信息</param>
+            <param name="pUser">[in] 用户自定义数据</param>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_StreamCallBack">
+            <summary>
+            流事件回调函数声明
+            </summary>
+            <param name="pStreamArg">[in] 回调时主动推送的流事件信息</param>
+            <param name="pUser">[in] 用户自定义数据</param>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_MsgChannelCallBack">
+            <summary>
+            消息通道事件回调函数声明
+            </summary>
+            <param name="pMsgChannelArg">[in] 回调时主动推送的消息通道事件信息</param>
+            <param name="pUser">[in] 用户自定义数据</param>
+        </member>
+        <member name="T:MVSDK_Net.IMVDefine.IMV_FrameCallBack">
+            <summary>
+            帧数据信息回调函数声明
+            </summary>
+            <param name="pFrame">[in]回调时主动推送的帧信息</param>
+            <param name="pUser">[in] 用户自定义数据</param>
+        </member>
+        <member name="T:MVSDK_Net.MyCamera">
+            <summary>
+            相机类
+            </summary>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.#ctor">
+            <summary>
+            相机构造函数
+            </summary>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetVersion">
+            <summary>
+            获取版本信息
+            </summary>
+            <returns>成功时返回版本信息，失败时返回NULL</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_EnumDevices(MVSDK_Net.IMVDefine.IMV_DeviceList@,System.UInt32)">
+            <summary>
+            枚举设备
+            </summary>
+            <param name="pDeviceList">[OUT] 设备列表</param>
+            <param name="interfaceType">[IN] 待枚举的接口类型, 类型可任意组合,如 interfaceTypeGige | interfaceTypeUsb3</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            <para>1、当interfaceType = interfaceTypeAll  时，枚举所有接口下的在线设备</para>
+            <para>2、当interfaceType = interfaceTypeGige 时，枚举所有GigE网口下的在线设备</para>
+            <para>3、当interfaceType = interfaceTypeUsb3 时，枚举所有USB接口下的在线设备</para>
+            <para>4、当interfaceType = interfaceTypeCL   时，枚举所有CameraLink接口下的在线设备</para>
+            <para>5、该接口下的interfaceType支持任意接口类型的组合,如，若枚举所有GigE网口和USB3接口下的在线设备时,</para>
+            <para>可将interfaceType设置为 interfaceType = interfaceTypeGige | interfaceTypeUsb3,其它接口类型组合以此类推</para>
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_EnumDevicesByUnicast(MVSDK_Net.IMVDefine.IMV_DeviceList@,System.String)">
+            <summary>
+            以单播形式枚举设备, 仅限Gige设备使用
+            </summary>
+            <param name="pDeviceList">[OUT] 设备列表</param>
+            <param name="pIpAddress">[IN] 设备的IP地址</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_CreateHandle(MVSDK_Net.IMVDefine.IMV_ECreateHandleMode,System.Int32,System.String)">
+            <summary>
+            通过指定标示符创建设备句柄，如指定索引、设备键、设备自定义名、IP地址.
+            </summary>
+            <param name="mode">[IN] 创建设备方式</param>
+            <param name="cameraIndex">[IN] 指定索引</param>
+            <param name="cameraStr">[IN] 设备键、设备自定义名、IP地址</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_DestroyHandle">
+            <summary>
+            销毁设备句柄
+            </summary>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetDeviceInfo(MVSDK_Net.IMVDefine.IMV_DeviceInfo@)">
+            <summary>
+            获取设备信息
+            </summary>
+            <param name="pDevInfo">[OUT] 设备信息</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_Open">
+            <summary>
+            打开设备
+            </summary>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_OpenEx(MVSDK_Net.IMVDefine.IMV_ECameraAccessPermission)">
+            <summary>
+            打开设备
+            </summary>
+            <param name="accessPermission">[IN] 控制通道权限(IMV_Open默认使用accessPermissionControl权限)</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_IsOpen">
+            <summary>
+            判断设备是否已打开
+            </summary>
+            <returns>打开状态，返回true；关闭状态或者掉线状态，返回false</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_Close">
+            <summary>
+            关闭设备
+            </summary>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GIGE_SetTransmissionType(MVSDK_Net.IMVDefine.IMV_TransMission_Type)">
+            <summary>
+            设置传输类型
+            </summary>
+            <param name="transmissionType">传输类型结构体</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GIGE_ForceIpAddress(System.String,System.String,System.String)">
+            <summary>
+            修改设备IP, 仅限Gige设备使用
+            </summary>
+            <param name="pIpAddress">[IN] IP地址</param>
+            <param name="pSubnetMask">[IN] 子网掩码</param>
+            <param name="pGateway">[IN] 默认网关</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            <para>1、调用该函数时如果pSubnetMask和pGateway都设置了有效值，则以此有效值为准;</para>
+            <para>2、调用该函数时如果pSubnetMask和pGateway都设置了NULL，则内部实现时用它所连接网卡的子网掩码和网关代替</para>
+            <para>3、调用该函数时如果pSubnetMask和pGateway两者中其中一个为NULL，另一个非NULL，则返回错误</para>
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GIGE_GetAccessPermission(MVSDK_Net.IMVDefine.IMV_ECameraAccessPermission@)">
+            <summary>
+            获取设备的当前访问权限, 仅限Gige设备使用
+            </summary>
+            <param name="pAccessPermission">[OUT] 设备的当前访问权限</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GIGE_SetAnswerTimeout(System.UInt32)">
+            <summary>
+            设置设备对sdk命令的响应超时时间,仅限Gige设备使用
+            </summary>
+            <param name="timeout">[IN] 超时时间，单位ms</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_DownLoadGenICamXML(System.String)">
+            <summary>
+            下载设备描述XML文件，并保存到指定路径，如：D:\\xml.zip
+            </summary>
+            <param name="pFullFileName">[IN] 文件要保存的路径</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SaveDeviceCfg(System.String)">
+            <summary>
+            保存设备配置到指定的位置。同名文件已存在时，覆盖。
+            </summary>
+            <param name="pFullFileName">[IN] 导出的设备配置文件全名(含路径)，如：D:\\config.xml 或 D:\\config.mvcfg</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_LoadDeviceCfg(System.String,MVSDK_Net.IMVDefine.IMV_ErrorList@)">
+            <summary>
+            从文件加载设备xml配置
+            </summary>
+            <param name="pFullFileName">[IN] 设备配置(xml)文件全名(含路径)，如：D:\\config.xml 或 D:\\config.mvcfg</param>
+            <param name="pErrorList">[OUT] 加载失败的属性名列表。存放加载失败的属性上限为IMV_MAX_ERROR_LIST_NUM。</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_WriteUserPrivateData(System.IntPtr,System.UInt32@)">
+            <summary>
+            写用户自定义数据。相机内部保留32768字节用于用户存储自定义数据(此功能针对本品牌相机，其它品牌相机无此功能)
+            </summary>
+            <param name="pBuffer">[IN] 数据缓冲的指针</param>
+            <param name="pLength">[IN] 期望写入的字节数 [OUT] 实际写入的字节数</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_ReadUserPrivateData(System.IntPtr,System.UInt32@)">
+            <summary>
+            读用户自定义数据。相机内部保留32768字节用于用户存储自定义数据(此功能针对本品牌相机，其它品牌相机无此功能)
+            </summary>
+            <param name="pBuffer">[OUT] 数据缓冲的指针</param>
+            <param name="pLength">[IN] 期望读出的字节数 [OUT] 实际读出的字节数</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_WriteUARTData(System.IntPtr,System.UInt32@)">
+            <summary>
+            往相机串口寄存器写数据，每次写会清除掉上次的数据(此功能只支持包含串口功能的本品牌相机)
+            </summary>
+            <param name="pBuffer">[IN] 数据缓冲的指针</param>
+            <param name="pLength">[IN] 期望写入的字节数 [OUT] 实际写入的字节数</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_ReadUARTData(System.IntPtr,System.UInt32@)">
+            <summary>
+            从相机串口寄存器读取串口数据(此功能只支持包含串口功能的本品牌相机 )
+            </summary>
+            <param name="pBuffer">[OUT] 数据缓冲的指针</param>
+            <param name="pLength">[IN] 期望读出的字节数 [OUT] 实际读出的字节数</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SubscribeConnectArg(MVSDK_Net.IMVDefine.IMV_ConnectCallBack,System.IntPtr)">
+            <summary>
+            设备连接状态事件回调注册
+            </summary>
+            <param name="proc">[IN] 设备连接状态事件回调函数</param>
+            <param name="pUser">[IN] 用户自定义数据, 可设为NULL</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            只支持一个回调函数,且设备关闭后，注册会失效，打开设备后需重新注册
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SubscribeParamUpdateArg(MVSDK_Net.IMVDefine.IMV_ParamUpdateCallBack,System.IntPtr)">
+            <summary>
+            参数更新事件回调注册
+            </summary>
+            <param name="proc">[IN] 参数更新注册的事件回调函数</param>
+            <param name="pUser">[IN] 用户自定义数据, 可设为NULL</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            只支持一个回调函数,且设备关闭后，注册会失效，打开设备后需重新注册
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SubscribeStreamArg(MVSDK_Net.IMVDefine.IMV_StreamCallBack,System.IntPtr)">
+            <summary>
+            流通道事件回调注册
+            </summary>
+            <param name="proc">[IN] 流通道事件回调注册函数</param>
+            <param name="pUser">[IN] 用户自定义数据, 可设为NULL</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            只支持一个回调函数,且设备关闭后，注册会失效，打开设备后需重新注册
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SubscribeMsgChannelArg(MVSDK_Net.IMVDefine.IMV_MsgChannelCallBack,System.IntPtr)">
+            <summary>
+            消息通道事件回调注册
+            </summary>
+            <param name="proc">[IN] 消息通道事件回调注册函数</param>
+            <param name="pUser">[IN] 用户自定义数据, 可设为NULL</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            只支持一个回调函数,且设备关闭后，注册会失效，打开设备后需重新注册
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SetBufferCount(System.UInt32)">
+            <summary>
+            设置帧数据缓存个数
+            </summary>
+            <param name="nSize">[IN] 缓存数量</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            不能在拉流过程中设置
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_ClearFrameBuffer">
+            <summary>
+            清除帧数据缓存
+            </summary>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GIGE_SetInterPacketTimeout(System.UInt32)">
+            <summary>
+            设置驱动包间隔时间(MS),仅对Gige设备有效
+            </summary>
+            <param name="nTimeout">[IN] 包间隔时间，单位是毫秒</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            触发模式尾包丢失重传机制
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GIGE_SetSingleResendMaxPacketNum(System.UInt32)">
+            <summary>
+            设置单次重传最大包个数, 仅对GigE设备有效
+            </summary>
+            <param name="maxPacketNum">[IN] 单次重传最大包个数</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            maxPacketNum为0时，该功能无效
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GIGE_SetMaxLostPacketNum(System.UInt32)">
+            <summary>
+            设置同一帧最大丢包的数量,仅对GigE设备有效
+            </summary>
+            <param name="maxLostPacketNum">[IN] 最大丢包的数量</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            maxLostPacketNum为0时，该功能无效
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_USB_SetUrbTransfer(System.UInt32,System.UInt32)">
+            <summary>
+            设置U3V设备的传输数据块的数量和大小,仅对USB设备有效
+            </summary>
+            <param name="nNum">[IN] 传输数据块的数量(范围:5-256)</param>
+            <param name="nSize">[IN] 传输数据块的大小(范围:8-512, 单位:KByte)</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            <para>1、传输数据块数量，范围5 - 256, 默认为64，高分辨率高帧率时可以适当增加该值；多台相机共同使用时，可以适当减小该值</para>
+            <para>2、传输每个数据块大小，范围8 - 512, 默认为64，单位是KByte</para>
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_StartGrabbing">
+            <summary>
+            开始取流
+            </summary>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_StartGrabbingEx(System.UInt64,MVSDK_Net.IMVDefine.IMV_EGrabStrategy)">
+            <summary>
+            开始取流
+            </summary>
+            <param name="maxImagesGrabbed">[IN] 允许最多的取帧数，达到指定取帧数后停止取流，如果为0，表示忽略此参数连续取流(IMV_StartGrabbing默认0)</param>
+            <param name="strategy">[IN] 取流策略,(IMV_StartGrabbing默认使用grabStrartegySequential策略取流)</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_IsGrabbing">
+            <summary>
+            判断设备是否正在取流
+            </summary>
+            <returns>正在取流，返回true；不在取流，返回false</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_StopGrabbing">
+            <summary>
+            停止取流
+            </summary>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_AttachGrabbing(MVSDK_Net.IMVDefine.IMV_FrameCallBack,System.IntPtr)">
+            <summary>
+            注册帧数据回调函数(异步获取帧数据机制)
+            </summary>
+            <param name="proc">[IN] 帧数据信息回调函数，建议不要在该函数中处理耗时的操作，否则会阻塞后续帧数据的实时性</param>
+            <param name="pUser">[IN] 用户自定义数据, 可设为NULL</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            <para>该异步获取帧数据机制和同步获取帧数据机制(IMV_GetFrame)互斥，对于同一设备，系统中两者只能选其一</para>
+            <para>只支持一个回调函数, 且设备关闭后，注册会失效，打开设备后需重新注册</para>
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetFrame(MVSDK_Net.IMVDefine.IMV_Frame@,System.UInt32)">
+            <summary>
+            获取一帧图像(同步获取帧数据机制)
+            </summary>
+            <param name="frame">[OUT] 帧数据信息</param>
+            <param name="timeout">[IN] 获取一帧图像的超时时间,INFINITE时表示无限等待,直到收到一帧数据或者停止取流。单位是毫秒</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            <para>该接口不支持多线程调用。</para>
+            <para>该同步获取帧机制和异步获取帧机制(IMV_AttachGrabbing)互斥,对于同一设备，系统中两者只能选其一。</para>
+            <para>使用内部缓存获取图像，需要IMV_ReleaseFrame进行释放图像缓存。</para>
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_ReleaseFrame(MVSDK_Net.IMVDefine.IMV_Frame@)">
+            <summary>
+            释放图像缓存
+            </summary>
+            <param name="frame">[IN] 帧数据信息</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_CloneFrame(MVSDK_Net.IMVDefine.IMV_Frame@,MVSDK_Net.IMVDefine.IMV_Frame@)">
+            <summary>
+            帧数据深拷贝克隆
+            </summary>
+            <param name="frame">[IN] 克隆源帧数据信息</param>
+            <param name="pCloneFrame">[OUT] 新的帧数据信息</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            使用IMV_ReleaseFrame进行释放图像缓存。
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetChunkDataByIndex(MVSDK_Net.IMVDefine.IMV_Frame@,System.UInt32,MVSDK_Net.IMVDefine.IMV_ChunkDataInfo@)">
+            <summary>
+            获取Chunk数据(仅对GigE/Usb相机有效)
+            </summary>
+            <param name="frame">[IN] 帧数据信息</param>
+            <param name="index">[IN] 索引ID</param>
+            <param name="pChunkDataInfo">[OUT] Chunk数据信息</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetStatisticsInfo(MVSDK_Net.IMVDefine.IMV_StreamStatisticsInfo@)">
+            <summary>
+            获取流统计信息(IMV_StartGrabbing / IMV_StartGrabbingEx执行后调用)
+            </summary>
+            <param name="param">[OUT] 流统计信息数据</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_ResetStatisticsInfo">
+            <summary>
+            重置流统计信息(IMV_StartGrabbing / IMV_StartGrabbingEx执行后调用)
+            </summary>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_FeatureIsAvailable(System.String)">
+            <summary>
+            判断属性是否可用
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <returns>可用，返回true；不可用，返回false</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_FeatureIsReadable(System.String)">
+            <summary>
+            判断属性是否可读
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <returns>可读，返回true；不可读，返回false</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_FeatureIsWriteable(System.String)">
+            <summary>
+            判断属性是否可写
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <returns>可写，返回true；不可写，返回false</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_FeatureIsStreamable(System.String)">
+            <summary>
+            判断属性是否可流
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <returns>可流，返回true；不可流，返回false</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_FeatureIsValid(System.String)">
+            <summary>
+            判断属性是否有效
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <returns>有效，返回true；无效，返回false</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetFeatureType(System.String,MVSDK_Net.IMVDefine.IMV_EFeatureType@)">
+            <summary>
+            获取属性类型
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pPropertyType">[OUT] 属性类型</param>
+            <returns>获取成功，返回true；获取失败，返回false</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetIntFeatureValue(System.String,System.Int64@)">
+            <summary>
+            获取整型属性值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pIntValue">[OUT] 整型属性值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetIntFeatureMin(System.String,System.Int64@)">
+            <summary>
+            获取整型属性可设的最小值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pIntValue">[OUT] 整型属性可设的最小值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetIntFeatureMax(System.String,System.Int64@)">
+            <summary>
+            获取整型属性可设的最大值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pIntValue">[OUT] 整型属性可设的最大值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetIntFeatureInc(System.String,System.Int64@)">
+            <summary>
+            获取整型属性步长
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pIntValue">[OUT] 整型属性步长</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SetIntFeatureValue(System.String,System.Int64)">
+            <summary>
+            设置整型属性值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="intValue">[IN] 待设置的整型属性值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetDoubleFeatureValue(System.String,System.Double@)">
+            <summary>
+            获取浮点属性值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pDoubleValue">[OUT] 浮点属性值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetDoubleFeatureMin(System.String,System.Double@)">
+            <summary>
+            获取浮点属性可设的最小值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pDoubleValue">[OUT] 浮点属性可设的最小值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetDoubleFeatureMax(System.String,System.Double@)">
+            <summary>
+            获取浮点属性可设的最大值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pDoubleValue">[OUT] 浮点属性可设的最大值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SetDoubleFeatureValue(System.String,System.Double)">
+            <summary>
+            设置浮点属性值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="doubleValue">[IN] 待设置的浮点属性值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetBoolFeatureValue(System.String,System.Boolean@)">
+            <summary>
+            获取布尔属性值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pBoolValue">[OUT] 布尔属性值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SetBoolFeatureValue(System.String,System.Boolean)">
+            <summary>
+            设置布尔属性值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="boolValue">[IN] 待设置的布尔属性值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetEnumFeatureValue(System.String,System.UInt64@)">
+            <summary>
+            获取枚举属性值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pEnumValue">[OUT] 枚举属性值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SetEnumFeatureValue(System.String,System.UInt64)">
+            <summary>
+            设置枚举属性值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="enumValue">[IN] 待设置的枚举属性值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetEnumFeatureSymbol(System.String,MVSDK_Net.IMVDefine.IMV_String@)">
+            <summary>
+            获取枚举属性symbol值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pEnumSymbol">[OUT] 枚举属性symbol值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SetEnumFeatureSymbol(System.String,System.String)">
+            <summary>
+            设置枚举属性symbol值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pEnumSymbol">[IN] 待设置的枚举属性symbol值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetEnumFeatureEntryNum(System.String,System.UInt32@)">
+            <summary>
+            获取枚举属性的可设枚举值的个数
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pEntryNum">[OUT] 枚举属性的可设枚举值的个数</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetEnumFeatureEntrys(System.String,MVSDK_Net.IMVDefine.IMV_EnumEntryList@)">
+            <summary>
+            获取枚举属性的可设枚举值列表
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pEnumEntryList">[OUT] 枚举属性的可设枚举值列表</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_GetStringFeatureValue(System.String,MVSDK_Net.IMVDefine.IMV_String@)">
+            <summary>
+            获取字符串属性值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pStringValue">[OUT] 字符串属性值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SetStringFeatureValue(System.String,System.String)">
+            <summary>
+            设置字符串属性值
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <param name="pStringValue">[IN] 待设置的字符串属性值</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_ExecuteCommandFeature(System.String)">
+            <summary>
+            执行命令属性
+            </summary>
+            <param name="pFeatureName">[IN] 属性名</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_PixelConvert(MVSDK_Net.IMVDefine.IMV_PixelConvertParam@)">
+            <summary>
+            像素格式转换
+            </summary>
+            <param name="pstPixelConvertParam">[IN][OUT] 像素格式转换参数结构体</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            <para>只支持转化成目标像素格式gvspPixelRGB8 / gvspPixelBGR8 / gvspPixelMono8 / gvspPixelBGRA8</para>
+            <para>通过该接口将原始图像数据转换成用户所需的像素格式并存放在调用者指定内存中。</para>
+            <para>像素格式为YUV411Packed的时，图像宽须能被4整除</para>
+            <para>像素格式为YUV422Packed的时，图像宽须能被2整除</para>
+            <para>像素格式为YUYVPacked的时，图像宽须能被2整除</para>
+            <para>转换后的图像:数据存储是从最上面第一行开始的，这个是相机数据的默认存储方向</para>
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_FlipImage(MVSDK_Net.IMVDefine.IMV_FlipImageParam@)">
+            <summary>
+            图像翻转
+            </summary>
+            <param name="pstFlipImageParam">[IN][OUT] 图像翻转参数结构体</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            <para>只支持像素格式gvspPixelRGB8 / gvspPixelBGR8 / gvspPixelMono8的图像的垂直和水平翻转。</para>
+            <para>通过该接口将原始图像数据翻转后并存放在调用者指定内存中。</para>
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_RotateImage(MVSDK_Net.IMVDefine.IMV_RotateImageParam@)">
+            <summary>
+            图像顺时针旋转
+            </summary>
+            <param name="pstRotateImageParam">[IN][OUT] 图像旋转参数结构体</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            <para>只支持gvspPixelRGB8 / gvspPixelBGR8 / gvspPixelMono8格式数据的90/180/270度顺时针旋转。</para>
+            <para>通过该接口将原始图像数据旋转后并存放在调用者指定内存中。</para>
+            </remarks>
+        </member>
+        <member name="M:MVSDK_Net.MyCamera.IMV_SaveImageToFile(MVSDK_Net.IMVDefine.IMV_SaveImageToFileParam@)">
+            <summary>
+            保存图像到文件
+            </summary>
+            <param name="pstSaveImageToFileParam">[IN] 保存图片文件参数结构体</param>
+            <returns>成功，返回IMV_OK；错误，返回错误码</returns>
+            <remarks>
+            该接口支持保存BMP/JPEG/PNG/TIFF,JPEG格式最大支持宽高为65500
+            </remarks>
+        </member>
+    </members>
+</doc>
