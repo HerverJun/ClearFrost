@@ -213,7 +213,7 @@ namespace ClearFrost.Vision
 
             while (nodeQueue.Count > 0 && (nodeQueue.Count + resultNodes.Count) < nFeatures)
             {
-                if (!nodeQueue.TryDequeue(out ExtractorNode currentNode, out _)) break;
+                if (!nodeQueue.TryDequeue(out ExtractorNode? currentNode, out _) || currentNode == null) break;
 
                 if (currentNode.KeyPoints.Count == 1)
                 {

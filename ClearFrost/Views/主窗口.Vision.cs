@@ -140,7 +140,7 @@ namespace ClearFrost
                     var sw = Stopwatch.StartNew();
 
                     // 执行检测
-                    var result = await _detectionService.DetectAsync(originalBitmap, _appConfig.Confidence, overlapThreshold, _appConfig.TargetLabel, _appConfig.TargetCount);
+                    var result = await _detectionService.DetectAsync(originalBitmap, _appConfig.Confidence, _appConfig.IouThreshold, _appConfig.TargetLabel, _appConfig.TargetCount);
 
                     sw.Stop();
 
@@ -323,7 +323,7 @@ namespace ClearFrost
                 {
                     var inferSw = Stopwatch.StartNew();
                     // 执行检测
-                    var result = await _detectionService.DetectAsync(mat, _appConfig.Confidence, overlapThreshold, _appConfig.TargetLabel, _appConfig.TargetCount);
+                    var result = await _detectionService.DetectAsync(mat, _appConfig.Confidence, _appConfig.IouThreshold, _appConfig.TargetLabel, _appConfig.TargetCount);
                     inferSw.Stop();
                     inferenceMs = inferSw.ElapsedMilliseconds;
 

@@ -45,6 +45,18 @@
     <!-- 移除 NuGet MVSDK 包，改用本地华睿官方 SDK -->
   </ItemGroup>
 
+  <!-- 仅使用 WinForms WebView2，避免引入 Wpf 程序集导致 WindowsBase 版本冲突 -->
+  <ItemGroup>
+    <Reference Remove="Microsoft.Web.WebView2.Wpf" />
+  </ItemGroup>
+
+  <!-- WebView2 NuGet 会在 net5+ 引入 WPF 程序集，这里在解析前剔除 -->
+  <Target Name="RemoveWebView2WpfReference" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Reference.FileName)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+
   <!-- 本地华睿 MVSDK_Net DLL 引用 (官方托管 SDK，包含 MyCamera 类) -->
   <ItemGroup>
     <Reference Include="MVSDK_Net">

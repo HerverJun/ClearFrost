@@ -43,7 +43,7 @@ namespace ClearFrost.Hardware
                 PlcProtocolType.Modbus_TCP => new ModbusTcpAdapter(ip, port),
                 PlcProtocolType.Siemens_S7 => new SiemensS7Adapter(ip, port),
                 PlcProtocolType.Omron_Fins => new OmronFinsAdapter(ip, port),
-                _ => throw new NotSupportedException($"��֧�ֵ�Э������: {protocol}")
+                _ => throw new NotSupportedException($"不支持的协议类型: {protocol}")
             };
         }
 
@@ -54,7 +54,7 @@ namespace ClearFrost.Hardware
         {
             if (Enum.TryParse<PlcProtocolType>(protocolStr, true, out var result))
                 return result;
-            return PlcProtocolType.Mitsubishi_MC_ASCII; // Ĭ��ֵ
+            return PlcProtocolType.Mitsubishi_MC_ASCII; // 默认值
         }
     }
 
@@ -335,7 +335,7 @@ namespace ClearFrost.Hardware
         {
             // 
             _plc = new SiemensS7Net(SiemensPLCS.S1200, ip);
-            if (port != 102) // ��Ĭ�϶˿�ʱ����
+            if (port != 102) // 非默认端口时覆盖
             {
                 _plc.Port = port;
             }
@@ -427,8 +427,8 @@ namespace ClearFrost.Hardware
         {
             _plc = new OmronFinsNet(ip, port);
             // 
-            _plc.SA1 = 0x00; // Դ�ڵ�
-            _plc.DA1 = 0x00; // Ŀ��ڵ�
+            _plc.SA1 = 0x00; // 源节点
+            _plc.DA1 = 0x00; // 目标节点
         }
 
         public async Task<bool> ConnectAsync()

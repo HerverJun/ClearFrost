@@ -174,7 +174,6 @@ namespace ClearFrost.Yolo
         /// </summary>
         public static bool IndustrialRenderMode { get; set; } = true;
 
-        private readonly object _inferenceLock = new object();
         private readonly SemaphoreSlim _inferenceSemaphore = new SemaphoreSlim(1, 1);
 
         private YoloTaskType _executionTaskMode = YoloTaskType.Detect;
@@ -429,9 +428,14 @@ namespace ClearFrost.Yolo
             if (iouThreshold < 0 || iouThreshold > 1)
                 throw new ArgumentOutOfRangeException(nameof(iouThreshold), "Must be between 0 and 1");
 
-            lock (_inferenceLock)
+            _inferenceSemaphore.Wait();
+            try
             {
                 return InferenceInternal(image, confidence, iouThreshold, globalIou, preprocessingMode);
+            }
+            finally
+            {
+                _inferenceSemaphore.Release();
             }
         }
 
@@ -487,9 +491,14 @@ namespace ClearFrost.Yolo
             if (iouThreshold < 0 || iouThreshold > 1)
                 throw new ArgumentOutOfRangeException(nameof(iouThreshold), "Must be between 0 and 1");
 
-            lock (_inferenceLock)
+            _inferenceSemaphore.Wait();
+            try
             {
                 return InferenceInternalMat(image, confidence, iouThreshold, globalIou, preprocessingMode);
+            }
+            finally
+            {
+                _inferenceSemaphore.Release();
             }
         }
 
@@ -573,7 +582,7 @@ namespace ClearFrost.Yolo
                 metrics.PreprocessMs = sw.Elapsed.TotalMilliseconds;
                 sw.Restart();
 
-                // ==================== �����׶� ====================
+                // ==================== 推理阶段 ====================
                 List<YoloResult> filteredDataList;
                 List<YoloResult> finalResult = new List<YoloResult>();
 
@@ -649,7 +658,7 @@ namespace ClearFrost.Yolo
                     finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
                 }
 
-                // ==================== �����׶� ====================
+                // ==================== 推理阶段 ====================
                 RestoreCoordinates(ref finalResult);
                 if (_executionTaskMode != YoloTaskType.Classify)
                 {

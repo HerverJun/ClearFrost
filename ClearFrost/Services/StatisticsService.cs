@@ -13,7 +13,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Threading;
 using ClearFrost.Interfaces;
 
 namespace ClearFrost.Services
@@ -31,7 +30,7 @@ namespace ClearFrost.Services
         private System.Timers.Timer _checkDayTimer;
         private System.Timers.Timer _flushTimer;
         private bool _disposed;
-        private readonly object _saveLock = new object();
+        private readonly object _statsLock = new object();
         private int _pendingSaveCount;
 
         private const int SaveBatchSize = 20;
@@ -48,30 +47,64 @@ namespace ClearFrost.Services
 
         #region 属性
 
-        public StatisticsSnapshot Current => new StatisticsSnapshot
+        public StatisticsSnapshot Current
         {
-            TotalCount = _detectionStats.TotalCount,
-            QualifiedCount = _detectionStats.QualifiedCount,
-            UnqualifiedCount = _detectionStats.UnqualifiedCount,
-            QualifiedPercentage = _detectionStats.QualifiedPercentage,
-            CurrentDate = _detectionStats.CurrentDate
-        };
+            get
+            {
+                lock (_statsLock)
+                {
+                    return CreateSnapshotUnsafe();
+                }
+            }
+        }
 
-        public int TodayQualified => _detectionStats.QualifiedCount;
-        public int TodayUnqualified => _detectionStats.UnqualifiedCount;
-        public int TodayTotal => _detectionStats.TotalCount;
+        public int TodayQualified
+        {
+            get
+            {
+                lock (_statsLock)
+                {
+                    return _detectionStats.QualifiedCount;
+                }
+            }
+        }
+
+        public int TodayUnqualified
+        {
+            get
+            {
+                lock (_statsLock)
+                {
+                    return _detectionStats.UnqualifiedCount;
+                }
+            }
+        }
+
+        public int TodayTotal
+        {
+            get
+            {
+                lock (_statsLock)
+                {
+                    return _detectionStats.TotalCount;
+                }
+            }
+        }
 
         public IReadOnlyList<DailyStatisticsRecord> History
         {
             get
             {
-                var records = _statisticsHistory.GetOrderedRecords();
-                return records.Select(r => new DailyStatisticsRecord
+                lock (_statsLock)
                 {
-                    Date = r.Date,
-                    QualifiedCount = r.QualifiedCount,
-                    UnqualifiedCount = r.UnqualifiedCount
-                }).ToList().AsReadOnly();
+                    var records = _statisticsHistory.GetOrderedRecords();
+                    return records.Select(r => new DailyStatisticsRecord
+                    {
+                        Date = r.Date,
+                        QualifiedCount = r.QualifiedCount,
+                        UnqualifiedCount = r.UnqualifiedCount
+                    }).ToList().AsReadOnly();
+                }
             }
         }
 
@@ -108,40 +141,73 @@ namespace ClearFrost.Services
 
         public void RecordDetection(bool isQualified)
         {
-            // 记录前先检查是否跨日，防止数据计入错误日期
-            CheckAndResetForNewDay();
+            bool wasReset;
+            int pending;
+            StatisticsSnapshot snapshot;
 
-            _detectionStats.AddRecord(isQualified, persist: false);
-            int pending = Interlocked.Increment(ref _pendingSaveCount);
+            lock (_statsLock)
+            {
+                wasReset = _detectionStats.CheckAndResetForNewDay(_statisticsHistory);
+                if (wasReset)
+                {
+                    _pendingSaveCount = 0;
+                }
+
+                _detectionStats.AddRecord(isQualified, persist: false);
+                _pendingSaveCount++;
+                pending = _pendingSaveCount;
+                snapshot = CreateSnapshotUnsafe();
+            }
+
             if (pending >= SaveBatchSize)
             {
                 FlushPendingStatistics();
             }
 
-            // 触发更新事件
-            StatisticsUpdated?.Invoke(Current);
+            if (wasReset)
+            {
+                DayReset?.Invoke();
+                Debug.WriteLine("[StatisticsService] 检测到跨日，已自动重置");
+            }
 
-            Debug.WriteLine($"[StatisticsService] 记录检测: {(isQualified ? "合格" : "不合格")} (总计: {TodayTotal})");
+            StatisticsUpdated?.Invoke(snapshot);
+            Debug.WriteLine($"[StatisticsService] 记录检测: {(isQualified ? "合格" : "不合格")} (总计: {snapshot.TotalCount})");
         }
 
         public void ResetToday()
         {
             FlushPendingStatistics();
-            _detectionStats.Reset();
-            _detectionStats.Save();
-            StatisticsUpdated?.Invoke(Current);
+            StatisticsSnapshot snapshot;
+            lock (_statsLock)
+            {
+                _detectionStats.Reset();
+                _detectionStats.Save();
+                snapshot = CreateSnapshotUnsafe();
+            }
+
+            StatisticsUpdated?.Invoke(snapshot);
             Debug.WriteLine("[StatisticsService] 今日统计已重置");
         }
 
         public bool CheckAndResetForNewDay()
         {
-            bool wasReset = _detectionStats.CheckAndResetForNewDay(_statisticsHistory);
+            bool wasReset;
+            StatisticsSnapshot snapshot;
+            lock (_statsLock)
+            {
+                wasReset = _detectionStats.CheckAndResetForNewDay(_statisticsHistory);
+                if (wasReset)
+                {
+                    _pendingSaveCount = 0;
+                }
+
+                snapshot = CreateSnapshotUnsafe();
+            }
 
             if (wasReset)
             {
-                Interlocked.Exchange(ref _pendingSaveCount, 0);
                 DayReset?.Invoke();
-                StatisticsUpdated?.Invoke(Current);
+                StatisticsUpdated?.Invoke(snapshot);
                 Debug.WriteLine("[StatisticsService] 检测到跨日，已自动重置");
             }
 
@@ -154,18 +220,16 @@ namespace ClearFrost.Services
 
         private void FlushPendingStatistics()
         {
-            if (Interlocked.CompareExchange(ref _pendingSaveCount, 0, 0) <= 0)
+            int pending;
+            lock (_statsLock)
             {
-                return;
-            }
-
-            lock (_saveLock)
-            {
-                int pending = Interlocked.Exchange(ref _pendingSaveCount, 0);
+                pending = _pendingSaveCount;
                 if (pending <= 0)
                 {
                     return;
                 }
+
+                _pendingSaveCount = 0;
 
                 try
                 {
@@ -184,8 +248,12 @@ namespace ClearFrost.Services
             try
             {
                 FlushPendingStatistics();
-                _detectionStats.Save();
-                _statisticsHistory.Save();
+                lock (_statsLock)
+                {
+                    _detectionStats.Save();
+                    _statisticsHistory.Save();
+                }
+
                 Debug.WriteLine("[StatisticsService] 所有数据已保存");
             }
             catch (Exception ex)
@@ -196,8 +264,14 @@ namespace ClearFrost.Services
 
         public void ClearHistory()
         {
-            _statisticsHistory.ClearAll();
-            StatisticsUpdated?.Invoke(Current);
+            StatisticsSnapshot snapshot;
+            lock (_statsLock)
+            {
+                _statisticsHistory.ClearAll();
+                snapshot = CreateSnapshotUnsafe();
+            }
+
+            StatisticsUpdated?.Invoke(snapshot);
             Debug.WriteLine("[StatisticsService] 历史记录已清空");
         }
 
@@ -205,10 +279,16 @@ namespace ClearFrost.Services
         {
             try
             {
-                _detectionStats = DetectionStatistics.Load(_basePath);
-                _statisticsHistory = StatisticsHistory.Load(_basePath);
-                Interlocked.Exchange(ref _pendingSaveCount, 0);
-                StatisticsUpdated?.Invoke(Current);
+                StatisticsSnapshot snapshot;
+                lock (_statsLock)
+                {
+                    _detectionStats = DetectionStatistics.Load(_basePath);
+                    _statisticsHistory = StatisticsHistory.Load(_basePath);
+                    _pendingSaveCount = 0;
+                    snapshot = CreateSnapshotUnsafe();
+                }
+
+                StatisticsUpdated?.Invoke(snapshot);
                 Debug.WriteLine("[StatisticsService] 所有数据已加载");
             }
             catch (Exception ex)
@@ -218,6 +298,18 @@ namespace ClearFrost.Services
         }
 
         #endregion
+
+        private StatisticsSnapshot CreateSnapshotUnsafe()
+        {
+            return new StatisticsSnapshot
+            {
+                TotalCount = _detectionStats.TotalCount,
+                QualifiedCount = _detectionStats.QualifiedCount,
+                UnqualifiedCount = _detectionStats.UnqualifiedCount,
+                QualifiedPercentage = _detectionStats.QualifiedPercentage,
+                CurrentDate = _detectionStats.CurrentDate
+            };
+        }
 
         #region 兼容性方法
 

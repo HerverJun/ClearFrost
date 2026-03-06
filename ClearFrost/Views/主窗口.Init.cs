@@ -154,7 +154,8 @@ namespace ClearFrost
             _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC手动连接");
             _uiController.OnThresholdChanged += (s, val) =>
             {
-                overlapThreshold = val / 100f;
+                _appConfig.IouThreshold = Math.Clamp(val / 100f, 0f, 1f);
+                _appConfig.Save();
             };
             _uiController.OnGetStatisticsHistory += async (s, e) =>
             {
@@ -717,6 +718,8 @@ namespace ClearFrost
             {
                 try
                 {
+                    _cameraService.StopCapture();
+
                     var prevCam = _cameraManager.ActiveCamera;
                     if (prevCam != null && prevCam.IsOpen)
                     {
@@ -729,6 +732,10 @@ namespace ClearFrost
                     if (newCam != null)
                     {
                         cam = newCam.Camera;
+                        if (newCam.IsOpen)
+                        {
+                            _cameraService.StartCapture();
+                        }
                         _cameraManager.SaveToConfig(_appConfig);
                         _appConfig.Save();
 
@@ -1207,7 +1214,7 @@ namespace ClearFrost
 
             _uiController.OnSetIou += (sender, iou) =>
             {
-                _appConfig.IouThreshold = iou;
+                _appConfig.IouThreshold = Math.Clamp(iou, 0f, 1f);
                 _appConfig.Save();
             };
 

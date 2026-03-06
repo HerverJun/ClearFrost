@@ -40,14 +40,7 @@ namespace ClearFrost
         private WebUIController _uiController;
 
         // ====================== ROI配置 ======================
-        // 注意：由于移除 PictureBox，鼠标绘制 ROI 逻辑暂时失效，仅保留参数供后端计算
-        private int roiX = 100;
-        private int roiY = 100;
-        private int roiWidth = 400;
-        private int roiHeight = 400;
-        private bool useROI = false;
-        private bool isROISet = false;
-        private float overlapThreshold = 0.1f;
+        // 当前 ROI 以 _currentROI 为准（由前端裁剪组件同步）
         private double _currentCropScale = 1.0;
 
         // ====================== 文件存储配置 ======================
@@ -124,13 +117,28 @@ namespace ClearFrost
         {
             _ = task.ContinueWith(async t =>
             {
-                if (t.IsFaulted)
+                Exception ex = t.Exception?.GetBaseException() ?? new Exception("Unknown error");
+
+                try
                 {
-                    Exception ex = t.Exception?.InnerException ?? new Exception("Unknown error");
-                    if (onError != null) onError(ex);
-                    else if (_uiController != null) await _uiController.LogToFrontend($"{name} 异常: {ex.Message}", "error");
+                    if (onError != null)
+                    {
+                        onError(ex);
+                    }
+                    else if (_uiController != null)
+                    {
+                        await _uiController.LogToFrontend($"{name} 异常: {ex.Message}", "error");
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[SafeFireAndForget] {name} 异常: {ex.Message}");
+                    }
                 }
-            }, TaskScheduler.Default);
+                catch (Exception callbackEx)
+                {
+                    Debug.WriteLine($"[SafeFireAndForget] {name} 异常处理失败: {callbackEx.Message}");
+                }
+            }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default).Unwrap();
         }
 
         #endregion

@@ -28,7 +28,7 @@ namespace ClearFrost.Services
     /// </summary>
     public class CameraService : ICameraService
     {
-        #region 私有字段ֶ
+        #region 私有字段
 
         private readonly CameraManager _cameraManager;
         private CancellationTokenSource? _captureCts;
@@ -39,7 +39,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ¼
+        #region 事件
 
         public event Action<Mat>? FrameCaptured;
         public event Action<bool>? ConnectionChanged;
@@ -67,7 +67,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ���캯��
+        #region 构造函数
 
         public CameraService(bool debugMode = false)
         {
@@ -81,7 +81,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region ��/�ر�
+        #region 打开/关闭
 
         /// <summary>
         /// 打开指定序列号的相机
@@ -136,7 +136,7 @@ namespace ClearFrost.Services
                 {
                     LastError = null;
                     ConnectionChanged?.Invoke(true);
-                    Debug.WriteLine($"[CameraService] ����Ѵ� (SDK): {serialNumber}");
+                    Debug.WriteLine($"[CameraService] 相机已打开 (SDK): {serialNumber}");
                     return true;
                 }
 
@@ -165,12 +165,12 @@ namespace ClearFrost.Services
                     activeCamera.Close();
 
                     ConnectionChanged?.Invoke(false);
-                    Debug.WriteLine("[CameraService] ����ѹر�");
+                    Debug.WriteLine("[CameraService] 相机已关闭");
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[CameraService] �ر�����쳣: {ex.Message}");
+                Debug.WriteLine($"[CameraService] 关闭相机异常: {ex.Message}");
             }
         }
 
@@ -183,7 +183,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region �ɼ�����
+        #region 采集控制
 
         /// <summary>
         /// 启动后台采集线程
@@ -233,7 +233,7 @@ namespace ClearFrost.Services
             };
             _captureThread.Start();
 
-            Debug.WriteLine("[CameraService] ��ʼ�ɼ�");
+            Debug.WriteLine("[CameraService] 开始采集");
         }
 
         /// <summary>
@@ -265,7 +265,7 @@ namespace ClearFrost.Services
                 Debug.WriteLine($"[CameraService] StopGrabbing failed: {ex.Message}");
             }
 
-            Debug.WriteLine("[CameraService] ֹͣ�ɼ�");
+            Debug.WriteLine("[CameraService] 停止采集");
         }
 
         /// <summary>
@@ -289,7 +289,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"�����ɼ�ʧ��: {ex.Message}");
+                ErrorOccurred?.Invoke($"触发采集失败: {ex.Message}");
             }
         }
 
@@ -358,38 +358,38 @@ namespace ClearFrost.Services
         private void CaptureLoop()
         {
             var token = _captureCts?.Token ?? CancellationToken.None;
-            var activeCamera = _cameraManager.ActiveCamera;
-
-            if (activeCamera == null) return;
 
             while (!token.IsCancellationRequested)
             {
                 try
                 {
-                    if (activeCamera.Camera is ICameraProvider provider)
+                    var activeCamera = _cameraManager.ActiveCamera;
+                    if (activeCamera?.Camera is not ICameraProvider provider)
                     {
-                        using var cameraFrame = provider.GetFrame(500);
-                        if (cameraFrame != null && cameraFrame.DataPtr != IntPtr.Zero && cameraFrame.Width > 0 && cameraFrame.Height > 0)
+                        Thread.Sleep(30);
+                        continue;
+                    }
+
+                    using var cameraFrame = provider.GetFrame(500);
+                    if (cameraFrame != null && cameraFrame.DataPtr != IntPtr.Zero && cameraFrame.Width > 0 && cameraFrame.Height > 0)
+                    {
+                        var matType = cameraFrame.PixelFormat == CameraPixelFormat.Mono8
+                            ? MatType.CV_8UC1
+                            : MatType.CV_8UC3;
+                        using var tempMat = new Mat(cameraFrame.Height, cameraFrame.Width, matType, cameraFrame.DataPtr);
+                        Mat capturedFrame = tempMat.Clone();
+
+                        lock (_frameLock)
                         {
-                            // 
-                            var matType = cameraFrame.PixelFormat == CameraPixelFormat.Mono8
-                                ? MatType.CV_8UC1
-                                : MatType.CV_8UC3;
-                            using var tempMat = new Mat(cameraFrame.Height, cameraFrame.Width, matType, cameraFrame.DataPtr);
-                            Mat capturedFrame = tempMat.Clone();
+                            _lastFrame?.Dispose();
+                            _lastFrame = capturedFrame;
+                        }
 
-                            lock (_frameLock)
-                            {
-                                _lastFrame?.Dispose();
-                                _lastFrame = capturedFrame;
-                            }
-
-                            var frameCapturedHandler = FrameCaptured;
-                            if (frameCapturedHandler != null)
-                            {
-                                using Mat eventFrame = capturedFrame.Clone();
-                                frameCapturedHandler.Invoke(eventFrame);
-                            }
+                        var frameCapturedHandler = FrameCaptured;
+                        if (frameCapturedHandler != null)
+                        {
+                            using Mat eventFrame = capturedFrame.Clone();
+                            frameCapturedHandler.Invoke(eventFrame);
                         }
                     }
 
@@ -401,7 +401,7 @@ namespace ClearFrost.Services
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[CameraService] �ɼ��쳣: {ex.Message}");
+                    Debug.WriteLine($"[CameraService] 采集异常: {ex.Message}");
                     Thread.Sleep(100);
                 }
             }
@@ -458,7 +458,7 @@ namespace ClearFrost.Services
 
         #endregion
 
-        #region 参数设置��������
+        #region 参数设置
 
         /// <summary>
         /// 设置曝光时间
@@ -482,7 +482,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"�����ع�ʧ��: {ex.Message}");
+                ErrorOccurred?.Invoke($"设置曝光失败: {ex.Message}");
             }
         }
 
@@ -508,7 +508,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"��������ʧ��: {ex.Message}");
+                ErrorOccurred?.Invoke($"设置增益失败: {ex.Message}");
             }
         }
 

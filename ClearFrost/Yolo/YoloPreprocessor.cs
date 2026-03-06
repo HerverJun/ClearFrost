@@ -290,7 +290,7 @@ namespace ClearFrost.Yolo
         /// </summary>
         public byte[] BitmapToBytes(Bitmap image)
         {
-            byte[] result = null;
+            byte[] result = Array.Empty<byte>();
             using (System.IO.MemoryStream stream = new System.IO.MemoryStream())
             {
                 image.Save(stream, ImageFormat.Bmp);

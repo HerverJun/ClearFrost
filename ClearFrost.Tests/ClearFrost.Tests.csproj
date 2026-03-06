@@ -22,6 +22,17 @@
     <ProjectReference Include="..\ClearFrost\ClearFrost.csproj" />
   </ItemGroup>
 
+  <!-- 测试项目不使用 WebView2 WPF 组件，移除以避免 WindowsBase 版本冲突 -->
+  <ItemGroup>
+    <Reference Remove="Microsoft.Web.WebView2.Wpf" />
+  </ItemGroup>
+
+  <Target Name="RemoveWebView2WpfReferenceFromTests" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Reference.FileName)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
