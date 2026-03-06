@@ -161,3 +161,8 @@ check_env.bat
 *_Lite_*.zip
 *_Source_*.zip
 *_Share*.zip
+
+# .NET SDK 缓存和遥测（环境生成，无需提交）
+.dotnet/
+.dotnet_home/
+tmp_old_plc.txt
