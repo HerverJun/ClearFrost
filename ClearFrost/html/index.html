@@ -79,7 +79,14 @@
                 </svg>
             </button>
             <div class="w-px h-6 bg-ink-400/20 mx-1"></div>
-            <button
+            <button id="btn-minimize-app"
+                class="p-2.5 rounded-xl hover:bg-slate-100 hover:text-ink-800 transition-colors text-ink-500 btn-press"
+                onclick="sendCommand('minimize_app')" title="最小化">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path>
+                </svg>
+            </button>
+            <button id="btn-toggle-maximize"
                 class="p-2.5 rounded-xl hover:bg-slate-100 hover:text-ink-800 transition-colors text-ink-500 btn-press"
                 onclick="sendCommand('toggle_maximize')" title="最大化/还原">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -88,9 +95,9 @@
                     </path>
                 </svg>
             </button>
-            <button
+            <button id="btn-exit-app"
                 class="p-2.5 rounded-xl hover:bg-rose-50 hover:text-rose-600 transition-colors text-ink-500 btn-press"
-                onclick="if(confirm('确认退出系统？')) sendCommand('exit_app')">
+                onclick="requestExitApp()" title="退出程序">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1">

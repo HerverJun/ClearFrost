@@ -24,6 +24,40 @@ window.sendCommand = sendCommand;
 let _openCameraCooldownUntil = 0;
 let _openCameraUnlockTimer = null;
 let _openCameraPending = false;
+let _exitAppPending = false;
+
+function setWindowButtonsBusy(isBusy) {
+    ['btn-minimize-app', 'btn-toggle-maximize', 'btn-exit-app'].forEach((id) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+
+        btn.disabled = isBusy;
+        btn.classList.toggle('opacity-60', isBusy);
+        btn.classList.toggle('cursor-wait', isBusy);
+    });
+}
+
+function requestExitApp() {
+    if (_exitAppPending) return;
+    if (!confirm('确认退出系统？')) return;
+
+    _exitAppPending = true;
+    setWindowButtonsBusy(true);
+
+    const btn = document.getElementById('btn-exit-app');
+    if (btn) {
+        btn.innerHTML = `<svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>`;
+        btn.title = '正在退出';
+    }
+
+    addLog('已发送 exit_app 指令，正在等待安全退出...', 'info');
+    showToast('正在安全退出...', 'info', 1500);
+    sendCommand('exit_app');
+}
+window.requestExitApp = requestExitApp;
 
 function getToastContainer() {
     let container = document.getElementById('cf-toast-container');

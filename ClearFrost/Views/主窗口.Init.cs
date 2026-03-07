@@ -92,33 +92,15 @@ namespace ClearFrost
             // 订阅退出事件
             _uiController.OnExitApp += (s, e) =>
             {
-                this.Invoke((MethodInvoker)delegate
-                {
-                    // 停止所有后台任务
-                    this.停止 = true;
-                    // 保存配置
-                    _appConfig?.Save();
-                    // 先释放相机资源，再退出应用
-                    // 修复：原来直接 Application.Exit() 会触发 FormClosing，
-                    // 但 CloseReason=ApplicationExitCall 导致清理被跳过
-                    try
-                    {
-                        ReleaseCameraResources();
-                        _cameraManager?.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[OnExitApp] 相机资源释放失败: {ex.Message}");
-                    }
-                    // 强制退出
-                    Application.Exit();
-                });
+                BeginAppShutdown("WebUI.exit_app");
             };
 
             // 订阅最小化事件
             _uiController.OnMinimizeApp += (s, e) =>
             {
-                this.Invoke((MethodInvoker)delegate
+                if (IsShutdownInProgress) return;
+
+                this.BeginInvoke((MethodInvoker)delegate
                 {
                     this.WindowState = FormWindowState.Minimized;
                 });
@@ -127,7 +109,9 @@ namespace ClearFrost
             // 订阅最大化/还原事
             _uiController.OnToggleMaximize += (s, e) =>
             {
-                this.Invoke((MethodInvoker)delegate
+                if (IsShutdownInProgress) return;
+
+                this.BeginInvoke((MethodInvoker)delegate
                 {
                     if (this.WindowState == FormWindowState.Maximized)
                         this.WindowState = FormWindowState.Normal;
@@ -1497,85 +1481,218 @@ namespace ClearFrost
             // （Application.Exit 触发 FormClosing 时 CloseReason=ApplicationExitCall）
             if (e.CloseReason == CloseReason.ApplicationExitCall) return;
 
+            if (IsShutdownInProgress)
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            if (e.CloseReason == CloseReason.WindowsShutDown || e.CloseReason == CloseReason.TaskManagerClosing)
+            {
+                BeginAppShutdown($"FormClosing.{e.CloseReason}");
+                return;
+            }
+
+            e.Cancel = true;
+            BeginAppShutdown($"FormClosing.{e.CloseReason}");
+        }
+
+        private void BeginAppShutdown(string source)
+        {
+            if (Interlocked.CompareExchange(ref _shutdownState, 1, 0) != 0)
+            {
+                Debug.WriteLine($"[Shutdown] 忽略重复退出请求: {source}");
+                return;
+            }
+
+            Debug.WriteLine($"[Shutdown] 开始退出流程: {source}");
+
             try
             {
                 _storageService?.WriteStartupLog("软件关闭", null);
-
-                // 恢复系统休眠策略
-                WindowHelpers.RestoreSleep();
-
-                // 保存统计数据
-                _statisticsService?.SaveAll();
-
-                // 停止后台任务
-                this.停止 = true;
-                _plcService?.StopMonitoring();
-
-                // 相机资源释放（对齐厂商 Grab/Form1 的 OnClosed 模式：同步执行）
-                try
-                {
-                    ReleaseCameraResources();
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Camera Release Error: {ex.Message}");
-                }
-
-                // 释放 CameraManager 管理的所有相机实例及其 SDK 句柄
-                try
-                {
-                    _cameraManager?.Dispose();
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"CameraManager Dispose Error: {ex.Message}");
-                }
-
-                // 其他非相机资源的清理放入后台线程，防止界面卡死
-                var cleanupTask = Task.Run(() =>
-                {
-                    try
-                    {
-                        if (plcConnected)
-                        {
-                            _plcService?.Disconnect();
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"PLC Disconnect Error: {ex.Message}");
-                    }
-
-                    try
-                    {
-                        _pipelineProcessor?.Dispose();
-                        _pipelineProcessor = null;
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"Pipeline Dispose Error: {ex.Message}");
-                    }
-
-                    try
-                    {
-                        _imageSaveQueue?.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"ImageSaveQueue Dispose Error: {ex.Message}");
-                    }
-                });
-
-                // 等待非相机清理完成（3秒上限）
-                if (!cleanupTask.Wait(3000))
-                {
-                    Debug.WriteLine("[OnFormClosing] 非相机资源清理超时，强制退出");
-                }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // 确保任何错误都不阻止关闭
+                Debug.WriteLine($"[Shutdown] 记录关闭日志失败: {ex.Message}");
             }
+
+            this.停止 = true;
+
+            try
+            {
+                _appShutdownCts.Cancel();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 取消后台任务失败: {ex.Message}");
+            }
+
+            try
+            {
+                _plcService?.StopMonitoring();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 停止 PLC 监控失败: {ex.Message}");
+            }
+
+            try
+            {
+                WindowHelpers.RestoreSleep();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 恢复休眠策略失败: {ex.Message}");
+            }
+
+            try
+            {
+                _statisticsService?.SaveAll();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 保存统计失败: {ex.Message}");
+            }
+
+            SafeFireAndForget(_uiController.LogToFrontend("正在安全退出，请稍候...", "info"), "退出提示");
+
+            lock (_shutdownTaskSync)
+            {
+                _shutdownTask ??= Task.Run(() => ShutdownCleanupCore(source));
+            }
+
+            _ = MonitorShutdownAsync(source);
+        }
+
+        private void ShutdownCleanupCore(string source)
+        {
+            Debug.WriteLine($"[Shutdown] 后台清理开始: {source}");
+
+            try
+            {
+                _appConfig?.Save();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 保存配置失败: {ex.Message}");
+            }
+
+            try
+            {
+                ReleaseCameraResources();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 释放相机资源失败: {ex.Message}");
+            }
+
+            try
+            {
+                _cameraManager?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 销毁 CameraManager 失败: {ex.Message}");
+            }
+
+            try
+            {
+                if (plcConnected)
+                {
+                    _plcService?.Disconnect();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 断开 PLC 失败: {ex.Message}");
+            }
+
+            try
+            {
+                _pipelineProcessor?.Dispose();
+                _pipelineProcessor = null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 释放流程处理器失败: {ex.Message}");
+            }
+
+            try
+            {
+                _imageSaveQueue?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 释放图像保存队列失败: {ex.Message}");
+            }
+
+            Debug.WriteLine($"[Shutdown] 后台清理完成: {source}");
+        }
+
+        private async Task MonitorShutdownAsync(string source)
+        {
+            Task cleanupTask;
+
+            lock (_shutdownTaskSync)
+            {
+                cleanupTask = _shutdownTask ?? Task.CompletedTask;
+            }
+
+            try
+            {
+                await cleanupTask.WaitAsync(_shutdownTimeout);
+                Debug.WriteLine($"[Shutdown] 清理完成，准备退出: {source}");
+                RequestGracefulExit(source);
+            }
+            catch (TimeoutException)
+            {
+                Debug.WriteLine($"[Shutdown] 清理超时，强制退出: {source}");
+
+                try
+                {
+                    _storageService?.WriteStartupLog($"软件关闭超时强退[{source}]", null);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[Shutdown] 记录强退日志失败: {ex.Message}");
+                }
+
+                Environment.Exit(0);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 监控退出流程异常: {ex.Message}");
+                RequestGracefulExit(source);
+            }
+        }
+
+        private void RequestGracefulExit(string source)
+        {
+            try
+            {
+                if (IsHandleCreated && !IsDisposed)
+                {
+                    BeginInvoke((MethodInvoker)delegate
+                    {
+                        Debug.WriteLine($"[Shutdown] Application.Exit: {source}");
+                        Application.Exit();
+                    });
+
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(1500);
+                        Environment.Exit(0);
+                    });
+
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 请求 UI 线程退出失败: {ex.Message}");
+            }
+
+            Environment.Exit(0);
         }
 
         private static short ParsePlcAddress(JsonElement value, short fallback)

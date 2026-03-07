@@ -89,6 +89,12 @@ namespace ClearFrost
         /// </summary>
         private async Task btnOpenCamera_LogicAsync()
         {
+            if (IsShutdownInProgress)
+            {
+                await _uiController.LogToFrontend("软件正在退出，已忽略打开相机请求", "warning");
+                return;
+            }
+
             if (_isCameraOpening)
             {
                 SafeFireAndForget(_uiController.LogToFrontend("相机正在连接中，请稍候...", "warning"), "相机防重入");
@@ -99,11 +105,15 @@ namespace ClearFrost
             try
             {
                 await _uiController.LogToFrontend("正在搜索并连接相机...", "info");
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_appShutdownCts.Token);
+                CancellationToken token = linkedCts.Token;
 
                 var (success, errorMessage) = await Task.Run(() =>
                 {
                     try
                     {
+                        token.ThrowIfCancellationRequested();
+
                         var activeConfig = _appConfig.ActiveCamera;
                         if (activeConfig == null || string.IsNullOrWhiteSpace(activeConfig.SerialNumber))
                         {
@@ -112,6 +122,7 @@ namespace ClearFrost
 
                         // 先关闭旧连接，再重开当前配置相机（复用句柄，不销毁）
                         _cameraService.Close();
+                        token.ThrowIfCancellationRequested();
 
                         bool openOk = _cameraService.Open(activeConfig.SerialNumber, activeConfig.Manufacturer);
                         if (!openOk)
@@ -128,8 +139,10 @@ namespace ClearFrost
 
                         cam = activeCamera.Camera;
 
+                        token.ThrowIfCancellationRequested();
                         getParam();
                         _cameraService.StartCapture();
+                        token.ThrowIfCancellationRequested();
 
                         Mat? testFrame = _cameraService.CaptureFrame(3000);
                         if (testFrame == null || testFrame.Empty())
@@ -141,12 +154,23 @@ namespace ClearFrost
 
                         return (true, string.Empty);
                     }
+                    catch (OperationCanceledException)
+                    {
+                        try { _cameraService.Close(); } catch { }
+                        return (false, "操作已取消");
+                    }
                     catch (Exception ex)
                     {
                         try { _cameraService.Close(); } catch { }
                         return (false, ex.Message);
                     }
-                });
+                }, token);
+
+                if (IsShutdownInProgress)
+                {
+                    Debug.WriteLine("[OpenCamera] 软件已进入退出流程，忽略打开相机结果");
+                    return;
+                }
 
                 if (success)
                 {
@@ -163,6 +187,10 @@ namespace ClearFrost
                 {
                     await _uiController.UpdateConnection("cam", false);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                Debug.WriteLine("[OpenCamera] 打开相机操作已取消");
             }
             finally
             {

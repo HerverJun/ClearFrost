@@ -93,6 +93,13 @@ namespace ClearFrost
         private CameraManager _cameraManager;
         private ICamera cam; // 活动相机 SDK 句柄 (由 _cameraManager.ActiveCamera 提供)
         private volatile bool _isCameraOpening = false;
+        private CancellationTokenSource _appShutdownCts = new();
+        private readonly object _shutdownTaskSync = new();
+        private readonly TimeSpan _shutdownTimeout = TimeSpan.FromSeconds(5);
+        private Task? _shutdownTask;
+        private int _shutdownState = 0;
+
+        private bool IsShutdownInProgress => Volatile.Read(ref _shutdownState) != 0;
 
         // YOLO (由 _detectionService 管理)
         // 多模型管理器 (由 _detectionService 管理)
