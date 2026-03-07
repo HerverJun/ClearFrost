@@ -28,6 +28,14 @@ namespace ClearFrost.Services
     /// </summary>
     public class CameraService : ICameraService
     {
+        private const uint GvspPixelMono8 = 0x01080001;
+        private const uint GvspPixelRgb8 = 0x02180014;
+        private const uint GvspPixelBgr8 = 0x02180015;
+        private const uint GvspPixelBayerRg8 = 0x01080009;
+        private const uint GvspPixelBayerGb8 = 0x0108000A;
+        private const uint GvspPixelBayerGr8 = 0x0108000B;
+        private const uint GvspPixelBayerBg8 = 0x0108000C;
+
         #region 私有字段
 
         private readonly CameraManager _cameraManager;
@@ -373,11 +381,7 @@ namespace ClearFrost.Services
                     using var cameraFrame = provider.GetFrame(500);
                     if (cameraFrame != null && cameraFrame.DataPtr != IntPtr.Zero && cameraFrame.Width > 0 && cameraFrame.Height > 0)
                     {
-                        var matType = cameraFrame.PixelFormat == CameraPixelFormat.Mono8
-                            ? MatType.CV_8UC1
-                            : MatType.CV_8UC3;
-                        using var tempMat = new Mat(cameraFrame.Height, cameraFrame.Width, matType, cameraFrame.DataPtr);
-                        Mat capturedFrame = tempMat.Clone();
+                        Mat capturedFrame = ConvertCameraFrameToMat(cameraFrame);
 
                         lock (_frameLock)
                         {
@@ -411,14 +415,72 @@ namespace ClearFrost.Services
         /// 将相机帧转换为 OpenCV Mat 格式
         /// </summary>
         /// <param name="frame">SDK 原始帧</param>
-        /// <returns>OpenCV Mat（Mono8）</returns>
+        /// <returns>OpenCV Mat</returns>
         private static Mat ConvertFrameToMat(IMVDefine.IMV_Frame frame)
         {
             int width = (int)frame.frameInfo.width;
             int height = (int)frame.frameInfo.height;
-            int srcStride = width + (int)frame.frameInfo.paddingX;
+            int paddingX = (int)frame.frameInfo.paddingX;
+            uint pixelFormat = unchecked((uint)frame.frameInfo.pixelFormat);
 
-            Mat mat = new Mat(height, width, MatType.CV_8UC1);
+            return ConvertRawFrameToMat(frame.pData, width, height, paddingX, pixelFormat);
+        }
+
+        private static Mat ConvertCameraFrameToMat(CameraFrame frame)
+        {
+            return frame.PixelFormat switch
+            {
+                CameraPixelFormat.Mono8 => CopyFrameBufferToMat(frame.DataPtr, frame.Width, frame.Height, frame.Width, frame.Width, MatType.CV_8UC1),
+                CameraPixelFormat.BGR8 => CopyFrameBufferToMat(frame.DataPtr, frame.Width, frame.Height, frame.Width * 3, frame.Width * 3, MatType.CV_8UC3),
+                CameraPixelFormat.RGB8 => ConvertRgbMatToBgr(CopyFrameBufferToMat(frame.DataPtr, frame.Width, frame.Height, frame.Width * 3, frame.Width * 3, MatType.CV_8UC3)),
+                CameraPixelFormat.BayerRG8 => ConvertBayerMatToBgr(frame.DataPtr, frame.Width, frame.Height, frame.Width, ColorConversionCodes.BayerRG2BGR),
+                CameraPixelFormat.BayerGB8 => ConvertBayerMatToBgr(frame.DataPtr, frame.Width, frame.Height, frame.Width, ColorConversionCodes.BayerGB2BGR),
+                CameraPixelFormat.BayerGR8 => ConvertBayerMatToBgr(frame.DataPtr, frame.Width, frame.Height, frame.Width, ColorConversionCodes.BayerGR2BGR),
+                CameraPixelFormat.BayerBG8 => ConvertBayerMatToBgr(frame.DataPtr, frame.Width, frame.Height, frame.Width, ColorConversionCodes.BayerBG2BGR),
+                _ => throw new NotSupportedException($"不支持的相机帧像素格式: {frame.PixelFormat}")
+            };
+        }
+
+        private static Mat ConvertRawFrameToMat(IntPtr dataPtr, int width, int height, int paddingX, uint pixelFormat)
+        {
+            return pixelFormat switch
+            {
+                GvspPixelMono8 => CopyFrameBufferToMat(dataPtr, width, height, width + paddingX, width, MatType.CV_8UC1),
+                GvspPixelBgr8 => CopyFrameBufferToMat(dataPtr, width, height, width * 3 + paddingX, width * 3, MatType.CV_8UC3),
+                GvspPixelRgb8 => ConvertRgbMatToBgr(CopyFrameBufferToMat(dataPtr, width, height, width * 3 + paddingX, width * 3, MatType.CV_8UC3)),
+                GvspPixelBayerRg8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, ColorConversionCodes.BayerRG2BGR),
+                GvspPixelBayerGb8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, ColorConversionCodes.BayerGB2BGR),
+                GvspPixelBayerGr8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, ColorConversionCodes.BayerGR2BGR),
+                GvspPixelBayerBg8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, ColorConversionCodes.BayerBG2BGR),
+                _ => throw new NotSupportedException($"不支持的 SDK 帧像素格式: 0x{pixelFormat:X8}")
+            };
+        }
+
+        private static Mat ConvertRgbMatToBgr(Mat rgbMat)
+        {
+            try
+            {
+                Mat bgrMat = new Mat();
+                Cv2.CvtColor(rgbMat, bgrMat, ColorConversionCodes.RGB2BGR);
+                return bgrMat;
+            }
+            finally
+            {
+                rgbMat.Dispose();
+            }
+        }
+
+        private static Mat ConvertBayerMatToBgr(IntPtr dataPtr, int width, int height, int srcStride, ColorConversionCodes conversionCode)
+        {
+            using Mat bayerMat = CopyFrameBufferToMat(dataPtr, width, height, srcStride, width, MatType.CV_8UC1);
+            Mat bgrMat = new Mat();
+            Cv2.CvtColor(bayerMat, bgrMat, conversionCode);
+            return bgrMat;
+        }
+
+        private static Mat CopyFrameBufferToMat(IntPtr dataPtr, int width, int height, int srcStride, int rowBytes, MatType matType)
+        {
+            Mat mat = new Mat(height, width, matType);
 
             try
             {
@@ -426,7 +488,7 @@ namespace ClearFrost.Services
 
                 unsafe
                 {
-                    byte* srcPtr = (byte*)frame.pData.ToPointer();
+                    byte* srcPtr = (byte*)dataPtr.ToPointer();
                     byte* dstPtr = (byte*)mat.Data.ToPointer();
 
                     if (srcStride == dstStride)
@@ -441,8 +503,8 @@ namespace ClearFrost.Services
                             Buffer.MemoryCopy(
                                 srcPtr + (long)row * srcStride,
                                 dstPtr + (long)row * dstStride,
-                                width,
-                                width);
+                                rowBytes,
+                                rowBytes);
                         }
                     }
                 }

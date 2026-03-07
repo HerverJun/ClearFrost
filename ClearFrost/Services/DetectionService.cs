@@ -337,7 +337,7 @@ namespace ClearFrost.Services
             if (_yolo != null)
             {
                 var allResults = await Task.Run(() =>
-                    _yolo.Inference(image, confidence, iouThreshold, false, 0));
+                    _yolo.Inference(image, confidence, iouThreshold, false, 1));
                 return (allResults, "", _yolo.Labels, false);
             }
 
@@ -357,7 +357,7 @@ namespace ClearFrost.Services
             if (_yolo != null)
             {
                 var allResults = await Task.Run(() =>
-                    _yolo.Inference(image, confidence, iouThreshold, false, 0));
+                    _yolo.Inference(image, confidence, iouThreshold, false, 1));
                 return (allResults, "", _yolo.Labels, false);
             }
 

@@ -10,6 +10,14 @@ namespace ClearFrost.Hardware
     /// </summary>
     public class CameraProviderAdapter : ICamera
     {
+        private const uint GvspPixelMono8 = 0x01080001;
+        private const uint GvspPixelRgb8 = 0x02180014;
+        private const uint GvspPixelBgr8 = 0x02180015;
+        private const uint GvspPixelBayerRg8 = 0x01080009;
+        private const uint GvspPixelBayerGb8 = 0x0108000A;
+        private const uint GvspPixelBayerGr8 = 0x0108000B;
+        private const uint GvspPixelBayerBg8 = 0x0108000C;
+
         private readonly ICameraProvider _provider;
         private bool _disposed = false;
         private CameraFrame? _currentFrame;
@@ -128,8 +136,14 @@ namespace ClearFrost.Hardware
         {
             return format switch
             {
-                CameraPixelFormat.Mono8 => IMVDefine.IMV_EPixelType.gvspPixelMono8,
-                _ => IMVDefine.IMV_EPixelType.gvspPixelMono8  // Ĭ�Ϸ��� Mono8
+                CameraPixelFormat.Mono8 => (IMVDefine.IMV_EPixelType)GvspPixelMono8,
+                CameraPixelFormat.RGB8 => (IMVDefine.IMV_EPixelType)GvspPixelRgb8,
+                CameraPixelFormat.BGR8 => (IMVDefine.IMV_EPixelType)GvspPixelBgr8,
+                CameraPixelFormat.BayerRG8 => (IMVDefine.IMV_EPixelType)GvspPixelBayerRg8,
+                CameraPixelFormat.BayerGB8 => (IMVDefine.IMV_EPixelType)GvspPixelBayerGb8,
+                CameraPixelFormat.BayerGR8 => (IMVDefine.IMV_EPixelType)GvspPixelBayerGr8,
+                CameraPixelFormat.BayerBG8 => (IMVDefine.IMV_EPixelType)GvspPixelBayerBg8,
+                _ => throw new NotSupportedException($"不支持的像素格式: {format}")
             };
         }
 

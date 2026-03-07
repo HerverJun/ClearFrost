@@ -419,14 +419,14 @@
 
             <!-- Floating Open Buttons (Visible when drawers closed) -->
             <button id="float-btn-left" onclick="toggleDrawer('left-panel')"
-                class="absolute top-1/2 -translate-y-1/2 left-4 p-3 bg-porcelain-50/80 backdrop-blur rounded-full shadow-lg border border-celadon-100 hover:scale-110 transition-all text-ink-500 hover:text-celadon-600 z-30 opacity-0 pointer-events-none drawer-trigger">
+                class="absolute top-1/2 mt-[-24px] left-4 p-3 bg-porcelain-100 rounded-full shadow-lg border border-celadon-100 hover:shadow-xl transition-all text-ink-500 hover:text-celadon-600 z-30 opacity-0 pointer-events-none drawer-trigger">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7">
                     </path>
                 </svg>
             </button>
             <button id="float-btn-right" onclick="toggleDrawer('right-panel')"
-                class="absolute top-1/2 -translate-y-1/2 right-4 p-3 bg-porcelain-50/80 backdrop-blur rounded-full shadow-lg border border-celadon-100 hover:scale-110 transition-all text-ink-500 hover:text-celadon-600 z-30 opacity-0 pointer-events-none drawer-trigger">
+                class="absolute top-1/2 mt-[-24px] right-4 p-3 bg-porcelain-100 rounded-full shadow-lg border border-celadon-100 hover:shadow-xl transition-all text-ink-500 hover:text-celadon-600 z-30 opacity-0 pointer-events-none drawer-trigger">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M11 19l-7-7 7-7M19 19l-7-7 7-7"></path>
@@ -592,8 +592,8 @@
     <!-- 2. The Toggle Handle (Separated) - Enhanced Design -->
     <div id="dock-trigger-container"
         class="fixed bottom-0 left-0 right-0 mx-auto w-fit z-[49] flex justify-center opacity-0 pointer-events-none transition-all duration-300">
-        <button onclick="toggleDock()" id="dock-toggle-btn" class="group px-8 py-3 glass-panel rounded-t-2xl flex items-center justify-center gap-2 
-                   bg-gradient-to-t from-porcelain-100 to-porcelain-50/70 hover:from-porcelain-200 hover:to-porcelain-100
+        <button onclick="toggleDock()" id="dock-toggle-btn" class="group px-8 py-3 rounded-t-2xl flex items-center justify-center gap-2 
+                   bg-porcelain-100 hover:bg-porcelain-200
                    border-t border-l border-r border-celadon-100/60
                    shadow-[0_-4px_20px_rgba(26,29,33,0.08)] hover:shadow-[0_-8px_30px_rgba(26,29,33,0.12)]
                    transition-all duration-300 ease-out">
@@ -616,7 +616,7 @@
 
     <!-- Settings Modal -->
     <div id="settings-modal"
-        class="fixed inset-0 bg-ink-900/40 backdrop-blur-sm z-[60] hidden flex items-center justify-center p-4">
+        class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
         <div class="glass-panel w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             <div
                 class="h-16 border-b border-celadon-100 flex justify-between items-center px-8 bg-porcelain-50/50 shrink-0">
@@ -897,7 +897,7 @@
 
     <!-- Super Search Modal -->
     <div id="super-search-modal"
-        class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] hidden">
+        class="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] hidden">
         <div class="bg-white rounded-2xl shadow-2xl p-6 w-[600px] max-h-[80vh] flex flex-col">
             <div class="flex items-center justify-between mb-4">
                 <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -943,7 +943,7 @@
 
     <!-- Password Modal -->
     <div id="password-modal"
-        class="fixed inset-0 bg-ink-900/60 backdrop-blur-md z-[100] hidden flex items-center justify-center">
+        class="fixed inset-0 bg-ink-900/60 z-[100] hidden flex items-center justify-center">
         <div class="glass-panel w-80 rounded-2xl p-6 shadow-2xl flex flex-col items-center">
             <div class="w-12 h-12 bg-celadon-50 rounded-full flex items-center justify-center text-celadon-600 mb-4">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -967,9 +967,9 @@
     </div>
 
     <!-- Gallery Modal -->
-    <div id="gallery-modal" class="fixed inset-0 bg-ink-900/40 backdrop-blur-sm z-[60] hidden overflow-hidden">
+    <div id="gallery-modal" class="fixed inset-0 bg-ink-900/60 z-[60] hidden overflow-hidden">
         <div
-            class="absolute inset-y-0 right-0 w-[80%] bg-white/95 shadow-2xl flex flex-col transform transition-transform duration-500 border-l border-slate-200">
+            class="absolute inset-y-0 right-0 w-[80%] bg-white/95 shadow-2xl flex flex-col border-l border-slate-200">
             <header class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0">
                 <div class="flex items-center gap-4">
                     <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest capitalize">图像追溯库 <span
@@ -1238,11 +1238,11 @@
     <!-- Crop Modal -->
     <div id="cropModal" class="fixed inset-0 z-[110] hidden" aria-labelledby="modal-title" role="dialog"
         aria-modal="true">
-        <div class="fixed inset-0 bg-ink-950/80 backdrop-blur-md transition-opacity"></div>
+        <div class="fixed inset-0 bg-ink-950/85 transition-opacity"></div>
         <div class="fixed inset-0 z-10 overflow-y-auto">
             <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
                 <div
-                    class="glass-panel relative transform overflow-hidden rounded-3xl bg-white/90 text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-4xl border border-white/20">
+                    class="glass-panel relative overflow-hidden rounded-3xl bg-white/90 text-left shadow-2xl sm:my-8 sm:w-full sm:max-w-4xl border border-white/20">
                     <!-- Header -->
                     <div class="px-8 pt-6 pb-5 border-b border-slate-100 flex justify-between items-center bg-white/60">
                         <div>

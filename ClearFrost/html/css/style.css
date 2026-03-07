@@ -1,4 +1,4 @@
-/* CSS Fallbacks for critical Tailwind colors */
+﻿/* CSS Fallbacks for critical Tailwind colors */
 .bg-celadon-500 {
     background-color: #06b6d4 !important;
 }
@@ -301,27 +301,32 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 /* Drawer & Dock - 保持逻辑 */
 .drawer-open {
-    transform: translateX(0) !important;
     opacity: 1 !important;
     width: 24rem !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
 }
 
 .drawer-closed-left {
-    transform: translateX(-120%) !important;
     opacity: 0 !important;
     width: 0 !important;
     padding: 0 !important;
     margin: 0 !important;
     border: none !important;
+    visibility: hidden !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
 }
 
 .drawer-closed-right {
-    transform: translateX(120%) !important;
     opacity: 0 !important;
     width: 0 !important;
     padding: 0 !important;
     margin: 0 !important;
     border: none !important;
+    visibility: hidden !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
 }
 
 /* [安全工业模式] 消除 transform 居中，改用 left:0; right:0; margin:auto 居中 */
