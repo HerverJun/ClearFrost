@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: YoloPreprocessor.cs
 // 描述:   YOLO 预处理模块 - Letterbox 缩放、图像转 Tensor
 // ============================================================================
@@ -80,32 +80,51 @@ namespace ClearFrost.Yolo
         /// </summary>
         private Mat LetterboxResizeMat(Mat image)
         {
-            float scaleW = (float)_tensorWidth / _inferenceImageWidth;
-            float scaleH = (float)_tensorHeight / _inferenceImageHeight;
-            _scale = Math.Min(scaleW, scaleH);
+            Mat processImage = image;
+            bool needDispose = false;
+            if (image.Channels() == 1)
+            {
+                processImage = new Mat();
+                Cv2.CvtColor(image, processImage, ColorConversionCodes.GRAY2BGR);
+                needDispose = true;
+            }
 
-            int newW = (int)Math.Round(_inferenceImageWidth * _scale);
-            int newH = (int)Math.Round(_inferenceImageHeight * _scale);
+            try
+            {
+                float scaleW = (float)_tensorWidth / _inferenceImageWidth;
+                float scaleH = (float)_tensorHeight / _inferenceImageHeight;
+                _scale = Math.Min(scaleW, scaleH);
 
-            _padLeft = (_tensorWidth - newW) / 2;
-            _padTop = (_tensorHeight - newH) / 2;
-            int padRight = Math.Max(0, _tensorWidth - newW - _padLeft);
-            int padBottom = Math.Max(0, _tensorHeight - newH - _padTop);
+                int newW = (int)Math.Round(_inferenceImageWidth * _scale);
+                int newH = (int)Math.Round(_inferenceImageHeight * _scale);
 
-            using Mat resized = new Mat();
-            Cv2.Resize(image, resized, new OpenCvSharp.Size(newW, newH), 0, 0, InterpolationFlags.Linear);
+                _padLeft = (_tensorWidth - newW) / 2;
+                _padTop = (_tensorHeight - newH) / 2;
+                int padRight = Math.Max(0, _tensorWidth - newW - _padLeft);
+                int padBottom = Math.Max(0, _tensorHeight - newH - _padTop);
 
-            Mat letterboxed = new Mat();
-            Cv2.CopyMakeBorder(
-                resized,
-                letterboxed,
-                _padTop,
-                padBottom,
-                _padLeft,
-                padRight,
-                BorderTypes.Constant,
-                new Scalar(LETTERBOX_FILL_COLOR_B, LETTERBOX_FILL_COLOR_G, LETTERBOX_FILL_COLOR_R));
-            return letterboxed;
+                using Mat resized = new Mat();
+                Cv2.Resize(processImage, resized, new OpenCvSharp.Size(newW, newH), 0, 0, InterpolationFlags.Linear);
+
+                Mat letterboxed = new Mat();
+                Cv2.CopyMakeBorder(
+                    resized,
+                    letterboxed,
+                    _padTop,
+                    padBottom,
+                    _padLeft,
+                    padRight,
+                    BorderTypes.Constant,
+                    new Scalar(LETTERBOX_FILL_COLOR_B, LETTERBOX_FILL_COLOR_G, LETTERBOX_FILL_COLOR_R));
+                return letterboxed;
+            }
+            finally
+            {
+                if (needDispose)
+                {
+                    processImage.Dispose();
+                }
+            }
         }
 
         /// <summary>
@@ -232,7 +251,10 @@ namespace ClearFrost.Yolo
                     }
                     else
                     {
-                        buffer[baseIndex] = pixel[0] / PIXEL_NORMALIZE_FACTOR;
+                        float val = pixel[0] / PIXEL_NORMALIZE_FACTOR;
+                        buffer[0 * channelSize + baseIndex] = val;
+                        buffer[1 * channelSize + baseIndex] = val;
+                        buffer[2 * channelSize + baseIndex] = val;
                     }
                 }
             });
@@ -279,7 +301,10 @@ namespace ClearFrost.Yolo
                     }
                     else
                     {
-                        buffer[baseIndex] = pixel[0] / PIXEL_NORMALIZE_FACTOR;
+                        float val = pixel[0] / PIXEL_NORMALIZE_FACTOR;
+                        buffer[0 * channelSize + baseIndex] = val;
+                        buffer[1 * channelSize + baseIndex] = val;
+                        buffer[2 * channelSize + baseIndex] = val;
                     }
                 }
             }
