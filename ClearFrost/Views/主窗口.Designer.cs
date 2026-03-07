@@ -48,7 +48,7 @@ namespace ClearFrost
             // 主窗口
             //
             AutoScaleDimensions = new SizeF(13F, 28F);
-            AutoScaleMode = AutoScaleMode.Font;
+            AutoScaleMode = AutoScaleMode.Dpi; // [安全工业模式] 配合 PerMonitorV2 manifest
             ClientSize = new Size(3649, 1854);
             Controls.Add(webView21);
             Margin = new Padding(6, 5, 6, 5);

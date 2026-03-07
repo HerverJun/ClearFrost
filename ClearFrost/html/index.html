@@ -22,8 +22,8 @@
 
     <!-- Header: Floating HUD -->
     <header
-        class="fixed top-6 left-6 right-6 h-16 glass-panel rounded-2xl z-50 flex items-center justify-between px-6 animate-float"
-        style="animation-duration: 8s;" onmousedown="startDrag(event)">
+        class="fixed top-6 left-6 right-6 h-16 glass-panel rounded-2xl z-50 flex items-center justify-between px-6"
+        onmousedown="startDrag(event)">
         <!-- Left: Logo & Title (Draggable) -->
         <div class="flex items-center gap-4">
             <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-celadon-400 to-celadon-600 flex items-center justify-center text-white shadow-lg shadow-celadon-500/30"
@@ -526,8 +526,7 @@
 
     <!-- 1. The Dock Itself -->
     <div id="bottom-dock"
-        class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-2 glass-panel rounded-2xl shadow-2xl dock-open animate-float transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] origin-bottom"
-        style="animation-duration: 10s; animation-delay: 1s;">
+        class="fixed bottom-4 left-0 right-0 mx-auto w-fit z-50 flex items-center gap-3 px-5 py-2 glass-panel dock-industrial rounded-2xl shadow-2xl dock-open transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] origin-bottom">
 
         <!-- Collapse Handle (Added to allows closing since trigger is hidden) -->
         <button onclick="toggleDock()"
@@ -539,7 +538,7 @@
         </button>
         <div class="flex items-center gap-2">
             <button onclick="sendCommand('manual_detect')"
-                class="px-4 py-2.5 rounded-xl bg-celadon-600 text-white shadow-lg shadow-celadon-900/40 hover:scale-105 hover:bg-celadon-700 transition-all active:scale-95 btn-press flex items-center gap-2 font-bold text-xs tracking-wide"
+                class="px-4 py-2.5 rounded-xl bg-celadon-600 text-white shadow-lg shadow-celadon-900/40 hover:bg-celadon-700 transition-all btn-press flex items-center gap-2 font-bold text-xs tracking-wide"
                 title="手动触发">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -551,7 +550,7 @@
                 <span>手动拍照</span>
             </button>
             <button onclick="sendCommand('manual_release')"
-                class="px-4 py-2.5 rounded-xl bg-white text-gamboge-500 shadow-md border border-gamboge-100 hover:scale-105 hover:text-gamboge-600 transition-all active:scale-95 btn-press flex items-center gap-2 font-bold text-xs tracking-wide"
+                class="px-4 py-2.5 rounded-xl bg-white text-gamboge-500 shadow-md border border-gamboge-100 hover:text-gamboge-600 transition-all btn-press flex items-center gap-2 font-bold text-xs tracking-wide"
                 title="强制放行">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -585,13 +584,12 @@
 
     <!-- 2. The Toggle Handle (Separated) - Enhanced Design -->
     <div id="dock-trigger-container"
-        class="fixed bottom-0 left-1/2 -translate-x-1/2 z-[49] flex justify-center opacity-0 pointer-events-none transition-all duration-300">
+        class="fixed bottom-0 left-0 right-0 mx-auto w-fit z-[49] flex justify-center opacity-0 pointer-events-none transition-all duration-300">
         <button onclick="toggleDock()" id="dock-toggle-btn" class="group px-8 py-3 glass-panel rounded-t-2xl flex items-center justify-center gap-2 
                    bg-gradient-to-t from-porcelain-100 to-porcelain-50/70 hover:from-porcelain-200 hover:to-porcelain-100
                    border-t border-l border-r border-celadon-100/60
                    shadow-[0_-4px_20px_rgba(26,29,33,0.08)] hover:shadow-[0_-8px_30px_rgba(26,29,33,0.12)]
-                   transition-all duration-300 ease-out
-                   transform translate-y-1 hover:translate-y-0 active:scale-95">
+                   transition-all duration-300 ease-out">
             <!-- Animated Pulse Dot -->
             <span
                 class="w-2 h-2 rounded-full bg-celadon-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>

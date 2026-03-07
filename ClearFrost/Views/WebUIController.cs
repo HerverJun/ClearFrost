@@ -128,8 +128,12 @@ namespace ClearFrost
             _webView = webView;
             try
             {
-                // Specify the user data folder to avoid permission issues
-                string userDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GreeVision_WebView2");
+                // [安全工业模式] UDF 加入版本号隔离，升级后不继承旧版缓存
+                string appVer = System.Reflection.Assembly.GetExecutingAssembly()
+                    .GetName().Version?.ToString(3) ?? "0.0.0";
+                string userDataFolder = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "GreeVision_WebView2", appVer);
                 var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
                 await _webView.EnsureCoreWebView2Async(env);
 
@@ -162,7 +166,23 @@ namespace ClearFrost
                 // Register message received handler BEFORE navigation to ensure no messages (like app_ready) are missed
                 _webView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
 
-                // Navigate to the index page with cache-busting timestamp
+                // [安全工业模式] 确保每次启动加载最新前端资源
+                // 1. 首次 NavigationCompleted 时清除浏览器缓存
+                _webView.CoreWebView2.NavigationCompleted += async (s2, e2) =>
+                {
+                    if (e2.IsSuccess)
+                    {
+                        try
+                        {
+                            // CallDevToolsProtocolMethodAsync 清除 HTTP 缓存
+                            await _webView.CoreWebView2.CallDevToolsProtocolMethodAsync(
+                                "Network.clearBrowserCache", "{}");
+                        }
+                        catch { /* best-effort */ }
+                    }
+                };
+
+                // 2. Navigate with cache-busting timestamp (covers index.html)
                 string timestamp = DateTime.Now.Ticks.ToString();
                 _webView.CoreWebView2.Navigate($"https://app.local/index.html?v={timestamp}");
 
