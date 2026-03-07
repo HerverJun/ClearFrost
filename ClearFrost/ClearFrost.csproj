@@ -18,6 +18,7 @@
     <!-- 修复4: 修复警告处理设置 -->
     <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>Error</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
     <SupportedOSPlatformVersion>8.0</SupportedOSPlatformVersion>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Authors>蘅芜君</Authors>
     <Company>蘅芜君</Company>
     <Copyright>Copyright (c) 2026 蘅芜君</Copyright>
