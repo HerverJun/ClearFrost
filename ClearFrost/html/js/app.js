@@ -335,24 +335,7 @@ window.receiveDetectionResult = function (result) {
     addDetectionLog(`${result.IsPass ? '✓ 通过' : '✗ 未通过'} - ${result.Message} (${result.ProcessingTimeMs.toFixed(1)}ms)`);
 };
 
-// 更新预览图像
-window.updatePreviewImage = function (preview) {
-    if (preview && preview.ImageBase64) {
-        updateImage(preview.ImageBase64);
-        if (preview.ProcessingTimeMs) {
-            addLog(`预览处理耗时: ${preview.ProcessingTimeMs.toFixed(1)}ms`);
-        }
-    }
-};
 
-// 更新模板预览
-window.updateTemplatePreview = function (base64) {
-    const container = document.getElementById('template-preview');
-    if (container) {
-        const src = base64.startsWith('data:image') ? base64 : `data:image/jpeg;base64,${base64}`;
-        container.innerHTML = `<img src="${src}" class="w-full h-full object-cover rounded-lg">`;
-    }
-};
 
 // 初始化模型列表 - 被C#后端 SendModelList() 调用
 function initModelList(files) {
@@ -528,40 +511,8 @@ function receiveCameraList(data) {
 }
 window.receiveCameraList = receiveCameraList;
 
-// 接收视觉配置
-window.receiveVisionConfig = function (config) {
-    if (!config || !config.Config) return;
-    window.operatorList = config.Config.Operators || [];
-    window.operatorParameters = config.OperatorParameters || {}; // Store param info per operator
-    window.availableOperators = config.AvailableOperators || [];
-    if (window.renderOperatorList) window.renderOperatorList();
 
-    // 更新阈值滑块
-    if (config.Config.TemplateThreshold) {
-        const slider = document.getElementById('template-threshold-slider');
-        const value = document.getElementById('template-threshold-value');
-        if (slider && value) {
-            slider.value = Math.round(config.Config.TemplateThreshold * 100);
-            value.innerText = config.Config.TemplateThreshold.toFixed(2);
-        }
-    }
-};
 
-// 接收流程更新确认
-window.receivePipelineUpdate = function (config) {
-    console.log('receivePipelineUpdate:', config);
-    window.operatorList = config.Operators || [];
-    if (window.renderOperatorList) window.renderOperatorList();
-    addLog(`流程已更新，共 ${window.operatorList.length} 个步骤`);
-
-    // Request full config to get updated OperatorParameters
-    setTimeout(() => sendCommand('get_vision_config'), 50);
-};
-
-// 接收可用算子列表 (保留接口)
-window.receiveAvailableOperators = function (operators) {
-    // 可用于动态生成算子选项
-};
 
 // 接收历史统计数据
 window.receiveStatisticsHistory = function (data) {
@@ -709,8 +660,3 @@ window.updateNGImages = function (images) {
     });
 };
 
-// 接收裁剪帧回调
-window.receiveTemplateFrame = function (base64) {
-    const src = base64.startsWith('data:image') ? base64 : `data:image/jpeg;base64,${base64}`;
-    if (window.initTmCropper) window.initTmCropper(src);
-}

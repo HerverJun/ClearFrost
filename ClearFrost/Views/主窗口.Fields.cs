@@ -16,7 +16,6 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using ClearFrost.Yolo;
-using ClearFrost.Vision;
 using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
@@ -40,9 +39,6 @@ namespace ClearFrost
         private WebUIController _uiController;
 
         // ====================== ROI配置 ======================
-        // 当前 ROI 以 _currentROI 为准（由前端裁剪组件同步）
-        private double _currentCropScale = 1.0;
-
         // ====================== 文件存储配置 ======================
         private string BaseStoragePath
         {
@@ -110,9 +106,6 @@ namespace ClearFrost
 
         // ROI归一化坐标 [x, y, w, h] (0.0~1.0)
         private float[]? _currentROI = null;
-
-        // 传统视觉处理器
-        private PipelineProcessor? _pipelineProcessor;
 
         /// <summary>
         /// 检测操作信号量，防止并发检测（如 PLC 快速触发）

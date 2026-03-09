@@ -12,11 +12,10 @@ using ClearFrost.Models;
 //
 // 事件定义:
 //   - OnOpenCamera, OnManualDetect, OnConnectPlc, ...  (操作事件)
-//   - OnVisionModeChanged, OnPipelineUpdate, ...      (传统视觉事件)
 //   - OnSaveSettings, OnVerifyPassword, ...           (配置事件)
 //
 // 前端通信:
-//   - 发送: UpdateUI(), UpdateImage(), LogToFrontend(), SendVisionConfig(), ...
+//   - 发送: UpdateUI(), UpdateImage(), LogToFrontend(), SendCameraList(), ...
 //   - 接收: 通过 { "cmd": "xxx", "value": ... } JSON 格式解析
 //
 // 作者: 蘅芜君
@@ -33,7 +32,6 @@ using System.Text;
 using System.Linq;
 using System.Collections.Generic;
 using System.Threading;
-using ClearFrost.Vision;
 using OpenCvSharp;
 using ClearFrost.Interfaces;
 
@@ -77,17 +75,6 @@ namespace ClearFrost
         public event EventHandler? OnGetStatisticsHistory;
         public event EventHandler? OnClearStatisticsHistory;
         public event EventHandler? OnResetStatistics;
-
-        // ================== 传统视觉模式事件 ==================
-        public event EventHandler<int>? OnVisionModeChanged;
-        public event EventHandler<PipelineUpdateRequest>? OnPipelineUpdate;
-        public event EventHandler? OnGetVisionConfig;
-        public event EventHandler? OnGetPreview;
-        public event EventHandler<string>? OnUploadTemplate;
-        public event EventHandler<string>? OnSaveCroppedTemplate;
-        public event EventHandler? OnTestTemplateMatch;
-        public event EventHandler? OnGetFrameForTemplate;
-        public event EventHandler<TrainOperatorRequest>? OnTrainOperator;
 
         // ================== 多相机事件 ==================
         public event EventHandler? OnGetCameraList;
@@ -693,89 +680,6 @@ namespace ClearFrost
                                 }
                                 break;
 
-                            // ================== 传统视觉模式命令 ==================
-                            case "set_vision_mode":
-                                if (root.TryGetProperty("value", out JsonElement modeElement))
-                                {
-                                    int mode = modeElement.GetInt32();
-                                    OnVisionModeChanged?.Invoke(this, mode);
-#if DEBUG
-                                    await LogToFrontend($"视觉模式已切换为: {(mode == 0 ? "YOLO" : "传统视觉")}");
-#endif
-                                }
-                                break;
-                            case "get_vision_config":
-                                OnGetVisionConfig?.Invoke(this, EventArgs.Empty);
-                                break;
-                            case "pipeline_update":
-                                if (root.TryGetProperty("value", out JsonElement pipelineElement))
-                                {
-                                    try
-                                    {
-                                        var request = JsonSerializer.Deserialize<PipelineUpdateRequest>(pipelineElement.GetRawText());
-                                        if (request != null)
-                                        {
-                                            OnPipelineUpdate?.Invoke(this, request);
-                                        }
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        await LogToFrontend($"流程更新解析错误: {ex.Message}", "error");
-                                    }
-                                }
-                                break;
-                            case "get_preview":
-                                OnGetPreview?.Invoke(this, EventArgs.Empty);
-                                break;
-                            case "upload_template":
-                                if (root.TryGetProperty("value", out JsonElement templateElement))
-                                {
-                                    OnUploadTemplate?.Invoke(this, templateElement.GetString() ?? "");
-                                }
-                                break;
-                            case "test_template_match":
-                                OnTestTemplateMatch?.Invoke(this, EventArgs.Empty);
-                                break;
-                            case "save_cropped_template_data":
-                                if (root.TryGetProperty("value", out JsonElement cropElement))
-                                {
-                                    OnSaveCroppedTemplate?.Invoke(this, cropElement.GetString() ?? "");
-                                }
-                                break;
-                            case "get_frame_for_template":
-                                OnGetFrameForTemplate?.Invoke(this, EventArgs.Empty);
-                                break;
-                            case "train_operator":
-                                if (root.TryGetProperty("value", out JsonElement trainElement))
-                                {
-                                    try
-                                    {
-                                        var req = JsonSerializer.Deserialize<TrainOperatorRequest>(trainElement.GetRawText());
-                                        if (req != null)
-                                        {
-                                            OnTrainOperator?.Invoke(this, req);
-                                        }
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        await LogToFrontend($"解析训练请求失败: {ex.Message}", "error");
-                                    }
-                                }
-                                break;
-                            case "get_operator_template":
-                                // Request template data for a specific operator - handled via OnGetVisionConfig for now
-                                OnGetVisionConfig?.Invoke(this, EventArgs.Empty);
-                                break;
-                            case "set_template_threshold":
-                                if (root.TryGetProperty("value", out JsonElement threshElement))
-                                {
-                                    float thresh = threshElement.GetSingle();
-                                    // This is handled through pipeline_update with threshold param
-#if DEBUG
-                                    await LogToFrontend($"模板阈值已设置: {thresh:F2}");
-#endif
-                                }
-                                break;
                             default:
                                 break;
                         }
@@ -1075,68 +979,6 @@ namespace ClearFrost
             {
                 await LogToFrontend($"获取历史统计失败: {ex.Message}", "error");
             }
-        }
-
-        // ================== 传统视觉模式方法 ==================
-
-        /// <summary>
-        /// 发送视觉配置到前端
-        /// </summary>
-        public async Task SendVisionConfig(VisionConfigResponse config)
-        {
-            if (_webView?.CoreWebView2 == null) return;
-            string json = JsonSerializer.Serialize(config);
-            await ExecuteScriptOnUiThreadAsync($"receiveVisionConfig({json})");
-        }
-
-        /// <summary>
-        /// 发送预览图像到前端
-        /// </summary>
-        public async Task SendPreviewImage(PreviewResponse preview)
-        {
-            if (_webView?.CoreWebView2 == null) return;
-            string json = JsonSerializer.Serialize(preview);
-            await ExecuteScriptOnUiThreadAsync($"updatePreviewImage({json})");
-        }
-
-        /// <summary>
-        /// 发送可用算子列表到前端
-        /// </summary>
-        public async Task SendAvailableOperators()
-        {
-            if (_webView?.CoreWebView2 == null) return;
-            var operators = OperatorFactory.GetAvailableOperators();
-            string json = JsonSerializer.Serialize(operators);
-            await ExecuteScriptOnUiThreadAsync($"receiveAvailableOperators({json})");
-        }
-
-        /// <summary>
-        /// 发送流程更新确认
-        /// </summary>
-        public async Task SendPipelineUpdated(VisionConfig config)
-        {
-            if (_webView?.CoreWebView2 == null) return;
-            string json = JsonSerializer.Serialize(config);
-            await ExecuteScriptOnUiThreadAsync($"receivePipelineUpdate({json})");
-        }
-
-        /// <summary>
-        /// 发送检测结果到前端
-        /// </summary>
-        public async Task SendDetectionResult(DetectionResponse result)
-        {
-            if (_webView?.CoreWebView2 == null) return;
-            string json = JsonSerializer.Serialize(result);
-            await ExecuteScriptOnUiThreadAsync($"receiveDetectionResult({json})");
-        }
-
-        /// <summary>
-        /// Sends the captured frame for template editing to the frontend.
-        /// </summary>
-        public async Task ReceiveTemplateFrame(string base64)
-        {
-            if (_webView?.CoreWebView2 == null) return;
-            await ExecuteScriptOnUiThreadAsync($"receiveTemplateFrame('{base64}')");
         }
 
         // ================== 多相机方法 ==================

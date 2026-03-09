@@ -99,7 +99,6 @@ ClearForst/
 │   ├── Core/                   # 核心模块
 │   │   └── MultiModelManager.cs# 多模型管理器
 │   ├── Yolo/                   # YOLO 推理引擎
-│   ├── Vision/                 # 传统视觉算法
 │   ├── Hardware/               # 硬件驱动
 │   ├── html/                   # Web UI 前端
 │   │   ├── index.html
@@ -119,13 +118,6 @@ ClearForst/
 - ✅ DirectML GPU 加速
 - ✅ 可配置置信度/IOU 阈值
 - ✅ 目标标签 + 数量判定逻辑
-
-### 传统视觉模式
-- ✅ 模板匹配 (Template Match)
-- ✅ 特征匹配 (AKAZE/ORB)
-- ✅ 形状匹配 (金字塔梯度)
-- ✅ 有无检测 (背景差分)
-- ✅ 可视化流水线配置
 
 ### 工业集成
 - ✅ 华睿/海康威视工业相机

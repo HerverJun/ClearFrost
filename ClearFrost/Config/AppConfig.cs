@@ -91,7 +91,7 @@ namespace ClearFrost.Config
         public int MaxRetryCount { get; set; } = 1;
         public int RetryIntervalMs { get; set; } = 2000;
 
-        // ================== Vision Mode Settings ==================
+        // ================== Legacy Traditional Vision Compatibility Settings ==================
         public int VisionMode { get; set; } = 0;
         public string TemplateImagePath { get; set; } = "";
         public double TemplateThreshold { get; set; } = 0.8;
