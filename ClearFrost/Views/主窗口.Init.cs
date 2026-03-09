@@ -523,9 +523,7 @@ namespace ClearFrost
             // 阻止系统休眠
             WindowHelpers.PreventSleep();
 
-            // 确保无边框全屏
-            this.FormBorderStyle = FormBorderStyle.None;
-            this.WindowState = FormWindowState.Maximized;
+            // 窗口样式与初始最大化已在构造函数中设置
 
             // 订阅 WebUI 就绪事件
             _uiController.OnAppReady += async (s, ev) =>

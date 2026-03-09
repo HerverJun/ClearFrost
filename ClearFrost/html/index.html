@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>清霜 Pro - 汝窑版 (v2.0)</title>
+    <title>清霜 V4 预览版 - ClearFrost</title>
 
 
 
@@ -20,9 +20,8 @@
 
     <!-- Header: Floating HUD -->
     <header
-        class="fixed top-6 left-6 right-6 h-16 glass-panel-lite rounded-2xl z-50 flex items-center justify-between px-6"
-        onmousedown="startDrag(event)">
-        <!-- Left: Logo & Title (Draggable) -->
+        class="fixed top-6 left-6 right-6 h-16 glass-panel-lite rounded-2xl z-50 flex items-center justify-between px-6">
+        <!-- Left: Logo & Title -->
         <div class="flex items-center gap-4">
             <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-celadon-400 to-celadon-600 flex items-center justify-center text-white shadow-lg shadow-celadon-500/30"
                 style="background: linear-gradient(135deg, #415065 0%, #2c5a71 100%);">
@@ -74,32 +73,6 @@
                     </path>
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                </svg>
-            </button>
-            <div class="w-px h-6 bg-ink-400/20 mx-1"></div>
-            <button id="btn-minimize-app"
-                class="p-2.5 rounded-xl hover:bg-slate-100 hover:text-ink-800 transition-colors text-ink-500 btn-press"
-                onclick="sendCommand('minimize_app')" title="最小化">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path>
-                </svg>
-            </button>
-            <button id="btn-toggle-maximize"
-                class="p-2.5 rounded-xl hover:bg-slate-100 hover:text-ink-800 transition-colors text-ink-500 btn-press"
-                onclick="sendCommand('toggle_maximize')" title="最大化/还原">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4">
-                    </path>
-                </svg>
-            </button>
-            <button id="btn-exit-app"
-                class="p-2.5 rounded-xl hover:bg-rose-50 hover:text-rose-600 transition-colors text-ink-500 btn-press"
-                onclick="requestExitApp()" title="退出程序">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1">
-                    </path>
                 </svg>
             </button>
         </div>

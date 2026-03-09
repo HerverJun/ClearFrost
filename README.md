@@ -1,4 +1,4 @@
-# 清霜视觉检测系统 V3 (ClearFrost V3)
+﻿# 清霜视觉检测系统 V4 预览版 (ClearFrost V4 Preview)
 
 <p align="center">
   <img src="ClearFrost/icon_transparent.png" width="120" alt="ClearFrost Logo">
@@ -18,7 +18,16 @@
 
 ---
 
-## ✨ V3 新特性
+## ✨ V4 预览版更新
+
+- 🪟 **恢复原生 Windows 标题栏**：窗口控制回归系统按钮，不再依赖 WebView2 渲染
+- 🧱 **窗口行为更稳健**：支持原生最小化、最大化、关闭、Alt+F4 与 Win11 Snap
+- 🧹 **页面移除“安全退出”按钮**：前端仅保留业务操作与设置入口，退出统一通过系统标题栏右上角 `×`
+- 🚀 **启动仍默认最大化**：兼顾工业场景展示面积与系统级窗口稳定性
+
+---
+
+## ✨ V3 既有特性
 
 - 🚀 **多模型自动切换**：主模型未检测到目标时，自动切换辅助模型
 - 🎨 **全新 Web UI**：基于 TailwindCSS 的现代化界面

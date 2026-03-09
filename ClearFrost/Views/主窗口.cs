@@ -47,9 +47,10 @@ namespace ClearFrost
                 cam = _appConfig.IsDebugMode ? new MockCamera() : new RealCamera();
             }
 
-            // 设置无边框全屏
-            this.FormBorderStyle = FormBorderStyle.None;
+            // 使用系统原生标题栏，启动时保持最大化
+            this.FormBorderStyle = FormBorderStyle.Sizable;
             this.WindowState = FormWindowState.Maximized;
+            this.Text = "清霜 ClearFrost V4 预览版";
 
             // 初始化 WebUI 控制器
             _uiController = new WebUIController();
