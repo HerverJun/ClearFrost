@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: YoloPostprocessor.cs
 // 描述:   YOLO 后处理模块 - 置信度过滤、坐标恢复、Mask 处理
 // ============================================================================
@@ -66,22 +66,15 @@ namespace ClearFrost.Yolo
                     }
                     if (index != -1)
                     {
-                        float[] basicData = new float[BASIC_DATA_LENGTH];
                         YoloResult temp = new YoloResult();
                         Mat mask = new Mat(1, DEFAULT_MASK_CHANNELS, MatType.CV_32F);
-                        basicData[0] = data[0, 0, i];
-                        basicData[1] = data[0, 1, i];
-                        basicData[2] = data[0, 2, i];
-                        basicData[3] = data[0, 3, i];
-                        basicData[4] = tempConfidence;
-                        basicData[5] = index;
                         for (int ii = 0; ii < _segWidth; ii++)
                         {
                             int pos = data.Dimensions[1] - _segWidth + ii;
                             mask.At<float>(0, ii) = data[0, pos, i];
                         }
                         temp.MaskData = mask;
-                        temp.BasicData = basicData;
+                        temp.SetDetectionData(data[0, 0, i], data[0, 1, i], data[0, 2, i], data[0, 3, i], tempConfidence, index);
                         resultBag.Add(temp);
                     }
                 });
@@ -111,22 +104,15 @@ namespace ClearFrost.Yolo
                     }
                     if (index != -1)
                     {
-                        float[] basicData = new float[BASIC_DATA_LENGTH];
                         YoloResult temp = new YoloResult();
                         Mat mask = new Mat(1, DEFAULT_MASK_CHANNELS, MatType.CV_32F);
-                        basicData[0] = dataSpan[i];
-                        basicData[1] = dataSpan[i + 1];
-                        basicData[2] = dataSpan[i + 2];
-                        basicData[3] = dataSpan[i + 3];
-                        basicData[4] = tempConfidence;
-                        basicData[5] = index;
                         for (int ii = 0; ii < _segWidth; ii++)
                         {
                             int pos = i + outputSize - _segWidth + ii;
                             mask.At<float>(0, ii) = dataSpan[pos];
                         }
                         temp.MaskData = mask;
-                        temp.BasicData = basicData;
+                        temp.SetDetectionData(dataSpan[i], dataSpan[i + 1], dataSpan[i + 2], dataSpan[i + 3], tempConfidence, index);
                         resultList.Add(temp);
                     }
                 }
@@ -293,22 +279,15 @@ namespace ClearFrost.Yolo
                         }
                         if (index != -1)
                         {
-                            float[] basicData = new float[BASIC_DATA_LENGTH];
                             YoloResult temp = new YoloResult();
                             Mat mask = new Mat(1, DEFAULT_MASK_CHANNELS, MatType.CV_32F);
-                            basicData[0] = data[0, 0, i];
-                            basicData[1] = data[0, 1, i];
-                            basicData[2] = data[0, 2, i];
-                            basicData[3] = data[0, 3, i];
-                            basicData[4] = tempConfidence;
-                            basicData[5] = index;
                             for (int ii = 0; ii < _segWidth; ii++)
                             {
                                 int pos = data.Dimensions[1] - _segWidth + ii;
                                 mask.At<float>(0, ii) = data[0, pos, i];
                             }
                             temp.MaskData = mask;
-                            temp.BasicData = basicData;
+                            temp.SetDetectionData(data[0, 0, i], data[0, 1, i], data[0, 2, i], data[0, 3, i], tempConfidence, index);
                             resultBag.Add(temp);
                         }
                     }
@@ -337,21 +316,14 @@ namespace ClearFrost.Yolo
                         }
                         if (index != -1)
                         {
-                            float[] basicData = new float[BASIC_DATA_LENGTH];
                             YoloResult temp = new YoloResult();
                             Mat mask = new Mat(1, DEFAULT_MASK_CHANNELS, MatType.CV_32F);
-                            basicData[0] = dataSpan[i];
-                            basicData[1] = dataSpan[i + 1];
-                            basicData[2] = dataSpan[i + 2];
-                            basicData[3] = dataSpan[i + 3];
-                            basicData[4] = dataSpan[i + 4];
-                            basicData[5] = index;
                             for (int ii = 0; ii < _segWidth; ii++)
                             {
                                 int pos = i + outputSize - _segWidth + ii;
                                 mask.At<float>(0, ii) = dataSpan[pos];
                             }
-                            temp.BasicData = basicData;
+                            temp.SetDetectionData(dataSpan[i], dataSpan[i + 1], dataSpan[i + 2], dataSpan[i + 3], dataSpan[i + 4], index);
                             temp.MaskData = mask;
                             resultList.Add(temp);
                         }
@@ -378,11 +350,8 @@ namespace ClearFrost.Yolo
             {
                 if (data[0, i] >= confidence)
                 {
-                    float[] filterInfo = new float[2];
                     YoloResult temp = new YoloResult();
-                    filterInfo[0] = data[0, i];
-                    filterInfo[1] = i;
-                    temp.BasicData = filterInfo;
+                    temp.SetClassificationData(data[0, i], i);
                     resultList.Add(temp);
                 }
             }
@@ -413,15 +382,8 @@ namespace ClearFrost.Yolo
                     }
                     if (index != -1)
                     {
-                        float[] basicData = new float[BASIC_DATA_LENGTH];
                         YoloResult temp = new YoloResult();
-                        basicData[0] = data[0, 0, i];
-                        basicData[1] = data[0, 1, i];
-                        basicData[2] = data[0, 2, i];
-                        basicData[3] = data[0, 3, i];
-                        basicData[4] = tempConfidence;
-                        basicData[5] = index;
-                        temp.BasicData = basicData;
+                        temp.SetDetectionData(data[0, 0, i], data[0, 1, i], data[0, 2, i], data[0, 3, i], tempConfidence, index);
                         int poseIndex = 0;
                         PosePoint[] keyPoints = new PosePoint[_poseWidth / 3];
                         for (int ii = 0; ii < _poseWidth; ii += 3)
@@ -463,15 +425,8 @@ namespace ClearFrost.Yolo
                     }
                     if (index != -1)
                     {
-                        float[] basicData = new float[BASIC_DATA_LENGTH];
                         YoloResult temp = new YoloResult();
-                        basicData[0] = dataSpan[i];
-                        basicData[1] = dataSpan[i + 1];
-                        basicData[2] = dataSpan[i + 2];
-                        basicData[3] = dataSpan[i + 3];
-                        basicData[4] = tempConfidence;
-                        basicData[5] = index;
-                        temp.BasicData = basicData;
+                        temp.SetDetectionData(dataSpan[i], dataSpan[i + 1], dataSpan[i + 2], dataSpan[i + 3], tempConfidence, index);
                         int poseIndex = 0;
                         PosePoint[] keyPoints = new PosePoint[_poseWidth / 3];
                         for (int ii = 0; ii < _poseWidth; ii += 3)
@@ -515,16 +470,8 @@ namespace ClearFrost.Yolo
                     }
                     if (index != -1)
                     {
-                        float[] basicData = new float[7];
                         YoloResult temp = new YoloResult();
-                        basicData[0] = data[0, 0, i];
-                        basicData[1] = data[0, 1, i];
-                        basicData[2] = data[0, 2, i];
-                        basicData[3] = data[0, 3, i];
-                        basicData[4] = tempConfidence;
-                        basicData[5] = index;
-                        basicData[6] = data[0, outputSize - 1, i];
-                        temp.BasicData = basicData;
+                        temp.SetObbData(data[0, 0, i], data[0, 1, i], data[0, 2, i], data[0, 3, i], tempConfidence, index, data[0, outputSize - 1, i]);
                         resultBag.Add(temp);
                     }
                 });
@@ -554,16 +501,8 @@ namespace ClearFrost.Yolo
                     }
                     if (index != -1)
                     {
-                        float[] basicData = new float[7];
                         YoloResult temp = new YoloResult();
-                        basicData[0] = dataSpan[i];
-                        basicData[1] = dataSpan[i + 1];
-                        basicData[2] = dataSpan[i + 2];
-                        basicData[3] = dataSpan[i + 3];
-                        basicData[4] = tempConfidence;
-                        basicData[5] = index;
-                        basicData[6] = dataSpan[i + outputSize - 1];
-                        temp.BasicData = basicData;
+                        temp.SetObbData(dataSpan[i], dataSpan[i + 1], dataSpan[i + 2], dataSpan[i + 3], tempConfidence, index, dataSpan[i + outputSize - 1]);
                         resultList.Add(temp);
                     }
                 }

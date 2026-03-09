@@ -154,13 +154,13 @@ namespace ClearFrost.Yolo
 
             for (int i = 0; i < results.Count; i++)
             {
-                var data = results[i].BasicData;
-                int x = (int)data[0];
-                int y = (int)data[1];
-                int w = (int)data[2];
-                int h = (int)data[3];
-                int classId = (int)data[5];
-                float score = data[4];
+                YoloResult result = results[i];
+                int x = (int)result.CenterX;
+                int y = (int)result.CenterY;
+                int w = (int)result.Width;
+                int h = (int)result.Height;
+                int classId = result.ClassId;
+                float score = result.Confidence;
 
                 string labelName = (classId < labels.Length) ? labels[classId] : "Unknown";
                 string displayText = $"{labelName} {score:P1}";
@@ -205,8 +205,8 @@ namespace ClearFrost.Yolo
 
             for (int i = 0; i < results.Count && i < classificationLimit; i++)
             {
-                int labelIndex = (int)results[i].BasicData[1];
-                float confidence = results[i].BasicData[0];
+                int labelIndex = results[i].ClassId;
+                float confidence = results[i].Confidence;
                 string labelName = (labelIndex < labels.Length) ? labels[labelIndex] : "No Label";
                 string displayText = $"{labelName} {confidence:P1}";
 
@@ -235,8 +235,8 @@ namespace ClearFrost.Yolo
             for (int i = 0; i < results.Count; i++)
             {
                 if (i >= classificationLimit) break;
-                int labelIndex = (int)results[i].BasicData[1];
-                string confidence = results[i].BasicData[0].ToString("_0.00");
+                int labelIndex = results[i].ClassId;
+                string confidence = results[i].Confidence.ToString("_0.00");
                 string labelName;
                 if (labelIndex + 1 > labels.Length)
                 {
@@ -272,7 +272,7 @@ namespace ClearFrost.Yolo
             }
             for (int i = 0; i < results.Count; i++)
             {
-                Rectangle rect = new Rectangle((int)results[i].BasicData[0], (int)results[i].BasicData[1], (int)results[i].BasicData[2], (int)results[i].BasicData[3]);
+                Rectangle rect = new Rectangle((int)results[i].CenterX, (int)results[i].CenterY, (int)results[i].Width, (int)results[i].Height);
                 Color color;
                 if (specifiedMaskColors == null)
                 {
@@ -334,11 +334,11 @@ namespace ClearFrost.Yolo
 
             for (int i = 0; i < results.Count; i++)
             {
-                var data = results[i].BasicData;
-                RectangleF rect = new RectangleF(data[0], data[1], data[2], data[3]);
+                YoloResult result = results[i];
+                RectangleF rect = new RectangleF(result.CenterX, result.CenterY, result.Width, result.Height);
 
-                int classId = (int)data[5];
-                float score = data[4];
+                int classId = result.ClassId;
+                float score = result.Confidence;
                 string labelName = (classId < labels.Length) ? labels[classId] : "Unknown";
                 string confText = score.ToString("P1"); // 99.5%
                 string displayText = $"{labelName}  {confText}";
@@ -602,15 +602,15 @@ namespace ClearFrost.Yolo
         {
             for (int i = 0; i < results.Count; i++)
             {
-                string confidence = results[i].BasicData[4].ToString("_0.00");
+                string confidence = results[i].Confidence.ToString("_0.00");
                 string textContent;
-                if ((int)results[i].BasicData[5] + 1 > labels.Length)
+                if (results[i].ClassId + 1 > labels.Length)
                 {
                     textContent = confidence;
                 }
                 else
                 {
-                    textContent = labels[(int)results[i].BasicData[5]] + confidence;
+                    textContent = labels[results[i].ClassId] + confidence;
                 }
                 float textWidth = g.MeasureString(textContent + "_0.00", font).Width;
                 float textHeight = g.MeasureString(textContent + "_0.00", font).Height;
@@ -684,11 +684,11 @@ namespace ClearFrost.Yolo
         /// <returns>Returns ObbRectangle structure, representing logic of four points</returns>
         public ObbRectangle ConvertObbCoordinates(YoloResult data)
         {
-            float x = data.BasicData[0];
-            float y = data.BasicData[1];
-            float w = data.BasicData[2];
-            float h = data.BasicData[3];
-            float r = data.BasicData[6];
+            float x = data.CenterX;
+            float y = data.CenterY;
+            float w = data.Width;
+            float h = data.Height;
+            float r = data.Angle ?? 0f;
             float cos_value = (float)Math.Cos(r);
             float sin_value = (float)Math.Sin(r);
             float[] vec1 = { w / 2 * cos_value, w / 2 * sin_value };

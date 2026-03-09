@@ -279,9 +279,28 @@ function updateImage(base64) {
     const img = document.getElementById('camera-view');
     if (!img) return;
     const src = base64.startsWith('data:image') ? base64 : `data:image/jpeg;base64,${base64}`;
+    img.onload = null;
+    img.onerror = null;
     img.src = src;
 }
 window.updateImage = updateImage;
+
+function updateImageUrl(url) {
+    const img = document.getElementById('camera-view');
+    if (!img) return;
+
+    img.onload = () => {
+        redrawROI();
+        img.onload = null;
+        img.onerror = null;
+    };
+    img.onerror = () => {
+        img.onload = null;
+        img.onerror = null;
+    };
+    img.src = url;
+}
+window.updateImageUrl = updateImageUrl;
 
 function updateResult(isOk) {
     const el = document.getElementById('result-overlay');
@@ -292,10 +311,10 @@ function updateResult(isOk) {
 
     if (isOk) {
         el.innerText = "PASS";
-        el.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-12 py-5 rounded-2xl font-black text-6xl shadow-2xl backdrop-blur-md animate-fade-in border-4 border-jade-500 bg-jade-50/95 text-jade-700 tracking-wider z-30 transform -rotate-2 font-serif";
+        el.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-12 py-5 rounded-2xl font-black text-6xl shadow-2xl animate-fade-in border-4 border-jade-500 bg-jade-50/95 text-jade-700 tracking-wider z-30 transform -rotate-2 font-serif";
     } else {
         el.innerText = "FAIL";
-        el.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-12 py-5 rounded-2xl font-black text-6xl shadow-2xl backdrop-blur-md animate-fade-in border-4 border-vermilion/50 bg-vermilion/90 text-white tracking-wider z-30 transform rotate-2 font-serif";
+        el.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-12 py-5 rounded-2xl font-black text-6xl shadow-2xl animate-fade-in border-4 border-vermilion/50 bg-vermilion/90 text-white tracking-wider z-30 transform rotate-2 font-serif";
     }
 }
 window.updateResult = updateResult;

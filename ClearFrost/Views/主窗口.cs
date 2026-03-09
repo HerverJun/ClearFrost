@@ -53,6 +53,7 @@ namespace ClearFrost
 
             // 初始化 WebUI 控制器
             _uiController = new WebUIController();
+            _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
             YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
 
             // ====================== 初始化服务层 ======================

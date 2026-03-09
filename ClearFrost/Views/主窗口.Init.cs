@@ -742,7 +742,9 @@ namespace ClearFrost
                         if (root.TryGetProperty("TaskType", out var taskType)) _appConfig.TaskType = taskType.TryGetInt32(out int taskTypeVal) ? taskTypeVal : _appConfig.TaskType;
                         if (root.TryGetProperty("EnableGpu", out var eg)) _appConfig.EnableGpu = eg.ValueKind == JsonValueKind.True;
                         if (root.TryGetProperty("IndustrialRenderMode", out var irm)) _appConfig.IndustrialRenderMode = irm.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("UseFileBackedWebImageTransport", out var fileTransport)) _appConfig.UseFileBackedWebImageTransport = fileTransport.ValueKind == JsonValueKind.True;
                         YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
+                        _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
                         _detectionService.SetTaskMode(_appConfig.TaskType);
 
                         // 保存并重新加载
@@ -802,6 +804,7 @@ namespace ClearFrost
                 await _uiController.InitializeAsync(webView21);
                 // 配置 NG 图片查看路径
                 _uiController.ImageBasePath = Path_Images;
+                _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
                 _uiController.SetImageMapping(Path_Images);
                 // 配置检测日志路径
                 _uiController.LogBasePath = Path_Logs;

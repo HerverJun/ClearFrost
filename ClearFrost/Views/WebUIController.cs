@@ -42,12 +42,16 @@ namespace ClearFrost
     /// </summary>
     public class WebUIController
     {
+        private const string PreviewHostName = "preview.local";
+
         private WebView2? _webView;
         private readonly object _logThrottleLock = new object();
         private long _lastFrontendLogTick;
         private const int FrontendLogThrottleMs = 100;
         private long _lastImagePushTick;
         private int _imagePushInProgress;
+        private int _previewFrameToggle;
+        private string _webPreviewCachePath = string.Empty;
         private const int ImagePushMinIntervalMs = 50;
 
         // Events to notify the main window about frontend actions
@@ -95,6 +99,7 @@ namespace ClearFrost
         }
 
         public string ImageBasePath { get; set; } = "";
+        public bool UseFileBackedImageTransport { get; set; }
 
         /// <summary>
         /// Maps the image folder to a virtual host for direct access.
@@ -145,7 +150,11 @@ namespace ClearFrost
                     Directory.CreateDirectory(htmlPath);
                 }
 
+                _webPreviewCachePath = Path.Combine(userDataFolder, "preview-cache");
+                Directory.CreateDirectory(_webPreviewCachePath);
+
                 _webView.CoreWebView2.SetVirtualHostNameToFolderMapping("app.local", htmlPath, CoreWebView2HostResourceAccessKind.Allow);
+                _webView.CoreWebView2.SetVirtualHostNameToFolderMapping(PreviewHostName, _webPreviewCachePath, CoreWebView2HostResourceAccessKind.Allow);
 
                 // Disable some browser features for industrial app look and feel
                 _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
@@ -257,6 +266,14 @@ namespace ClearFrost
             await ExecuteScriptOnUiThreadAsync($"updateImage('{base64Image}');redrawROI();");
         }
 
+        public async Task UpdateImageUrl(string url)
+        {
+            if (_webView?.CoreWebView2 == null) return;
+
+            string safeUrl = url.Replace("'", "\\'");
+            await ExecuteScriptOnUiThreadAsync($"updateImageUrl('{safeUrl}')");
+        }
+
         /// <summary>
         /// Sends image from Mat after resizing and JPEG encoding to reduce WebView2 payload.
         /// </summary>
@@ -292,14 +309,42 @@ namespace ClearFrost
 
                 int quality = Math.Clamp(jpegQuality, 1, 100);
                 Cv2.ImEncode(".jpg", resized, out byte[] encoded, new[] { new ImageEncodingParam(ImwriteFlags.JpegQuality, quality) });
-                string base64 = Convert.ToBase64String(encoded);
-                await UpdateImage(base64);
+
+                if (UseFileBackedImageTransport && !string.IsNullOrWhiteSpace(_webPreviewCachePath))
+                {
+                    await UpdateImageFileAsync(encoded);
+                }
+                else
+                {
+                    string base64 = Convert.ToBase64String(encoded);
+                    await UpdateImage(base64);
+                }
+
                 Volatile.Write(ref _lastImagePushTick, Environment.TickCount64);
             }
             finally
             {
                 Volatile.Write(ref _imagePushInProgress, 0);
             }
+        }
+
+        private async Task UpdateImageFileAsync(byte[] encoded)
+        {
+            if (string.IsNullOrWhiteSpace(_webPreviewCachePath))
+            {
+                string base64 = Convert.ToBase64String(encoded);
+                await UpdateImage(base64);
+                return;
+            }
+
+            int frameIndex = Interlocked.Increment(ref _previewFrameToggle);
+            string fileName = (frameIndex & 1) == 0 ? "frame_a.jpg" : "frame_b.jpg";
+            string filePath = Path.Combine(_webPreviewCachePath, fileName);
+
+            await File.WriteAllBytesAsync(filePath, encoded);
+
+            string imageUrl = $"https://{PreviewHostName}/{fileName}?t={Environment.TickCount64}";
+            await UpdateImageUrl(imageUrl);
         }
 
         /// <summary>

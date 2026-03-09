@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: YoloDataTypes.cs
 // 描述:   YOLO 数据结构定义 - 结果类、姿态点、OBB矩形、性能指标等
 // ============================================================================
@@ -8,6 +8,13 @@ using System.Drawing;
 
 namespace ClearFrost.Yolo
 {
+    public enum YoloResultDataKind
+    {
+        Detection = 0,
+        Classification = 1,
+        Obb = 2
+    }
+
     public class YoloResult : IDisposable
     {
         // 基础检测数据 - 强类型属性
@@ -21,23 +28,76 @@ namespace ClearFrost.Yolo
         // OBB 旋转角度（仅 OBB 任务使用）
         public float? Angle { get; set; }
 
+        public YoloResultDataKind DataKind { get; private set; } = YoloResultDataKind.Detection;
+
+        public void SetDetectionData(float centerX, float centerY, float width, float height, float confidence, int classId)
+        {
+            DataKind = YoloResultDataKind.Detection;
+            CenterX = centerX;
+            CenterY = centerY;
+            Width = width;
+            Height = height;
+            Confidence = confidence;
+            ClassId = classId;
+            Angle = null;
+        }
+
+        public void SetClassificationData(float confidence, int classId)
+        {
+            DataKind = YoloResultDataKind.Classification;
+            CenterX = 0;
+            CenterY = 0;
+            Width = 0;
+            Height = 0;
+            Confidence = confidence;
+            ClassId = classId;
+            Angle = null;
+        }
+
+        public void SetObbData(float centerX, float centerY, float width, float height, float confidence, int classId, float angle)
+        {
+            DataKind = YoloResultDataKind.Obb;
+            CenterX = centerX;
+            CenterY = centerY;
+            Width = width;
+            Height = height;
+            Confidence = confidence;
+            ClassId = classId;
+            Angle = angle;
+        }
+
         // 兼容属性 - 保持向后兼容
         public float[] BasicData
         {
-            get => Angle.HasValue
-                ? new float[] { CenterX, CenterY, Width, Height, Confidence, ClassId, Angle.Value }
-                : new float[] { CenterX, CenterY, Width, Height, Confidence, ClassId };
+            get => DataKind switch
+            {
+                YoloResultDataKind.Classification => new float[] { Confidence, ClassId },
+                YoloResultDataKind.Obb => new float[] { CenterX, CenterY, Width, Height, Confidence, ClassId, Angle ?? 0f },
+                _ when Angle.HasValue => new float[] { CenterX, CenterY, Width, Height, Confidence, ClassId, Angle.Value },
+                _ => new float[] { CenterX, CenterY, Width, Height, Confidence, ClassId }
+            };
             set
             {
+                if (value == null || value.Length == 0)
+                {
+                    return;
+                }
+
+                if (value.Length >= 7)
+                {
+                    SetObbData(value[0], value[1], value[2], value[3], value[4], (int)value[5], value[6]);
+                    return;
+                }
+
                 if (value.Length >= 6)
                 {
-                    CenterX = value[0];
-                    CenterY = value[1];
-                    Width = value[2];
-                    Height = value[3];
-                    Confidence = value[4];
-                    ClassId = (int)value[5];
-                    if (value.Length >= 7) Angle = value[6];
+                    SetDetectionData(value[0], value[1], value[2], value[3], value[4], (int)value[5]);
+                    return;
+                }
+
+                if (value.Length >= 2)
+                {
+                    SetClassificationData(value[0], (int)value[1]);
                 }
             }
         }

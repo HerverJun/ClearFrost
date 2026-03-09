@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using ClearFrost.Config;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -68,6 +68,7 @@ namespace ClearFrost.Config
         public bool EnableGpu { get; set; } = false;
         public int GpuIndex { get; set; } = 0;
         public bool IndustrialRenderMode { get; set; } = true;
+        public bool UseFileBackedWebImageTransport { get; set; } = false;
 
         // ================== Multi-Model Fallback Settings ==================
         /// <summary>

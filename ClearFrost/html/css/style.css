@@ -257,7 +257,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 .status-on {
     background-color: #22c55e;
     box-shadow: 0 0 10px rgba(34, 197, 94, 0.8);
-    animation: pulse-green 2s infinite;
+    /* [安全工业模式] pulse-green 循环动画已移除以防性能空转 */
 }
 
 .status-off {
@@ -265,19 +265,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
-@keyframes pulse-green {
-    0% {
-        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
-    }
-
-    70% {
-        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
-    }
-
-    100% {
-        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
-    }
-}
+/* [安全工业模式] keyframes pulse-green 已经被移除 */
 
 /* PLC触发信号闪烁动画 - 绿色闪烁 */
 @keyframes pulse-trigger {
@@ -305,49 +293,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 /* 扫描线动画 - 增强科技感 */
-@keyframes scanline-light {
-    0% {
-        transform: translateY(-100%);
-        opacity: 0;
-    }
-
-    20% {
-        opacity: 0.6;
-    }
-
-    80% {
-        opacity: 0.6;
-    }
-
-    100% {
-        transform: translateY(100%);
-        opacity: 0;
-    }
-}
-
-.scan-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-}
-
-.scan-overlay .scanline::after {
-    content: "";
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(
-        to bottom,
-        transparent 0%,
-        rgba(44, 90, 113, 0.2) 50%,
-        transparent 100%
-    );
-    pointer-events: none;
-    animation: scanline-light 2.5s linear infinite;
-}
+/* [安全工业模式] scanline-light 及其遮罩层伪元素已被彻底移除，节省全屏混合重绘渲染开销 */
 
 /* Drawer & Dock - 保持逻辑 */
 .drawer-open {
@@ -433,7 +379,8 @@ input[type="range"]::-webkit-slider-runnable-track {
     font-weight: 700;
     color: #334155;
     background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(6px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     transform: translateY(-6px);
     opacity: 0;
     transition:
