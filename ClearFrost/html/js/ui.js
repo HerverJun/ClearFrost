@@ -373,6 +373,7 @@ function populateSettings(data) {
     const mapping = {
         StoragePath: "cfg-storage-path",
         PlcProtocol: "cfg-plc-protocol",
+        PlcDriverProvider: "cfg-plc-driver-provider",
         PlcIp: "cfg-plc-ip",
         PlcPort: "cfg-plc-port",
         PlcTriggerAddress: "cfg-plc-trigger",
@@ -409,8 +410,27 @@ function populateSettings(data) {
     if (data.EnableMultiModelFallback !== undefined) {
         applyMultiModelUiState(!!data.EnableMultiModelFallback);
     }
+    syncDriverProviderOptions();
 }
 window.populateSettings = populateSettings;
+
+function syncDriverProviderOptions() {
+    const protocolSelect = document.getElementById("cfg-plc-protocol");
+    const driverSelect = document.getElementById("cfg-plc-driver-provider");
+    if (!protocolSelect || !driverSelect) return;
+
+    const isMitsubishi = (protocolSelect.value || "").startsWith("Mitsubishi");
+    const mcpxOption = driverSelect.querySelector('option[value="McpX"]');
+
+    if (mcpxOption) {
+        mcpxOption.disabled = !isMitsubishi;
+    }
+
+    if (!isMitsubishi && driverSelect.value === "McpX") {
+        driverSelect.value = "Hsl";
+    }
+}
+window.syncDriverProviderOptions = syncDriverProviderOptions;
 
 function initSettings(config) {
     const data = typeof config === "string" ? JSON.parse(config) : config;
@@ -424,6 +444,7 @@ function saveSettings() {
     const fieldMapping = {
         "cfg-storage-path": "StoragePath",
         "cfg-plc-protocol": "PlcProtocol",
+        "cfg-plc-driver-provider": "PlcDriverProvider",
         "cfg-plc-ip": "PlcIp",
         "cfg-plc-port": "PlcPort",
         "cfg-plc-trigger": "PlcTriggerAddress",
@@ -582,6 +603,7 @@ function loadProjectPreset(presetId) {
     const plcTrigger = document.getElementById("cfg-plc-trigger");
     const plcResult = document.getElementById("cfg-plc-result");
     const plcProtocol = document.getElementById("cfg-plc-protocol");
+    const plcDriverProvider = document.getElementById("cfg-plc-driver-provider");
     const plcTriggerDelay = document.getElementById("cfg-plc-trigger-delay");
     const plcPollingInterval = document.getElementById(
         "cfg-plc-polling-interval",
@@ -592,10 +614,13 @@ function loadProjectPreset(presetId) {
     if (plcTrigger) plcTrigger.value = preset.PlcTriggerAddress;
     if (plcResult) plcResult.value = preset.PlcResultAddress;
     if (plcProtocol) plcProtocol.value = preset.PlcProtocol;
+    if (plcDriverProvider && preset.PlcDriverProvider)
+        plcDriverProvider.value = preset.PlcDriverProvider;
     if (plcTriggerDelay)
         plcTriggerDelay.value = preset.PlcTriggerDelayMs || 800;
     if (plcPollingInterval)
         plcPollingInterval.value = preset.PlcPollingIntervalMs || 500;
+    syncDriverProviderOptions();
 
     // 填充相机配置（现有字段）
     const camName = document.getElementById("cfg-cam-name");

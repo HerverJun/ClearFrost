@@ -29,6 +29,10 @@ namespace ClearFrost.Config
         /// PLC协议类型: Mitsubishi_MC_ASCII, Mitsubishi_MC_Binary, Modbus_TCP
         /// </summary>
         public string PlcProtocol { get; set; } = "Mitsubishi_MC_ASCII";
+        /// <summary>
+        /// PLC驱动库: Hsl, McpX (McpX 仅支持三菱)
+        /// </summary>
+        public string PlcDriverProvider { get; set; } = "Hsl";
 
         // ================== Multi-Camera Settings ==================
         /// <summary>

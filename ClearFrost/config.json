@@ -6,6 +6,7 @@
     "PlcTriggerDelayMs": 800,
     "PlcPollingIntervalMs": 500,
     "PlcProtocol": "Mitsubishi_MC_ASCII",
+    "PlcDriverProvider": "Hsl",
     "Cameras": [
         {
             "Id": "legacy_cam",

@@ -93,6 +93,7 @@ ClearFrost/
 | PlcIp | PLC IP 地址 | 192.168.22.44 |
 | PlcPort | PLC 端口 | 4999 |
 | PlcProtocol | PLC 协议类型 | Mitsubishi_MC_ASCII |
+| PlcDriverProvider | PLC 驱动库 | Hsl |
 | CameraSerialNumber | 相机序列号 | - |
 | ExposureTime | 曝光时间 (μs) | 50000 |
 | TargetLabel | 检测目标标签 | screw |

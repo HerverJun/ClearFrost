@@ -582,7 +582,7 @@
                         <div class="space-y-4">
                             <div>
                                 <label class="text-[10px] font-bold text-ink-400 mb-1 block">物理协议类型</label>
-                                <select id="cfg-plc-protocol"
+                                <select id="cfg-plc-protocol" onchange="syncDriverProviderOptions()"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
                                     <option value="Mitsubishi_MC_ASCII">Mitsubishi MC (ASCII)</option>
                                     <option value="Mitsubishi_MC_Binary">Mitsubishi MC (Binary)</option>
@@ -590,6 +590,15 @@
                                     <option value="Siemens_S7">Siemens S7 (1200/1500)</option>
                                     <option value="Omron_Fins">Omron Fins TCP</option>
                                 </select>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">驱动库</label>
+                                <select id="cfg-plc-driver-provider"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
+                                    <option value="Hsl">Hsl（默认稳定版）</option>
+                                    <option value="McpX">McpX（三菱免费试点）</option>
+                                </select>
+                                <p class="mt-1 text-[9px] text-ink-400 italic">驱动切换需重新连接PLC后生效</p>
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>

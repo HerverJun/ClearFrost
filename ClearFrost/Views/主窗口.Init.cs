@@ -697,6 +697,7 @@ namespace ClearFrost
                         // 逐个读取并更新配置属性
                         if (root.TryGetProperty("StoragePath", out var sp)) _appConfig.StoragePath = sp.GetString() ?? _appConfig.StoragePath;
                         if (root.TryGetProperty("PlcProtocol", out var ppr)) _appConfig.PlcProtocol = ppr.GetString() ?? _appConfig.PlcProtocol;
+                        if (root.TryGetProperty("PlcDriverProvider", out var pdp)) _appConfig.PlcDriverProvider = pdp.GetString() ?? _appConfig.PlcDriverProvider;
                         if (root.TryGetProperty("PlcIp", out var pi)) _appConfig.PlcIp = pi.GetString() ?? _appConfig.PlcIp;
                         if (root.TryGetProperty("PlcPort", out var pp)) _appConfig.PlcPort = pp.TryGetInt32(out int ppVal) ? ppVal : _appConfig.PlcPort;
                         if (root.TryGetProperty("PlcTriggerAddress", out var pt)) _appConfig.PlcTriggerAddress = ParsePlcAddress(pt, _appConfig.PlcTriggerAddress);

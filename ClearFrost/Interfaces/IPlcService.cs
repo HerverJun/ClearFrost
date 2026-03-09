@@ -64,7 +64,7 @@ namespace ClearFrost.Interfaces
         /// <param name="ip">IP 地址</param>
         /// <param name="port">端口号</param>
         /// <returns>是否连接成功</returns>
-        Task<bool> ConnectAsync(string protocol, string ip, int port);
+        Task<bool> ConnectAsync(string protocol, string ip, int port, string driverProvider = "Hsl");
 
         /// <summary>
         /// 断开连接

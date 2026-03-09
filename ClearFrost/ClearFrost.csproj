@@ -45,6 +45,7 @@
     <PackageReference Include="OpenCvSharp4.Extensions" Version="4.8.0.20230708" />
     <!-- Replaced local references with NuGet packages -->
     <PackageReference Include="HslCommunication" Version="11.6.1" />
+    <PackageReference Include="McpX" Version="0.6.0" />
     <!-- 移除 NuGet MVSDK 包，改用本地华睿官方 SDK -->
   </ItemGroup>
 

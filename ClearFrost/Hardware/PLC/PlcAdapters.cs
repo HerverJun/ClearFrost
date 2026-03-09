@@ -34,8 +34,18 @@ namespace ClearFrost.Hardware
         /// <summary>
         /// 
         /// </summary>
-        public static IPlcDevice Create(PlcProtocolType protocol, string ip, int port)
+        public static IPlcDevice Create(string driverProvider, PlcProtocolType protocol, string ip, int port)
         {
+            if (string.Equals(driverProvider, "McpX", StringComparison.OrdinalIgnoreCase))
+            {
+                return protocol switch
+                {
+                    PlcProtocolType.Mitsubishi_MC_ASCII => new McpXMitsubishiMcAsciiAdapter(ip, port),
+                    PlcProtocolType.Mitsubishi_MC_Binary => new McpXMitsubishiMcBinaryAdapter(ip, port),
+                    _ => throw new NotSupportedException($"McpX 仅支持三菱协议，当前: {protocol}")
+                };
+            }
+
             return protocol switch
             {
                 PlcProtocolType.Mitsubishi_MC_ASCII => new MitsubishiMcAsciiAdapter(ip, port),

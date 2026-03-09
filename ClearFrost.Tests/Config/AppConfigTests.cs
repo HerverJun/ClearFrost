@@ -18,6 +18,7 @@ public class AppConfigTests
         // Assert
         config.PlcIp.Should().Be("192.168.250.1");
         config.PlcPort.Should().Be(5999);
+        config.PlcDriverProvider.Should().Be("Hsl");
         config.Confidence.Should().BeApproximately(0.5f, 0.001f);
         config.IouThreshold.Should().BeApproximately(0.3f, 0.001f);
         config.TargetCount.Should().Be(4);
@@ -88,8 +89,24 @@ public class AppConfigTests
         // Assert
         restored.Should().NotBeNull();
         restored!.PlcIp.Should().Be("10.0.0.1");
+        restored.PlcDriverProvider.Should().Be("Hsl");
         restored.Confidence.Should().BeApproximately(0.75f, 0.001f);
         restored.TargetLabel.Should().Be("test_label");
+    }
+
+    [Fact]
+    public void PlcDriverProvider_Json序列化往返()
+    {
+        var config = new AppConfig
+        {
+            PlcDriverProvider = "McpX"
+        };
+
+        string json = JsonSerializer.Serialize(config);
+        var restored = JsonSerializer.Deserialize<AppConfig>(json);
+
+        restored.Should().NotBeNull();
+        restored!.PlcDriverProvider.Should().Be("McpX");
     }
 
     [Fact]

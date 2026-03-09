@@ -33,6 +33,7 @@ namespace ClearFrost.Services
         private long _lastAcceptedTriggerTicks;
 
         private string _lastProtocol = "Mitsubishi_MC_ASCII";
+        private string _lastDriverProvider = "Hsl";
         private string _lastIp = "127.0.0.1";
         private int _lastPort = 0;
         private short _lastTriggerAddress;
@@ -62,7 +63,7 @@ namespace ClearFrost.Services
 
         #region 连接管理
 
-        public async Task<bool> ConnectAsync(string protocol, string ip, int port)
+        public async Task<bool> ConnectAsync(string protocol, string ip, int port, string driverProvider = "Hsl")
         {
             if (_isConnecting) return false;
             _isConnecting = true;
@@ -71,6 +72,7 @@ namespace ClearFrost.Services
             var protocolType = PlcFactory.ParseProtocol(protocol);
 
             _lastProtocol = protocol;
+            _lastDriverProvider = string.IsNullOrWhiteSpace(driverProvider) ? "Hsl" : driverProvider;
             _lastIp = ip;
             _lastPort = port;
 
@@ -82,14 +84,14 @@ namespace ClearFrost.Services
                 // 断开现有连接
                 Disconnect();
 
-                Debug.WriteLine($"[PlcService] 正在连接 {protocolType} @ {ip}:{port}");
+                Debug.WriteLine($"[PlcService] 正在连接 {_lastDriverProvider}/{protocolType} @ {ip}:{port}");
 
                 for (int i = 0; i < maxRetries; i++)
                 {
                     _plcDevice?.Disconnect();
                     _plcDevice = null;
 
-                    _plcDevice = PlcFactory.Create(protocolType, ip, port);
+                    _plcDevice = PlcFactory.Create(_lastDriverProvider, protocolType, ip, port);
                     bool socketConnected = await _plcDevice.ConnectAsync();
 
                     if (socketConnected)
@@ -427,7 +429,7 @@ namespace ClearFrost.Services
                 var protocolType = PlcFactory.ParseProtocol(_lastProtocol);
 
                 _plcDevice?.Disconnect();
-                _plcDevice = PlcFactory.Create(protocolType, _lastIp, _lastPort);
+                _plcDevice = PlcFactory.Create(_lastDriverProvider, protocolType, _lastIp, _lastPort);
 
                 bool socketConnected = await _plcDevice.ConnectAsync();
                 if (!socketConnected)
@@ -450,7 +452,7 @@ namespace ClearFrost.Services
 
                 LastError = null;
                 SetConnectionState(true);
-                Debug.WriteLine($"[PlcService] 自动重连成功: {protocolType} @ {_lastIp}:{_lastPort}");
+                Debug.WriteLine($"[PlcService] 自动重连成功: {_lastDriverProvider}/{protocolType} @ {_lastIp}:{_lastPort}");
                 return true;
             }
             catch (OperationCanceledException)

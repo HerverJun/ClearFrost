@@ -46,13 +46,14 @@ namespace ClearFrost
         /// </summary>
         private async Task ConnectPlcViaServiceAsync()
         {
+            string driverProvider = _appConfig.PlcDriverProvider;
             string protocol = _appConfig.PlcProtocol;
             string ip = _appConfig.PlcIp;
             int port = _appConfig.PlcPort;
 
-            await _uiController.LogToFrontend($"正在连接 PLC: {protocol} @ {ip}:{port}", "info");
+            await _uiController.LogToFrontend($"正在连接 PLC: {driverProvider}/{protocol} @ {ip}:{port}", "info");
 
-            bool success = await _plcService.ConnectAsync(protocol, ip, port);
+            bool success = await _plcService.ConnectAsync(protocol, ip, port, driverProvider);
 
             if (success)
             {
