@@ -155,19 +155,21 @@ namespace ClearFrost
                     using (var sourceMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(originalBitmap))
                     using (var renderedMat = TryRenderDetectionMat(sourceMat, results, labels))
                     {
-                        await _uiController.UpdateImage(renderedMat ?? sourceMat);
-
                         // 保存检测图像到追溯库（不合格时复用渲染结果）
                         await SaveDetectionImage(sourceMat, results, isQualified, result.UsedModelLabels, renderedMat);
+
+                        _statisticsService.RecordDetection(isQualified);
+
+                        string objDesc = GetDetailedDetectionLog(results, labels);
+                        string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
+                        await _uiController.SendDetectionFrame(
+                            renderedMat ?? sourceMat,
+                            isQualified,
+                            _statisticsService.Current,
+                            $"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {sw.ElapsedMilliseconds}ms{modelInfo}",
+                            isQualified ? "success" : "error",
+                            (_detectionService as DetectionService)?.GetLastMetrics());
                     }
-
-                    // 更新UI (发送到检测流水，包含模型切换信息)
-                    string objDesc = GetDetailedDetectionLog(results, labels);
-                    string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
-                    await _uiController.LogDetectionToFrontend($"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {sw.ElapsedMilliseconds}ms{modelInfo}", isQualified ? "success" : "error");
-
-                    // 更新统计
-                    _statisticsService.RecordDetection(isQualified);
                 }
             }
             catch (Exception ex)
@@ -347,26 +349,27 @@ namespace ClearFrost
                     string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
                     using (var renderedMat = TryRenderDetectionMat(mat, results, labels))
                     {
-                        // 发送结果到前端
-                        var renderSw = Stopwatch.StartNew();
-                        await _uiController.UpdateImage(renderedMat ?? mat);
-                        renderSw.Stop();
-                        renderToUiMs = renderSw.ElapsedMilliseconds;
-
                         // 保存图像（不合格时复用同一份渲染结果）
                         var saveSw = Stopwatch.StartNew();
                         _ = await SaveDetectionImage(mat, results, isQualified, result.UsedModelLabels, renderedMat);
                         saveSw.Stop();
                         saveQueueMs = saveSw.ElapsedMilliseconds;
+
+                        _statisticsService.RecordDetection(isQualified);
+
+                        var renderSw = Stopwatch.StartNew();
+                        string objDesc = GetDetailedDetectionLog(results, labels);
+                        string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
+                        await _uiController.SendDetectionFrame(
+                            renderedMat ?? mat,
+                            isQualified,
+                            _statisticsService.Current,
+                            $"[{triggerSource}] 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {inferenceMs}ms{modelInfo}",
+                            isQualified ? "success" : "error",
+                            (_detectionService as DetectionService)?.GetLastMetrics());
+                        renderSw.Stop();
+                        renderToUiMs = renderSw.ElapsedMilliseconds;
                     }
-
-                    // 日志 (发送到检测流水，包含模型切换信息)
-                    string objDesc = GetDetailedDetectionLog(results, labels);
-                    string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
-                    await _uiController.LogDetectionToFrontend($"[{triggerSource}] 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {inferenceMs}ms{modelInfo}", isQualified ? "success" : "error");
-
-                    // 更新统计
-                    _statisticsService.RecordDetection(isQualified);
 
                     // 写入数据库
                     var dbSw = Stopwatch.StartNew();

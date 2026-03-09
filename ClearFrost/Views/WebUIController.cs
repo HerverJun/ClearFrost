@@ -35,6 +35,7 @@ using System.Collections.Generic;
 using System.Threading;
 using ClearFrost.Vision;
 using OpenCvSharp;
+using ClearFrost.Interfaces;
 
 namespace ClearFrost
 {
@@ -166,25 +167,32 @@ namespace ClearFrost
                 // Register message received handler BEFORE navigation to ensure no messages (like app_ready) are missed
                 _webView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
 
-                // [安全工业模式] 确保每次启动加载最新前端资源
-                // 1. 首次 NavigationCompleted 时清除浏览器缓存
-                _webView.CoreWebView2.NavigationCompleted += async (s2, e2) =>
+                if (isDevMode)
                 {
-                    if (e2.IsSuccess)
-                    {
-                        try
-                        {
-                            // CallDevToolsProtocolMethodAsync 清除 HTTP 缓存
-                            await _webView.CoreWebView2.CallDevToolsProtocolMethodAsync(
-                                "Network.clearBrowserCache", "{}");
-                        }
-                        catch { /* best-effort */ }
-                    }
-                };
+                    await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.__CF_DEV_MODE = true;");
 
-                // 2. Navigate with cache-busting timestamp (covers index.html)
-                string timestamp = DateTime.Now.Ticks.ToString();
-                _webView.CoreWebView2.Navigate($"https://app.local/index.html?v={timestamp}");
+                    _webView.CoreWebView2.NavigationCompleted += async (s2, e2) =>
+                    {
+                        if (e2.IsSuccess)
+                        {
+                            try
+                            {
+                                await _webView.CoreWebView2.CallDevToolsProtocolMethodAsync(
+                                    "Network.clearBrowserCache", "{}");
+                            }
+                            catch
+                            {
+                            }
+                        }
+                    };
+
+                    string timestamp = DateTime.Now.Ticks.ToString();
+                    _webView.CoreWebView2.Navigate($"https://app.local/index.html?v={timestamp}");
+                }
+                else
+                {
+                    _webView.CoreWebView2.Navigate("https://app.local/index.html");
+                }
 
                 // Warn/Notify user if in Dev Mode
                 if (isDevMode)
@@ -223,37 +231,30 @@ namespace ClearFrost
         /// <param name="total">Total count</param>
         /// <param name="ok">OK count</param>
         /// <param name="ng">NG count</param>
-        public async Task UpdateUI(int total, int ok, int ng)
+        public Task UpdateUI(int total, int ok, int ng)
         {
-            if (_webView?.CoreWebView2 == null) return;
-
             var data = new { total = total, ok = ok, ng = ng };
-            string json = JsonSerializer.Serialize(data);
-
-            // Calls JavaScript function: updateStatus(json)
-            await ExecuteScriptOnUiThreadAsync($"updateStatus({json})");
+            PostMessage("updateStatus", data);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Shows the OK/NG large result overlay.
         /// </summary>
         /// <param name="isOk">Result</param>
-        public async Task UpdateResult(bool isOk)
+        public Task UpdateResult(bool isOk)
         {
-            if (_webView?.CoreWebView2 == null) return;
-
-            // Calls JavaScript function: updateResult(isOk)
-            await ExecuteScriptOnUiThreadAsync($"updateResult({(isOk ? "true" : "false")})");
+            PostMessage("updateResult", new { isOk = isOk });
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Sends inference performance metrics to frontend
         /// </summary>
-        public async Task SendInferenceMetrics(object metrics)
+        public Task SendInferenceMetrics(object metrics)
         {
-            if (_webView?.CoreWebView2 == null) return;
-            string json = JsonSerializer.Serialize(metrics);
-            await ExecuteScriptOnUiThreadAsync($"updateInferenceMetrics({json})");
+            PostMessage("inferenceMetrics", metrics);
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -330,13 +331,10 @@ namespace ClearFrost
         /// <summary>
         /// Updates the camera name displayed on the frontend.
         /// </summary>
-        public async Task UpdateCameraName(string name)
+        public Task UpdateCameraName(string name)
         {
-            if (_webView?.CoreWebView2 == null) return;
-
-            // Escape the string to prevent JS injection
-            string safeName = name.Replace("'", "\\'");
-            await ExecuteScriptOnUiThreadAsync($"updateCameraName('{safeName}')");
+            PostMessage("updateCameraName", new { name = name });
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -344,22 +342,20 @@ namespace ClearFrost
         /// </summary>
         /// <param name="type">"cam" or "plc"</param>
         /// <param name="isConnected">Connection state</param>
-        public async Task UpdateConnection(string type, bool isConnected)
+        public Task UpdateConnection(string type, bool isConnected)
         {
-            if (_webView?.CoreWebView2 == null) return;
-
-            string jsCode = $"updateConnection('{type}', {isConnected.ToString().ToLower()})";
-            await ExecuteScriptOnUiThreadAsync(jsCode);
+            PostMessage("updateConnection", new { type = type, isConnected = isConnected });
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Flashes the PLC trigger indicator on the frontend.
         /// Called when a trigger signal is received from PLC.
         /// </summary>
-        public async Task FlashPlcTrigger()
+        public Task FlashPlcTrigger()
         {
-            if (_webView?.CoreWebView2 == null) return;
-            await ExecuteScriptOnUiThreadAsync("flashPlcTrigger()");
+            PostMessage("flashPlcTrigger");
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -417,6 +413,33 @@ namespace ClearFrost
             return _webView.ExecuteScriptAsync(script);
         }
 
+        private void PostMessage(string type, object? data = null)
+        {
+            if (_webView?.CoreWebView2 == null) return;
+
+            string json = JsonSerializer.Serialize(new { type = type, data = data });
+
+            void PostCoreMessage()
+            {
+                try
+                {
+                    _webView?.CoreWebView2?.PostWebMessageAsJson(json);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[WebUIController] PostMessage failed: {ex.Message}");
+                }
+            }
+
+            if (_webView.InvokeRequired)
+            {
+                _webView.BeginInvoke(new Action(PostCoreMessage));
+                return;
+            }
+
+            PostCoreMessage();
+        }
+
         /// <summary>
         /// Processes messages received from the frontend.
         /// Expected JSON format: { "cmd": "start_camera", "value": ... }
@@ -467,7 +490,9 @@ namespace ClearFrost
                                 break;
                             case "test_yolo":
                                 OnTestYolo?.Invoke(this, EventArgs.Empty);
+#if DEBUG
                                 await LogToFrontend("收到 test_yolo 指令");
+#endif
                                 break;
                             case "update_roi":
                                 if (root.TryGetProperty("value", out JsonElement valueElement) &&
@@ -479,7 +504,9 @@ namespace ClearFrost
                                         if (rectArray != null && rectArray.Length == 4)
                                         {
                                             OnUpdateROI?.Invoke(this, rectArray);
+#if DEBUG
                                             await LogToFrontend($"ROI已更新: [{string.Join(", ", rectArray.Select(v => v.ToString("F3")))}]");
+#endif
                                         }
                                     }
                                     catch (Exception ex)
@@ -509,7 +536,9 @@ namespace ClearFrost
                                 {
                                     float conf = confElement.GetSingle();
                                     OnSetConfidence?.Invoke(this, conf);
+#if DEBUG
                                     await LogToFrontend($"置信度已设置: {conf:F2}");
+#endif
                                 }
                                 break;
                             case "set_iou":
@@ -517,7 +546,9 @@ namespace ClearFrost
                                 {
                                     float iou = iouElement.GetSingle();
                                     OnSetIou?.Invoke(this, iou);
+#if DEBUG
                                     await LogToFrontend($"IOU阈值已设置: {iou:F2}");
+#endif
                                 }
                                 break;
                             case "set_task_type":
@@ -534,7 +565,9 @@ namespace ClearFrost
                                         6 => "旋转框检测 (OBB)",
                                         _ => $"未知 ({taskType})"
                                     };
+#if DEBUG
                                     await LogToFrontend($"任务类型已设置: {taskName}");
+#endif
                                 }
                                 break;
                             case "verify_password":
@@ -666,7 +699,9 @@ namespace ClearFrost
                                 {
                                     int mode = modeElement.GetInt32();
                                     OnVisionModeChanged?.Invoke(this, mode);
+#if DEBUG
                                     await LogToFrontend($"视觉模式已切换为: {(mode == 0 ? "YOLO" : "传统视觉")}");
+#endif
                                 }
                                 break;
                             case "get_vision_config":
@@ -736,7 +771,9 @@ namespace ClearFrost
                                 {
                                     float thresh = threshElement.GetSingle();
                                     // This is handled through pipeline_update with threshold param
+#if DEBUG
                                     await LogToFrontend($"模板阈值已设置: {thresh:F2}");
+#endif
                                 }
                                 break;
                             default:
@@ -755,16 +792,15 @@ namespace ClearFrost
         /// <summary>
         /// Sends a log message to the upper "Detection Log" window.
         /// </summary>
-        public async Task LogDetectionToFrontend(string message, string type = "normal")
+        public Task LogDetectionToFrontend(string message, string type = "normal")
         {
-            if (_webView?.CoreWebView2 == null) return;
-            string safeMsg = message.Replace("'", "\\'").Replace("\n", "\\n");
-            await ExecuteScriptOnUiThreadAsync($"addDetectionLog('{safeMsg}', '{type}')");
+            PostMessage("detectionLog", new { message = message, type = type });
+            return Task.CompletedTask;
         }
 
-        public async Task LogToFrontend(string message, string type = "normal")
+        public Task LogToFrontend(string message, string type = "normal")
         {
-            if (_webView?.CoreWebView2 == null) return;
+            if (_webView?.CoreWebView2 == null) return Task.CompletedTask;
 
             if (string.Equals(type, "normal", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(type, "info", StringComparison.OrdinalIgnoreCase))
@@ -774,15 +810,48 @@ namespace ClearFrost
                 {
                     if (now - _lastFrontendLogTick < FrontendLogThrottleMs)
                     {
-                        return;
+                        return Task.CompletedTask;
                     }
 
                     _lastFrontendLogTick = now;
                 }
             }
 
-            string safeMsg = message.Replace("'", "\\'").Replace("\n", "\\n");
-            await ExecuteScriptOnUiThreadAsync($"addLog('{safeMsg}', '{type}')");
+            PostMessage("log", new { message = message, type = type });
+            return Task.CompletedTask;
+        }
+
+        public async Task SendDetectionFrame(
+            Mat image,
+            bool isOk,
+            StatisticsSnapshot? stats = null,
+            string? logMessage = null,
+            string logType = "normal",
+            object? metrics = null)
+        {
+            if (_webView?.CoreWebView2 == null || image == null || image.Empty())
+            {
+                return;
+            }
+
+            await UpdateImage(image);
+
+            PostMessage("detectionFrame", new
+            {
+                isOk = isOk,
+                stats = stats == null
+                    ? null
+                    : new
+                    {
+                        total = stats.TotalCount,
+                        ok = stats.QualifiedCount,
+                        ng = stats.UnqualifiedCount
+                    },
+                log = string.IsNullOrWhiteSpace(logMessage)
+                    ? null
+                    : new { message = logMessage, type = logType },
+                metrics = metrics
+            });
         }
 
         public async Task UpdateStoragePathInUI(string path)

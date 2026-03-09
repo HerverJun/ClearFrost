@@ -22,7 +22,7 @@
 
     <!-- Header: Floating HUD -->
     <header
-        class="fixed top-6 left-6 right-6 h-16 glass-panel rounded-2xl z-50 flex items-center justify-between px-6"
+        class="fixed top-6 left-6 right-6 h-16 glass-panel-lite rounded-2xl z-50 flex items-center justify-between px-6"
         onmousedown="startDrag(event)">
         <!-- Left: Logo & Title (Draggable) -->
         <div class="flex items-center gap-4">
@@ -57,7 +57,7 @@
             <div class="w-px h-4 bg-ink-400/20"></div>
             <div class="px-4 py-1.5 rounded-full bg-white/50 border border-white flex items-center gap-2 shadow-sm"
                 title="PLC触发信号监控">
-                <span id="header-status-trigger" class="w-2 h-2 rounded-full bg-slate-300 transition-all"></span>
+                <span id="header-status-trigger" class="w-2 h-2 rounded-full bg-slate-300 transition-colors"></span>
                 <span class="text-xs font-bold text-ink-600">触发</span>
             </div>
         </div>
@@ -112,9 +112,9 @@
 
         <!-- Left Panel: Settings -->
         <div id="left-panel"
-            class="pointer-events-auto w-96 glass-panel flex flex-col transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] origin-left drawer-open flex-shrink-0 rounded-2xl overflow-hidden shadow-2xl">
+            class="pointer-events-auto w-96 glass-panel-lite flex flex-col cf-panel-transition origin-left drawer-open flex-shrink-0 rounded-2xl overflow-hidden shadow-2xl">
             <!-- Header -->
-            <div class="p-5 border-b border-white/50 flex justify-between items-center bg-white/30 backdrop-blur-md">
+            <div class="p-5 border-b border-white/50 flex justify-between items-center bg-white/75">
                 <h2 class="font-serif font-bold text-ink-800 flex items-center gap-2 text-sm">
                     <svg class="w-4 h-4 text-celadon-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -135,7 +135,7 @@
                 <!-- Mode Switcher -->
                 <div class="bg-white/40 p-1 rounded-xl flex shadow-inner shrink-0">
                     <button id="mode-tab-yolo" onclick="switchVisionMode(0)"
-                        class="flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 bg-porcelain-100 text-celadon-600 shadow-sm ring-1 ring-celadon-200/50">
+                        class="flex-1 py-2 rounded-lg text-xs font-bold transition-[background-color,border-color,color,box-shadow] flex items-center justify-center gap-2 bg-porcelain-100 text-celadon-600 shadow-sm ring-1 ring-celadon-200/50">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z">
@@ -144,7 +144,7 @@
                         深度学习
                     </button>
                     <button id="mode-tab-template" onclick="switchVisionMode(1)"
-                        class="flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 text-ink-400 hover:text-ink-600">
+                        class="flex-1 py-2 rounded-lg text-xs font-bold transition-[background-color,border-color,color,box-shadow] flex items-center justify-center gap-2 text-ink-400 hover:text-ink-600">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z">
@@ -170,7 +170,7 @@
                                 主模型
                             </label>
                             <select id="model-select" onchange="sendCommand('change_model', this.value)"
-                                class="w-full bg-porcelain-100/50 border border-celadon-200/50 rounded-lg py-2.5 px-3 text-xs font-bold font-mono text-ink-700 focus:ring-2 focus:ring-celadon-100 focus:border-celadon-400 transition-all outline-none cursor-pointer hover:bg-white text-ellipsis overflow-hidden">
+                                class="w-full bg-porcelain-100/50 border border-celadon-200/50 rounded-lg py-2.5 px-3 text-xs font-bold font-mono text-ink-700 focus:ring-2 focus:ring-celadon-100 focus:border-celadon-400 transition-[background-color,border-color,box-shadow,color] outline-none cursor-pointer hover:bg-white text-ellipsis overflow-hidden">
                                 <option value="">正在初始化系统...</option>
                             </select>
                         </div>
@@ -200,7 +200,7 @@
                             </div>
 
                             <div id="multi-model-config"
-                                class="space-y-3 opacity-50 pointer-events-none transition-all">
+                                class="space-y-3 opacity-50 pointer-events-none transition-[opacity,visibility]">
                                 <!-- Auxiliary Model 1 -->
                                 <div>
                                     <div class="flex items-center gap-1.5 mb-1.5">
@@ -210,7 +210,7 @@
                                     </div>
                                     <select id="auxiliary1-select"
                                         onchange="sendCommand('set_auxiliary1_model', this.value)"
-                                        class="w-full bg-white/80 border border-amber-200/50 rounded-lg py-2 px-2.5 text-[10px] font-mono font-medium text-ink-600 focus:ring-2 focus:ring-amber-100 focus:border-amber-300 transition-all outline-none cursor-pointer hover:bg-white">
+                                        class="w-full bg-white/80 border border-amber-200/50 rounded-lg py-2 px-2.5 text-[10px] font-mono font-medium text-ink-600 focus:ring-2 focus:ring-amber-100 focus:border-amber-300 transition-[background-color,border-color,box-shadow,color] outline-none cursor-pointer hover:bg-white">
                                         <option value="">不使用</option>
                                     </select>
                                 </div>
@@ -224,7 +224,7 @@
                                     </div>
                                     <select id="auxiliary2-select"
                                         onchange="sendCommand('set_auxiliary2_model', this.value)"
-                                        class="w-full bg-white/80 border border-rose-200/50 rounded-lg py-2 px-2.5 text-[10px] font-mono font-medium text-ink-600 focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition-all outline-none cursor-pointer hover:bg-white">
+                                        class="w-full bg-white/80 border border-rose-200/50 rounded-lg py-2 px-2.5 text-[10px] font-mono font-medium text-ink-600 focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition-[background-color,border-color,box-shadow,color] outline-none cursor-pointer hover:bg-white">
                                         <option value="">不使用</option>
                                     </select>
                                 </div>
@@ -256,7 +256,7 @@
                                 任务类型
                             </label>
                             <select id="task-type-select" onchange="updateTaskType(this.value)"
-                                class="w-full bg-porcelain-100/50 border border-celadon-200/50 rounded-lg py-2.5 px-3 text-xs font-bold text-ink-700 focus:ring-2 focus:ring-celadon-100 focus:border-celadon-400 transition-all outline-none cursor-pointer hover:bg-white">
+                                class="w-full bg-porcelain-100/50 border border-celadon-200/50 rounded-lg py-2.5 px-3 text-xs font-bold text-ink-700 focus:ring-2 focus:ring-celadon-100 focus:border-celadon-400 transition-[background-color,border-color,box-shadow,color] outline-none cursor-pointer hover:bg-white">
                                 <option value="1" selected>目标检测 (Detect)</option>
                                 <option value="0">图像分类 (Classify)</option>
                                 <option value="3">实例分割 (Segment)</option>
@@ -339,7 +339,7 @@
                             </div>
 
                             <button onclick="sendCommand('test_yolo')"
-                                class="w-full py-2 bg-ink-800 text-white font-bold text-[10px] rounded-lg hover:bg-ink-900 transition-all uppercase tracking-wider shadow-md">测试推理</button>
+                                class="w-full py-2 bg-ink-800 text-white font-bold text-[10px] rounded-lg hover:bg-ink-900 transition-[background-color,color,box-shadow] uppercase tracking-wider shadow-md">测试推理</button>
                         </div>
                     </div>
 
@@ -358,7 +358,7 @@
                                     处理流程
                                 </label>
                                 <button onclick="openAddOperatorMenu()"
-                                    class="px-2 py-1 bg-celadon-50 text-celadon-600 hover:bg-celadon-100 text-[10px] font-bold rounded flex items-center gap-1 transition-all"><svg
+                                    class="px-2 py-1 bg-celadon-50 text-celadon-600 hover:bg-celadon-100 text-[10px] font-bold rounded flex items-center gap-1 transition-[background-color,color,box-shadow]"><svg
                                         class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M12 4v16m8-8H4"></path>
@@ -375,9 +375,9 @@
                             <label
                                 class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-1">调试与测试</label>
                             <button onclick="requestPreview()"
-                                class="w-full py-2.5 bg-porcelain-100 text-ink-600 font-bold text-[10px] rounded-lg hover:bg-porcelain-200 transition-all uppercase tracking-wider flex items-center justify-center gap-2">刷新预览</button>
+                                class="w-full py-2.5 bg-porcelain-100 text-ink-600 font-bold text-[10px] rounded-lg hover:bg-porcelain-200 transition-[background-color,color,box-shadow] uppercase tracking-wider flex items-center justify-center gap-2">刷新预览</button>
                             <button onclick="sendCommand('test_template_match')"
-                                class="w-full py-2.5 bg-ink-800 text-white font-bold text-[10px] rounded-lg hover:bg-ink-900 transition-all uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg">上传图片测试</button>
+                                class="w-full py-2.5 bg-ink-800 text-white font-bold text-[10px] rounded-lg hover:bg-ink-900 transition-[background-color,color,box-shadow] uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg">上传图片测试</button>
                         </div>
                     </div>
                 </div>
@@ -386,10 +386,10 @@
 
         <!-- Center: Camera -->
         <div
-            class="pointer-events-auto flex-1 glass-panel relative overflow-hidden group flex flex-col transition-all duration-500 rounded-2xl shadow-float z-0">
+            class="pointer-events-auto flex-1 glass-panel-lite relative overflow-hidden group flex flex-col cf-surface-transition rounded-2xl shadow-float z-0">
             <!-- Top Bar (Camera Info) -->
             <div
-                class="absolute top-0 left-0 right-0 h-10 bg-white/30 backdrop-blur-md flex justify-between items-center px-4 z-20 border-b border-white/20">
+                class="absolute top-0 left-0 right-0 h-10 bg-white/75 flex justify-between items-center px-4 z-20 border-b border-white/20">
                 <div class="flex items-center gap-2">
                     <span
                         class="w-1.5 h-1.5 rounded-full bg-celadon-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
@@ -403,14 +403,14 @@
                 class="flex-1 relative bg-porcelain-100/50 flex items-center justify-center overflow-hidden">
                 <img id="camera-view"
                     src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4MCIgaGVpZ2h0PSI3MjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2YxZjVmOSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iJ05vdG8gU2VyaWYgU0MnLCBzZXJpZiIgZm9udC1zaXplPSIyNCIgZmlsbD0iIzk0YTNiOCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgbGV0dGVyLXNwYWNpbmc9IjAuZW0iPuW+heacuuWQr+WKqC4uLjwvdGV4dD48L3N2Zz4="
-                    class="w-full h-full object-contain mix-blend-multiply transition-all duration-300" alt="Camera">
+                    class="w-full h-full object-contain mix-blend-multiply transition-opacity duration-300" alt="Camera">
                 <canvas id="roi-canvas" class="absolute inset-0 z-20 cursor-crosshair pointer-events-auto"></canvas>
 
                 <!-- Result Overlay -->
                 <div id="result-overlay"
                     class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex-col items-center pointer-events-none">
                     <div
-                        class="bg-porcelain-50/95 backdrop-blur-md border border-celadon-100 px-12 py-8 rounded-2xl shadow-2xl transform transition-all duration-300">
+                        class="bg-porcelain-50/95 backdrop-blur-md border border-celadon-100 px-12 py-8 rounded-2xl shadow-2xl transform transition-[opacity,border-color,box-shadow,background-color] duration-300">
                         <span id="result-text"
                             class="font-black text-6xl tracking-widest font-serif text-ink-800">PASS</span>
                     </div>
@@ -419,14 +419,14 @@
 
             <!-- Floating Open Buttons (Visible when drawers closed) -->
             <button id="float-btn-left" onclick="toggleDrawer('left-panel')"
-                class="absolute top-1/2 mt-[-24px] left-4 p-3 bg-porcelain-100 rounded-full shadow-lg border border-celadon-100 hover:shadow-xl transition-all text-ink-500 hover:text-celadon-600 z-30 opacity-0 pointer-events-none drawer-trigger">
+                class="absolute top-1/2 mt-[-24px] left-4 p-3 bg-porcelain-100 rounded-full shadow-lg border border-celadon-100 hover:shadow-xl transition-[color,box-shadow,opacity,border-color] text-ink-500 hover:text-celadon-600 z-30 opacity-0 pointer-events-none drawer-trigger">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7">
                     </path>
                 </svg>
             </button>
             <button id="float-btn-right" onclick="toggleDrawer('right-panel')"
-                class="absolute top-1/2 mt-[-24px] right-4 p-3 bg-porcelain-100 rounded-full shadow-lg border border-celadon-100 hover:shadow-xl transition-all text-ink-500 hover:text-celadon-600 z-30 opacity-0 pointer-events-none drawer-trigger">
+                class="absolute top-1/2 mt-[-24px] right-4 p-3 bg-porcelain-100 rounded-full shadow-lg border border-celadon-100 hover:shadow-xl transition-[color,box-shadow,opacity,border-color] text-ink-500 hover:text-celadon-600 z-30 opacity-0 pointer-events-none drawer-trigger">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M11 19l-7-7 7-7M19 19l-7-7 7-7"></path>
@@ -436,9 +436,9 @@
 
         <!-- Right Panel: Stats & Logs -->
         <div id="right-panel"
-            class="pointer-events-auto w-96 flex flex-col gap-3 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] origin-right drawer-open flex-shrink-0 pointer-events-auto glass-panel border-l border-white/40 h-full">
+            class="pointer-events-auto w-96 flex flex-col gap-3 cf-panel-transition origin-right drawer-open flex-shrink-0 pointer-events-auto glass-panel-lite border-l border-white/40 h-full">
             <!-- Stats Card -->
-            <div class="glass-panel p-5 relative overflow-hidden group rounded-2xl shrink-0 flex flex-col bg-white/40">
+            <div class="glass-panel-lite p-5 relative overflow-hidden group rounded-2xl shrink-0 flex flex-col bg-white/40">
                 <div class="flex justify-between items-center mb-2">
                     <div class="flex items-center gap-2">
                         <button onclick="toggleDrawer('right-panel')"
@@ -452,7 +452,7 @@
                     </div>
                     <div class="flex gap-1">
                         <button onclick="openGalleryModal()"
-                            class="p-1.5 rounded-lg bg-white/50 hover:bg-celadon-50 text-ink-400 hover:text-celadon-600 transition-all shadow-sm border border-transparent hover:border-celadon-200"
+                            class="p-1.5 rounded-lg bg-white/50 hover:bg-celadon-50 text-ink-400 hover:text-celadon-600 transition-[background-color,border-color,color,box-shadow] shadow-sm border border-transparent hover:border-celadon-200"
                             title="图像追溯库">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -461,7 +461,7 @@
                             </svg>
                         </button>
                         <button onclick="openStatisticsHistoryModal()"
-                            class="p-1.5 rounded-lg bg-porcelain-100/50 hover:bg-porcelain-200 text-ink-400 hover:text-celadon-600 transition-all shadow-sm border border-transparent hover:border-celadon-200"
+                            class="p-1.5 rounded-lg bg-porcelain-100/50 hover:bg-porcelain-200 text-ink-400 hover:text-celadon-600 transition-[background-color,border-color,color,box-shadow] shadow-sm border border-transparent hover:border-celadon-200"
                             title="历史统计报表">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -491,12 +491,12 @@
             </div>
 
             <!-- Logs -->
-            <div class="glass-panel flex-1 flex flex-col overflow-hidden rounded-2xl bg-porcelain-50/40 min-h-0">
+            <div class="glass-panel-lite flex-1 flex flex-col overflow-hidden rounded-2xl bg-porcelain-50/40 min-h-0">
                 <div class="p-3 border-b border-white/50 bg-white/30 flex justify-between items-center shrink-0">
                     <span class="text-xs font-bold text-ink-600" style="font-family: 'Microsoft YaHei'">检测流水</span>
                     <div class="flex gap-1">
                         <button onclick="openLogHistoryModal()"
-                            class="p-1 rounded-lg hover:bg-porcelain-100 text-ink-400 hover:text-celadon-600 transition-all border border-transparent hover:border-celadon-200"
+                            class="p-1 rounded-lg hover:bg-porcelain-100 text-ink-400 hover:text-celadon-600 transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-200"
                             title="检测历史流水">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -504,7 +504,7 @@
                             </svg>
                         </button>
                         <button onclick="clearDetectionLogs()"
-                            class="p-1 rounded-lg hover:bg-rouge-50 text-ink-400 hover:text-rouge-600 transition-all border border-transparent hover:border-rouge-100"
+                            class="p-1 rounded-lg hover:bg-rouge-50 text-ink-400 hover:text-rouge-600 transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-rouge-100"
                             title="清空流水">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -518,7 +518,7 @@
             </div>
 
             <!-- System Log (Mini) -->
-            <div class="glass-panel h-32 flex flex-col overflow-hidden rounded-2xl bg-porcelain-800/10 shrink-0">
+            <div class="glass-panel-lite h-32 flex flex-col overflow-hidden rounded-2xl bg-porcelain-800/10 shrink-0">
                 <div class="px-3 py-1.5 border-b border-white/10 flex justify-between items-center shrink-0">
                     <span class="text-[10px] font-bold text-ink-500" style="font-family: 'Microsoft YaHei'">系统日志</span>
                     <button onclick="clearLogs()" class="text-[9px] text-ink-400 hover:text-ink-600">Clear</button>
@@ -533,11 +533,11 @@
 
     <!-- 1. The Dock Itself -->
     <div id="bottom-dock"
-        class="fixed bottom-4 left-0 right-0 mx-auto w-fit z-50 flex items-center gap-3 px-5 py-2 glass-panel dock-industrial rounded-2xl shadow-2xl dock-open transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] origin-bottom">
+        class="fixed bottom-4 left-0 right-0 mx-auto w-fit z-50 flex items-center gap-3 px-5 py-2 glass-panel dock-industrial rounded-2xl shadow-2xl dock-open transition-[bottom,opacity,box-shadow,background-color,border-color] duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] origin-bottom">
 
         <!-- Collapse Handle (Added to allows closing since trigger is hidden) -->
         <button onclick="toggleDock()"
-            class="absolute -top-4 left-1/2 -translate-x-1/2 w-16 h-4 bg-porcelain-100/60 hover:bg-porcelain-200 backdrop-blur rounded-t-xl flex items-center justify-center transition-all cursor-pointer shadow-sm border-t border-l border-r border-celadon-100/30 group">
+            class="absolute -top-4 left-1/2 -translate-x-1/2 w-16 h-4 bg-porcelain-100/60 hover:bg-porcelain-200 backdrop-blur rounded-t-xl flex items-center justify-center transition-[background-color,box-shadow,color] cursor-pointer shadow-sm border-t border-l border-r border-celadon-100/30 group">
             <svg class="w-3.5 h-3.5 text-ink-400 group-hover:text-celadon-600 transition-colors" fill="none"
                 stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path>
@@ -617,13 +617,13 @@
     <!-- Settings Modal -->
     <div id="settings-modal"
         class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
-        <div class="glass-panel w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+        <div class="glass-panel-lite w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             <div
                 class="h-16 border-b border-celadon-100 flex justify-between items-center px-8 bg-porcelain-50/50 shrink-0">
                 <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest">系统参数配置 <span
                         class="text-xs font-sans font-normal text-ink-400 ml-2 italic">Configuration</span></h3>
                 <button onclick="closeSettingsModal()"
-                    class="p-2 hover:bg-red-50 text-ink-400 hover:text-vermilion rounded-full transition-all text-xl">&times;</button>
+                    class="p-2 hover:bg-red-50 text-ink-400 hover:text-vermilion rounded-full transition-[background-color,color] text-xl">&times;</button>
             </div>
             <div class="flex-1 overflow-y-auto scroller p-8 space-y-8 bg-porcelain-100/30">
                 <!-- 项目快速切换 (仅填充现有字段，不锁定修改) -->
@@ -638,7 +638,7 @@
                         快速切换项目预设
                     </label>
                     <select id="project-preset-select" onchange="loadProjectPreset(this.value)"
-                        class="w-full tech-input px-4 py-3 rounded-xl text-sm font-bold cursor-pointer border-2 border-celadon-200 focus:border-celadon-500 transition-all">
+                        class="w-full tech-input px-4 py-3 rounded-xl text-sm font-bold cursor-pointer border-2 border-celadon-200 focus:border-celadon-500 transition-[background-color,border-color,box-shadow,color]">
                         <option value="">-- 选择预设项目（可选）--</option>
                         <option value="N5_remote">N5遥控器漏装视觉检测</option>
                         <option value="N5_screw">N5螺钉视觉检测</option>
@@ -658,7 +658,7 @@
                         <input id="cfg-storage-path" type="text" readonly
                             class="flex-1 tech-input px-4 py-2.5 rounded-xl text-xs font-bold" placeholder="未设置路径">
                         <button onclick="sendCommand('select_storage_folder')"
-                            class="px-6 text-xs font-bold bg-white border border-slate-200 text-ink-600 hover:border-celadon-400 rounded-xl transition-all shadow-sm">浏览</button>
+                            class="px-6 text-xs font-bold bg-white border border-slate-200 text-ink-600 hover:border-celadon-400 rounded-xl transition-[background-color,border-color,color,box-shadow] shadow-sm">浏览</button>
                     </div>
                 </div>
 
@@ -777,7 +777,7 @@
                                 class="text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-3 block">相机操作</label>
                             <div class="grid grid-cols-2 gap-2">
                                 <button onclick="addNewCamera()"
-                                    class="py-2 bg-celadon-600 hover:bg-celadon-700 text-white text-[10px] font-bold rounded-lg transition-all flex items-center justify-center gap-1">
+                                    class="py-2 bg-celadon-600 hover:bg-celadon-700 text-white text-[10px] font-bold rounded-lg transition-[background-color,color,box-shadow] flex items-center justify-center gap-1">
                                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M12 4v16m8-8H4"></path>
@@ -785,7 +785,7 @@
                                     添加/更新
                                 </button>
                                 <button onclick="superSearchCameras()"
-                                    class="py-2 bg-celadon-500 hover:bg-celadon-600 text-white rounded-lg transition-all text-[10px] font-bold flex items-center justify-center gap-1">
+                                    class="py-2 bg-celadon-500 hover:bg-celadon-600 text-white rounded-lg transition-[background-color,color,box-shadow] text-[10px] font-bold flex items-center justify-center gap-1">
                                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -793,7 +793,7 @@
                                     华睿搜索
                                 </button>
                                 <button onclick="searchCamerasHik()"
-                                    class="py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-all text-[10px] font-bold flex items-center justify-center gap-1">
+                                    class="py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-[background-color,color,box-shadow] text-[10px] font-bold flex items-center justify-center gap-1">
                                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -801,7 +801,7 @@
                                     海康搜索
                                 </button>
                                 <button onclick="deleteCurrentCamera()"
-                                    class="py-2 bg-rouge-50 hover:bg-rouge-100 text-rouge-600 text-[10px] font-bold rounded-lg transition-all border border-rouge-100">
+                                    class="py-2 bg-rouge-50 hover:bg-rouge-100 text-rouge-600 text-[10px] font-bold rounded-lg transition-[background-color,border-color,color,box-shadow] border border-rouge-100">
                                     删除相机
                                 </button>
                             </div>
@@ -824,7 +824,7 @@
                                         <option value="">正在加载相机列表...</option>
                                     </select>
                                     <button onclick="sendCommand('get_camera_list')"
-                                        class="px-3 py-2 bg-celadon-50 text-celadon-600 hover:bg-celadon-100 text-[10px] font-bold rounded-lg transition-all"
+                                        class="px-3 py-2 bg-celadon-50 text-celadon-600 hover:bg-celadon-100 text-[10px] font-bold rounded-lg transition-[background-color,color,box-shadow]"
                                         title="刷新相机列表">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -876,7 +876,7 @@
 
                 <div class="mt-8 pt-6 border-t border-slate-100">
                     <button onclick="if(confirm('确定要清除今日统计数据吗？此操作不可撤销！')) sendCommand('reset_statistics')"
-                        class="w-full py-3 bg-vermilion/5 text-vermilion font-black text-[10px] rounded-xl hover:bg-vermilion/10 transition-all uppercase tracking-widest border border-vermilion/10 flex items-center justify-center gap-2">
+                        class="w-full py-3 bg-vermilion/5 text-vermilion font-black text-[10px] rounded-xl hover:bg-vermilion/10 transition-[background-color,border-color,color,box-shadow] uppercase tracking-widest border border-vermilion/10 flex items-center justify-center gap-2">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
@@ -944,7 +944,7 @@
     <!-- Password Modal -->
     <div id="password-modal"
         class="fixed inset-0 bg-ink-900/60 z-[100] hidden flex items-center justify-center">
-        <div class="glass-panel w-80 rounded-2xl p-6 shadow-2xl flex flex-col items-center">
+        <div class="glass-panel-lite w-80 rounded-2xl p-6 shadow-2xl flex flex-col items-center">
             <div class="w-12 h-12 bg-celadon-50 rounded-full flex items-center justify-center text-celadon-600 mb-4">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -959,9 +959,9 @@
                 autofocus onkeypress="if(event.key==='Enter') verifyPassword()">
             <div class="flex w-full gap-2 mt-2">
                 <button onclick="closePasswordModal()"
-                    class="flex-1 py-2.5 text-xs font-bold text-ink-400 hover:bg-slate-50 rounded-xl transition-all">取消</button>
+                    class="flex-1 py-2.5 text-xs font-bold text-ink-400 hover:bg-slate-50 rounded-xl transition-[background-color,color]">取消</button>
                 <button onclick="verifyPassword()"
-                    class="flex-1 py-2.5 bg-ink-800 text-white text-xs font-bold rounded-xl shadow-lg shadow-black/10 hover:bg-ink-950 transition-all">验证许可</button>
+                    class="flex-1 py-2.5 bg-ink-800 text-white text-xs font-bold rounded-xl shadow-lg shadow-black/10 hover:bg-ink-950 transition-[background-color,color,box-shadow]">验证许可</button>
             </div>
         </div>
     </div>
@@ -981,7 +981,7 @@
                         0</span>
                 </div>
                 <button onclick="closeGalleryModal()"
-                    class="p-2 hover:bg-slate-100 rounded-full transition-all text-2xl">&times;</button>
+                    class="p-2 hover:bg-slate-100 rounded-full transition-[background-color,color] text-2xl">&times;</button>
             </header>
 
             <div class="flex flex-1 overflow-hidden">
@@ -1015,10 +1015,10 @@
         </div>
 
         <div id="image-viewer"
-            class="hidden absolute inset-0 bg-ink-950/98 z-[100] flex flex-col animate-fade-in backdrop-blur-xl">
+            class="hidden absolute inset-0 bg-ink-950/98 z-[100] flex flex-col animate-fade-in">
             <div class="absolute top-8 right-8 z-[70]">
                 <button onclick="closeImageViewer()"
-                    class="text-white transition-all bg-rouge-500 hover:bg-rouge-600 shadow-lg p-4 rounded-full"
+                    class="text-white transition-[background-color,color,box-shadow] bg-rouge-500 hover:bg-rouge-600 shadow-lg p-4 rounded-full"
                     onmouseover="this.style.backgroundColor='#8b2323'"
                     onmouseout="this.style.backgroundColor='#9e2a2b'">
                     <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1029,15 +1029,15 @@
             </div>
             <img id="viewer-img" class="flex-1 w-full h-full object-contain p-8" src="">
             <div id="viewer-info"
-                class="absolute bottom-8 left-1/2 -translate-x-1/2 text-white/80 font-mono text-xs bg-black/40 px-4 py-1.5 rounded-full border border-white/10 backdrop-blur whitespace-nowrap">
+                class="absolute bottom-8 left-1/2 -translate-x-1/2 text-white/80 font-mono text-xs bg-black/70 px-4 py-1.5 rounded-full border border-white/10 whitespace-nowrap">
             </div>
         </div>
     </div>
 
     <!-- Log History Modal -->
     <div id="log-history-modal"
-        class="fixed inset-0 bg-ink-900/40 backdrop-blur-sm z-[60] hidden flex items-center justify-center p-4">
-        <div class="glass-panel w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[85vh]">
+        class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
+        <div class="glass-panel-lite w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[85vh]">
             <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0">
                 <div class="flex items-center gap-4">
                     <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">检测详单追踪</h3>
@@ -1052,7 +1052,7 @@
                     <button onclick="sendCommand('get_detection_logs')"
                         class="px-4 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">刷新同步</button>
                     <button onclick="closeLogHistoryModal()"
-                        class="text-2xl text-ink-400 hover:text-vermilion transition-all">&times;</button>
+                        class="text-2xl text-ink-400 hover:text-vermilion transition-colors">&times;</button>
                 </div>
             </div>
             <div class="flex-1 overflow-auto p-6 scroller bg-slate-50/30">
@@ -1085,7 +1085,7 @@
                 <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Showing latest 500
                     records</span>
                 <button onclick="sendCommand('export_log_csv')"
-                    class="px-4 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-ink-600 hover:text-celadon-600 hover:border-celadon-300 transition-all flex items-center gap-2">
+                    class="px-4 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-ink-600 hover:text-celadon-600 hover:border-celadon-300 transition-[background-color,border-color,color,box-shadow] flex items-center gap-2">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
@@ -1097,8 +1097,8 @@
 
     <!-- Statistics History Modal -->
     <div id="statistics-history-modal"
-        class="fixed inset-0 bg-ink-900/40 backdrop-blur-sm z-[60] hidden flex items-center justify-center p-4">
-        <div class="glass-panel w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[70vh]">
+        class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
+        <div class="glass-panel-lite w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[70vh]">
             <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white/80 shrink-0">
                 <div class="flex items-center gap-4">
                     <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">历史统计数据对比</h3>
@@ -1109,12 +1109,12 @@
                     <button onclick="requestStatisticsHistory()"
                         class="px-4 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">刷新</button>
                     <button onclick="closeStatisticsHistoryModal()"
-                        class="text-2xl text-ink-400 hover:text-vermilion transition-all p-1">&times;</button>
+                        class="text-2xl text-ink-400 hover:text-vermilion transition-colors p-1">&times;</button>
                 </div>
             </div>
             <div class="flex-1 overflow-auto scroller p-6 bg-white/30">
                 <table class="w-full text-xs border-collapse">
-                    <thead class="sticky top-0 bg-slate-50/95 backdrop-blur z-10">
+                    <thead class="sticky top-0 bg-slate-50/95 z-10">
                         <tr
                             class="text-left text-ink-400 font-bold uppercase tracking-widest border-b border-slate-200">
                             <th class="px-4 py-4">生产日期</th>
@@ -1133,25 +1133,25 @@
             </div>
             <div class="h-14 border-t border-slate-100 bg-white flex justify-end items-center px-8 gap-4 shrink-0">
                 <button onclick="sendCommand('clear_stats_history')"
-                    class="px-6 py-2 text-vermilion hover:bg-red-50 rounded-lg text-xs font-bold border border-red-50 transition-all uppercase">清空历史数据</button>
+                    class="px-6 py-2 text-vermilion hover:bg-red-50 rounded-lg text-xs font-bold border border-red-50 transition-[background-color,border-color,color,box-shadow] uppercase">清空历史数据</button>
             </div>
         </div>
     </div>
 
     <!-- Add Operator Modal -->
     <div id="add-operator-modal"
-        class="fixed inset-0 bg-ink-900/40 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+        class="fixed inset-0 bg-ink-900/60 z-[100] hidden flex items-center justify-center p-4">
         <div
-            class="glass-panel w-[400px] rounded-3xl overflow-hidden shadow-2xl flex flex-col scale-in animate-fade-in bg-white/95">
+            class="glass-panel-lite w-[400px] rounded-3xl overflow-hidden shadow-2xl flex flex-col scale-in animate-fade-in bg-white/95">
             <div class="h-14 border-b border-slate-100 flex justify-between items-center px-6 bg-white/60 shrink-0">
                 <h3 class="text-xs font-bold text-ink-800 uppercase tracking-widest font-serif">添加算子 / Add Operator
                 </h3>
                 <button onclick="closeAddOperatorModal()"
-                    class="text-2xl text-ink-400 hover:text-ink-600 transition-all">&times;</button>
+                    class="text-2xl text-ink-400 hover:text-ink-600 transition-colors">&times;</button>
             </div>
             <div class="p-6 bg-white/40 flex flex-col gap-3" id="operator-options">
                 <button onclick="addOperator('template_match')"
-                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-all group">
+                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-[background-color,border-color,color,box-shadow] group">
                     <div
                         class="w-10 h-10 rounded-xl bg-slate-50 group-hover:bg-celadon-100 flex items-center justify-center text-ink-400 group-hover:text-celadon-600">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1167,7 +1167,7 @@
                     </div>
                 </button>
                 <button onclick="addOperator('feature_match')"
-                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-all group">
+                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-[background-color,border-color,color,box-shadow] group">
                     <div
                         class="w-10 h-10 rounded-xl bg-slate-50 group-hover:bg-celadon-100 flex items-center justify-center text-ink-400 group-hover:text-celadon-600">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1183,7 +1183,7 @@
                     </div>
                 </button>
                 <button onclick="addOperator('orb_match')"
-                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-all group">
+                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-[background-color,border-color,color,box-shadow] group">
                     <div
                         class="w-10 h-10 rounded-xl bg-slate-50 group-hover:bg-celadon-100 flex items-center justify-center text-ink-400 group-hover:text-celadon-600">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1198,7 +1198,7 @@
                     </div>
                 </button>
                 <button onclick="addOperator('pyramid_shape_match')"
-                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-all group">
+                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-[background-color,border-color,color,box-shadow] group">
                     <div
                         class="w-10 h-10 rounded-xl bg-slate-50 group-hover:bg-celadon-100 flex items-center justify-center text-ink-400 group-hover:text-celadon-600">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1213,7 +1213,7 @@
                     </div>
                 </button>
                 <button onclick="addOperator('background_diff')"
-                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-all group">
+                    class="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-100 bg-white hover:border-celadon-300 hover:bg-celadon-50 transition-[background-color,border-color,color,box-shadow] group">
                     <div
                         class="w-10 h-10 rounded-xl bg-slate-50 group-hover:bg-celadon-100 flex items-center justify-center text-ink-400 group-hover:text-celadon-600">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1242,7 +1242,7 @@
         <div class="fixed inset-0 z-10 overflow-y-auto">
             <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
                 <div
-                    class="glass-panel relative overflow-hidden rounded-3xl bg-white/90 text-left shadow-2xl sm:my-8 sm:w-full sm:max-w-4xl border border-white/20">
+                    class="glass-panel-lite relative overflow-hidden rounded-3xl bg-white/90 text-left shadow-2xl sm:my-8 sm:w-full sm:max-w-4xl border border-white/20">
                     <!-- Header -->
                     <div class="px-8 pt-6 pb-5 border-b border-slate-100 flex justify-between items-center bg-white/60">
                         <div>
@@ -1261,7 +1261,7 @@
                             <p class="mt-1 text-xs text-ink-400 italic font-serif">请定义检测基准区域，系统将自动锁定 1:1 特征比例</p>
                         </div>
                         <button onclick="closeCropper()"
-                            class="p-2 hover:bg-rouge-50 text-ink-300 hover:text-rouge-600 rounded-full transition-all text-2xl">&times;</button>
+                            class="p-2 hover:bg-rouge-50 text-ink-300 hover:text-rouge-600 rounded-full transition-[background-color,color] text-2xl">&times;</button>
                     </div>
 
                     <!-- Body -->
@@ -1274,17 +1274,17 @@
 
                         <!-- Toolbar -->
                         <div class="w-56 flex flex-col gap-5">
-                            <div class="glass-panel p-5 rounded-2xl border border-white shadow-soft">
+                            <div class="glass-panel-lite p-5 rounded-2xl border border-white shadow-soft">
                                 <span
                                     class="text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-3 block">实时采样预览</span>
                                 <div class="w-full aspect-square bg-white rounded-xl overflow-hidden border border-slate-100 shadow-inner"
                                     id="cropPreview"></div>
                             </div>
 
-                            <div class="glass-panel p-5 rounded-2xl border border-white shadow-soft space-y-3">
+                            <div class="glass-panel-lite p-5 rounded-2xl border border-white shadow-soft space-y-3">
                                 <div class="grid grid-cols-2 gap-2">
                                     <button onclick="cropper.rotate(-90)"
-                                        class="py-2.5 text-[10px] font-bold text-ink-600 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 flex flex-col items-center gap-1 transition-all">
+                                        class="py-2.5 text-[10px] font-bold text-ink-600 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 flex flex-col items-center gap-1 transition-[background-color,border-color,color,box-shadow]">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                 d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path>
@@ -1292,7 +1292,7 @@
                                         左旋
                                     </button>
                                     <button onclick="cropper.rotate(90)"
-                                        class="py-2.5 text-[10px] font-bold text-ink-600 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 flex flex-col items-center gap-1 transition-all">
+                                        class="py-2.5 text-[10px] font-bold text-ink-600 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 flex flex-col items-center gap-1 transition-[background-color,border-color,color,box-shadow]">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                 d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"></path>
@@ -1301,7 +1301,7 @@
                                     </button>
                                 </div>
                                 <button onclick="if(cropper) cropper.reset()"
-                                    class="w-full py-2.5 text-[10px] font-bold text-ink-400 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center gap-2 transition-all">
+                                    class="w-full py-2.5 text-[10px] font-bold text-ink-400 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center gap-2 transition-[background-color,border-color,color,box-shadow]">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
@@ -1310,7 +1310,7 @@
                                     重置视图
                                 </button>
                                 <button onclick="captureTemplate()"
-                                    class="w-full py-3 text-[10px] font-bold text-vermilion bg-red-50 hover:bg-red-100 rounded-xl border border-red-100 flex items-center justify-center gap-2 transition-all shadow-sm shadow-red-500/10">
+                                    class="w-full py-3 text-[10px] font-bold text-vermilion bg-red-50 hover:bg-red-100 rounded-xl border border-red-100 flex items-center justify-center gap-2 transition-[background-color,border-color,color,box-shadow] shadow-sm shadow-red-500/10">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z">
@@ -1326,7 +1326,7 @@
                     <div
                         class="px-8 py-5 flex justify-end items-center border-t border-slate-100 bg-white/80 gap-4 shrink-0">
                         <button type="button" onclick="closeCropper()"
-                            class="px-8 py-2.5 text-xs font-bold text-ink-400 hover:text-ink-600 transition-all">放弃采样</button>
+                            class="px-8 py-2.5 text-xs font-bold text-ink-400 hover:text-ink-600 transition-colors">放弃采样</button>
                         <button type="button" onclick="confirmCrop()"
                             class="btn-celadon px-12 py-2.5 rounded-xl text-xs font-bold shadow-float flex items-center gap-2 scale-105">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1343,9 +1343,9 @@
 
     <!-- Template Manager Modal -->
     <div id="template-manager-modal"
-        class="fixed inset-0 z-[100] hidden bg-ink-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        class="fixed inset-0 z-[100] hidden bg-ink-900/60 flex items-center justify-center p-4">
         <div
-            class="glass-panel w-full max-w-5xl h-[85vh] rounded-2xl overflow-hidden shadow-2xl flex flex-col bg-slate-50">
+            class="glass-panel-lite w-full max-w-5xl h-[85vh] rounded-2xl overflow-hidden shadow-2xl flex flex-col bg-slate-50">
             <!-- Header -->
             <div class="h-16 border-b border-slate-100 flex justify-between items-center px-6 bg-white shrink-0">
                 <div class="flex items-center gap-3">
@@ -1381,7 +1381,7 @@
                         <div class="text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-2">图像来源 / Source
                         </div>
                         <button onclick="captureTemplateFrame()"
-                            class="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50 hover:border-celadon-300 hover:bg-celadon-50 text-ink-600 hover:text-celadon-700 transition-all group">
+                            class="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50 hover:border-celadon-300 hover:bg-celadon-50 text-ink-600 hover:text-celadon-700 transition-[background-color,border-color,color,box-shadow] group">
                             <div
                                 class="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-ink-400 group-hover:text-celadon-500 shadow-sm">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1396,7 +1396,7 @@
                             </div>
                         </button>
                         <button onclick="document.getElementById('tm-file-input').click()"
-                            class="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50 hover:border-celadon-300 hover:bg-celadon-50 text-ink-600 hover:text-celadon-700 transition-all group">
+                            class="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50 hover:border-celadon-300 hover:bg-celadon-50 text-ink-600 hover:text-celadon-700 transition-[background-color,border-color,color,box-shadow] group">
                             <div
                                 class="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-ink-400 group-hover:text-celadon-500 shadow-sm">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1432,7 +1432,7 @@
 
                     <div class="mt-auto">
                         <button onclick="saveTemplate()"
-                            class="w-full py-3 bg-celadon-600 hover:bg-celadon-700 text-white rounded-xl shadow-lg shadow-celadon-900/20 text-xs font-bold flex items-center justify-center gap-2 transition-all">
+                            class="w-full py-3 bg-celadon-600 hover:bg-celadon-700 text-white rounded-xl shadow-lg shadow-celadon-900/20 text-xs font-bold flex items-center justify-center gap-2 transition-[background-color,color,box-shadow]">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M5 13l4 4L19 7"></path>

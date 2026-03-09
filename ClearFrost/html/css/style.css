@@ -90,7 +90,11 @@ button:hover.bg-rouge-600 {
         inset 0 0 0 1px rgba(255, 255, 255, 0.5),
         inset 0 0 20px rgba(252, 250, 242, 0.5);
     /* 内部泛温润质感 */
-    transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+    transition:
+        background-color 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+        border-color 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+        box-shadow 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+        opacity 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .glass-panel:hover {
@@ -103,13 +107,59 @@ button:hover.bg-rouge-600 {
         inset 0 0 30px rgba(250, 247, 232, 0.6);
 }
 
+.glass-panel-lite {
+    background: rgba(253, 251, 247, 0.96);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: 1px solid rgba(165, 189, 194, 0.3);
+    box-shadow:
+        0 4px 6px -1px rgba(26, 29, 33, 0.03),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+    transition:
+        opacity 0.3s ease,
+        border-color 0.3s ease,
+        box-shadow 0.3s ease,
+        background-color 0.3s ease;
+}
+
+.glass-panel-lite:hover {
+    background: rgba(253, 251, 247, 0.98);
+    border-color: rgba(44, 90, 113, 0.35);
+    box-shadow:
+        0 10px 16px -6px rgba(26, 29, 33, 0.08),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.65);
+}
+
+.cf-panel-transition {
+    transition:
+        width 0.5s cubic-bezier(0.23, 1, 0.32, 1),
+        opacity 0.5s cubic-bezier(0.23, 1, 0.32, 1),
+        visibility 0.5s cubic-bezier(0.23, 1, 0.32, 1),
+        border-color 0.3s ease,
+        box-shadow 0.3s ease,
+        background-color 0.3s ease;
+}
+
+.cf-surface-transition {
+    transition:
+        opacity 0.3s ease,
+        border-color 0.3s ease,
+        box-shadow 0.3s ease,
+        background-color 0.3s ease,
+        color 0.3s ease;
+}
+
 /* 宣纸风格输入框 - 更加锐利 */
 .tech-input {
     background: #faf7e8;
     border: 1px solid #c3d3d6;
     color: #1a1d21;
     font-weight: 500;
-    transition: all 0.2s ease;
+    transition:
+        background-color 0.2s ease,
+        border-color 0.2s ease,
+        box-shadow 0.2s ease,
+        color 0.2s ease;
 }
 
 .tech-input:focus {

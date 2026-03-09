@@ -1,4 +1,4 @@
-
+﻿
 // ==========================================
 // ClearFrost Core Logic (app.js)
 // ==========================================
@@ -13,13 +13,33 @@ function sendCommand(cmd, value = null) {
     const payload = { cmd: cmd, value: value, timestamp: Date.now() };
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage(payload);
-        addLog(`CMD: ${cmd} ${value ? '(' + JSON.stringify(value) + ')' : ''}`, 'info');
+        if (window.__CF_DEV_MODE) {
+            addLog(`CMD: ${cmd} ${value ? '(' + JSON.stringify(value) + ')' : ''}`, 'info');
+        }
     } else {
         console.log("[Dev] Mock Send:", payload);
         addLog(`[Mock] Sent: ${cmd}`, 'warning');
     }
 }
 window.sendCommand = sendCommand;
+
+window.__CF_MSG_HANDLERS = window.__CF_MSG_HANDLERS || {};
+if (window.chrome?.webview && !window.__CF_WEBVIEW_MSG_BOUND) {
+    window.__CF_WEBVIEW_MSG_BOUND = true;
+    window.chrome.webview.addEventListener('message', (event) => {
+        try {
+            const message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+            if (!message || !message.type) return;
+
+            const handler = window.__CF_MSG_HANDLERS?.[message.type];
+            if (typeof handler === 'function') {
+                handler(message.data);
+            }
+        } catch (error) {
+            console.error('WebView2 message dispatch failed:', error);
+        }
+    });
+}
 
 let _openCameraCooldownUntil = 0;
 let _openCameraUnlockTimer = null;
@@ -122,37 +142,88 @@ window.requestOpenCamera = requestOpenCamera;
 
 // --- Logging ---
 
+const _logBuffer = [];
+let _logFlushTimer = null;
+const _detectionLogBuffer = [];
+let _detectionLogFlushTimer = null;
+const LogFlushIntervalMs = 300;
+const MaxLogEntries = 50;
+
+function flushBufferedLogs(buffer, containerId, classFactory, formatter) {
+    const container = document.getElementById(containerId);
+    if (!container || buffer.length === 0) return;
+
+    const fragment = document.createDocumentFragment();
+    for (let index = buffer.length - 1; index >= 0; index--) {
+        const entry = buffer[index];
+        const div = document.createElement('div');
+        div.className = classFactory(entry.type);
+        div.innerText = formatter(entry);
+        fragment.appendChild(div);
+    }
+
+    container.prepend(fragment);
+    buffer.length = 0;
+
+    while (container.children.length > MaxLogEntries) {
+        container.lastChild.remove();
+    }
+}
+
+function flushLogs() {
+    _logFlushTimer = null;
+    flushBufferedLogs(
+        _logBuffer,
+        'log-container',
+        (type) => "p-1 font-mono text-[10px] border-l-2 " +
+            (type === 'error' ? "border-vermilion text-vermilion bg-vermilion/5" : "border-celadon-300 text-ink-500 hover:bg-slate-50"),
+        (entry) => `${entry.time} ${entry.msg}`,
+    );
+}
+
+function flushDetectionLogs() {
+    _detectionLogFlushTimer = null;
+    flushBufferedLogs(
+        _detectionLogBuffer,
+        'detection-log-container',
+        () => "pl-2 border-l border-slate-100 text-ink-600 py-1 hover:bg-slate-50 transition-colors font-mono text-[10px]",
+        (entry) => `[${entry.time}] ${entry.msg}`,
+    );
+}
+
 function addLog(msg, type = 'info') {
-    const container = document.getElementById('log-container');
-    if (!container) return;
-    const div = document.createElement('div');
-    const time = new Date().toLocaleTimeString();
-    div.className = "p-1 font-mono text-[10px] border-l-2 " + (type === 'error' ? "border-vermilion text-vermilion bg-vermilion/5" : "border-celadon-300 text-ink-500 hover:bg-slate-50");
-    div.innerText = `${time} ${msg}`;
-    container.prepend(div);
-    if (container.children.length > 50) container.lastChild.remove();
+    _logBuffer.push({ msg, type, time: new Date().toLocaleTimeString() });
+    if (!_logFlushTimer) {
+        _logFlushTimer = window.setTimeout(flushLogs, LogFlushIntervalMs);
+    }
 }
 window.addLog = addLog;
 
-function addDetectionLog(msg) {
-    const container = document.getElementById('detection-log-container');
-    if (!container) return;
-    const div = document.createElement('div');
-    const time = new Date().toLocaleTimeString();
-    div.className = "pl-2 border-l border-slate-100 text-ink-600 py-1 hover:bg-slate-50 transition-colors font-mono text-[10px]";
-    div.innerText = `[${time}] ${msg}`;
-    container.prepend(div);
-    if (container.children.length > 50) container.lastChild.remove();
+function addDetectionLog(msg, type = 'normal') {
+    _detectionLogBuffer.push({ msg, type, time: new Date().toLocaleTimeString() });
+    if (!_detectionLogFlushTimer) {
+        _detectionLogFlushTimer = window.setTimeout(flushDetectionLogs, LogFlushIntervalMs);
+    }
 }
 window.addDetectionLog = addDetectionLog;
 
 function clearLogs() {
+    _logBuffer.length = 0;
+    if (_logFlushTimer) {
+        window.clearTimeout(_logFlushTimer);
+        _logFlushTimer = null;
+    }
     const el = document.getElementById('log-container');
     if (el) el.innerHTML = '';
 }
 window.clearLogs = clearLogs;
 
 function clearDetectionLogs() {
+    _detectionLogBuffer.length = 0;
+    if (_detectionLogFlushTimer) {
+        window.clearTimeout(_detectionLogFlushTimer);
+        _detectionLogFlushTimer = null;
+    }
     const el = document.getElementById('detection-log-container');
     if (el) el.innerHTML = '';
 }
@@ -374,6 +445,45 @@ function flashPlcTrigger() {
 }
 window.flashPlcTrigger = flashPlcTrigger;
 
+Object.assign(window.__CF_MSG_HANDLERS, {
+    updateStatus: (data) => updateStatus(data),
+    updateResult: (data) => updateResult(Boolean(data?.isOk)),
+    updateConnection: (data) => {
+        if (!data) return;
+        updateConnection(data.type, data.isConnected);
+    },
+    log: (data) => {
+        if (!data) return;
+        addLog(data.message, data.type);
+    },
+    detectionLog: (data) => {
+        if (!data) return;
+        addDetectionLog(data.message, data.type);
+    },
+    inferenceMetrics: (data) => updateInferenceMetrics(data),
+    flashPlcTrigger: () => flashPlcTrigger(),
+    updateCameraName: (data) => updateCameraName(data?.name ?? data),
+    detectionFrame: (data) => {
+        if (!data) return;
+
+        if (typeof data.isOk === 'boolean') {
+            updateResult(data.isOk);
+        }
+
+        if (data.stats) {
+            updateStatus(data.stats);
+        }
+
+        if (data.log?.message) {
+            addDetectionLog(data.log.message, data.log.type);
+        }
+
+        if (data.metrics) {
+            updateInferenceMetrics(data.metrics);
+        }
+    },
+});
+
 // 接收相机列表 (由后端调用)
 function receiveCameraList(data) {
     try {
@@ -529,11 +639,11 @@ window.updateNGDates = function (dates) {
 
     dates.forEach(d => {
         const div = document.createElement('div');
-        div.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-all border border-transparent hover:border-celadon-100 mb-1";
+        div.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
         div.innerText = d;
         div.onclick = () => {
-            Array.from(list.children).forEach(c => c.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-all border border-transparent hover:border-celadon-100 mb-1");
-            div.className = "p-2.5 bg-celadon-50 text-celadon-700 cursor-pointer rounded-xl text-[11px] font-black transition-all shadow-sm border border-celadon-200 mb-1";
+            Array.from(list.children).forEach(c => c.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1");
+            div.className = "p-2.5 bg-celadon-50 text-celadon-700 cursor-pointer rounded-xl text-[11px] font-black transition-[background-color,border-color,color,box-shadow] shadow-sm border border-celadon-200 mb-1";
             window.currentNGDate = d;
             document.getElementById('ng-hour-list').innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
             document.getElementById('ng-image-grid').innerHTML = '';
@@ -555,11 +665,11 @@ window.updateNGHours = function (hours) {
 
     hours.forEach(h => {
         const div = document.createElement('div');
-        div.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-all font-bold text-ink-500 shadow-sm flex items-center justify-between group";
+        div.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group";
         div.innerHTML = `<span>${h}:00 时段</span> <svg class="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>`;
         div.onclick = () => {
-            Array.from(list.children).forEach(c => c.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-all font-bold text-ink-500 shadow-sm flex items-center justify-between group");
-            div.className = "px-4 py-2 bg-celadon-600 border-celadon-600 text-white rounded-xl text-[11px] cursor-pointer transition-all font-bold shadow-md flex items-center justify-between";
+            Array.from(list.children).forEach(c => c.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group");
+            div.className = "px-4 py-2 bg-celadon-600 border-celadon-600 text-white rounded-xl text-[11px] cursor-pointer transition-[background-color,border-color,color,box-shadow] font-bold shadow-md flex items-center justify-between";
             window.currentNGHour = h;
             document.getElementById('ng-image-grid').innerHTML = '<div class="col-span-full h-full flex flex-col items-center justify-center py-20 text-ink-300 opacity-50"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-celadon-500 mb-4"></div><span class="text-xs font-serif italic">正在索引影像档案...</span></div>';
             sendCommand('get_ng_images', { date: window.currentNGDate, hour: h });
@@ -585,7 +695,7 @@ window.updateNGImages = function (images) {
     images.forEach(filename => {
         const url = baseUrl + filename;
         const div = document.createElement('div');
-        div.className = "relative group aspect-square bg-white rounded-2xl border border-slate-100 cursor-zoom-in overflow-hidden shadow-sm hover:shadow-xl hover:border-celadon-200 transition-all duration-300";
+        div.className = "relative group aspect-square bg-white rounded-2xl border border-slate-100 cursor-zoom-in overflow-hidden shadow-sm hover:shadow-xl hover:border-celadon-200 transition-[border-color,box-shadow] duration-300";
         div.innerHTML = `<img src="${url}" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" loading="lazy">
                             <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink-950/80 to-transparent p-3 pt-8 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <div class="text-[9px] font-mono text-white/90 truncate">${filename}</div>
