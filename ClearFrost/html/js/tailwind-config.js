@@ -53,6 +53,18 @@ window.tailwind.config = {
                     700: '#2b3b21',
                     66: '#2b3b21', // Fix for typo in original? Kept 66 as 700 to match original
                 },
+                'mountain': { // 远山黛 (静谧分割)
+                    400: '#4a555e',
+                    500: '#353f47',
+                    600: '#262d33',
+                },
+                'yanqing': { // 烟青 (深沉蓝灰)
+                    DEFAULT: '#2a3b4c',
+                    500: '#3a4e63',
+                    600: '#2a3b4c',
+                    700: '#1d2a38',
+                    800: '#141e28'
+                }
             },
             fontFamily: {
                 serif: ['"Noto Serif SC"', '"Source Han Serif CN"', '"Microsoft YaHei"', 'serif'],

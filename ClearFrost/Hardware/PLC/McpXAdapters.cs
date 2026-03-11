@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using McpXLib;
 using McpXLib.Enums;
@@ -79,6 +79,7 @@ namespace ClearFrost.Hardware
                 if (_plc == null)
                 {
                     LastError = "PLC 未连接";
+                    _isConnected = false;
                     return (false, 0);
                 }
 
@@ -89,6 +90,7 @@ namespace ClearFrost.Hardware
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                _isConnected = false;
                 return (false, 0);
             }
         }
@@ -100,6 +102,7 @@ namespace ClearFrost.Hardware
                 if (_plc == null)
                 {
                     LastError = "PLC 未连接";
+                    _isConnected = false;
                     return false;
                 }
 
@@ -110,6 +113,7 @@ namespace ClearFrost.Hardware
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                _isConnected = false;
                 return false;
             }
         }

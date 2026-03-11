@@ -126,6 +126,7 @@ namespace ClearFrost.Hardware
                 if (!result.IsSuccess)
                 {
                     LastError = result.Message;
+                    _isConnected = false;
                     return (false, 0);
                 }
                 return (true, result.Content);
@@ -133,6 +134,7 @@ namespace ClearFrost.Hardware
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                _isConnected = false;
                 return (false, 0);
             }
         }
@@ -143,12 +145,16 @@ namespace ClearFrost.Hardware
             {
                 var result = await Task.Run(() => _plc.Write(address, value));
                 if (!result.IsSuccess)
+                {
                     LastError = result.Message;
+                    _isConnected = false;
+                }
                 return result.IsSuccess;
             }
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                _isConnected = false;
                 return false;
             }
         }
@@ -212,6 +218,7 @@ namespace ClearFrost.Hardware
                 if (!result.IsSuccess)
                 {
                     LastError = result.Message;
+                    _isConnected = false;
                     return (false, 0);
                 }
                 return (true, result.Content);
@@ -219,6 +226,7 @@ namespace ClearFrost.Hardware
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                _isConnected = false;
                 return (false, 0);
             }
         }
@@ -229,12 +237,16 @@ namespace ClearFrost.Hardware
             {
                 var result = await Task.Run(() => _plc.Write(address, value));
                 if (!result.IsSuccess)
+                {
                     LastError = result.Message;
+                    _isConnected = false;
+                }
                 return result.IsSuccess;
             }
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                _isConnected = false;
                 return false;
             }
         }
@@ -301,6 +313,7 @@ namespace ClearFrost.Hardware
                 if (!result.IsSuccess)
                 {
                     LastError = result.Message;
+                    _isConnected = false;
                     return (false, 0);
                 }
                 return (true, result.Content);
@@ -308,6 +321,7 @@ namespace ClearFrost.Hardware
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                _isConnected = false;
                 return (false, 0);
             }
         }
@@ -318,12 +332,16 @@ namespace ClearFrost.Hardware
             {
                 var result = await Task.Run(() => _plc.Write(address, value));
                 if (!result.IsSuccess)
+                {
                     LastError = result.Message;
+                    _isConnected = false;
+                }
                 return result.IsSuccess;
             }
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                _isConnected = false;
                 return false;
             }
         }
@@ -393,6 +411,7 @@ namespace ClearFrost.Hardware
                 if (!result.IsSuccess)
                 {
                     LastError = result.Message;
+                    _isConnected = false;
                     return (false, 0);
                 }
                 return (true, result.Content);
@@ -400,6 +419,7 @@ namespace ClearFrost.Hardware
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                _isConnected = false;
                 return (false, 0);
             }
         }
@@ -410,12 +430,16 @@ namespace ClearFrost.Hardware
             {
                 var result = await Task.Run(() => _plc.Write(address, value));
                 if (!result.IsSuccess)
+                {
                     LastError = result.Message;
+                    _isConnected = false;
+                }
                 return result.IsSuccess;
             }
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                _isConnected = false;
                 return false;
             }
         }
@@ -483,6 +507,7 @@ namespace ClearFrost.Hardware
                 if (!result.IsSuccess)
                 {
                     LastError = result.Message;
+                    _isConnected = false;
                     return (false, 0);
                 }
                 return (true, result.Content);
@@ -490,6 +515,7 @@ namespace ClearFrost.Hardware
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                _isConnected = false;
                 return (false, 0);
             }
         }
@@ -500,12 +526,16 @@ namespace ClearFrost.Hardware
             {
                 var result = await Task.Run(() => _plc.Write(address, value));
                 if (!result.IsSuccess)
+                {
                     LastError = result.Message;
+                    _isConnected = false;
+                }
                 return result.IsSuccess;
             }
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                _isConnected = false;
                 return false;
             }
         }

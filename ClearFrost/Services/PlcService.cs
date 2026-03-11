@@ -320,6 +320,17 @@ namespace ClearFrost.Services
 
                     try
                     {
+                        _plcDevice?.Disconnect();
+                    }
+                    catch (Exception disconnectEx)
+                    {
+                        Debug.WriteLine($"[PlcService] 监听异常后断开失败: {disconnectEx.Message}");
+                    }
+
+                    _plcDevice = null;
+
+                    try
+                    {
                         await Task.Delay(ReconnectRetryDelayMs, token);
                     }
                     catch (OperationCanceledException)
@@ -435,6 +446,17 @@ namespace ClearFrost.Services
                 if (!socketConnected)
                 {
                     LastError = _plcDevice.LastError;
+
+                    try
+                    {
+                        _plcDevice.Disconnect();
+                    }
+                    catch (Exception disconnectEx)
+                    {
+                        Debug.WriteLine($"[PlcService] 自动重连连接失败后断开异常: {disconnectEx.Message}");
+                    }
+
+                    _plcDevice = null;
                     SetConnectionState(false);
                     return false;
                 }
@@ -462,6 +484,17 @@ namespace ClearFrost.Services
             catch (Exception ex)
             {
                 LastError = ex.Message;
+
+                try
+                {
+                    _plcDevice?.Disconnect();
+                }
+                catch (Exception disconnectEx)
+                {
+                    Debug.WriteLine($"[PlcService] 自动重连异常后断开失败: {disconnectEx.Message}");
+                }
+
+                _plcDevice = null;
                 SetConnectionState(false);
                 ErrorOccurred?.Invoke($"自动重连失败: {ex.Message}");
                 return false;

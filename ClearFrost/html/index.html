@@ -20,7 +20,7 @@
 
     <!-- Header: Floating HUD -->
     <header
-        class="fixed top-6 left-6 right-6 h-16 glass-panel-lite rounded-2xl z-50 flex items-center justify-between px-6">
+        class="cf-top-hud fixed top-6 left-6 right-6 h-16 text-white rounded-2xl z-50 flex items-center justify-between px-6 transition-colors">
         <!-- Left: Logo & Title -->
         <div class="flex items-center gap-4">
             <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-celadon-400 to-celadon-600 flex items-center justify-center text-white shadow-lg shadow-celadon-500/30"
@@ -65,7 +65,7 @@
 
 
             <button onclick="showPasswordModal()"
-                class="p-2.5 rounded-xl hover:bg-white hover:text-celadon-600 transition-colors text-ink-500 btn-press"
+                class="p-2.5 rounded-xl hover:bg-white hover:text-yanqing-600 transition-colors text-white btn-press"
                 title="系统设置">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -83,9 +83,9 @@
 
         <!-- Left Panel: Settings -->
         <div id="left-panel"
-            class="pointer-events-auto w-96 glass-panel-lite flex flex-col cf-panel-transition origin-left drawer-open flex-shrink-0 rounded-2xl overflow-hidden shadow-2xl">
+            class="pointer-events-auto w-96 glass-panel-lite cf-ornate-shell flex flex-col cf-panel-transition origin-left drawer-open flex-shrink-0 rounded-2xl overflow-hidden shadow-2xl">
             <!-- Header -->
-            <div class="p-5 border-b border-white/50 flex justify-between items-center bg-white/75">
+            <div class="p-5 border-b border-white/50 flex justify-between items-center bg-white/75 cf-ornate-header">
                 <h2 class="font-serif font-bold text-ink-800 flex items-center gap-2 text-sm">
                     <svg class="w-4 h-4 text-celadon-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -108,7 +108,7 @@
                     <!-- YOLO Controls (Preserved Structure) -->
                     <div id="yolo-controls" class="space-y-4">
                         <!-- Model Card -->
-                        <div class="bg-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-100/50">
+                        <div class="bg-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-100/50 cf-ornate-card">
                             <label
                                 class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-3">
                                 <svg class="w-3.5 h-3.5 text-celadon-600" fill="none" stroke="currentColor"
@@ -127,7 +127,7 @@
 
                         <!-- Multi-Model Fallback Card -->
                         <div
-                            class="bg-gradient-to-br from-celadon-50/80 to-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-200/60">
+                            class="bg-gradient-to-br from-celadon-50/80 to-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-200/60 cf-ornate-card">
                             <div class="flex items-center justify-between mb-3">
                                 <label
                                     class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest">
@@ -194,7 +194,7 @@
                         </div>
 
                         <!-- Task Type Selector -->
-                        <div class="bg-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-100/50">
+                        <div class="bg-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-100/50 cf-ornate-card">
                             <label
                                 class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-3">
                                 <svg class="w-3.5 h-3.5 text-celadon-600" fill="none" stroke="currentColor"
@@ -217,7 +217,7 @@
                         </div>
 
                         <!-- Conf/IOU Sliders -->
-                        <div class="bg-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-100/50 space-y-4">
+                        <div class="bg-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-100/50 space-y-4 cf-ornate-card">
                             <label
                                 class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-1">
                                 <svg class="w-3.5 h-3.5 text-celadon-600" fill="none" stroke="currentColor"
@@ -250,7 +250,7 @@
 
                         <!-- Performance Metrics -->
                         <div id="perf-metrics"
-                            class="bg-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-100/50 hidden">
+                            class="bg-porcelain-50/80 rounded-xl p-4 shadow-sm border border-celadon-100/50 hidden cf-ornate-card">
                             <label
                                 class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest mb-2">
                                 <svg class="w-3.5 h-3.5 text-celadon-600" fill="none" stroke="currentColor"
@@ -270,7 +270,7 @@
                         </div>
 
                         <!-- Advanced (Simplified) -->
-                        <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100/80 space-y-3">
+                        <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100/80 space-y-3 cf-ornate-card">
                             <h4
                                 class="flex items-center gap-2 text-[10px] font-bold text-ink-400 uppercase tracking-widest">
                                 <svg class="w-3.5 h-3.5 text-celadon-600" fill="none" stroke="currentColor"
@@ -297,11 +297,11 @@
         </div>
 
         <!-- Center: Camera -->
-        <div
-            class="pointer-events-auto flex-1 glass-panel-lite relative overflow-hidden group flex flex-col cf-surface-transition rounded-2xl shadow-float z-0">
+        <div id="camera-panel"
+            class="pointer-events-auto flex-1 glass-panel-lite cf-ornate-shell relative overflow-hidden group flex flex-col cf-surface-transition rounded-2xl shadow-float z-0">
             <!-- Top Bar (Camera Info) -->
             <div
-                class="absolute top-0 left-0 right-0 h-10 bg-white/75 flex justify-between items-center px-4 z-20 border-b border-white/20">
+                class="absolute top-0 left-0 right-0 h-10 bg-white/75 flex justify-between items-center px-4 z-20 border-b border-white/20 cf-ornate-header">
                 <div class="flex items-center gap-2">
                     <span
                         class="w-1.5 h-1.5 rounded-full bg-celadon-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
@@ -348,9 +348,9 @@
 
         <!-- Right Panel: Stats & Logs -->
         <div id="right-panel"
-            class="pointer-events-auto w-96 flex flex-col gap-3 cf-panel-transition origin-right drawer-open flex-shrink-0 pointer-events-auto glass-panel-lite border-l border-white/40 h-full">
+            class="pointer-events-auto w-96 flex flex-col gap-3 cf-panel-transition origin-right drawer-open flex-shrink-0 pointer-events-auto glass-panel-lite cf-ornate-shell border-l border-white/40 h-full">
             <!-- Stats Card -->
-            <div class="glass-panel-lite p-5 relative overflow-hidden group rounded-2xl shrink-0 flex flex-col bg-white/40">
+            <div class="glass-panel-lite p-5 relative overflow-hidden group rounded-2xl shrink-0 flex flex-col bg-white/40 cf-ornate-card">
                 <div class="flex justify-between items-center mb-2">
                     <div class="flex items-center gap-2">
                         <button onclick="toggleDrawer('right-panel')"
@@ -403,7 +403,7 @@
             </div>
 
             <!-- Logs -->
-            <div class="glass-panel-lite flex-1 flex flex-col overflow-hidden rounded-2xl bg-porcelain-50/40 min-h-0">
+            <div class="glass-panel-lite flex-1 flex flex-col overflow-hidden rounded-2xl bg-porcelain-50/40 min-h-0 cf-ornate-card">
                 <div class="p-3 border-b border-white/50 bg-white/30 flex justify-between items-center shrink-0">
                     <span class="text-xs font-bold text-ink-600" style="font-family: 'Microsoft YaHei'">检测流水</span>
                     <div class="flex gap-1">
@@ -445,7 +445,7 @@
 
     <!-- 1. The Dock Itself -->
     <div id="bottom-dock"
-        class="fixed bottom-4 left-0 right-0 mx-auto w-fit z-50 flex items-center gap-3 px-5 py-2 glass-panel dock-industrial rounded-2xl shadow-2xl dock-open transition-[bottom,opacity,box-shadow,background-color,border-color] duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] origin-bottom">
+        class="fixed bottom-4 left-0 right-0 mx-auto w-fit z-50 flex items-center gap-3 px-5 py-2 glass-panel dock-industrial cf-ornate-shell rounded-2xl shadow-2xl dock-open transition-[bottom,opacity,box-shadow,background-color,border-color] duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] origin-bottom">
 
         <!-- Collapse Handle (Added to allows closing since trigger is hidden) -->
         <button onclick="toggleDock()"
@@ -504,7 +504,7 @@
     <!-- 2. The Toggle Handle (Separated) - Enhanced Design -->
     <div id="dock-trigger-container"
         class="fixed bottom-0 left-0 right-0 mx-auto w-fit z-[49] flex justify-center opacity-0 pointer-events-none transition-all duration-300">
-        <button onclick="toggleDock()" id="dock-toggle-btn" class="group px-8 py-3 rounded-t-2xl flex items-center justify-center gap-2 
+        <button onclick="toggleDock()" id="dock-toggle-btn" class="group px-8 py-3 rounded-t-2xl flex items-center justify-center gap-2 cf-ornate-trigger 
                    bg-porcelain-100 hover:bg-porcelain-200
                    border-t border-l border-r border-celadon-100/60
                    shadow-[0_-4px_20px_rgba(26,29,33,0.08)] hover:shadow-[0_-8px_30px_rgba(26,29,33,0.12)]
@@ -529,9 +529,9 @@
     <!-- Settings Modal -->
     <div id="settings-modal"
         class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
-        <div class="glass-panel-lite w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+        <div class="glass-panel-lite cf-ornate-modal w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             <div
-                class="h-16 border-b border-celadon-100 flex justify-between items-center px-8 bg-porcelain-50/50 shrink-0">
+                class="h-16 border-b border-celadon-100 flex justify-between items-center px-8 bg-porcelain-50/50 shrink-0 cf-ornate-header">
                 <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest">系统参数配置 <span
                         class="text-xs font-sans font-normal text-ink-400 ml-2 italic">Configuration</span></h3>
                 <button onclick="closeSettingsModal()"
@@ -582,7 +582,7 @@
                         <div class="space-y-4">
                             <div>
                                 <label class="text-[10px] font-bold text-ink-400 mb-1 block">物理协议类型</label>
-                                <select id="cfg-plc-protocol" onchange="syncDriverProviderOptions()"
+                                <select id="cfg-plc-protocol"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
                                     <option value="Mitsubishi_MC_ASCII">Mitsubishi MC (ASCII)</option>
                                     <option value="Mitsubishi_MC_Binary">Mitsubishi MC (Binary)</option>
@@ -590,15 +590,6 @@
                                     <option value="Siemens_S7">Siemens S7 (1200/1500)</option>
                                     <option value="Omron_Fins">Omron Fins TCP</option>
                                 </select>
-                            </div>
-                            <div>
-                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">驱动库</label>
-                                <select id="cfg-plc-driver-provider"
-                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
-                                    <option value="Hsl">Hsl（默认稳定版）</option>
-                                    <option value="McpX">McpX（三菱免费试点）</option>
-                                </select>
-                                <p class="mt-1 text-[9px] text-ink-400 italic">驱动切换需重新连接PLC后生效</p>
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
@@ -890,8 +881,8 @@
     <!-- Gallery Modal -->
     <div id="gallery-modal" class="fixed inset-0 bg-ink-900/60 z-[60] hidden overflow-hidden">
         <div
-            class="absolute inset-y-0 right-0 w-[80%] bg-white/95 shadow-2xl flex flex-col border-l border-slate-200">
-            <header class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0">
+            class="absolute inset-y-0 right-0 w-[80%] bg-white/95 shadow-2xl flex flex-col border-l border-slate-200 cf-ornate-modal">
+            <header class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0 cf-ornate-header">
                 <div class="flex items-center gap-4">
                     <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest capitalize">图像追溯库 <span
                             class="text-[10px] font-sans font-normal text-ink-400 ml-2 uppercase italic tracking-normal">Recover
@@ -958,8 +949,8 @@
     <!-- Log History Modal -->
     <div id="log-history-modal"
         class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
-        <div class="glass-panel-lite w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[85vh]">
-            <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0">
+        <div class="glass-panel-lite cf-ornate-modal w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[85vh]">
+            <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0 cf-ornate-header">
                 <div class="flex items-center gap-4">
                     <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">检测详单追踪</h3>
                     <input type="date" id="log-date-picker"
@@ -1019,8 +1010,8 @@
     <!-- Statistics History Modal -->
     <div id="statistics-history-modal"
         class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
-        <div class="glass-panel-lite w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[70vh]">
-            <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white/80 shrink-0">
+        <div class="glass-panel-lite cf-ornate-modal w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[70vh]">
+            <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white/80 shrink-0 cf-ornate-header">
                 <div class="flex items-center gap-4">
                     <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">历史统计数据对比</h3>
                     <span

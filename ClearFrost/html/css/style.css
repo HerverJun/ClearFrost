@@ -417,3 +417,233 @@ input[type="range"]::-webkit-slider-runnable-track {
     /* [安全工业模式] 移除 scale(0.98)，避免 transform 叠加 */
     pointer-events: none;
 }
+
+/* =========================================
+   [国风雅致扩充] - 安全静态资源追加
+   ========================================= */
+
+/* 远山黛细描边线（替代纯白或傻灰色边框） */
+.accent-divider {
+    border-color: rgba(74, 85, 94, 0.2) !important;
+}
+
+/* Fallbacks for Tailwind JIT (仅为防抽风保障，正常应由JS驱动) */
+.shadow-jade {
+    box-shadow: 0 8px 24px -4px rgba(44, 90, 113, 0.12), 0 0 1px rgba(44, 90, 113, 0.2) !important;
+}
+.shadow-rouge-glow {
+    box-shadow: 0 4px 12px rgba(158, 42, 43, 0.15) !important;
+}
+.shadow-amber-glow {
+    box-shadow: 0 4px 12px rgba(200, 155, 64, 0.15) !important;
+}
+
+/* =========================================
+   [国风雅致补全] - 仅静态色与阴影
+   不新增动画 / 定时器 / 滤镜链
+   ========================================= */
+
+.cf-ornate-shell,
+.cf-ornate-card,
+.cf-ornate-modal,
+.cf-ornate-header,
+.cf-ornate-trigger {
+    position: relative;
+}
+
+.cf-ornate-shell {
+    background: linear-gradient(180deg, rgba(253, 251, 247, 0.98) 0%, rgba(250, 247, 240, 0.95) 100%) !important;
+    border-color: rgba(74, 85, 94, 0.18) !important;
+    box-shadow:
+        0 18px 40px -24px rgba(20, 30, 40, 0.26),
+        0 8px 18px -14px rgba(44, 90, 113, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
+}
+
+.cf-ornate-shell::before,
+.cf-ornate-modal::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 14px;
+    right: 14px;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+            rgba(44, 90, 113, 0),
+            rgba(44, 90, 113, 0.18) 18%,
+            rgba(158, 42, 43, 0.12) 50%,
+            rgba(44, 90, 113, 0.18) 82%,
+            rgba(44, 90, 113, 0));
+    pointer-events: none;
+}
+
+.cf-ornate-header {
+    background: linear-gradient(180deg, rgba(248, 243, 233, 0.94) 0%, rgba(255, 255, 255, 0.82) 100%) !important;
+    border-bottom-color: rgba(74, 85, 94, 0.14) !important;
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.cf-ornate-card {
+    background: linear-gradient(180deg, rgba(255, 250, 244, 0.96) 0%, rgba(253, 251, 247, 0.9) 100%) !important;
+    border-color: rgba(163, 179, 190, 0.26) !important;
+    box-shadow:
+        0 14px 28px -24px rgba(20, 30, 40, 0.28),
+        0 4px 10px -8px rgba(44, 90, 113, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+.cf-ornate-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 12px;
+    right: 12px;
+    height: 1px;
+    background: linear-gradient(90deg,
+            rgba(44, 90, 113, 0),
+            rgba(44, 90, 113, 0.14) 20%,
+            rgba(158, 42, 43, 0.1) 50%,
+            rgba(44, 90, 113, 0.14) 80%,
+            rgba(44, 90, 113, 0));
+    pointer-events: none;
+}
+
+.cf-ornate-modal {
+    background: linear-gradient(180deg, rgba(253, 251, 247, 0.985) 0%, rgba(250, 247, 240, 0.965) 100%) !important;
+    border: 1px solid rgba(74, 85, 94, 0.18) !important;
+    box-shadow:
+        0 28px 60px -30px rgba(20, 30, 40, 0.38),
+        0 12px 24px -16px rgba(44, 90, 113, 0.16),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+}
+
+.cf-ornate-trigger {
+    background: linear-gradient(180deg, rgba(252, 248, 240, 0.98) 0%, rgba(245, 241, 233, 0.95) 100%) !important;
+    border-color: rgba(74, 85, 94, 0.16) !important;
+    box-shadow:
+        0 -8px 22px -16px rgba(20, 30, 40, 0.24),
+        inset 0 1px 0 rgba(255, 255, 255, 0.75) !important;
+}
+
+.cf-top-hud {
+    background: linear-gradient(180deg, #6b7b72 0%, #5a6961 100%) !important;
+    border: 1px solid rgba(73, 89, 80, 0.82) !important;
+    box-shadow:
+        0 16px 36px -26px rgba(34, 47, 40, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.09) !important;
+}
+
+.cf-top-hud h1 {
+    background-image: none !important;
+    color: #f7fbf8 !important;
+    -webkit-text-fill-color: #f7fbf8 !important;
+    text-shadow: 0 1px 0 rgba(36, 50, 42, 0.18);
+}
+
+.cf-top-hud h1 span {
+    color: #4b5f55 !important;
+    -webkit-text-fill-color: #4b5f55 !important;
+    background-color: rgba(248, 251, 249, 0.9) !important;
+    border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+.cf-top-hud .text-ink-600,
+.cf-top-hud .text-ink-500,
+.cf-top-hud .text-ink-400 {
+    color: rgba(244, 248, 245, 0.94) !important;
+}
+
+.cf-top-hud .bg-celadon-50 {
+    background-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+.cf-top-hud .border-celadon-100,
+.cf-top-hud .border-white {
+    border-color: rgba(244, 248, 245, 0.2) !important;
+}
+
+.cf-top-hud .text-celadon-600 {
+    color: #edf5ef !important;
+}
+
+.cf-top-hud > div:nth-child(2) .text-ink-600 {
+    color: rgba(249, 252, 250, 0.98) !important;
+}
+
+.cf-top-hud > div:nth-child(2) > div:not(.w-px) {
+    background: rgba(255, 255, 255, 0.14) !important;
+    border-color: rgba(255, 255, 255, 0.18) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.cf-top-hud > div:nth-child(2) > .w-px {
+    background: rgba(244, 248, 245, 0.22) !important;
+}
+
+.cf-top-hud button {
+    color: rgba(246, 249, 247, 0.94) !important;
+}
+
+.cf-top-hud button:hover {
+    background: rgba(255, 255, 255, 0.16) !important;
+    color: #ffffff !important;
+}
+
+.cf-top-hud #header-status-cam,
+.cf-top-hud #header-status-plc,
+.cf-top-hud #header-status-trigger {
+    background-color: rgba(232, 238, 234, 0.9) !important;
+}
+
+.cf-top-hud .shadow-sm {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+#camera-panel #camera-container {
+    background: linear-gradient(180deg, rgba(240, 244, 245, 0.72) 0%, rgba(249, 246, 239, 0.92) 100%) !important;
+}
+
+#camera-panel .drawer-trigger {
+    background: linear-gradient(180deg, rgba(252, 248, 240, 0.96) 0%, rgba(245, 241, 233, 0.92) 100%) !important;
+    border-color: rgba(74, 85, 94, 0.14) !important;
+    box-shadow:
+        0 12px 20px -16px rgba(20, 30, 40, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+#right-panel > .cf-ornate-card:first-child {
+    background: linear-gradient(180deg, rgba(252, 248, 240, 0.98) 0%, rgba(250, 247, 240, 0.94) 100%) !important;
+}
+
+#bottom-dock .w-px {
+    background: rgba(74, 85, 94, 0.16) !important;
+}
+
+#bottom-dock .btn-press,
+#bottom-dock #btn-open-camera,
+#bottom-dock button[onclick="clearRoi()"] {
+    box-shadow:
+        0 10px 18px -16px rgba(20, 30, 40, 0.26),
+        inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+#settings-modal .tech-input,
+#log-history-modal .tech-input {
+    background: rgba(255, 251, 246, 0.96);
+    border-color: rgba(163, 179, 190, 0.34);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+#gallery-modal > .cf-ornate-modal,
+#settings-modal > .cf-ornate-modal,
+#log-history-modal > .cf-ornate-modal,
+#statistics-history-modal > .cf-ornate-modal {
+    overflow: hidden;
+}
+
+#result-overlay > div {
+    box-shadow:
+        0 24px 48px -28px rgba(20, 30, 40, 0.34),
+        inset 0 1px 0 rgba(255, 255, 255, 0.52) !important;
+}
