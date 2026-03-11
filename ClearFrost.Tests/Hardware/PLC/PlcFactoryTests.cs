@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using ClearFrost.Hardware;
 using FluentAssertions;
 
 namespace ClearFrost.Tests.Hardware.PLC;
 
+[Trait("Category", "PLC.Factory")]
 public class PlcFactoryTests
 {
     [Theory]
