@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using ClearFrost.Config;
 using ClearFrost.Hardware;
 using System.Collections.Generic;
@@ -360,9 +360,8 @@ namespace ClearFrost.Hardware
                     }
                     catch (Exception ex)
                     {
-                        // SDK DLL 缺失或加载失败时，回退到模拟相机
-                        Debug.WriteLine($"[CameraManager] SDK error, falling back to MockCamera: {ex.Message}");
-                        camera = new MockCamera();
+                        Debug.WriteLine($"[CameraManager] SDK error, AddCamera failed: {ex.Message}");
+                        return false;
                     }
                 }
 

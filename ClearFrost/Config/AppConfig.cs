@@ -67,6 +67,10 @@ namespace ClearFrost.Config
         public float IouThreshold { get; set; } = 0.3f;
         public bool EnableGlobalIou { get; set; } = false;
         public int ModelVersion { get; set; } = 0;
+        /// <summary>
+        /// 当前使用的主模型文件名（含扩展名，如 "model_v1.onnx"）
+        /// </summary>
+        public string CurrentModelFileName { get; set; } = "";
         public int TaskType { get; set; } = 1;
         public bool EnablePreprocessing { get; set; } = true;
         public bool EnableGpu { get; set; } = false;

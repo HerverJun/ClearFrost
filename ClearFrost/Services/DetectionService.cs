@@ -193,7 +193,10 @@ namespace ClearFrost.Services
             try
             {
                 string modelsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ONNX");
-                string modelPath = Path.Combine(modelsDir, $"{modelName}.onnx");
+                string fileName = modelName.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)
+                    ? modelName
+                    : $"{modelName}.onnx";
+                string modelPath = Path.Combine(modelsDir, fileName);
 
                 if (_modelManager != null)
                 {

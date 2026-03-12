@@ -1,4 +1,4 @@
-using ClearFrost.Models;
+﻿using ClearFrost.Models;
 // ============================================================================
 // 文件名: StatisticsService.cs
 // 描述:   统计服务实现
@@ -101,6 +101,7 @@ namespace ClearFrost.Services
                     return records.Select(r => new DailyStatisticsRecord
                     {
                         Date = r.Date,
+                        TotalCount = r.TotalCount,
                         QualifiedCount = r.QualifiedCount,
                         UnqualifiedCount = r.UnqualifiedCount
                     }).ToList().AsReadOnly();
@@ -312,6 +313,17 @@ namespace ClearFrost.Services
         }
 
         #region 兼容性方法
+
+        /// <summary>
+        /// 获取统计历史及汇总数据（供前端图表使用）
+        /// </summary>
+        public (StatisticsHistory history, DetectionStatistics stats) GetStatisticsData()
+        {
+            lock (_statsLock)
+            {
+                return (_statisticsHistory, _detectionStats);
+            }
+        }
 
         /// <summary>
         /// 获取底层 DetectionStatistics (供兼容)

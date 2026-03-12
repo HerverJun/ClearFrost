@@ -37,11 +37,20 @@ namespace ClearFrost
 
             bool useGpu = _appConfig.EnableGpu;
 
-            // 如果没指定模型名，尝试找一个默认的
-            if (string.IsNullOrEmpty(模型名))
+            // 优先恢复上次使用的主模型；为空或文件不存在时再尝试目录中的第一个模型
+            if (string.IsNullOrWhiteSpace(模型名))
             {
-                var files = Directory.GetFiles(模型路径, "*.onnx");
-                if (files.Length > 0) 模型名 = Path.GetFileName(files[0]);
+                模型名 = _appConfig.CurrentModelFileName?.Trim() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(模型名) && !File.Exists(Path.Combine(模型路径, 模型名)))
+                {
+                    模型名 = string.Empty;
+                }
+
+                if (string.IsNullOrWhiteSpace(模型名))
+                {
+                    var files = Directory.GetFiles(模型路径, "*.onnx");
+                    if (files.Length > 0) 模型名 = Path.GetFileName(files[0]);
+                }
             }
 
             if (!string.IsNullOrEmpty(模型名))
@@ -52,6 +61,13 @@ namespace ClearFrost
                     bool success = await _detectionService.LoadModelAsync(modelPath, useGpu);
                     if (success)
                     {
+                        模型名 = Path.GetFileName(modelPath);
+                        if (!string.Equals(_appConfig.CurrentModelFileName, 模型名, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _appConfig.CurrentModelFileName = 模型名;
+                            _appConfig.Save();
+                        }
+
                         await _uiController.LogToFrontend($"模型加载成功: {模型名}", "success");
                         await RestoreMultiModelConfigAsync();
                     }
@@ -151,6 +167,7 @@ namespace ClearFrost
                     results = FilterResultsByROI(results, originalBitmap.Width, originalBitmap.Height);
 
                     string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
+                    isQualified = EvaluateQualificationByTarget(results, labels, _appConfig.TargetLabel, _appConfig.TargetCount);
                     using (var sourceMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(originalBitmap))
                     using (var renderedMat = TryRenderDetectionMat(sourceMat, results, labels))
                     {
@@ -213,18 +230,23 @@ namespace ClearFrost
             {
                 await _uiController.LogToFrontend($"正在切换模型: {modelName}", "info");
 
-                string modelPath = Path.Combine(模型路径, modelName);
+                string modelFileName = modelName.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)
+                    ? modelName
+                    : $"{modelName}.onnx";
+                string modelPath = Path.Combine(模型路径, modelFileName);
                 if (!File.Exists(modelPath))
                 {
-                    await _uiController.LogToFrontend($"模型文件不存在: {modelName}", "error");
+                    await _uiController.LogToFrontend($"模型文件不存在: {modelFileName}", "error");
                     return;
                 }
 
                 bool success = await _detectionService.LoadModelAsync(modelPath, _appConfig.EnableGpu);
                 if (success)
                 {
+                    模型名 = modelFileName;
+                    _appConfig.CurrentModelFileName = modelFileName;
                     _appConfig.Save();
-                    await _uiController.LogToFrontend($"模型切换成功: {modelName}", "success");
+                    await _uiController.LogToFrontend($"模型切换成功: {modelFileName}", "success");
                 }
                 else
                 {
@@ -339,13 +361,15 @@ namespace ClearFrost
                     roiFilterMs = roiSw.ElapsedMilliseconds;
                     finalResultCount = results.Count;
 
+                    string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
+                    isQualified = EvaluateQualificationByTarget(results, labels, _appConfig.TargetLabel, _appConfig.TargetCount);
+                    finalQualified = isQualified;
+
                     // 将检测结果写入PLC
                     var plcSw = Stopwatch.StartNew();
                     await WriteDetectionResultToPlc(isQualified);
                     plcSw.Stop();
                     plcWriteMs = plcSw.ElapsedMilliseconds;
-
-                    string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
                     using (var renderedMat = TryRenderDetectionMat(mat, results, labels))
                     {
                         // 保存图像（不合格时复用同一份渲染结果）
@@ -377,7 +401,25 @@ namespace ClearFrost
                         Timestamp = DateTime.Now,
                         IsQualified = isQualified,
                         ModelName = _detectionService.CurrentModelName,
-                        InferenceMs = (int)inferenceMs
+                        InferenceMs = (int)inferenceMs,
+                        TargetLabel = _appConfig.TargetLabel ?? string.Empty,
+                        ExpectedCount = _appConfig.TargetCount,
+                        ActualCount = finalResultCount,
+                        CameraId = _cameraManager.ActiveCameraId,
+                        ResultJson = results.Count > 0
+                            ? JsonSerializer.Serialize(results.Select(r => new
+                            {
+                                r.ClassId,
+                                r.Confidence,
+                                BoundingBox = new
+                                {
+                                    X = r.BoundingBox.X,
+                                    Y = r.BoundingBox.Y,
+                                    Width = r.BoundingBox.Width,
+                                    Height = r.BoundingBox.Height
+                                }
+                            }))
+                            : string.Empty
                     });
                     dbSw.Stop();
                     dbWriteMs = dbSw.ElapsedMilliseconds;

@@ -19,12 +19,14 @@ namespace ClearFrost.Hardware
         private const uint GvspPixelBayerBg8 = 0x0108000C;
 
         private readonly ICameraProvider _provider;
+        private readonly string _deviceSerialNumber;
         private bool _disposed = false;
         private CameraFrame? _currentFrame;
 
         public CameraProviderAdapter(ICameraProvider provider)
         {
             _provider = provider ?? throw new ArgumentNullException(nameof(provider));
+            _deviceSerialNumber = provider.CurrentDevice?.SerialNumber ?? string.Empty;
         }
 
         public bool IsConnected => _provider.IsConnected;
@@ -43,8 +45,29 @@ namespace ClearFrost.Hardware
 
         public int IMV_Open()
         {
-            // 
-            return _provider.IsConnected ? IMVDefine.IMV_OK : -1;
+            if (_provider.IsConnected)
+            {
+                return IMVDefine.IMV_OK;
+            }
+
+            string serialNumber = !string.IsNullOrWhiteSpace(_deviceSerialNumber)
+                ? _deviceSerialNumber
+                : _provider.CurrentDevice?.SerialNumber ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(serialNumber))
+            {
+                return -1;
+            }
+
+            try
+            {
+                return _provider.Open(serialNumber) ? IMVDefine.IMV_OK : -1;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[CameraProviderAdapter] Reopen failed: {ex.Message}");
+                return -1;
+            }
         }
 
         public int IMV_SetEnumFeatureSymbol(string name, string value)

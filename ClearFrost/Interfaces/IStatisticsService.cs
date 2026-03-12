@@ -1,4 +1,4 @@
-using ClearFrost.Models;
+﻿using ClearFrost.Models;
 // ============================================================================
 // 文件名: IStatisticsService.cs
 // 描述:   统计服务接口
@@ -106,6 +106,11 @@ namespace ClearFrost.Interfaces
         /// 加载所有数据
         /// </summary>
         void LoadAll();
+
+        /// <summary>
+        /// 获取统计历史及汇总数据（供 Web 前端图表使用）
+        /// </summary>
+        (StatisticsHistory history, DetectionStatistics stats) GetStatisticsData();
 
         #endregion
     }

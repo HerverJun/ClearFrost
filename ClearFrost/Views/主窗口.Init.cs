@@ -142,17 +142,13 @@ namespace ClearFrost
             };
             _uiController.OnGetStatisticsHistory += async (s, e) =>
             {
-                // 使用 StatisticsService 获取底层数据
-                var stats = ((StatisticsService)_statisticsService).GetDetectionStats();
-                var history = ((StatisticsService)_statisticsService).GetStatisticsHistory();
+                var (history, stats) = _statisticsService.GetStatisticsData();
                 await _uiController.SendStatisticsHistory(history, stats);
             };
             _uiController.OnClearStatisticsHistory += async (s, e) =>
             {
                 _statisticsService.ClearHistory();
-                // 刷新历史记录及图表
-                var stats = ((StatisticsService)_statisticsService).GetDetectionStats();
-                var history = ((StatisticsService)_statisticsService).GetStatisticsHistory();
+                var (history, stats) = _statisticsService.GetStatisticsData();
                 await _uiController.SendStatisticsHistory(history, stats);
                 await _uiController.LogToFrontend("✅ 历史统计数据已清空", "success");
             };
