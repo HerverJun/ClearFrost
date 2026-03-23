@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -246,6 +246,12 @@ namespace ClearFrost.Hardware
         {
             if (!_isConnected) return false;
             return _cam.IMV_SetDoubleFeatureValue("GainRaw", value) == IMVDefine.IMV_OK;
+        }
+
+        public bool SetPixelFormat(string pixelFormat)
+        {
+            if (!_isConnected || string.IsNullOrWhiteSpace(pixelFormat)) return false;
+            return _cam.IMV_SetEnumFeatureSymbol("PixelFormat", pixelFormat) == IMVDefine.IMV_OK;
         }
 
         public bool SetTriggerMode(bool softwareTrigger)

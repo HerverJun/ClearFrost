@@ -404,6 +404,12 @@ namespace ClearFrost.Hardware
             return MV_CC_SetFloatValue(_handle, "Gain", (float)value) == MV_OK;
         }
 
+        public bool SetPixelFormat(string pixelFormat)
+        {
+            if (!IsConnected || string.IsNullOrWhiteSpace(pixelFormat)) return false;
+            return MV_CC_SetEnumValueByString(_handle, "PixelFormat", pixelFormat) == MV_OK;
+        }
+
         public bool SetTriggerMode(bool softwareTrigger)
         {
             if (!IsConnected) return false;

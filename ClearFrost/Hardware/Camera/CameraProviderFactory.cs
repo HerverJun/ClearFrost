@@ -224,6 +224,7 @@ namespace ClearFrost.Hardware
 
         public bool SetExposure(double microseconds) => true;
         public bool SetGain(double value) => true;
+        public bool SetPixelFormat(string pixelFormat) => true;
         public bool SetTriggerMode(bool softwareTrigger) => true;
         public bool ExecuteSoftwareTrigger() => true;
 

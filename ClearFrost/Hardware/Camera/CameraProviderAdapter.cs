@@ -76,6 +76,10 @@ namespace ClearFrost.Hardware
             {
                 _provider.SetTriggerMode(value == "On");
             }
+            else if (name == "PixelFormat")
+            {
+                return _provider.SetPixelFormat(value) ? IMVDefine.IMV_OK : -1;
+            }
             return IMVDefine.IMV_OK;
         }
 

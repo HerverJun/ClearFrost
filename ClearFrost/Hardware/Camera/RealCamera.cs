@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using MVSDK_Net;
@@ -55,6 +55,36 @@ namespace ClearFrost.Hardware
         public int IMV_SetDoubleFeatureValue(string name, double value)
         {
             return _cam.IMV_SetDoubleFeatureValue(name, value);
+        }
+
+        public bool IMV_FeatureIsReadable(string name)
+        {
+            return _cam.IMV_FeatureIsReadable(name);
+        }
+
+        public bool IMV_FeatureIsWriteable(string name)
+        {
+            return _cam.IMV_FeatureIsWriteable(name);
+        }
+
+        public bool TryGetEnumFeatureSymbol(string name, out string value)
+        {
+            value = string.Empty;
+
+            if (!_isConnected || string.IsNullOrWhiteSpace(name) || !_cam.IMV_FeatureIsReadable(name))
+            {
+                return false;
+            }
+
+            IMVDefine.IMV_String symbol = new IMVDefine.IMV_String();
+            int result = _cam.IMV_GetEnumFeatureSymbol(name, ref symbol);
+            if (result != IMVDefine.IMV_OK)
+            {
+                return false;
+            }
+
+            value = symbol.str?.Trim() ?? string.Empty;
+            return !string.IsNullOrWhiteSpace(value);
         }
 
         public int IMV_SetBufferCount(int count)

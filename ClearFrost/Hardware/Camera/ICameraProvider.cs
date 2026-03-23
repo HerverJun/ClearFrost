@@ -184,6 +184,11 @@ namespace ClearFrost.Hardware
         /// <summary>
         /// 
         /// </summary>
+        bool SetPixelFormat(string pixelFormat);
+
+        /// <summary>
+        /// 
+        /// </summary>
         /// 
         bool SetTriggerMode(bool softwareTrigger);
 
