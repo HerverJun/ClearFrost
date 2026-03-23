@@ -30,10 +30,9 @@ namespace ClearFrost
         {
             InitializeComponent();
 
-            // 初始化相机管理器
-            _cameraManager = new CameraManager(_appConfig.IsDebugMode);
-            _cameraManager.LoadFromConfig(_appConfig);
-            _cameraService = new CameraService(_cameraManager);
+            _appRuntime = new AppRuntime(_appConfig);
+            _cameraManager = _appRuntime.CameraManager;
+            _cameraService = _appRuntime.CameraService;
 
             // 向后兼容：从 CameraManager 获取活动相机
             var activeCam = _cameraManager.ActiveCamera;
@@ -53,27 +52,19 @@ namespace ClearFrost
             this.Text = "清霜 ClearFrost V4 预览版";
 
             // 初始化 WebUI 控制器
-            _uiController = new WebUIController();
+            _uiController = _appRuntime.WebUIController;
             _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
             YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
 
             // ====================== 初始化服务层 ======================
-            // PLC 服务
-            _plcService = new PlcService();
-
-            // Detection 服务
-            _detectionService = new DetectionService(_appConfig.EnableGpu);
-
-            // Storage 服务
-            _storageService = new StorageService(_appConfig?.StoragePath);
-
-            // Statistics 服务
-            _statisticsService = new StatisticsService(_storageService.SystemPath.Replace("\\System", ""));
-
-            // Database 服务 (SQLite)
-            _databaseService = new SqliteDatabaseService();
+            _plcService = _appRuntime.PlcService;
+            _detectionService = _appRuntime.DetectionService;
+            _storageService = _appRuntime.StorageService;
+            _statisticsService = _appRuntime.StatisticsService;
+            _databaseService = _appRuntime.DatabaseService;
             SafeFireAndForget(_databaseService.InitializeAsync(), "数据库初始化");
-            _imageSaveQueue = new ImageSaveQueue();
+            _imageSaveQueue = _appRuntime.ImageSaveQueue;
+            _detectionRecordQueue = _appRuntime.DetectionRecordQueue;
 
             // 注册所有事件监听 (实现位于 主窗口.Init.cs)
             RegisterEvents();

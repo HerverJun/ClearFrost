@@ -40,7 +40,7 @@ namespace ClearFrost
     /// <summary>
     /// Manages the WebView2 control and communication between C# and the Web frontend.
     /// </summary>
-    public class WebUIController
+    public class WebUIController : IDisposable
     {
         private const string PreviewHostName = "preview.local";
 
@@ -53,6 +53,9 @@ namespace ClearFrost
         private int _previewFrameToggle;
         private string _webPreviewCachePath = string.Empty;
         private const int ImagePushMinIntervalMs = 50;
+        private EventHandler<CoreWebView2WebMessageReceivedEventArgs>? _webMessageReceivedHandler;
+        private EventHandler<CoreWebView2NavigationCompletedEventArgs>? _navigationCompletedHandler;
+        private bool _disposed;
 
         // Events to notify the main window about frontend actions
         public event EventHandler? OnFindCamera;
@@ -161,32 +164,28 @@ namespace ClearFrost
                 _webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
                 // Register message received handler BEFORE navigation to ensure no messages (like app_ready) are missed
-                _webView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
+                _webMessageReceivedHandler ??= CoreWebView2_WebMessageReceived;
+                _webView.CoreWebView2.WebMessageReceived -= _webMessageReceivedHandler;
+                _webView.CoreWebView2.WebMessageReceived += _webMessageReceivedHandler;
 
                 if (isDevMode)
                 {
                     await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.__CF_DEV_MODE = true;");
 
-                    _webView.CoreWebView2.NavigationCompleted += async (s2, e2) =>
-                    {
-                        if (e2.IsSuccess)
-                        {
-                            try
-                            {
-                                await _webView.CoreWebView2.CallDevToolsProtocolMethodAsync(
-                                    "Network.clearBrowserCache", "{}");
-                            }
-                            catch
-                            {
-                            }
-                        }
-                    };
+                    _navigationCompletedHandler ??= CoreWebView2_NavigationCompleted;
+                    _webView.CoreWebView2.NavigationCompleted -= _navigationCompletedHandler;
+                    _webView.CoreWebView2.NavigationCompleted += _navigationCompletedHandler;
 
                     string timestamp = DateTime.Now.Ticks.ToString();
                     _webView.CoreWebView2.Navigate($"https://app.local/index.html?v={timestamp}");
                 }
                 else
                 {
+                    if (_navigationCompletedHandler != null)
+                    {
+                        _webView.CoreWebView2.NavigationCompleted -= _navigationCompletedHandler;
+                    }
+
                     _webView.CoreWebView2.Navigate("https://app.local/index.html");
                 }
 
@@ -738,6 +737,23 @@ namespace ClearFrost
             }
         }
 
+        private async void CoreWebView2_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            if (!e.IsSuccess || _webView?.CoreWebView2 == null)
+            {
+                return;
+            }
+
+            try
+            {
+                await _webView.CoreWebView2.CallDevToolsProtocolMethodAsync(
+                    "Network.clearBrowserCache", "{}");
+            }
+            catch
+            {
+            }
+        }
+
         /// <summary>
         /// Sends a log message to the upper "Detection Log" window.
         /// </summary>
@@ -1047,6 +1063,70 @@ namespace ClearFrost
             if (_webView?.CoreWebView2 == null) return;
             string json = JsonSerializer.Serialize(new { cameras = cameras });
             await ExecuteScriptOnUiThreadAsync($"receiveSuperSearchResult({json})");
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            try
+            {
+                if (_webView?.CoreWebView2 != null)
+                {
+                    if (_webMessageReceivedHandler != null)
+                    {
+                        _webView.CoreWebView2.WebMessageReceived -= _webMessageReceivedHandler;
+                    }
+
+                    if (_navigationCompletedHandler != null)
+                    {
+                        _webView.CoreWebView2.NavigationCompleted -= _navigationCompletedHandler;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[WebUIController] Dispose unsubscribe failed: {ex.Message}");
+            }
+            finally
+            {
+                OnFindCamera = null;
+                OnOpenCamera = null;
+                OnManualDetect = null;
+                OnManualRelease = null;
+                OnOpenSettings = null;
+                OnChangeModel = null;
+                OnThresholdChanged = null;
+                OnAppReady = null;
+                OnTestYolo = null;
+                OnExitApp = null;
+                OnMinimizeApp = null;
+                OnToggleMaximize = null;
+                OnStartDrag = null;
+                OnConnectPlc = null;
+                OnUpdateROI = null;
+                OnSetConfidence = null;
+                OnSetIou = null;
+                OnSetTaskType = null;
+                OnVerifyPassword = null;
+                OnSaveSettings = null;
+                OnSelectStorageFolder = null;
+                OnGetStatisticsHistory = null;
+                OnClearStatisticsHistory = null;
+                OnResetStatistics = null;
+                OnGetCameraList = null;
+                OnSwitchCamera = null;
+                OnAddCamera = null;
+                OnDeleteCamera = null;
+                OnSuperSearchCameras = null;
+                OnSuperSearchCamerasHik = null;
+                OnDirectConnectCamera = null;
+                OnSetAuxiliary1Model = null;
+                OnSetAuxiliary2Model = null;
+                OnToggleMultiModelFallback = null;
+                _webView = null;
+            }
         }
     }
 }

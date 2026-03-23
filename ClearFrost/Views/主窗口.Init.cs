@@ -196,11 +196,15 @@ namespace ClearFrost
                         if (newCam.IsOpen)
                         {
                             _cameraService.StartCapture();
+                            await _uiController.LogToFrontend($"✅ 已切换到相机: {newCam.Config.DisplayName}");
                         }
+                        else
+                        {
+                            await _uiController.LogToFrontend($"ℹ️ 已切换到相机 (未连接): {newCam.Config.DisplayName}", "warning");
+                        }
+
                         _cameraManager.SaveToConfig(_appConfig);
                         _appConfig.Save();
-
-                        await _uiController.LogToFrontend($"✅ 已切换到相机: {newCam.Config.DisplayName}");
                     }
                     else
                     {
@@ -268,7 +272,7 @@ namespace ClearFrost
                         };
                         _appConfig.Cameras.Add(newConfig);
 
-                        // 尝试添加到相机管理器（可能失败如果相机未连接）
+                        // 添加到相机管理器（仅注册，不在此阶段占用硬件）
                         bool added = _cameraManager.AddCamera(newConfig);
                         if (added)
                         {
@@ -276,7 +280,7 @@ namespace ClearFrost
                         }
                         else
                         {
-                            await _uiController.LogToFrontend($"ℹ️ 相机配置已保存，但设备未连接或SDK加载失败: {displayName}", "warning");
+                            await _uiController.LogToFrontend($"ℹ️ 相机配置已保存，但注册阶段未完成: {displayName}", "warning");
                         }
                     }
 
@@ -477,7 +481,7 @@ namespace ClearFrost
                             gain = c.Gain
                         }).ToList();
                         await _uiController.SendCameraList(cameras, _appConfig.ActiveCameraId ?? "");
-                        await _uiController.LogToFrontend($"相机 [{newConfig.DisplayName}] 已连接", "success");
+                        await _uiController.LogToFrontend($"相机 [{newConfig.DisplayName}] 已添加并设为当前相机，请点击“打开相机”完成连接", "success");
                     }
                     else
                     {
@@ -964,41 +968,11 @@ namespace ClearFrost
 
             try
             {
-                ReleaseCameraResources();
+                _appRuntime.DisposeAsync().AsTask().GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[Shutdown] 释放相机资源失败: {ex.Message}");
-            }
-
-            try
-            {
-                _cameraManager?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[Shutdown] 销毁 CameraManager 失败: {ex.Message}");
-            }
-
-            try
-            {
-                if (plcConnected)
-                {
-                    _plcService?.Disconnect();
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[Shutdown] 断开 PLC 失败: {ex.Message}");
-            }
-
-            try
-            {
-                _imageSaveQueue?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[Shutdown] 释放图像保存队列失败: {ex.Message}");
+                Debug.WriteLine($"[Shutdown] 运行时清理失败: {ex.Message}");
             }
 
             Debug.WriteLine($"[Shutdown] 后台清理完成: {source}");

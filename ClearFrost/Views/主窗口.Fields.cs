@@ -27,6 +27,7 @@ namespace ClearFrost
         #region 1. 全局变量与配置定义 (Global Definitions)
 
         // ====================== 服务层 ======================
+        private readonly AppRuntime _appRuntime;
         private readonly IPlcService _plcService;
         private readonly IDetectionService _detectionService;
         private readonly IStorageService _storageService;
@@ -34,6 +35,7 @@ namespace ClearFrost
         private readonly IDatabaseService _databaseService;
         private readonly ICameraService _cameraService;
         private readonly ImageSaveQueue _imageSaveQueue;
+        private readonly DetectionRecordQueue _detectionRecordQueue;
 
         // WebUI 控制器
         private WebUIController _uiController;
@@ -110,7 +112,7 @@ namespace ClearFrost
         /// <summary>
         /// 检测操作信号量，防止并发检测（如 PLC 快速触发）
         /// </summary>
-        private readonly SemaphoreSlim _detectionSemaphore = new SemaphoreSlim(1, 1);
+        private readonly DetectionTriggerGate _detectionGate = new DetectionTriggerGate();
 
         // Helper for safe fire-and-forget
         private void SafeFireAndForget(Task task, string name, Action<Exception>? onError = null)
