@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: ImageSaveQueue.cs
 // 描述:   图像异步保存队列（有界队列，满时丢弃最旧项）
 // ============================================================================
@@ -18,11 +18,12 @@ namespace ClearFrost.Services
     /// </summary>
     public sealed class ImageSaveQueue : IDisposable
     {
-        private readonly Channel<(Mat Image, string Path)> _channel;
+        private readonly Channel<ImageSavePayload> _channel;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly Task _workerTask;
         private readonly object _enqueueLock = new object();
         private bool _disposed;
+        private bool _stopped;
 
         public ImageSaveQueue(int capacity = 64)
         {
@@ -31,7 +32,7 @@ namespace ClearFrost.Services
                 capacity = 64;
             }
 
-            _channel = Channel.CreateBounded<(Mat Image, string Path)>(new BoundedChannelOptions(capacity)
+            _channel = Channel.CreateBounded<ImageSavePayload>(new BoundedChannelOptions(capacity)
             {
                 SingleReader = true,
                 SingleWriter = false,
@@ -51,35 +52,61 @@ namespace ClearFrost.Services
                 return false;
             }
 
-            var cloned = image.Clone();
+            ImageSavePayload payload = ImageSavePayload.Create(image, path);
+            if (Enqueue(payload))
+            {
+                return true;
+            }
+
+            payload.Dispose();
+            return false;
+        }
+
+        internal bool Enqueue(ImageSavePayload payload)
+        {
+            if (_disposed || payload == null || payload.Image.Empty() || string.IsNullOrWhiteSpace(payload.Path))
+            {
+                return false;
+            }
 
             lock (_enqueueLock)
             {
                 if (_disposed)
                 {
-                    cloned.Dispose();
                     return false;
                 }
 
-                if (_channel.Writer.TryWrite((cloned, path)))
+                if (_channel.Writer.TryWrite(payload))
                 {
                     return true;
                 }
 
                 // 队列满时丢弃最旧项，防止慢盘导致内存持续堆积。
-                if (_channel.Reader.TryRead(out var dropped))
+                if (_channel.Reader.TryRead(out ImageSavePayload? dropped))
                 {
-                    dropped.Image.Dispose();
+                    dropped.Dispose();
                 }
 
-                if (_channel.Writer.TryWrite((cloned, path)))
+                if (_channel.Writer.TryWrite(payload))
                 {
                     return true;
                 }
             }
 
-            cloned.Dispose();
             return false;
+        }
+
+        public async Task StopAsync(CancellationToken cancellationToken = default)
+        {
+            if (_stopped)
+            {
+                await _workerTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            _stopped = true;
+            _channel.Writer.TryComplete();
+            await _workerTask.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
 
         private async Task ProcessLoopAsync(CancellationToken cancellationToken)
@@ -88,7 +115,7 @@ namespace ClearFrost.Services
             {
                 while (await _channel.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    while (_channel.Reader.TryRead(out var item))
+                    while (_channel.Reader.TryRead(out ImageSavePayload? item))
                     {
                         try
                         {
@@ -106,7 +133,7 @@ namespace ClearFrost.Services
                         }
                         finally
                         {
-                            item.Image.Dispose();
+                            item.Dispose();
                         }
                     }
                 }
@@ -120,9 +147,9 @@ namespace ClearFrost.Services
             }
             finally
             {
-                while (_channel.Reader.TryRead(out var remaining))
+                while (_channel.Reader.TryRead(out ImageSavePayload? remaining))
                 {
-                    remaining.Image.Dispose();
+                    remaining.Dispose();
                 }
             }
         }
@@ -133,15 +160,19 @@ namespace ClearFrost.Services
             _disposed = true;
 
             _channel.Writer.TryComplete();
-            _cts.Cancel();
 
             try
             {
-                _workerTask.Wait(1500);
+                if (!_workerTask.Wait(1500))
+                {
+                    Debug.WriteLine("[ImageSaveQueue] 释放等待超时，取消后台任务。");
+                    _cts.Cancel();
+                }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[ImageSaveQueue] 释放等待异常: {ex.Message}");
+                _cts.Cancel();
             }
             finally
             {
@@ -150,4 +181,3 @@ namespace ClearFrost.Services
         }
     }
 }
-

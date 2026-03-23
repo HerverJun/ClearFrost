@@ -215,6 +215,8 @@ namespace ClearFrost.Services
                         return;
                     }
                 }
+
+                activeCamera.SetGrabbing(true);
             }
             catch (Exception ex)
             {
@@ -267,6 +269,8 @@ namespace ClearFrost.Services
                 {
                     activeCamera.Camera.IMV_StopGrabbing();
                 }
+
+                activeCamera?.SetGrabbing(false);
             }
             catch (Exception ex)
             {
