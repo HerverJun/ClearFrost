@@ -9,65 +9,126 @@ using MVSDK_Net;
 
 namespace ClearFrost.Hardware
 {
+    public enum CameraInstanceState
+    {
+        Registered,
+        Open,
+        Grabbing,
+        Disposed
+    }
+
     /// <summary>
     /// 相机实例，封装单个相机的操作
     /// </summary>
     public class CameraInstance : IDisposable
     {
+        private readonly Func<ICamera> _cameraFactory;
+        private readonly object _sync = new object();
+        private ICamera? _camera;
+        private bool _disposed;
+
         public string Id { get; }
         public CameraConfig Config { get; }
-        public ICamera Camera { get; }
+        public ICamera Camera
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    if (_disposed)
+                    {
+                        throw new ObjectDisposedException(nameof(CameraInstance));
+                    }
+
+                    _camera ??= _cameraFactory();
+                    return _camera;
+                }
+            }
+        }
+
         public bool IsOpen { get; private set; }
+        public CameraInstanceState State { get; private set; } = CameraInstanceState.Registered;
 
         /// <summary>
         /// 最近一次 IMV_Open 的 SDK 返回码（用于诊断）
         /// </summary>
         public int LastOpenResult { get; private set; }
 
-        private bool _disposed;
-
-        public CameraInstance(string id, CameraConfig config, ICamera camera)
+        public CameraInstance(string id, CameraConfig config, Func<ICamera> cameraFactory)
         {
             Id = id;
             Config = config;
-            Camera = camera;
+            _cameraFactory = cameraFactory ?? throw new ArgumentNullException(nameof(cameraFactory));
         }
 
         public bool Open()
         {
-            if (IsOpen) return true;
-
-            int result = Camera.IMV_Open();
-            LastOpenResult = result;
-            IsOpen = result == IMVDefine.IMV_OK;
-            if (!IsOpen)
+            lock (_sync)
             {
-                Debug.WriteLine($"[CameraInstance] IMV_Open failed: ErrorCode={result}, Camera={Config.DisplayName}");
-            }
+                if (_disposed)
+                {
+                    throw new ObjectDisposedException(nameof(CameraInstance));
+                }
 
-            if (IsOpen)
-            {
-                // 应用配置
-                Camera.IMV_SetDoubleFeatureValue("ExposureTime", Config.ExposureTime);
-                Camera.IMV_SetDoubleFeatureValue("GainRaw", Config.Gain);
-                Camera.IMV_SetEnumFeatureSymbol("TriggerSelector", "FrameStart");
-                Camera.IMV_SetEnumFeatureSymbol("TriggerMode", "On");
-                Camera.IMV_SetEnumFeatureSymbol("TriggerSource", "Software");
-                Camera.IMV_SetBufferCount(10);
-            }
+                if (IsOpen)
+                {
+                    return true;
+                }
 
-            return IsOpen;
+                ICamera camera = Camera;
+                int result = camera.IMV_Open();
+                LastOpenResult = result;
+                IsOpen = result == IMVDefine.IMV_OK;
+                if (!IsOpen)
+                {
+                    Debug.WriteLine($"[CameraInstance] IMV_Open failed: ErrorCode={result}, Camera={Config.DisplayName}");
+                    return false;
+                }
+
+                camera.IMV_SetDoubleFeatureValue("ExposureTime", Config.ExposureTime);
+                camera.IMV_SetDoubleFeatureValue("GainRaw", Config.Gain);
+                camera.IMV_SetEnumFeatureSymbol("TriggerSelector", "FrameStart");
+                camera.IMV_SetEnumFeatureSymbol("TriggerMode", "On");
+                camera.IMV_SetEnumFeatureSymbol("TriggerSource", "Software");
+                camera.IMV_SetBufferCount(10);
+                State = CameraInstanceState.Open;
+
+                return true;
+            }
         }
 
         public void Close()
         {
-            if (!IsOpen) return;
+            lock (_sync)
+            {
+                if (!IsOpen || _camera == null)
+                {
+                    State = _disposed ? CameraInstanceState.Disposed : CameraInstanceState.Registered;
+                    return;
+                }
 
-            if (Camera.IMV_IsGrabbing())
-                Camera.IMV_StopGrabbing();
+                if (_camera.IMV_IsGrabbing())
+                {
+                    _camera.IMV_StopGrabbing();
+                }
 
-            Camera.IMV_Close();
-            IsOpen = false;
+                _camera.IMV_Close();
+                IsOpen = false;
+                State = CameraInstanceState.Registered;
+            }
+        }
+
+        internal void SetGrabbing(bool isGrabbing)
+        {
+            lock (_sync)
+            {
+                if (_disposed || !IsOpen)
+                {
+                    return;
+                }
+
+                State = isGrabbing ? CameraInstanceState.Grabbing : CameraInstanceState.Open;
+            }
         }
 
         public void Dispose()
@@ -82,9 +143,23 @@ namespace ClearFrost.Hardware
 
             if (disposing)
             {
-                Close();
-                Camera.IMV_DestroyHandle();
-                Camera.Dispose();
+                lock (_sync)
+                {
+                    try
+                    {
+                        if (_camera != null)
+                        {
+                            Close();
+                            _camera.IMV_DestroyHandle();
+                            _camera.Dispose();
+                            _camera = null;
+                        }
+                    }
+                    finally
+                    {
+                        State = CameraInstanceState.Disposed;
+                    }
+                }
             }
 
             _disposed = true;
@@ -106,13 +181,20 @@ namespace ClearFrost.Hardware
         private string _activeCameraId = "";
         private bool _disposed;
         private readonly bool _isDebugMode;
+        private readonly Func<CameraConfig, ICamera>? _cameraFactoryOverride;
 
         public event EventHandler<string>? ActiveCameraChanged;
         public event EventHandler? CameraListChanged;
 
         public CameraManager(bool isDebugMode = false)
+            : this(isDebugMode, null)
+        {
+        }
+
+        internal CameraManager(bool isDebugMode, Func<CameraConfig, ICamera>? cameraFactoryOverride)
         {
             _isDebugMode = isDebugMode;
+            _cameraFactoryOverride = cameraFactoryOverride;
         }
 
         /// <summary>
@@ -284,88 +366,8 @@ namespace ClearFrost.Hardware
                     return false;
                 }
 
-                ICamera camera;
-                if (_isDebugMode)
-                {
-                    // 调试模式：使用模拟相机，不调用任何真实 SDK
-                    camera = new MockCamera();
-                }
-                else
-                {
-                    try
-                    {
-                        // 根据制造商选择不同的相机实现
-                        if (config.Manufacturer == "Hikvision")
-                        {
-                            // 海康威视相机：使用新的 ICameraProvider + 适配器
-                            var hikCamera = new HikvisionCamera();
-                            if (!hikCamera.Open(config.SerialNumber))
-                            {
-                                Debug.WriteLine($"[CameraManager] Failed to open Hikvision camera: {config.SerialNumber}");
-                                hikCamera.Dispose();
-                                return false;
-                            }
-                            camera = new CameraProviderAdapter(hikCamera);
-                            Debug.WriteLine($"[CameraManager] Hikvision camera connected: {config.SerialNumber}");
-                        }
-                        else
-                        {
-                            // 华睿相机 (默认)：使用原有的 RealCamera 实现
-                            camera = new RealCamera();
-
-                            // 查找相机索引
-                            var deviceList = new IMVDefine.IMV_DeviceList();
-                            // 使用官方 SDK 的 MyCamera 静态方法进行设备枚举
-                            MyCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
-
-                            Debug.WriteLine($"[CameraManager] Enumerated {deviceList.nDevNum} MindVision devices");
-
-                            int deviceIndex = -1;
-
-                            // 用户输入的序列号，清理空格
-                            string targetSerial = config.SerialNumber?.Trim() ?? "";
-
-                            for (int i = 0; i < (int)deviceList.nDevNum; i++)
-                            {
-                                var devInfo = (IMVDefine.IMV_DeviceInfo)Marshal.PtrToStructure(
-                                    deviceList.pDevInfo + Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo)) * i,
-                                    typeof(IMVDefine.IMV_DeviceInfo))!;
-                                string foundSerial = devInfo.serialNumber?.Trim() ?? "";
-
-                                Debug.WriteLine($"[CameraManager] Device[{i}] SerialNumber: '{foundSerial}'");
-
-                                // 忽略大小写比较
-                                if (string.Equals(foundSerial, targetSerial, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    deviceIndex = i;
-                                    break;
-                                }
-                            }
-
-                            if (deviceIndex < 0)
-                            {
-                                Debug.WriteLine($"[CameraManager] MindVision camera '{targetSerial}' not found in {deviceList.nDevNum} devices");
-                                camera.Dispose();
-                                return false;
-                            }
-
-                            int result = camera.IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode.modeByIndex, deviceIndex);
-                            if (result != IMVDefine.IMV_OK)
-                            {
-                                Debug.WriteLine($"[CameraManager] Failed to create handle for {config.SerialNumber}");
-                                camera.Dispose();
-                                return false;
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[CameraManager] SDK error, AddCamera failed: {ex.Message}");
-                        return false;
-                    }
-                }
-
-                var instance = new CameraInstance(config.Id, config, camera);
+                Func<ICamera> cameraFactory = () => CreateCamera(config);
+                var instance = new CameraInstance(config.Id, config, cameraFactory);
                 _cameras[config.Id] = instance;
 
                 // 如果是第一个相机，设为活动相机
@@ -378,6 +380,26 @@ namespace ClearFrost.Hardware
                 Debug.WriteLine($"[CameraManager] Added camera: {config.DisplayName} ({config.Id}) - {config.Manufacturer}");
                 return true;
             }
+        }
+
+        private ICamera CreateCamera(CameraConfig config)
+        {
+            if (_cameraFactoryOverride != null)
+            {
+                return _cameraFactoryOverride(config);
+            }
+
+            if (_isDebugMode)
+            {
+                return new MockCamera();
+            }
+
+            if (string.Equals(config.Manufacturer, "Hikvision", StringComparison.OrdinalIgnoreCase))
+            {
+                return new CameraProviderAdapter(new HikvisionCamera(), config.SerialNumber);
+            }
+
+            return new RealCamera(config.SerialNumber);
         }
 
         /// <summary>

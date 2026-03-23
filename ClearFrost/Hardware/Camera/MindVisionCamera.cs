@@ -203,7 +203,8 @@ namespace ClearFrost.Hardware
                     PixelFormat = ConvertPixelFormat((uint)frame.frameInfo.pixelFormat),
                     FrameNumber = 0,
                     Timestamp = 0,
-                    NeedsNativeRelease = true
+                    NeedsNativeRelease = true,
+                    ReleaseCallback = ReleaseFrame
                 };
 
                 return cameraFrame;

@@ -23,10 +23,12 @@ namespace ClearFrost.Hardware
         private bool _disposed = false;
         private CameraFrame? _currentFrame;
 
-        public CameraProviderAdapter(ICameraProvider provider)
+        public CameraProviderAdapter(ICameraProvider provider, string? deviceSerialNumber = null)
         {
             _provider = provider ?? throw new ArgumentNullException(nameof(provider));
-            _deviceSerialNumber = provider.CurrentDevice?.SerialNumber ?? string.Empty;
+            _deviceSerialNumber = string.IsNullOrWhiteSpace(deviceSerialNumber)
+                ? provider.CurrentDevice?.SerialNumber ?? string.Empty
+                : deviceSerialNumber.Trim();
         }
 
         public bool IsConnected => _provider.IsConnected;
@@ -110,6 +112,8 @@ namespace ClearFrost.Hardware
 
         public int IMV_Close()
         {
+            _currentFrame?.Dispose();
+            _currentFrame = null;
             return _provider.Close() ? IMVDefine.IMV_OK : -1;
         }
 
