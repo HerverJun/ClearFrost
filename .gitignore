@@ -166,3 +166,17 @@ check_env.bat
 .dotnet/
 .dotnet_home/
 tmp_old_plc.txt
+
+# 临时目录和输出目录
+tmp/
+output/
+
+# 旧版本备份目录
+ClearFrostV4Preview/
+ClearFrostV3*/
+
+# 依赖包解压目录（保留 zip 即可）
+格力视觉检测平台相关依赖/
+
+# 文档图片（可选）
+docs/image/
