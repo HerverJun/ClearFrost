@@ -9,6 +9,7 @@
 
 using System;
 using System.Threading.Tasks;
+using ClearFrost.Hardware;
 
 namespace ClearFrost.Interfaces
 {
@@ -60,11 +61,7 @@ namespace ClearFrost.Interfaces
         /// <summary>
         /// 异步连接到 PLC
         /// </summary>
-        /// <param name="protocol">协议名称字符串</param>
-        /// <param name="ip">IP 地址</param>
-        /// <param name="port">端口号</param>
-        /// <returns>是否连接成功</returns>
-        Task<bool> ConnectAsync(string protocol, string ip, int port, string driverProvider = "Hsl");
+        Task<bool> ConnectAsync(PlcConnectionOptions options);
 
         /// <summary>
         /// 断开连接
@@ -77,7 +74,7 @@ namespace ClearFrost.Interfaces
         /// <param name="triggerAddress">触发地址</param>
         /// <param name="pollingIntervalMs">轮询间隔 (毫秒)</param>
         /// <param name="triggerDelayMs">触发后延迟 (毫秒)</param>
-        void StartMonitoring(short triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800);
+        void StartMonitoring(string triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800);
 
         /// <summary>
         /// 停止触发信号监听
@@ -89,20 +86,20 @@ namespace ClearFrost.Interfaces
         /// </summary>
         /// <param name="resultAddress">结果地址</param>
         /// <param name="isQualified">是否合格</param>
-        Task<bool> WriteResultAsync(short resultAddress, bool isQualified);
+        Task<bool> WriteResultAsync(string resultAddress, bool isQualified);
 
         /// <summary>
         /// 写入指定值到 PLC 结果地址
         /// </summary>
         /// <param name="resultAddress">结果地址</param>
         /// <param name="valueToWrite">要写入的值</param>
-        Task<bool> WriteResultAsync(short resultAddress, short valueToWrite);
+        Task<bool> WriteResultAsync(string resultAddress, short valueToWrite);
 
         /// <summary>
         /// 写入放行信号
         /// </summary>
         /// <param name="resultAddress">结果地址</param>
-        Task<bool> WriteReleaseSignalAsync(short resultAddress);
+        Task<bool> WriteReleaseSignalAsync(string resultAddress);
 
         #endregion
     }

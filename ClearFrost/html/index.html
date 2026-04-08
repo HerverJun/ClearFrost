@@ -582,12 +582,12 @@
                         <div class="space-y-4">
                             <div>
                                 <label class="text-[10px] font-bold text-ink-400 mb-1 block">物理协议类型</label>
-                                <select id="cfg-plc-protocol" onchange="syncDriverProviderOptions()"
+                                <select id="cfg-plc-protocol" onchange="updatePlcAddressUi()"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
                                     <option value="Mitsubishi_MC_ASCII">Mitsubishi MC (ASCII)</option>
                                     <option value="Mitsubishi_MC_Binary">Mitsubishi MC (Binary)</option>
                                     <option value="Modbus_TCP">Modbus TCP</option>
-                                    <option value="Siemens_S7">Siemens S7 (1200/1500)</option>
+                                    <option value="Siemens_S7">Siemens S7</option>
                                     <option value="Omron_Fins">Omron Fins TCP</option>
                                 </select>
                             </div>
@@ -621,6 +621,36 @@
                                 <label class="block text-[10px] text-ink-400 mb-1">结果地址</label>
                                 <input id="cfg-plc-result"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="102 或 D102">
+                            </div>
+                            <p id="cfg-plc-address-help" class="text-[9px] text-ink-400 italic">
+                                三菱统一按 D 区保存；输入纯数字会自动规范成 D 区地址。
+                            </p>
+                            <div id="cfg-plc-siemens-options" class="space-y-3 hidden">
+                                <div>
+                                    <label class="text-[10px] text-ink-400 mb-1 block">西门子 CPU 型号</label>
+                                    <select id="cfg-plc-siemens-cpu-model" onchange="updateSiemensRackSlotVisibility()"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono cursor-pointer">
+                                        <option value="S1500">S7-1500</option>
+                                        <option value="S1200">S7-1200</option>
+                                        <option value="S300">S7-300</option>
+                                        <option value="S400">S7-400</option>
+                                    </select>
+                                </div>
+                                <div id="cfg-plc-siemens-rack-slot" class="grid grid-cols-2 gap-3 hidden">
+                                    <div>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">Rack</label>
+                                        <input id="cfg-plc-siemens-rack" type="number" min="0" step="1"
+                                            class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="0">
+                                    </div>
+                                    <div>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">Slot</label>
+                                        <input id="cfg-plc-siemens-slot" type="number" min="0" step="1"
+                                            class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="2">
+                                    </div>
+                                </div>
+                                <p class="text-[9px] text-ink-400 italic">
+                                    西门子现场需启用 PUT/GET communication，且联动 DB 关闭 optimized block access。
+                                </p>
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>

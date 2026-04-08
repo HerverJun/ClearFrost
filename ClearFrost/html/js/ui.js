@@ -367,6 +367,131 @@ function closeSettingsModal() {
 }
 window.closeSettingsModal = closeSettingsModal;
 
+const PLC_PROTOCOL_UI_HINTS = {
+    Mitsubishi_MC_ASCII: {
+        placeholderTrigger: "555 或 D555",
+        placeholderResult: "556 或 D556",
+        helpText: "三菱统一按 D 区保存；输入纯数字会自动规范成 D 区地址。",
+    },
+    Mitsubishi_MC_Binary: {
+        placeholderTrigger: "555 或 D555",
+        placeholderResult: "556 或 D556",
+        helpText: "三菱统一按 D 区保存；输入纯数字会自动规范成 D 区地址。",
+    },
+    Siemens_S7: {
+        placeholderTrigger: "DB100.0",
+        placeholderResult: "DB100.2",
+        helpText:
+            "西门子首版仅支持 DB 字地址，例如 DB100.0；请确认 PLC 已开放 PUT/GET，且联动 DB 关闭 optimized block access。",
+    },
+    Modbus_TCP: {
+        placeholderTrigger: "100",
+        placeholderResult: "102",
+        helpText: "Modbus 仅支持纯数字寄存器地址。",
+    },
+    Omron_Fins: {
+        placeholderTrigger: "100 或 D100",
+        placeholderResult: "102 或 D102",
+        helpText: "欧姆龙统一按 D 区保存；输入纯数字会自动规范成 D 区地址。",
+    },
+};
+
+function getCompactPlcAddress(value) {
+    return (value || "").trim().replace(/\s+/g, "").toUpperCase();
+}
+
+function updateSiemensRackSlotVisibility() {
+    const protocol = document.getElementById("cfg-plc-protocol")?.value || "";
+    const cpuModel = (
+        document.getElementById("cfg-plc-siemens-cpu-model")?.value || ""
+    ).toUpperCase();
+    const rackSlotGroup = document.getElementById("cfg-plc-siemens-rack-slot");
+    if (!rackSlotGroup) return;
+
+    const showRackSlot =
+        protocol === "Siemens_S7" && (cpuModel === "S300" || cpuModel === "S400");
+    rackSlotGroup.classList.toggle("hidden", !showRackSlot);
+}
+
+function updatePlcAddressUi() {
+    const protocolSelect = document.getElementById("cfg-plc-protocol");
+    const triggerInput = document.getElementById("cfg-plc-trigger");
+    const resultInput = document.getElementById("cfg-plc-result");
+    const helpEl = document.getElementById("cfg-plc-address-help");
+    const siemensOptions = document.getElementById("cfg-plc-siemens-options");
+    const protocol = protocolSelect?.value || "Mitsubishi_MC_ASCII";
+    const hints =
+        PLC_PROTOCOL_UI_HINTS[protocol] || PLC_PROTOCOL_UI_HINTS.Mitsubishi_MC_ASCII;
+
+    if (triggerInput) triggerInput.placeholder = hints.placeholderTrigger;
+    if (resultInput) resultInput.placeholder = hints.placeholderResult;
+    if (helpEl) helpEl.textContent = hints.helpText;
+    if (siemensOptions) {
+        siemensOptions.classList.toggle("hidden", protocol !== "Siemens_S7");
+    }
+
+    syncDriverProviderOptions();
+    updateSiemensRackSlotVisibility();
+}
+window.updatePlcAddressUi = updatePlcAddressUi;
+window.updateSiemensRackSlotVisibility = updateSiemensRackSlotVisibility;
+
+function validatePlcAddress(address, protocol) {
+    const compact = getCompactPlcAddress(address);
+    if (!compact) {
+        return "PLC 地址不能为空";
+    }
+
+    if (protocol === "Mitsubishi_MC_ASCII" || protocol === "Mitsubishi_MC_Binary") {
+        if (/^\d+$/.test(compact) || /^D\d+$/.test(compact)) return null;
+        return "三菱地址仅支持 D 区，例如 555 或 D555";
+    }
+
+    if (protocol === "Siemens_S7") {
+        const match = compact.match(/^DB(\d+)\.(\d+)$/);
+        if (!match) {
+            return "西门子首版仅支持 DB 字地址，例如 DB100.0";
+        }
+
+        return null;
+    }
+
+    if (protocol === "Modbus_TCP") {
+        if (/^\d+$/.test(compact)) return null;
+        return "Modbus 地址仅支持纯数字寄存器地址，例如 100";
+    }
+
+    if (protocol === "Omron_Fins") {
+        if (/^\d+$/.test(compact) || /^D\d+$/.test(compact)) return null;
+        return "欧姆龙地址仅支持 D 区，例如 100 或 D100";
+    }
+
+    return null;
+}
+
+function validatePlcSettings() {
+    const protocol = document.getElementById("cfg-plc-protocol")?.value || "";
+    const driver = document.getElementById("cfg-plc-driver-provider")?.value || "";
+    const triggerAddress = document.getElementById("cfg-plc-trigger")?.value || "";
+    const resultAddress = document.getElementById("cfg-plc-result")?.value || "";
+
+    if (driver === "McpX" && !protocol.startsWith("Mitsubishi")) {
+        return "仅三菱协议支持 McpX 驱动库";
+    }
+
+    const triggerError = validatePlcAddress(triggerAddress, protocol);
+    if (triggerError) {
+        return `触发地址无效: ${triggerError}`;
+    }
+
+    const resultError = validatePlcAddress(resultAddress, protocol);
+    if (resultError) {
+        return `结果地址无效: ${resultError}`;
+    }
+
+    return null;
+}
+
 // Populate settings from backend config object
 function populateSettings(data) {
     // 映射后端属性名到前端input id
@@ -382,6 +507,9 @@ function populateSettings(data) {
         PlcPollingIntervalMs: "cfg-plc-polling-interval",
         PlcOkValue: "cfg-plc-ok-value",
         PlcNgValue: "cfg-plc-ng-value",
+        PlcSiemensCpuModel: "cfg-plc-siemens-cpu-model",
+        PlcSiemensRack: "cfg-plc-siemens-rack",
+        PlcSiemensSlot: "cfg-plc-siemens-slot",
         CameraName: "cfg-cam-name",
         CameraSerialNumber: "cfg-cam-serial",
         CameraManufacturer: "cfg-cam-manufacturer",
@@ -410,7 +538,7 @@ function populateSettings(data) {
     if (data.EnableMultiModelFallback !== undefined) {
         applyMultiModelUiState(!!data.EnableMultiModelFallback);
     }
-    syncDriverProviderOptions();
+    updatePlcAddressUi();
 }
 window.populateSettings = populateSettings;
 
@@ -429,6 +557,8 @@ function syncDriverProviderOptions() {
     if (!isMitsubishi && driverSelect.value === "McpX") {
         driverSelect.value = "Hsl";
     }
+
+    updateSiemensRackSlotVisibility();
 }
 window.syncDriverProviderOptions = syncDriverProviderOptions;
 
@@ -440,6 +570,12 @@ function initSettings(config) {
 window.initSettings = initSettings;
 
 function saveSettings() {
+    const plcError = validatePlcSettings();
+    if (plcError) {
+        alert(plcError);
+        return;
+    }
+
     // 显式映射: 前端 input ID -> AppConfig 属性名
     const fieldMapping = {
         "cfg-storage-path": "StoragePath",
@@ -453,6 +589,9 @@ function saveSettings() {
         "cfg-plc-polling-interval": "PlcPollingIntervalMs",
         "cfg-plc-ok-value": "PlcOkValue",
         "cfg-plc-ng-value": "PlcNgValue",
+        "cfg-plc-siemens-cpu-model": "PlcSiemensCpuModel",
+        "cfg-plc-siemens-rack": "PlcSiemensRack",
+        "cfg-plc-siemens-slot": "PlcSiemensSlot",
         "cfg-cam-name": "CameraName",
         "cfg-cam-serial": "CameraSerialNumber",
         "cfg-cam-manufacturer": "CameraManufacturer",
@@ -473,6 +612,8 @@ function saveSettings() {
         "PlcPollingIntervalMs",
         "PlcOkValue",
         "PlcNgValue",
+        "PlcSiemensRack",
+        "PlcSiemensSlot",
         "ExposureTime",
         "GainRaw",
         "TargetCount",
@@ -499,7 +640,6 @@ function saveSettings() {
     if (tt) data["TaskType"] = parseInt(tt.value);
 
     sendCommand("save_settings", data);
-    closeSettingsModal();
 }
 window.saveSettings = saveSettings;
 
@@ -509,8 +649,8 @@ const PROJECT_PRESETS = {
         name: "N5遥控器漏装视觉检测",
         PlcIp: "10.182.82.19",
         PlcPort: 2700,
-        PlcTriggerAddress: 100,
-        PlcResultAddress: 102,
+        PlcTriggerAddress: "D100",
+        PlcResultAddress: "D102",
         CameraSerialNumber: "5G087BAGAK00018",
         PlcProtocol: "Mitsubishi_MC_Binary",
         TargetLabel: "remote",
@@ -522,8 +662,8 @@ const PROJECT_PRESETS = {
         name: "N5螺钉视觉检测",
         PlcIp: "10.182.82.19",
         PlcPort: 3000,
-        PlcTriggerAddress: 90,
-        PlcResultAddress: 92,
+        PlcTriggerAddress: "D90",
+        PlcResultAddress: "D92",
         CameraSerialNumber: "EF59601AAK00030",
         PlcProtocol: "Mitsubishi_MC_Binary",
         TargetLabel: "screw",
@@ -535,8 +675,8 @@ const PROJECT_PRESETS = {
         name: "N6遥控器漏装视觉检测",
         PlcIp: "192.168.100.122",
         PlcPort: 5777,
-        PlcTriggerAddress: 6607,
-        PlcResultAddress: 6608,
+        PlcTriggerAddress: "D6607",
+        PlcResultAddress: "D6608",
         CameraSerialNumber: "AM01040AAK00040",
         PlcProtocol: "Mitsubishi_MC_Binary",
         TargetLabel: "remote",
@@ -548,8 +688,8 @@ const PROJECT_PRESETS = {
         name: "N6螺钉视觉检测",
         PlcIp: "10.182.82.3",
         PlcPort: 4300,
-        PlcTriggerAddress: 100,
-        PlcResultAddress: 102,
+        PlcTriggerAddress: "D100",
+        PlcResultAddress: "D102",
         CameraSerialNumber: "",
         PlcProtocol: "Mitsubishi_MC_Binary",
         TargetLabel: "screw",
@@ -561,8 +701,8 @@ const PROJECT_PRESETS = {
         name: "W5螺钉视觉检测",
         PlcIp: "192.168.22.44",
         PlcPort: 4999,
-        PlcTriggerAddress: 555,
-        PlcResultAddress: 556,
+        PlcTriggerAddress: "D555",
+        PlcResultAddress: "D556",
         CameraSerialNumber: "EF59632AAK00074",
         PlcProtocol: "Mitsubishi_MC_Binary",
         TargetLabel: "screw",
@@ -574,8 +714,8 @@ const PROJECT_PRESETS = {
         name: "W6螺钉视觉检测",
         PlcIp: "192.168.250.1",
         PlcPort: 5999,
-        PlcTriggerAddress: 555,
-        PlcResultAddress: 556,
+        PlcTriggerAddress: "D555",
+        PlcResultAddress: "D556",
         CameraSerialNumber: "EF59632AAK00291",
         PlcProtocol: "Mitsubishi_MC_ASCII",
         TargetLabel: "screw",
@@ -620,7 +760,7 @@ function loadProjectPreset(presetId) {
         plcTriggerDelay.value = preset.PlcTriggerDelayMs || 800;
     if (plcPollingInterval)
         plcPollingInterval.value = preset.PlcPollingIntervalMs || 500;
-    syncDriverProviderOptions();
+    updatePlcAddressUi();
 
     // 填充相机配置（现有字段）
     const camName = document.getElementById("cfg-cam-name");
@@ -863,6 +1003,7 @@ window.redrawROI = redrawROI;
 document.addEventListener("DOMContentLoaded", () => {
     // initialize ROI
     initRoiInteractions();
+    updatePlcAddressUi();
 
     // initialize File Input
 

@@ -506,15 +506,13 @@ namespace ClearFrost
             }
             catch (Exception ex)
             {
-                // UI Controller might not be ready if error happens too early, but we try
-                if (_uiController != null)
-                {
-                    await _uiController.LogToFrontend($"系统初始化异常: {ex.Message}", "error");
-                }
-                else
-                {
-                    MessageBox.Show($"初始化严重错误: {ex.Message}");
-                }
+                Debug.WriteLine($"[主窗口] 初始化失败: {ex}");
+                MessageBox.Show(
+                    $"系统初始化失败，程序将退出。\n\n{ex.Message}",
+                    "初始化失败",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                BeginInvoke((MethodInvoker)delegate { Close(); });
             }
         }
 
@@ -696,16 +694,61 @@ namespace ClearFrost
 
                         // 逐个读取并更新配置属性
                         if (root.TryGetProperty("StoragePath", out var sp)) _appConfig.StoragePath = sp.GetString() ?? _appConfig.StoragePath;
-                        if (root.TryGetProperty("PlcProtocol", out var ppr)) _appConfig.PlcProtocol = ppr.GetString() ?? _appConfig.PlcProtocol;
-                        if (root.TryGetProperty("PlcDriverProvider", out var pdp)) _appConfig.PlcDriverProvider = pdp.GetString() ?? _appConfig.PlcDriverProvider;
-                        if (root.TryGetProperty("PlcIp", out var pi)) _appConfig.PlcIp = pi.GetString() ?? _appConfig.PlcIp;
-                        if (root.TryGetProperty("PlcPort", out var pp)) _appConfig.PlcPort = pp.TryGetInt32(out int ppVal) ? ppVal : _appConfig.PlcPort;
-                        if (root.TryGetProperty("PlcTriggerAddress", out var pt)) _appConfig.PlcTriggerAddress = ParsePlcAddress(pt, _appConfig.PlcTriggerAddress);
-                        if (root.TryGetProperty("PlcResultAddress", out var pr)) _appConfig.PlcResultAddress = ParsePlcAddress(pr, _appConfig.PlcResultAddress);
-                        if (root.TryGetProperty("PlcTriggerDelayMs", out var ptd)) _appConfig.PlcTriggerDelayMs = ptd.TryGetInt32(out int ptdVal) ? Math.Max(0, ptdVal) : _appConfig.PlcTriggerDelayMs;
-                        if (root.TryGetProperty("PlcPollingIntervalMs", out var ppi)) _appConfig.PlcPollingIntervalMs = ppi.TryGetInt32(out int ppiVal) ? Math.Max(50, ppiVal) : _appConfig.PlcPollingIntervalMs;
-                        if (root.TryGetProperty("PlcOkValue", out var pok)) _appConfig.PlcOkValue = pok.TryGetInt16(out short pokVal) ? pokVal : _appConfig.PlcOkValue;
-                        if (root.TryGetProperty("PlcNgValue", out var png)) _appConfig.PlcNgValue = png.TryGetInt16(out short pngVal) ? pngVal : _appConfig.PlcNgValue;
+
+                        string plcProtocol = _appConfig.PlcProtocol;
+                        string plcDriverProvider = _appConfig.PlcDriverProvider;
+                        string plcIp = _appConfig.PlcIp;
+                        int plcPort = _appConfig.PlcPort;
+                        string plcTriggerAddress = _appConfig.PlcTriggerAddress;
+                        string plcResultAddress = _appConfig.PlcResultAddress;
+                        int plcTriggerDelayMs = _appConfig.PlcTriggerDelayMs;
+                        int plcPollingIntervalMs = _appConfig.PlcPollingIntervalMs;
+                        short plcOkValue = _appConfig.PlcOkValue;
+                        short plcNgValue = _appConfig.PlcNgValue;
+                        string plcSiemensCpuModel = _appConfig.PlcSiemensCpuModel;
+                        int plcSiemensRack = _appConfig.PlcSiemensRack;
+                        int plcSiemensSlot = _appConfig.PlcSiemensSlot;
+
+                        if (root.TryGetProperty("PlcProtocol", out var ppr)) plcProtocol = ppr.GetString() ?? plcProtocol;
+                        if (root.TryGetProperty("PlcDriverProvider", out var pdp)) plcDriverProvider = pdp.GetString() ?? plcDriverProvider;
+                        if (root.TryGetProperty("PlcIp", out var pi)) plcIp = pi.GetString() ?? plcIp;
+                        if (root.TryGetProperty("PlcPort", out var pp)) plcPort = pp.TryGetInt32(out int ppVal) ? ppVal : plcPort;
+                        if (root.TryGetProperty("PlcTriggerAddress", out var pt)) plcTriggerAddress = GetJsonStringValue(pt, plcTriggerAddress);
+                        if (root.TryGetProperty("PlcResultAddress", out var pr)) plcResultAddress = GetJsonStringValue(pr, plcResultAddress);
+                        if (root.TryGetProperty("PlcTriggerDelayMs", out var ptd)) plcTriggerDelayMs = ptd.TryGetInt32(out int ptdVal) ? Math.Max(0, ptdVal) : plcTriggerDelayMs;
+                        if (root.TryGetProperty("PlcPollingIntervalMs", out var ppi)) plcPollingIntervalMs = ppi.TryGetInt32(out int ppiVal) ? Math.Max(50, ppiVal) : plcPollingIntervalMs;
+                        if (root.TryGetProperty("PlcOkValue", out var pok)) plcOkValue = pok.TryGetInt16(out short pokVal) ? pokVal : plcOkValue;
+                        if (root.TryGetProperty("PlcNgValue", out var png)) plcNgValue = png.TryGetInt16(out short pngVal) ? pngVal : plcNgValue;
+                        if (root.TryGetProperty("PlcSiemensCpuModel", out var pscm)) plcSiemensCpuModel = pscm.GetString() ?? plcSiemensCpuModel;
+                        if (root.TryGetProperty("PlcSiemensRack", out var psr)) plcSiemensRack = psr.TryGetInt32(out int psrVal) ? Math.Max(0, psrVal) : plcSiemensRack;
+                        if (root.TryGetProperty("PlcSiemensSlot", out var pss)) plcSiemensSlot = pss.TryGetInt32(out int pssVal) ? Math.Max(0, pssVal) : plcSiemensSlot;
+
+                        PlcProtocolType plcProtocolType = PlcFactory.ParseProtocol(plcProtocol);
+                        bool isMitsubishiProtocol =
+                            plcProtocolType == PlcProtocolType.Mitsubishi_MC_ASCII ||
+                            plcProtocolType == PlcProtocolType.Mitsubishi_MC_Binary;
+
+                        if (string.Equals(plcDriverProvider, "McpX", StringComparison.OrdinalIgnoreCase) && !isMitsubishiProtocol)
+                        {
+                            throw new InvalidOperationException("仅三菱协议支持 McpX 驱动库");
+                        }
+
+                        plcTriggerAddress = PlcAddressNormalizer.NormalizeOrThrow(plcTriggerAddress, plcProtocolType);
+                        plcResultAddress = PlcAddressNormalizer.NormalizeOrThrow(plcResultAddress, plcProtocolType);
+
+                        _appConfig.PlcProtocol = plcProtocol;
+                        _appConfig.PlcDriverProvider = plcDriverProvider;
+                        _appConfig.PlcIp = plcIp;
+                        _appConfig.PlcPort = plcPort;
+                        _appConfig.PlcTriggerAddress = plcTriggerAddress;
+                        _appConfig.PlcResultAddress = plcResultAddress;
+                        _appConfig.PlcTriggerDelayMs = plcTriggerDelayMs;
+                        _appConfig.PlcPollingIntervalMs = plcPollingIntervalMs;
+                        _appConfig.PlcOkValue = plcOkValue;
+                        _appConfig.PlcNgValue = plcNgValue;
+                        _appConfig.PlcSiemensCpuModel = string.IsNullOrWhiteSpace(plcSiemensCpuModel) ? "S1200" : plcSiemensCpuModel.Trim().ToUpperInvariant();
+                        _appConfig.PlcSiemensRack = plcSiemensRack;
+                        _appConfig.PlcSiemensSlot = plcSiemensSlot;
 #pragma warning disable CS0618
                         var activeCam = _appConfig.ActiveCamera;
                         if (root.TryGetProperty("CameraName", out var cn))
@@ -747,7 +790,10 @@ namespace ClearFrost
                         _detectionService.SetTaskMode(_appConfig.TaskType);
 
                         // 保存并重新加载
-                        _appConfig.Save();
+                        if (!_appConfig.Save())
+                        {
+                            throw new InvalidOperationException(_appConfig.LastError ?? "配置保存失败");
+                        }
 
                         // 更新相关路径
                         _uiController.ImageBasePath = Path_Images;
@@ -831,8 +877,9 @@ namespace ClearFrost
 
             if (!Directory.Exists(模型路径))
             {
-                Directory.CreateDirectory(模型路径);
-                await _uiController.LogToFrontend($"创建模型目录: {模型路径}");
+                await _uiController.LogToFrontend($"模型目录不存在: {模型路径}", "warning");
+                await _uiController.SendModelList(Array.Empty<string>());
+                return;
             }
 
             var files = Directory.GetFiles(模型路径, "*.onnx");
@@ -1044,47 +1091,19 @@ namespace ClearFrost
             Environment.Exit(0);
         }
 
-        private static short ParsePlcAddress(JsonElement value, short fallback)
+        private static string GetJsonStringValue(JsonElement value, string fallback)
         {
-            if (value.ValueKind == JsonValueKind.Number)
-            {
-                if (value.TryGetInt16(out short shortValue))
-                {
-                    return shortValue;
-                }
-
-                if (value.TryGetInt32(out int intValue) && intValue >= short.MinValue && intValue <= short.MaxValue)
-                {
-                    return (short)intValue;
-                }
-
-                return fallback;
-            }
-
             if (value.ValueKind == JsonValueKind.String)
             {
                 string raw = value.GetString()?.Trim() ?? string.Empty;
-                if (string.IsNullOrEmpty(raw))
-                {
-                    return fallback;
-                }
+                return string.IsNullOrWhiteSpace(raw) ? fallback : raw;
+            }
 
-                // 兼容现场输入: D100 / d100 / DB1.100 / 100
-                if (raw.StartsWith("DB", StringComparison.OrdinalIgnoreCase))
+            if (value.ValueKind == JsonValueKind.Number)
+            {
+                if (value.TryGetInt64(out long longValue))
                 {
-                    int dotIndex = raw.LastIndexOf('.');
-                    raw = dotIndex >= 0 && dotIndex < raw.Length - 1
-                        ? raw.Substring(dotIndex + 1)
-                        : raw.Substring(2);
-                }
-                else if (char.IsLetter(raw[0]))
-                {
-                    raw = raw.Substring(1);
-                }
-
-                if (short.TryParse(raw, out short parsed))
-                {
-                    return parsed;
+                    return longValue.ToString();
                 }
             }
 

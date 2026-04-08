@@ -1,12 +1,15 @@
 {
     "PlcIp": "192.168.22.44",
     "PlcPort": 4999,
-    "PlcTriggerAddress": 555,
-    "PlcResultAddress": 556,
+    "PlcTriggerAddress": "D555",
+    "PlcResultAddress": "D556",
     "PlcTriggerDelayMs": 800,
     "PlcPollingIntervalMs": 500,
     "PlcProtocol": "Mitsubishi_MC_ASCII",
     "PlcDriverProvider": "Hsl",
+    "PlcSiemensCpuModel": "S1200",
+    "PlcSiemensRack": 0,
+    "PlcSiemensSlot": 2,
     "Cameras": [
         {
             "Id": "legacy_cam",

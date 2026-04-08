@@ -18,7 +18,10 @@ public class AppConfigTests
         // Assert
         config.PlcIp.Should().Be("192.168.250.1");
         config.PlcPort.Should().Be(5999);
+        config.PlcTriggerAddress.Should().Be("D555");
+        config.PlcResultAddress.Should().Be("D556");
         config.PlcDriverProvider.Should().Be("Hsl");
+        config.PlcSiemensCpuModel.Should().Be("S1200");
         config.Confidence.Should().BeApproximately(0.5f, 0.001f);
         config.IouThreshold.Should().BeApproximately(0.3f, 0.001f);
         config.TargetCount.Should().Be(4);
@@ -90,6 +93,7 @@ public class AppConfigTests
         restored.Should().NotBeNull();
         restored!.PlcIp.Should().Be("10.0.0.1");
         restored.PlcDriverProvider.Should().Be("Hsl");
+        restored.PlcTriggerAddress.Should().Be("D555");
         restored.Confidence.Should().BeApproximately(0.75f, 0.001f);
         restored.TargetLabel.Should().Be("test_label");
     }
@@ -158,5 +162,96 @@ public class AppConfigTests
     {
         var config = new AppConfig { PlcProtocol = protocol };
         config.PlcProtocol.Should().Be(protocol);
+    }
+
+    [Fact]
+    public void Plc地址_兼容旧版数字配置()
+    {
+        const string json = """
+        {
+          "PlcProtocol": "Mitsubishi_MC_ASCII",
+          "PlcTriggerAddress": 555,
+          "PlcResultAddress": 556
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<AppConfig>(json);
+
+        config.Should().NotBeNull();
+        config!.PlcTriggerAddress.Should().Be("D555");
+        config.PlcResultAddress.Should().Be("D556");
+    }
+
+    [Fact]
+    public void Plc地址_Siemens旧版数字配置迁移到Db1()
+    {
+        const string json = """
+        {
+          "PlcProtocol": "Siemens_S7",
+          "PlcTriggerAddress": 555,
+          "PlcResultAddress": 556
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<AppConfig>(json);
+
+        config.Should().NotBeNull();
+        config!.PlcTriggerAddress.Should().Be("DB1.555");
+        config.PlcResultAddress.Should().Be("DB1.556");
+    }
+
+    [Fact]
+    public void Plc地址_字符串配置序列化往返()
+    {
+        var config = new AppConfig
+        {
+            PlcProtocol = "Siemens_S7",
+            PlcTriggerAddress = "DB100.0",
+            PlcResultAddress = "DB100.2",
+            PlcSiemensCpuModel = "S1500"
+        };
+
+        string json = JsonSerializer.Serialize(config);
+        var restored = JsonSerializer.Deserialize<AppConfig>(json);
+
+        restored.Should().NotBeNull();
+        restored!.PlcTriggerAddress.Should().Be("DB100.0");
+        restored.PlcResultAddress.Should().Be("DB100.2");
+        restored.PlcSiemensCpuModel.Should().Be("S1500");
+    }
+
+    [Fact]
+    public void Plc配置_旧版缺少Cpu型号时兼容为S1200()
+    {
+        const string json = """
+        {
+          "PlcProtocol": "Siemens_S7",
+          "PlcTriggerAddress": "DB1.555",
+          "PlcResultAddress": "DB1.556"
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<AppConfig>(json);
+
+        config.Should().NotBeNull();
+        config!.PlcSiemensCpuModel.Should().Be("S1200");
+    }
+
+    [Fact]
+    public void Plc地址_非法字符串配置回退到协议默认值()
+    {
+        const string json = """
+        {
+          "PlcProtocol": "Mitsubishi_MC_ASCII",
+          "PlcTriggerAddress": "D555X",
+          "PlcResultAddress": "INVALID"
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<AppConfig>(json);
+
+        config.Should().NotBeNull();
+        config!.PlcTriggerAddress.Should().Be("D555");
+        config.PlcResultAddress.Should().Be("D556");
     }
 }

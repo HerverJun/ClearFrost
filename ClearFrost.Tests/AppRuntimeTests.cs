@@ -131,16 +131,16 @@ namespace ClearFrost.Tests
             public string ProtocolName => "Fake";
             public string? LastError => null;
 
-            public Task<bool> ConnectAsync(string protocol, string ip, int port, string driverProvider = "Hsl")
+            public Task<bool> ConnectAsync(PlcConnectionOptions options)
                 => Task.FromResult(true);
 
             public void Disconnect() => _order.Add("plc-disconnect");
-            public void StartMonitoring(short triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800)
+            public void StartMonitoring(string triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800)
                 => _order.Add("plc-start-monitoring");
             public void StopMonitoring() => _order.Add("plc-stop-monitoring");
-            public Task<bool> WriteResultAsync(short resultAddress, bool isQualified) => Task.FromResult(true);
-            public Task<bool> WriteResultAsync(short resultAddress, short valueToWrite) => Task.FromResult(true);
-            public Task<bool> WriteReleaseSignalAsync(short resultAddress) => Task.FromResult(true);
+            public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
+            public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite) => Task.FromResult(true);
+            public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
             public void Dispose() => _order.Add("plc-dispose");
         }
 

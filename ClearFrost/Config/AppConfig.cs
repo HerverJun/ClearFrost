@@ -1,20 +1,24 @@
-﻿using System;
-using ClearFrost.Config;
+using System;
+using ClearFrost.Hardware;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using ClearFrost.Helpers;
 
 namespace ClearFrost.Config
 {
-    public class AppConfig
+    public class AppConfig : IJsonOnDeserialized
     {
         // ================== PLC Settings ==================
         public string PlcIp { get; set; } = "192.168.250.1";
         public int PlcPort { get; set; } = 5999;
-        public short PlcTriggerAddress { get; set; } = 555;
-        public short PlcResultAddress { get; set; } = 556;
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcTriggerAddress { get; set; } = "D555";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcResultAddress { get; set; } = "D556";
         public int PlcTriggerDelayMs { get; set; } = 800;
         public int PlcPollingIntervalMs { get; set; } = 500;
         /// <summary>
@@ -26,13 +30,25 @@ namespace ClearFrost.Config
         /// </summary>
         public short PlcNgValue { get; set; } = 2;
         /// <summary>
-        /// PLC协议类型: Mitsubishi_MC_ASCII, Mitsubishi_MC_Binary, Modbus_TCP
+        /// PLC协议类型: Mitsubishi_MC_ASCII, Mitsubishi_MC_Binary, Modbus_TCP, Siemens_S7, Omron_Fins
         /// </summary>
         public string PlcProtocol { get; set; } = "Mitsubishi_MC_ASCII";
         /// <summary>
         /// PLC驱动库: Hsl, McpX (McpX 仅支持三菱)
         /// </summary>
         public string PlcDriverProvider { get; set; } = "Hsl";
+        /// <summary>
+        /// 西门子 CPU 型号: S1200, S1500, S300, S400
+        /// </summary>
+        public string PlcSiemensCpuModel { get; set; } = "S1200";
+        /// <summary>
+        /// 西门子 Rack，仅对 S300/S400 生效
+        /// </summary>
+        public int PlcSiemensRack { get; set; }
+        /// <summary>
+        /// 西门子 Slot，仅对 S300/S400 生效
+        /// </summary>
+        public int PlcSiemensSlot { get; set; } = 2;
 
         // ================== Multi-Camera Settings ==================
         /// <summary>
@@ -106,15 +122,18 @@ namespace ClearFrost.Config
         public double TemplateThreshold { get; set; } = 0.8;
         public string VisionPipelineJson { get; set; } = "[]";
 
-        [System.Text.Json.Serialization.JsonIgnore]
+        [JsonIgnore]
         public string? LastError { get; private set; }
 
-        private static string ConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
-        private static string ErrorLogPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs", "config_errors.log");
+        private static string ConfigPath => RuntimePaths.ConfigPath;
+        private static string LegacySharedConfigPath => RuntimePaths.LegacySharedConfigPath;
+        private static string BundledConfigPath => RuntimePaths.BundledConfigPath;
+        private static string ErrorLogPath => RuntimePaths.ConfigErrorLogPath;
 
         public AppConfig()
         {
             MigrateLegacyCamera();
+            NormalizePlcAddresses();
         }
 
         private static void LogError(string operation, Exception ex)
@@ -134,9 +153,10 @@ namespace ClearFrost.Config
         {
             try
             {
-                if (File.Exists(ConfigPath))
+                string loadPath = GetReadableConfigPath();
+                if (File.Exists(loadPath))
                 {
-                    string json = File.ReadAllText(ConfigPath);
+                    string json = File.ReadAllText(loadPath);
                     var options = new JsonSerializerOptions
                     {
                         ReadCommentHandling = JsonCommentHandling.Skip,
@@ -145,6 +165,12 @@ namespace ClearFrost.Config
                     };
                     var config = JsonSerializer.Deserialize<AppConfig>(json, options) ?? new AppConfig();
                     config.MigrateLegacyCamera();
+                    config.NormalizePlcAddresses();
+                    if (!PathsEqual(loadPath, ConfigPath))
+                    {
+                        config.TrySeedRuntimeConfig();
+                    }
+
                     return config;
                 }
             }
@@ -183,7 +209,7 @@ namespace ClearFrost.Config
         /// <summary>
         /// 获取当前活动相机配置
         /// </summary>
-        [System.Text.Json.Serialization.JsonIgnore]
+        [JsonIgnore]
         public CameraConfig? ActiveCamera =>
             Cameras.FirstOrDefault(c => c.Id == ActiveCameraId) ??
             Cameras.FirstOrDefault(c => c.IsEnabled);
@@ -192,6 +218,13 @@ namespace ClearFrost.Config
         {
             try
             {
+                NormalizePlcAddresses();
+                string configDir = Path.GetDirectoryName(ConfigPath) ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(configDir))
+                {
+                    Directory.CreateDirectory(configDir);
+                }
+
                 string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(ConfigPath, json);
                 LastError = null;
@@ -204,8 +237,99 @@ namespace ClearFrost.Config
                 return false;
             }
         }
+
+        public void OnDeserialized()
+        {
+            MigrateLegacyCamera();
+            NormalizePlcAddresses();
+        }
+
+        private void NormalizePlcAddresses()
+        {
+            PlcProtocolType protocolType = PlcFactory.ParseProtocol(PlcProtocol);
+            PlcTriggerAddress = PlcAddressNormalizer.MigrateLegacyAddress(
+                PlcTriggerAddress,
+                protocolType,
+                GetProtocolDefaultAddress(protocolType, 555));
+            PlcResultAddress = PlcAddressNormalizer.MigrateLegacyAddress(
+                PlcResultAddress,
+                protocolType,
+                GetProtocolDefaultAddress(protocolType, 556));
+
+            if (!IsMitsubishiProtocol(protocolType) &&
+                string.Equals(PlcDriverProvider, "McpX", StringComparison.OrdinalIgnoreCase))
+            {
+                PlcDriverProvider = "Hsl";
+            }
+
+            if (string.IsNullOrWhiteSpace(PlcSiemensCpuModel))
+            {
+                PlcSiemensCpuModel = "S1200";
+            }
+        }
+
+        private static bool IsMitsubishiProtocol(PlcProtocolType protocolType)
+        {
+            return protocolType == PlcProtocolType.Mitsubishi_MC_ASCII ||
+                   protocolType == PlcProtocolType.Mitsubishi_MC_Binary;
+        }
+
+        private static string GetProtocolDefaultAddress(PlcProtocolType protocolType, int number)
+        {
+            return protocolType switch
+            {
+                PlcProtocolType.Siemens_S7 => $"DB1.{number}",
+                PlcProtocolType.Modbus_TCP => number.ToString(),
+                PlcProtocolType.Omron_Fins => $"D{number}",
+                _ => $"D{number}"
+            };
+        }
+
+        private static string GetReadableConfigPath()
+        {
+            if (File.Exists(ConfigPath))
+            {
+                return ConfigPath;
+            }
+
+            if (File.Exists(LegacySharedConfigPath))
+            {
+                return LegacySharedConfigPath;
+            }
+
+            if (File.Exists(BundledConfigPath))
+            {
+                return BundledConfigPath;
+            }
+
+            return ConfigPath;
+        }
+
+        private void TrySeedRuntimeConfig()
+        {
+            try
+            {
+                Save();
+            }
+            catch (Exception ex)
+            {
+                LogError("SeedRuntimeConfig", ex);
+            }
+        }
+
+        private static bool PathsEqual(string left, string right)
+        {
+            try
+            {
+                return string.Equals(
+                    Path.GetFullPath(left),
+                    Path.GetFullPath(right),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+            }
+        }
     }
 }
-
-
-

@@ -36,7 +36,10 @@ namespace ClearFrost.Services
         private string _lastDriverProvider = "Hsl";
         private string _lastIp = "127.0.0.1";
         private int _lastPort = 0;
-        private short _lastTriggerAddress;
+        private string _lastTriggerAddress = string.Empty;
+        private string _lastSiemensCpuModel = "S1200";
+        private int _lastSiemensRack;
+        private int _lastSiemensSlot = 2;
         private int _lastPollingIntervalMs = 500;
         private int _lastTriggerDelayMs = 800;
 
@@ -63,18 +66,23 @@ namespace ClearFrost.Services
 
         #region 连接管理
 
-        public async Task<bool> ConnectAsync(string protocol, string ip, int port, string driverProvider = "Hsl")
+        public async Task<bool> ConnectAsync(PlcConnectionOptions options)
         {
             if (_isConnecting) return false;
             _isConnecting = true;
 
             const int maxRetries = 3;
-            var protocolType = PlcFactory.ParseProtocol(protocol);
+            options ??= new PlcConnectionOptions();
+            var protocolType = options.ProtocolType;
 
-            _lastProtocol = protocol;
-            _lastDriverProvider = string.IsNullOrWhiteSpace(driverProvider) ? "Hsl" : driverProvider;
-            _lastIp = ip;
-            _lastPort = port;
+            _lastProtocol = string.IsNullOrWhiteSpace(options.Protocol) ? protocolType.ToString() : options.Protocol;
+            _lastDriverProvider = string.IsNullOrWhiteSpace(options.DriverProvider) ? "Hsl" : options.DriverProvider;
+            _lastIp = options.Ip ?? string.Empty;
+            _lastPort = options.Port;
+            _lastSiemensCpuModel = string.IsNullOrWhiteSpace(options.SiemensCpuModel) ? "S1200" : options.SiemensCpuModel;
+            _lastSiemensRack = options.SiemensRack;
+            _lastSiemensSlot = options.SiemensSlot;
+            _lastTriggerAddress = options.TriggerAddress ?? string.Empty;
 
             try
             {
@@ -84,21 +92,21 @@ namespace ClearFrost.Services
                 // 断开现有连接
                 Disconnect();
 
-                Debug.WriteLine($"[PlcService] 正在连接 {_lastDriverProvider}/{protocolType} @ {ip}:{port}");
+                Debug.WriteLine($"[PlcService] 正在连接 {_lastDriverProvider}/{protocolType} @ {_lastIp}:{_lastPort}");
 
                 for (int i = 0; i < maxRetries; i++)
                 {
                     _plcDevice?.Disconnect();
                     _plcDevice = null;
 
-                    _plcDevice = PlcFactory.Create(_lastDriverProvider, protocolType, ip, port);
+                    _plcDevice = PlcFactory.Create(BuildLastConnectionOptions());
                     bool socketConnected = await _plcDevice.ConnectAsync();
 
                     if (socketConnected)
                     {
                         // Socket 连接成功后，进行一次读操作验证 PLC 是否真正可通信
                         // HslCommunication 库的 ConnectServer 仅建立 TCP 连接，不验证 PLC 可用性
-                        string testAddress = GetConnectivityProbeAddress(protocolType);
+                        string testAddress = GetConnectivityProbeAddress(protocolType, _lastTriggerAddress);
                         var (readSuccess, _) = await _plcDevice.ReadInt16Async(testAddress);
                         if (readSuccess)
                         {
@@ -111,7 +119,7 @@ namespace ClearFrost.Services
                         {
                             // 读操作失败，说明 PLC 未真正可用
                             LastError = _plcDevice.LastError ?? "PLC 连接验证失败：无法读取测试地址";
-                            Debug.WriteLine($"[PlcService] 连接验证失败 (读取 D0 失败): {LastError}");
+                            Debug.WriteLine($"[PlcService] 连接验证失败 (读取 {testAddress} 失败): {LastError}");
                             _plcDevice.Disconnect();
                             _plcDevice = null;
                             continue; // 继续重试
@@ -166,11 +174,18 @@ namespace ClearFrost.Services
 
         #region 监听功能
 
-        public void StartMonitoring(short triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800)
+        public void StartMonitoring(string triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800)
         {
             if (_monitoringTask != null && !_monitoringTask.IsCompleted) return;
 
-            _lastTriggerAddress = triggerAddress;
+            _lastTriggerAddress = triggerAddress ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(_lastTriggerAddress))
+            {
+                LastError = "触发地址不能为空";
+                ErrorOccurred?.Invoke(LastError);
+                return;
+            }
+
             _lastPollingIntervalMs = Math.Max(50, pollingIntervalMs);
             _lastTriggerDelayMs = Math.Max(0, triggerDelayMs);
             Interlocked.Exchange(ref _lastAcceptedTriggerTicks, 0);
@@ -233,7 +248,7 @@ namespace ClearFrost.Services
             _monitoringTask = null;
         }
 
-        private async Task MonitoringLoop(short triggerAddress, int pollingIntervalMs, int triggerDelayMs, CancellationToken token)
+        private async Task MonitoringLoop(string triggerAddress, int pollingIntervalMs, int triggerDelayMs, CancellationToken token)
         {
             int pollCount = 0;
 
@@ -261,7 +276,7 @@ namespace ClearFrost.Services
                         continue;
                     }
 
-                    string address = GetPlcAddress(triggerAddress);
+                    string address = triggerAddress;
                     var (success, value) = await plc.ReadInt16Async(address);
                     pollCount++;
 
@@ -348,14 +363,13 @@ namespace ClearFrost.Services
 
         #region 结果读写
 
-        public async Task<bool> WriteResultAsync(short resultAddress, bool isQualified)
+        public async Task<bool> WriteResultAsync(string resultAddress, bool isQualified)
         {
-            if (!IsConnected || _plcDevice == null) return false;
+            if (!IsConnected || _plcDevice == null || string.IsNullOrWhiteSpace(resultAddress)) return false;
 
-            string address = GetPlcAddress(resultAddress);
             try
             {
-                bool success = await _plcDevice.WriteInt16Async(address, (short)(isQualified ? 1 : 0));
+                bool success = await _plcDevice.WriteInt16Async(resultAddress, (short)(isQualified ? 1 : 0));
                 if (!success)
                 {
                     LastError = _plcDevice.LastError;
@@ -371,14 +385,13 @@ namespace ClearFrost.Services
             }
         }
 
-        public async Task<bool> WriteResultAsync(short resultAddress, short valueToWrite)
+        public async Task<bool> WriteResultAsync(string resultAddress, short valueToWrite)
         {
-            if (!IsConnected || _plcDevice == null) return false;
+            if (!IsConnected || _plcDevice == null || string.IsNullOrWhiteSpace(resultAddress)) return false;
 
-            string address = GetPlcAddress(resultAddress);
             try
             {
-                bool success = await _plcDevice.WriteInt16Async(address, valueToWrite);
+                bool success = await _plcDevice.WriteInt16Async(resultAddress, valueToWrite);
                 if (!success)
                 {
                     LastError = _plcDevice.LastError;
@@ -394,14 +407,13 @@ namespace ClearFrost.Services
             }
         }
 
-        public async Task<bool> WriteReleaseSignalAsync(short resultAddress)
+        public async Task<bool> WriteReleaseSignalAsync(string resultAddress)
         {
-            if (!IsConnected || _plcDevice == null) return false;
+            if (!IsConnected || _plcDevice == null || string.IsNullOrWhiteSpace(resultAddress)) return false;
 
-            string address = GetPlcAddress(resultAddress);
             try
             {
-                return await _plcDevice.WriteInt16Async(address, 1);
+                return await _plcDevice.WriteInt16Async(resultAddress, 1);
             }
             catch (Exception ex)
             {
@@ -440,7 +452,7 @@ namespace ClearFrost.Services
                 var protocolType = PlcFactory.ParseProtocol(_lastProtocol);
 
                 _plcDevice?.Disconnect();
-                _plcDevice = PlcFactory.Create(_lastDriverProvider, protocolType, _lastIp, _lastPort);
+                _plcDevice = PlcFactory.Create(BuildLastConnectionOptions());
 
                 bool socketConnected = await _plcDevice.ConnectAsync();
                 if (!socketConnected)
@@ -461,7 +473,7 @@ namespace ClearFrost.Services
                     return false;
                 }
 
-                string testAddress = GetConnectivityProbeAddress(protocolType);
+                string testAddress = GetConnectivityProbeAddress(protocolType, _lastTriggerAddress);
                 var (readSuccess, _) = await _plcDevice.ReadInt16Async(testAddress);
                 if (!readSuccess)
                 {
@@ -505,29 +517,24 @@ namespace ClearFrost.Services
             }
         }
 
-        private static string GetConnectivityProbeAddress(PlcProtocolType protocolType)
+        private PlcConnectionOptions BuildLastConnectionOptions()
         {
-            return protocolType switch
+            return new PlcConnectionOptions
             {
-                PlcProtocolType.Modbus_TCP => "0",
-                PlcProtocolType.Siemens_S7 => "DB1.0",
-                _ => "D0"
+                Protocol = _lastProtocol,
+                DriverProvider = _lastDriverProvider,
+                Ip = _lastIp,
+                Port = _lastPort,
+                SiemensCpuModel = _lastSiemensCpuModel,
+                SiemensRack = _lastSiemensRack,
+                SiemensSlot = _lastSiemensSlot,
+                TriggerAddress = _lastTriggerAddress
             };
         }
 
-        private string GetPlcAddress(short address)
+        private static string GetConnectivityProbeAddress(PlcProtocolType protocolType, string preferredAddress)
         {
-            if (_plcDevice == null) return $"D{address}";
-
-            // 根据协议类型判断地址格式
-            string protocol = _plcDevice.ProtocolName?.ToLower() ?? "";
-
-            if (protocol.Contains("modbus"))
-                return address.ToString();
-            if (protocol.Contains("siemens") || protocol.Contains("s7"))
-                return $"DB1.{address}";
-
-            return $"D{address}";
+            return PlcAddressNormalizer.GetProbeAddress(protocolType, preferredAddress);
         }
 
         #endregion

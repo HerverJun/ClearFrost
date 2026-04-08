@@ -16,6 +16,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using ClearFrost.Yolo;
 using ClearFrost.Helpers;
+using ClearFrost.Hardware;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
 
@@ -28,8 +29,7 @@ namespace ClearFrost
         /// <summary>
         /// [PLC-DIAG] 诊断日志 → 追加写入 plc_diag.log（现场无需开发工具即可查看）
         /// </summary>
-        private static readonly string _diagLogPath = Path.Combine(
-            AppDomain.CurrentDomain.BaseDirectory, "plc_diag.log");
+        private static readonly string _diagLogPath = RuntimePaths.PlcDiagLogPath;
         private static void DiagLog(string message)
         {
             try
@@ -50,20 +50,31 @@ namespace ClearFrost
             string protocol = _appConfig.PlcProtocol;
             string ip = _appConfig.PlcIp;
             int port = _appConfig.PlcPort;
+            string triggerAddress = _appConfig.PlcTriggerAddress;
 
             await _uiController.LogToFrontend($"正在连接 PLC: {driverProvider}/{protocol} @ {ip}:{port}", "info");
 
-            bool success = await _plcService.ConnectAsync(protocol, ip, port, driverProvider);
+            bool success = await _plcService.ConnectAsync(new PlcConnectionOptions
+            {
+                Protocol = protocol,
+                DriverProvider = driverProvider,
+                Ip = ip,
+                Port = port,
+                SiemensCpuModel = _appConfig.PlcSiemensCpuModel,
+                SiemensRack = _appConfig.PlcSiemensRack,
+                SiemensSlot = _appConfig.PlcSiemensSlot,
+                TriggerAddress = triggerAddress
+            });
 
             if (success)
             {
                 // 启动触发监控
                 _plcService.StartMonitoring(
-                    _appConfig.PlcTriggerAddress,
+                    triggerAddress,
                     _appConfig.PlcPollingIntervalMs,
                     _appConfig.PlcTriggerDelayMs);
                 await _uiController.LogToFrontend(
-                    $"✅ PLC连接成功，开始监听 D{_appConfig.PlcTriggerAddress}", "success");
+                    $"✅ PLC连接成功，开始监听 {triggerAddress}", "success");
             }
             else
             {

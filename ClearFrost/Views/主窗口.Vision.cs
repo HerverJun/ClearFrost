@@ -37,6 +37,12 @@ namespace ClearFrost
 
             bool useGpu = _appConfig.EnableGpu;
 
+            if (!Directory.Exists(模型路径))
+            {
+                await _uiController.LogToFrontend($"模型目录不存在: {模型路径}", "warning");
+                return;
+            }
+
             // 优先恢复上次使用的主模型；为空或文件不存在时再尝试目录中的第一个模型
             if (string.IsNullOrWhiteSpace(模型名))
             {
@@ -679,9 +685,8 @@ namespace ClearFrost
             {
                 try
                 {
-                    short resultAddress = (short)_appConfig.PlcResultAddress;
                     short writeValue = isQualified ? _appConfig.PlcOkValue : _appConfig.PlcNgValue;
-                    bool success = await _plcService.WriteResultAsync(resultAddress, writeValue);
+                    bool success = await _plcService.WriteResultAsync(_appConfig.PlcResultAddress, writeValue);
                     if (!success)
                     {
                         await _uiController.LogToFrontend("PLC写入失败: 结果未成功落地", "error");

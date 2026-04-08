@@ -36,6 +36,27 @@ namespace ClearFrost.Hardware
         /// </summary>
         public static IPlcDevice Create(string driverProvider, PlcProtocolType protocol, string ip, int port)
         {
+            return Create(new PlcConnectionOptions
+            {
+                DriverProvider = driverProvider,
+                Protocol = protocol.ToString(),
+                Ip = ip,
+                Port = port
+            });
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        public static IPlcDevice Create(PlcConnectionOptions options)
+        {
+            if (options == null) throw new ArgumentNullException(nameof(options));
+
+            PlcProtocolType protocol = options.ProtocolType;
+            string driverProvider = options.DriverProvider;
+            string ip = options.Ip;
+            int port = options.Port;
+
             if (string.Equals(driverProvider, "McpX", StringComparison.OrdinalIgnoreCase))
             {
                 return protocol switch
@@ -51,7 +72,12 @@ namespace ClearFrost.Hardware
                 PlcProtocolType.Mitsubishi_MC_ASCII => new MitsubishiMcAsciiAdapter(ip, port),
                 PlcProtocolType.Mitsubishi_MC_Binary => new MitsubishiMcBinaryAdapter(ip, port),
                 PlcProtocolType.Modbus_TCP => new ModbusTcpAdapter(ip, port),
-                PlcProtocolType.Siemens_S7 => new SiemensS7Adapter(ip, port),
+                PlcProtocolType.Siemens_S7 => new SiemensS7Adapter(
+                    ip,
+                    port,
+                    options.SiemensCpuModel,
+                    options.SiemensRack,
+                    options.SiemensSlot),
                 PlcProtocolType.Omron_Fins => new OmronFinsAdapter(ip, port),
                 _ => throw new NotSupportedException($"不支持的协议类型: {protocol}")
             };
@@ -65,6 +91,18 @@ namespace ClearFrost.Hardware
             if (Enum.TryParse<PlcProtocolType>(protocolStr, true, out var result))
                 return result;
             return PlcProtocolType.Mitsubishi_MC_ASCII; // 默认值
+        }
+
+        public static SiemensPLCS ParseSiemensCpuModel(string? cpuModel)
+        {
+            return cpuModel?.Trim().ToUpperInvariant() switch
+            {
+                "S1200" => SiemensPLCS.S1200,
+                "S1500" => SiemensPLCS.S1500,
+                "S300" => SiemensPLCS.S300,
+                "S400" => SiemensPLCS.S400,
+                _ => SiemensPLCS.S1200
+            };
         }
     }
 
@@ -360,12 +398,23 @@ namespace ClearFrost.Hardware
         public string ProtocolName => "西门子S7";
 
         public SiemensS7Adapter(string ip, int port)
+            : this(ip, port, "S1200", 0, 2)
         {
-            // 
-            _plc = new SiemensS7Net(SiemensPLCS.S1200, ip);
+        }
+
+        public SiemensS7Adapter(string ip, int port, string cpuModel, int rack, int slot)
+        {
+            SiemensPLCS siemensPlcType = PlcFactory.ParseSiemensCpuModel(cpuModel);
+            _plc = new SiemensS7Net(siemensPlcType, ip);
             if (port != 102) // 非默认端口时覆盖
             {
                 _plc.Port = port;
+            }
+
+            if (siemensPlcType == SiemensPLCS.S300 || siemensPlcType == SiemensPLCS.S400)
+            {
+                _plc.Rack = (byte)Math.Clamp(rack, 0, byte.MaxValue);
+                _plc.Slot = (byte)Math.Clamp(slot, 0, byte.MaxValue);
             }
         }
 

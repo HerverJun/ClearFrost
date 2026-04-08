@@ -90,7 +90,7 @@ public class PlcServiceRecoveryTests
         PlcTestReflectionHelper.SetPrivateField(service, "_plcDevice", device);
         PlcTestReflectionHelper.SetAutoProperty(service, "IsConnected", true);
 
-        await InvokeMonitoringLoopAsync(service, 555, 50, 0, cancellationTokenSource.Token);
+        await InvokeMonitoringLoopAsync(service, "D555", 50, 0, cancellationTokenSource.Token);
 
         PlcTestReflectionHelper.GetPrivateField<IPlcDevice?>(service, "_plcDevice").Should().BeNull();
         device.DisconnectCalled.Should().BeTrue();
@@ -123,7 +123,7 @@ public class PlcServiceRecoveryTests
 
     private static async Task InvokeMonitoringLoopAsync(
         PlcService service,
-        short triggerAddress,
+        string triggerAddress,
         int pollingIntervalMs,
         int triggerDelayMs,
         CancellationToken cancellationToken)
