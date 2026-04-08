@@ -2,9 +2,11 @@ using System;
 using System.IO;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 using ClearFrost.Interfaces;
+using ClearFrost.Helpers;
 
 namespace ClearFrost.Services
 {
@@ -20,21 +22,214 @@ namespace ClearFrost.Services
 
         public SqliteDatabaseService(string? dbPath = null)
         {
-            // 默认数据库路径：程序目录/Data/detection.db
+            // 默认数据库路径：运行时可写目录/Data/detection.db
             if (string.IsNullOrEmpty(dbPath))
             {
-                string dataDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
-                if (!Directory.Exists(dataDir))
-                    Directory.CreateDirectory(dataDir);
-                _dbPath = Path.Combine(dataDir, "detection.db");
+                _dbPath = RuntimePaths.DatabasePath;
+                TryMigrateLegacyDatabases(
+                    new[]
+                    {
+                        RuntimePaths.LegacySharedDatabasePath,
+                        RuntimePaths.LegacyDatabasePath
+                    },
+                    _dbPath);
             }
             else
             {
                 _dbPath = dbPath;
             }
 
+            string directory = Path.GetDirectoryName(_dbPath) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
             _connectionString = $"Data Source={_dbPath}";
             Debug.WriteLine($"[SqliteDatabaseService] Database path: {_dbPath}");
+        }
+
+        private static void TryMigrateLegacyDatabases(IEnumerable<string> sourcePaths, string runtimeDbPath)
+        {
+            try
+            {
+                string[] legacySources = sourcePaths
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .Select(path => Path.GetFullPath(path))
+                    .Where(path => !PathsEqual(path, runtimeDbPath) && File.Exists(path))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+
+                if (legacySources.Length == 0)
+                {
+                    return;
+                }
+
+                EnsureDatabaseDirectory(runtimeDbPath);
+
+                using var connection = OpenDatabase(runtimeDbPath);
+                EnsureSchema(connection);
+
+                foreach (string legacyPath in legacySources)
+                {
+                    if (!TryImportFromLegacyDatabase(connection, legacyPath))
+                    {
+                        continue;
+                    }
+
+                    Debug.WriteLine($"[SqliteDatabaseService] Migrated legacy records from {legacyPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SqliteDatabaseService] Legacy migration skipped: {ex.Message}");
+            }
+        }
+
+        private static bool TryImportFromLegacyDatabase(SqliteConnection destinationConnection, string legacyDbPath)
+        {
+            const string alias = "legacy_db";
+
+            try
+            {
+                using (var attachCommand = destinationConnection.CreateCommand())
+                {
+                    attachCommand.CommandText = $"ATTACH DATABASE $sourcePath AS {alias};";
+                    attachCommand.Parameters.AddWithValue("$sourcePath", legacyDbPath);
+                    attachCommand.ExecuteNonQuery();
+                }
+
+                if (!HasDetectionRecordsTable(destinationConnection, alias))
+                {
+                    return false;
+                }
+
+                using var importCommand = destinationConnection.CreateCommand();
+                importCommand.CommandText = $@"
+                    INSERT INTO DetectionRecords
+                    (
+                        Timestamp,
+                        IsQualified,
+                        TargetLabel,
+                        ExpectedCount,
+                        ActualCount,
+                        InferenceMs,
+                        ModelName,
+                        CameraId,
+                        ResultJson
+                    )
+                    SELECT
+                        Timestamp,
+                        IsQualified,
+                        TargetLabel,
+                        ExpectedCount,
+                        ActualCount,
+                        InferenceMs,
+                        ModelName,
+                        CameraId,
+                        ResultJson
+                    FROM {alias}.DetectionRecords
+                    EXCEPT
+                    SELECT
+                        Timestamp,
+                        IsQualified,
+                        TargetLabel,
+                        ExpectedCount,
+                        ActualCount,
+                        InferenceMs,
+                        ModelName,
+                        CameraId,
+                        ResultJson
+                    FROM DetectionRecords;
+                ";
+
+                importCommand.ExecuteNonQuery();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SqliteDatabaseService] Failed to import legacy database {legacyDbPath}: {ex.Message}");
+                return false;
+            }
+            finally
+            {
+                try
+                {
+                    using var detachCommand = destinationConnection.CreateCommand();
+                    detachCommand.CommandText = $"DETACH DATABASE {alias};";
+                    detachCommand.ExecuteNonQuery();
+                }
+                catch
+                {
+                    // 忽略 detach 失败，避免影响主流程
+                }
+            }
+        }
+
+        private static bool HasDetectionRecordsTable(SqliteConnection connection, string databaseAlias)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = $@"
+                SELECT 1
+                FROM {databaseAlias}.sqlite_master
+                WHERE type = 'table' AND name = 'DetectionRecords'
+                LIMIT 1;
+            ";
+
+            return command.ExecuteScalar() != null;
+        }
+
+        private static SqliteConnection OpenDatabase(string dbPath)
+        {
+            var connection = new SqliteConnection($"Data Source={dbPath}");
+            connection.Open();
+            return connection;
+        }
+
+        private static void EnsureDatabaseDirectory(string dbPath)
+        {
+            string directory = Path.GetDirectoryName(dbPath) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+        }
+
+        private static void EnsureSchema(SqliteConnection connection)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                CREATE TABLE IF NOT EXISTS DetectionRecords (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Timestamp TEXT NOT NULL,
+                    IsQualified INTEGER NOT NULL,
+                    TargetLabel TEXT,
+                    ExpectedCount INTEGER,
+                    ActualCount INTEGER,
+                    InferenceMs INTEGER,
+                    ModelName TEXT,
+                    CameraId TEXT,
+                    ResultJson TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_timestamp ON DetectionRecords(Timestamp);
+                CREATE INDEX IF NOT EXISTS idx_qualified ON DetectionRecords(IsQualified);
+            ";
+            command.ExecuteNonQuery();
+        }
+
+        private static bool PathsEqual(string left, string right)
+        {
+            try
+            {
+                return string.Equals(
+                    Path.GetFullPath(left),
+                    Path.GetFullPath(right),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         public async Task InitializeAsync()
@@ -46,25 +241,7 @@ namespace ClearFrost.Services
                 using var connection = new SqliteConnection(_connectionString);
                 await connection.OpenAsync();
 
-                string createTableSql = @"
-                    CREATE TABLE IF NOT EXISTS DetectionRecords (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        Timestamp TEXT NOT NULL,
-                        IsQualified INTEGER NOT NULL,
-                        TargetLabel TEXT,
-                        ExpectedCount INTEGER,
-                        ActualCount INTEGER,
-                        InferenceMs INTEGER,
-                        ModelName TEXT,
-                        CameraId TEXT,
-                        ResultJson TEXT
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_timestamp ON DetectionRecords(Timestamp);
-                    CREATE INDEX IF NOT EXISTS idx_qualified ON DetectionRecords(IsQualified);
-                ";
-
-                using var command = new SqliteCommand(createTableSql, connection);
-                await command.ExecuteNonQueryAsync();
+                EnsureSchema(connection);
 
                 _initialized = true;
                 Debug.WriteLine("[SqliteDatabaseService] Database initialized");
