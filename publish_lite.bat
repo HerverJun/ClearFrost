@@ -23,15 +23,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [3/6] Trimming ONNX directory...
-if exist "%OUTPUT_DIR%\ONNX" (
-    pushd "%OUTPUT_DIR%\ONNX"
-    for %%f in (*.onnx) do (
-        if /i not "%%f"=="yolo11n.onnx" del "%%f"
-    )
-    popd
+echo [3/6] Preserving ONNX models...
+if exist "%OUTPUT_DIR%\ONNX\*.onnx" (
+    echo [OK] ONNX models preserved.
 ) else (
-    echo [WARN] ONNX directory not found. Skipping model trim.
+    echo [WARN] No ONNX models found in publish output.
 )
 
 echo [4/6] Removing debug symbols...
