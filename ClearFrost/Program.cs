@@ -8,6 +8,7 @@ using System.IO;
 // 描述:   应用程序主入口点
 // ============================================================================
 using System.Text;
+using ClearFrost.Helpers;
 
 namespace ClearFrost
 {
@@ -23,39 +24,51 @@ namespace ClearFrost
         [STAThread]
         static void Main()
         {
-            // 启动调试日志 - 使用程序目录，确保任何机器都能写入
-            string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "startup.log");
             try
             {
                 // 确保工作目录正确（修复从 IDE 启动时工作目录不对的问题）
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory;
                 Environment.CurrentDirectory = baseDir;
 
-                File.WriteAllText(logPath, $"[{DateTime.Now}] Starting...\n");
-                File.AppendAllText(logPath, $"Working Directory: {Environment.CurrentDirectory}\n");
-                File.AppendAllText(logPath, $"Base Directory: {baseDir}\n");
+                AppendStartupLog($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Starting...");
+                AppendStartupLog($"Working Directory: {Environment.CurrentDirectory}");
+                AppendStartupLog($"Base Directory: {baseDir}");
 
                 // 设置全局异常处理，阻止闪退
                 Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
                 Application.ThreadException += Application_ThreadException;
                 AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
 
-                File.AppendAllText(logPath, "Exception handlers registered\n");
+                AppendStartupLog("Exception handlers registered");
 
                 // To customize application configuration such as set high DPI settings or default font,
                 // see https://aka.ms/applicationconfiguration.
                 ApplicationConfiguration.Initialize();
-                File.AppendAllText(logPath, "ApplicationConfiguration initialized\n");
+                AppendStartupLog("ApplicationConfiguration initialized");
 
                 Application.Run(new 主窗口());
-                File.AppendAllText(logPath, "Application exited normally\n");
+                AppendStartupLog("Application exited normally");
             }
             catch (Exception ex)
             {
-                File.AppendAllText(logPath, $"CRASH: {ex.Message}\n{ex.StackTrace}\n");
+                AppendStartupLog($"CRASH: {ex.Message}");
+                if (!string.IsNullOrWhiteSpace(ex.StackTrace))
+                {
+                    AppendStartupLog(ex.StackTrace);
+                }
+
                 if (ex.InnerException != null)
-                    File.AppendAllText(logPath, $"Inner: {ex.InnerException.Message}\n{ex.InnerException.StackTrace}\n");
-                throw;
+                {
+                    AppendStartupLog($"Inner: {ex.InnerException.Message}");
+                    if (!string.IsNullOrWhiteSpace(ex.InnerException.StackTrace))
+                    {
+                        AppendStartupLog(ex.InnerException.StackTrace);
+                    }
+                }
+
+                LogException("Startup Exception", ex);
+                TryShowFatalMessage($"程序启动失败，请查看日志:\n{RuntimePaths.StartupLogPath}\n\n{ex.Message}");
+                Environment.ExitCode = 1;
             }
         }
 
@@ -65,8 +78,7 @@ namespace ClearFrost
         private static void Application_ThreadException(object sender, System.Threading.ThreadExceptionEventArgs e)
         {
             LogException("UI Thread Exception", e.Exception);
-            MessageBox.Show($"发生错误，程序已记录日志:\n{e.Exception.Message}", "错误",
-                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            TryShowFatalMessage($"发生错误，程序已记录日志:\n{e.Exception.Message}", "错误");
         }
 
         /// <summary>
@@ -77,8 +89,7 @@ namespace ClearFrost
             if (e.ExceptionObject is Exception ex)
             {
                 LogException("Unhandled Exception", ex);
-                MessageBox.Show($"发生严重错误，程序即将退出:\n{ex.Message}", "严重错误",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                TryShowFatalMessage($"发生严重错误，程序即将退出:\n{ex.Message}", "严重错误");
             }
         }
 
@@ -89,10 +100,7 @@ namespace ClearFrost
         {
             try
             {
-                string logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs");
-                if (!Directory.Exists(logDir)) Directory.CreateDirectory(logDir);
-
-                string logFile = Path.Combine(logDir, $"crash_{DateTime.Now:yyyyMMdd}.log");
+                string logFile = RuntimePaths.CrashLogPath(DateTime.Now);
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine($"===== {type} at {DateTime.Now:yyyy-MM-dd HH:mm:ss} =====");
                 sb.AppendLine($"Message: {ex.Message}");
@@ -107,6 +115,30 @@ namespace ClearFrost
                 File.AppendAllText(logFile, sb.ToString(), Encoding.UTF8);
             }
             catch (Exception logEx) { System.Diagnostics.Debug.WriteLine($"[Program] 日志写入失败: {logEx.Message}"); }
+        }
+
+        private static void AppendStartupLog(string message)
+        {
+            try
+            {
+                File.AppendAllText(RuntimePaths.StartupLogPath, message + Environment.NewLine, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Program] 启动日志写入失败: {ex.Message}");
+            }
+        }
+
+        private static void TryShowFatalMessage(string message, string title = "严重错误")
+        {
+            try
+            {
+                MessageBox.Show(message, title, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Program] 错误弹窗显示失败: {ex.Message}");
+            }
         }
     }
 }

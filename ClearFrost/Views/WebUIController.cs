@@ -150,7 +150,13 @@ namespace ClearFrost
 
                 if (!Directory.Exists(htmlPath))
                 {
-                    Directory.CreateDirectory(htmlPath);
+                    throw new DirectoryNotFoundException($"Web UI 资源目录不存在: {htmlPath}");
+                }
+
+                string indexPath = Path.Combine(htmlPath, "index.html");
+                if (!File.Exists(indexPath))
+                {
+                    throw new FileNotFoundException("Web UI 入口文件不存在", indexPath);
                 }
 
                 _webPreviewCachePath = Path.Combine(userDataFolder, "preview-cache");
@@ -198,7 +204,8 @@ namespace ClearFrost
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"WebView2 Initialization failed: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                _webView = null;
+                throw new InvalidOperationException($"WebView2 初始化失败: {ex.Message}", ex);
             }
         }
 
