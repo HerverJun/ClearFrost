@@ -187,3 +187,9 @@ docs/image/
 # Local preview/publish folders
 清霜V*预览版*/
 Publish*/
+
+# Generated publish output folders
+/ClearFrost_Lite/
+/ClearFrost_Full/
+/ClearFrost_V*_Proview/
+/ClearFrostV*Preview/
