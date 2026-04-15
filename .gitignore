@@ -180,3 +180,10 @@ ClearFrostV3*/
 
 # 文档图片（可选）
 docs/image/
+
+# Local .NET CLI caches created in the workspace
+.dotnet_cli/
+
+# Local preview/publish folders
+清霜V*预览版*/
+Publish*/
