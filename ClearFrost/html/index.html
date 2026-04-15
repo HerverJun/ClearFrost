@@ -320,13 +320,7 @@
 
                 <!-- Result Overlay -->
                 <div id="result-overlay"
-                    class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex-col items-center pointer-events-none">
-                    <div
-                        class="bg-porcelain-50/95 border border-celadon-100 px-12 py-8 rounded-2xl shadow-2xl transform transition-[opacity,border-color,box-shadow,background-color] duration-300">
-                        <span id="result-text"
-                            class="font-black text-6xl tracking-widest font-serif text-ink-800">PASS</span>
-                    </div>
-                </div>
+                    class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-8 py-3 rounded-xl font-black text-4xl shadow-xl border-2 border-jade-500 bg-jade-50/95 text-jade-700 tracking-widest z-30 transform -rotate-1 font-serif pointer-events-none">OK</div>
             </div>
 
             <!-- Floating Open Buttons (Visible when drawers closed) -->
@@ -392,11 +386,11 @@
                 </div>
                 <div class="grid grid-cols-2 gap-3 mt-auto">
                     <div class="bg-bamboo-50 border border-bamboo-100 rounded-lg p-2 text-center">
-                        <div class="text-[9px] text-bamboo-600 font-bold uppercase">Pass</div>
+                        <div class="text-[9px] text-bamboo-600 font-bold uppercase">OK</div>
                         <div id="val-ok" class="text-lg font-mono text-bamboo-600 font-bold">0</div>
                     </div>
                     <div class="bg-rouge-50 border border-rouge-100 rounded-lg p-2 text-center">
-                        <div class="text-[9px] text-rouge-600 font-bold uppercase">Fail</div>
+                        <div class="text-[9px] text-rouge-600 font-bold uppercase">NG</div>
                         <div id="val-ng" class="text-lg font-mono text-rouge-600 font-bold">0</div>
                     </div>
                 </div>

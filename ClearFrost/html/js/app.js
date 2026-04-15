@@ -310,11 +310,11 @@ function updateResult(isOk) {
     el.style.animation = 'none'; el.offsetHeight; el.style.animation = null;
 
     if (isOk) {
-        el.innerText = "PASS";
-        el.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-12 py-5 rounded-2xl font-black text-6xl shadow-2xl animate-fade-in border-4 border-jade-500 bg-jade-50/95 text-jade-700 tracking-wider z-30 transform -rotate-2 font-serif";
+        el.innerText = "OK";
+        el.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-8 py-3 rounded-xl font-black text-4xl shadow-xl animate-fade-in border-2 border-jade-500 bg-jade-50/95 text-jade-700 tracking-widest z-30 transform -rotate-1 font-serif pointer-events-none";
     } else {
-        el.innerText = "FAIL";
-        el.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-12 py-5 rounded-2xl font-black text-6xl shadow-2xl animate-fade-in border-4 border-vermilion/50 bg-vermilion/90 text-white tracking-wider z-30 transform rotate-2 font-serif";
+        el.innerText = "NG";
+        el.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-8 py-3 rounded-xl font-black text-4xl shadow-xl animate-fade-in border-2 border-vermilion/50 bg-vermilion/90 text-white tracking-widest z-30 transform rotate-1 font-serif pointer-events-none";
     }
 }
 window.updateResult = updateResult;
