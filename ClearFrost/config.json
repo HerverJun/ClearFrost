@@ -5,6 +5,8 @@
     "PlcResultAddress": "D556",
     "PlcTriggerDelayMs": 800,
     "PlcPollingIntervalMs": 500,
+    "PlcOkValue": 1,
+    "PlcNgValue": 0,
     "PlcProtocol": "Mitsubishi_MC_ASCII",
     "PlcDriverProvider": "Hsl",
     "PlcSiemensCpuModel": "S1200",
@@ -18,7 +20,8 @@
             "ExposureTime": 50000,
             "Gain": 1.1,
             "IsEnabled": true,
-            "Manufacturer": "Huaray"
+            "Manufacturer": "Huaray",
+            "PixelFormat": "Mono8"
         }
     ],
     "ActiveCameraId": "legacy_cam",

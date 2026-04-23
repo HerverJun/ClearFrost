@@ -168,12 +168,21 @@ namespace ClearFrost
                     // 获取检测结果
                     var results = result.Results ?? new List<YoloResult>();
                     bool isQualified = result.IsQualified;
+                    bool detectionFailed = result.HasError;
 
                     // 应用 ROI 过滤
                     results = FilterResultsByROI(results, originalBitmap.Width, originalBitmap.Height);
 
                     string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
-                    isQualified = EvaluateQualificationByTarget(results, labels, _appConfig.TargetLabel, _appConfig.TargetCount);
+                    if (detectionFailed)
+                    {
+                        isQualified = false;
+                        await _uiController.LogToFrontend($"检测失败，已强制判定为不合格: {result.ErrorMessage}", "error");
+                    }
+                    else
+                    {
+                        isQualified = EvaluateQualificationByTarget(results, labels, _appConfig.TargetLabel, _appConfig.TargetCount);
+                    }
                     using (var sourceMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(originalBitmap))
                     using (var renderedMat = TryRenderDetectionMat(sourceMat, results, labels))
                     {
@@ -184,12 +193,15 @@ namespace ClearFrost
 
                         string objDesc = GetDetailedDetectionLog(results, labels);
                         string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
+                        string statusMessage = detectionFailed
+                            ? $"检测失败，已判定为不合格: {result.ErrorMessage} | {sw.ElapsedMilliseconds}ms"
+                            : $"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {sw.ElapsedMilliseconds}ms{modelInfo}";
                         await _uiController.SendDetectionFrame(
                             renderedMat ?? sourceMat,
                             isQualified,
                             _statisticsService.Current,
-                            $"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {sw.ElapsedMilliseconds}ms{modelInfo}",
-                            isQualified ? "success" : "error",
+                            statusMessage,
+                            isQualified && !detectionFailed ? "success" : "error",
                             (_detectionService as DetectionService)?.GetLastMetrics());
                     }
                 }
@@ -307,10 +319,11 @@ namespace ClearFrost
             long dbWriteMs = 0;
             bool finalQualified = false;
             int finalResultCount = 0;
+            int finalAttemptCount = 1;
 
             try
             {
-                (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, finalQualified, finalResultCount) =
+                (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, finalQualified, finalResultCount, finalAttemptCount) =
                     await ExecuteDetectionCycleAsync(request, _appShutdownCts.Token);
             }
             catch (Exception ex)
@@ -334,7 +347,7 @@ namespace ClearFrost
                         saveQueueMs,
                         plcWriteMs,
                         dbWriteMs,
-                        1,
+                        finalAttemptCount,
                         finalResultCount,
                         _detectionGate.GetSnapshot());
                 }
@@ -375,11 +388,10 @@ namespace ClearFrost
             return decision;
         }
 
-        private async Task<(long CaptureMs, long InferenceMs, long RoiFilterMs, long PlcWriteMs, long RenderToUiMs, long SaveQueueMs, long DbWriteMs, bool FinalQualified, int FinalResultCount)> ExecuteDetectionCycleAsync(
+        private async Task<(long CaptureMs, long InferenceMs, long RoiFilterMs, long PlcWriteMs, long RenderToUiMs, long SaveQueueMs, long DbWriteMs, bool FinalQualified, int FinalResultCount, int AttemptCount)> ExecuteDetectionCycleAsync(
             DetectionCycleRequest request,
             CancellationToken cancellationToken)
         {
-            _ = cancellationToken;
             await _uiController.LogToFrontend($"开始检测... ({request.TriggerSource}触发)", "info");
 
             long captureMs = 0;
@@ -391,6 +403,7 @@ namespace ClearFrost
             long dbWriteMs = 0;
             bool finalQualified = false;
             int finalResultCount = 0;
+            int attemptCount = 0;
             ImageSavePayload? imagePayload = null;
             DetectionPersistencePayload? persistencePayload = null;
 
@@ -399,8 +412,41 @@ namespace ClearFrost
             var captureSw = Stopwatch.StartNew();
             try
             {
-                frameToProcess = _cameraService.CaptureFrame(3000);
-                DiagLog($"📷 [{request.TriggerSource}] CaptureFrame 结果: {(frameToProcess != null ? "OK" : "FAIL")}");
+                int maxRetryCount = Math.Clamp(_appConfig.MaxRetryCount, 0, 5);
+                int totalAttempts = maxRetryCount + 1;
+                int retryDelayMs = Math.Max(0, _appConfig.RetryIntervalMs);
+
+                for (int attempt = 1; attempt <= totalAttempts; attempt++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    attemptCount = attempt;
+                    frameToProcess = _cameraService.CaptureFrame(3000);
+                    DiagLog($"📷 [{request.TriggerSource}] CaptureFrame 尝试 {attempt}/{totalAttempts}: {(frameToProcess != null ? "OK" : "FAIL")}");
+
+                    if (frameToProcess != null)
+                    {
+                        break;
+                    }
+
+                    if (attempt < totalAttempts)
+                    {
+                        string retryDetail = string.IsNullOrWhiteSpace(_cameraService.LastError)
+                            ? "取图失败"
+                            : _cameraService.LastError;
+                        await _uiController.LogToFrontend(
+                            $"拍照失败，准备重试 {attempt}/{maxRetryCount}: {retryDetail}",
+                            "warning");
+
+                        if (retryDelayMs > 0)
+                        {
+                            await Task.Delay(retryDelayMs, cancellationToken);
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -408,26 +454,37 @@ namespace ClearFrost
                 Debug.WriteLine($"[手动检测] 触发拍照失败: {ex.Message}");
             }
 
-            if (frameToProcess == null)
-            {
-                Mat? cachedFrame = _cameraService.LastFrame;
-                if (cachedFrame != null && !cachedFrame.Empty())
-                {
-                    frameToProcess = cachedFrame;
-                }
-                else
-                {
-                    cachedFrame?.Dispose();
-                }
-            }
-
             captureSw.Stop();
             captureMs = captureSw.ElapsedMilliseconds;
 
             if (frameToProcess == null)
             {
-                await _uiController.LogToFrontend("无可用图像进行检测，请先打开相机", "error");
-                return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, finalQualified, finalResultCount);
+                string detail = string.IsNullOrWhiteSpace(_cameraService.LastError)
+                    ? "无可用图像进行检测，请先打开相机"
+                    : $"相机拍照失败: {_cameraService.LastError}";
+                await _uiController.LogToFrontend(detail, "error");
+
+                var plcSw = Stopwatch.StartNew();
+                await WriteDetectionResultToPlc(false);
+                plcSw.Stop();
+                plcWriteMs = plcSw.ElapsedMilliseconds;
+
+                _statisticsService.RecordDetection(false);
+                _storageService.WriteDetectionLog(detail, false);
+                _detectionRecordQueue.Enqueue(new DetectionPersistencePayload
+                {
+                    Timestamp = DateTime.Now,
+                    IsQualified = false,
+                    ModelName = _detectionService.CurrentModelName,
+                    InferenceMs = 0,
+                    TargetLabel = _appConfig.TargetLabel ?? string.Empty,
+                    ExpectedCount = _appConfig.TargetCount,
+                    ActualCount = 0,
+                    CameraId = _cameraManager.ActiveCameraId ?? string.Empty,
+                    ResultJson = JsonSerializer.Serialize(new { Error = detail, Stage = "Capture" })
+                });
+
+                return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, finalQualified, finalResultCount, Math.Max(1, attemptCount));
             }
 
             using (frameToProcess)
@@ -444,6 +501,7 @@ namespace ClearFrost
 
                 bool isQualified = result.IsQualified;
                 List<YoloResult> results = result.Results ?? new List<YoloResult>();
+                bool detectionFailed = result.HasError;
 
                 var roiSw = Stopwatch.StartNew();
                 results = FilterResultsByROI(results, frameToProcess.Width, frameToProcess.Height);
@@ -452,7 +510,15 @@ namespace ClearFrost
                 finalResultCount = results.Count;
 
                 string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
-                isQualified = EvaluateQualificationByTarget(results, labels, _appConfig.TargetLabel, _appConfig.TargetCount);
+                if (detectionFailed)
+                {
+                    isQualified = false;
+                    await _uiController.LogToFrontend($"检测失败，已强制判定为不合格: {result.ErrorMessage}", "error");
+                }
+                else
+                {
+                    isQualified = EvaluateQualificationByTarget(results, labels, _appConfig.TargetLabel, _appConfig.TargetCount);
+                }
                 finalQualified = isQualified;
 
                 var plcSw = Stopwatch.StartNew();
@@ -467,12 +533,15 @@ namespace ClearFrost
                     var renderSw = Stopwatch.StartNew();
                     string objDesc = GetDetailedDetectionLog(results, labels);
                     string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
+                    string statusMessage = detectionFailed
+                        ? $"[{request.TriggerSource}] 检测失败，已判定为不合格: {result.ErrorMessage} | {inferenceMs}ms"
+                        : $"[{request.TriggerSource}] 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {inferenceMs}ms{modelInfo}";
                     await _uiController.SendDetectionFrame(
                         renderedMat ?? frameToProcess,
                         isQualified,
                         _statisticsService.Current,
-                        $"[{request.TriggerSource}] 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {inferenceMs}ms{modelInfo}",
-                        isQualified ? "success" : "error",
+                        statusMessage,
+                        isQualified && !detectionFailed ? "success" : "error",
                         (_detectionService as DetectionService)?.GetLastMetrics());
                     renderSw.Stop();
                     renderToUiMs = renderSw.ElapsedMilliseconds;
@@ -512,7 +581,7 @@ namespace ClearFrost
             dbSw.Stop();
             dbWriteMs = dbSw.ElapsedMilliseconds;
 
-            return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, finalQualified, finalResultCount);
+            return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, finalQualified, finalResultCount, Math.Max(1, attemptCount));
         }
 
         private Mat? TryRenderDetectionMat(Mat sourceImage, List<YoloResult> results, string[] labels)
@@ -681,21 +750,25 @@ namespace ClearFrost
 
         private async Task WriteDetectionResultToPlc(bool isQualified)
         {
-            if (_plcService.IsConnected)
+            if (!_plcService.IsConnected)
             {
-                try
+                await _uiController.LogToFrontend("PLC未连接，检测结果未写入", "error");
+                return;
+            }
+
+            try
+            {
+                short writeValue = isQualified ? _appConfig.PlcOkValue : _appConfig.PlcNgValue;
+                bool success = await _plcService.WriteResultAsync(_appConfig.PlcResultAddress, writeValue);
+                DiagLog($"PLC结果写入: 地址={_appConfig.PlcResultAddress}, 值={writeValue}, 判定={(isQualified ? "OK" : "NG")}, 结果={(success ? "成功" : "失败")}");
+                if (!success)
                 {
-                    short writeValue = isQualified ? _appConfig.PlcOkValue : _appConfig.PlcNgValue;
-                    bool success = await _plcService.WriteResultAsync(_appConfig.PlcResultAddress, writeValue);
-                    if (!success)
-                    {
-                        await _uiController.LogToFrontend("PLC写入失败: 结果未成功落地", "error");
-                    }
+                    await _uiController.LogToFrontend("PLC写入失败: 结果未成功落地", "error");
                 }
-                catch (Exception ex)
-                {
-                    await _uiController.LogToFrontend($"PLC写入失败: {ex.Message}", "error");
-                }
+            }
+            catch (Exception ex)
+            {
+                await _uiController.LogToFrontend($"PLC写入失败: {ex.Message}", "error");
             }
         }
 

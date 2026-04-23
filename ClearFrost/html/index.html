@@ -667,7 +667,7 @@
                                 <div>
                                     <label class="block text-[10px] text-ink-400 mb-1">不合格写入值 (NG)</label>
                                     <input id="cfg-plc-ng-value" type="number" min="0" max="32767" step="1"
-                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="2">
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="0">
                                 </div>
                             </div>
                         </div>
@@ -697,7 +697,7 @@
                             </div>
                             <div>
                                 <label class="text-[10px] font-bold text-ink-400 mb-1 block">目标数量 (Target Count)</label>
-                                <input id="cfg-logic-target-count" type="number"
+                                <input id="cfg-logic-target-count" type="number" min="0"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="1">
                             </div>
                             <div class="col-span-2">

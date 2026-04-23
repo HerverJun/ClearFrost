@@ -233,6 +233,12 @@ namespace ClearFrost.Hardware
             return (IMVDefine.IMV_EPixelType)pixelType switch
             {
                 IMVDefine.IMV_EPixelType.gvspPixelMono8 => CameraPixelFormat.Mono8,
+                IMVDefine.IMV_EPixelType.gvspPixelRGB8 => CameraPixelFormat.RGB8,
+                IMVDefine.IMV_EPixelType.gvspPixelBGR8 => CameraPixelFormat.BGR8,
+                IMVDefine.IMV_EPixelType.gvspPixelBayRG8 => CameraPixelFormat.BayerRG8,
+                IMVDefine.IMV_EPixelType.gvspPixelBayGB8 => CameraPixelFormat.BayerGB8,
+                IMVDefine.IMV_EPixelType.gvspPixelBayGR8 => CameraPixelFormat.BayerGR8,
+                IMVDefine.IMV_EPixelType.gvspPixelBayBG8 => CameraPixelFormat.BayerBG8,
                 _ => CameraPixelFormat.Unknown
             };
         }

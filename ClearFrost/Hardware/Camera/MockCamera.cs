@@ -108,6 +108,11 @@ namespace ClearFrost.Hardware
             return IMVDefine.IMV_OK;
         }
 
+        public int IMV_ClearFrameBuffer()
+        {
+            return IMVDefine.IMV_OK;
+        }
+
         public bool IMV_IsGrabbing()
         {
             return _isGrabbing;

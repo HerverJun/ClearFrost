@@ -162,10 +162,10 @@ namespace ClearFrost.Yolo
                 int classId = result.ClassId;
                 float score = result.Confidence;
 
-                string labelName = (classId < labels.Length) ? labels[classId] : "Unknown";
+                string labelName = GetLabelName(labels, classId, "Unknown");
                 string displayText = $"{labelName} {score:P1}";
 
-                Scalar color = palette[classId % palette.Length];
+                Scalar color = palette[GetPaletteIndex(classId, palette.Length)];
 
                 // 绘制检测框
                 Cv2.Rectangle(image, new OpenCvSharp.Rect(x, y, w, h), color, 2);
@@ -207,7 +207,7 @@ namespace ClearFrost.Yolo
             {
                 int labelIndex = results[i].ClassId;
                 float confidence = results[i].Confidence;
-                string labelName = (labelIndex < labels.Length) ? labels[labelIndex] : "No Label";
+                string labelName = GetLabelName(labels, labelIndex, "No Label");
                 string displayText = $"{labelName} {confidence:P1}";
 
                 int baseline;
@@ -238,14 +238,7 @@ namespace ClearFrost.Yolo
                 int labelIndex = results[i].ClassId;
                 string confidence = results[i].Confidence.ToString("_0.00");
                 string labelName;
-                if (labelIndex + 1 > labels.Length)
-                {
-                    labelName = "No Label Name";
-                }
-                else
-                {
-                    labelName = labels[labelIndex];
-                }
+                labelName = GetLabelName(labels, labelIndex, "No Label Name");
                 string textContent = labelName + confidence;
                 float textWidth = g.MeasureString(textContent + "_0.00", font).Width;
                 float textHeight = g.MeasureString(textContent + "_0.00", font).Height;
@@ -288,13 +281,14 @@ namespace ClearFrost.Yolo
                 }
                 else
                 {
-                    if (results[i].ClassId + 1 > specifiedMaskColors.Length)
+                    int maskColorIndex = GetPaletteIndex(results[i].ClassId, specifiedMaskColors.Length);
+                    if (results[i].ClassId < 0 || results[i].ClassId >= specifiedMaskColors.Length)
                     {
                         color = Color.FromArgb(180, 0, 255, 0);
                     }
                     else
                     {
-                        color = specifiedMaskColors[results[i].ClassId];
+                        color = specifiedMaskColors[maskColorIndex];
                     }
                 }
                 var maskData = results[i].MaskData;
@@ -339,7 +333,7 @@ namespace ClearFrost.Yolo
 
                 int classId = result.ClassId;
                 float score = result.Confidence;
-                string labelName = (classId < labels.Length) ? labels[classId] : "Unknown";
+                string labelName = GetLabelName(labels, classId, "Unknown");
                 string confText = score.ToString("P1"); // 99.5%
                 string displayText = $"{labelName}  {confText}";
 
@@ -503,7 +497,28 @@ namespace ClearFrost.Yolo
                 Color.FromArgb(226, 43, 43),   // 红色
                 Color.FromArgb(138, 43, 226)   // 蓝紫色
             };
-            return palette[classId % palette.Length];
+            return palette[GetPaletteIndex(classId, palette.Length)];
+        }
+
+        private static string GetLabelName(string[]? labels, int classId, string fallback)
+        {
+            if (labels == null || classId < 0 || classId >= labels.Length)
+            {
+                return fallback;
+            }
+
+            return labels[classId];
+        }
+
+        private static int GetPaletteIndex(int classId, int paletteLength)
+        {
+            if (paletteLength <= 0)
+            {
+                return 0;
+            }
+
+            int index = classId % paletteLength;
+            return index < 0 ? index + paletteLength : index;
         }
 
         private void DrawPoseKeypoints(Graphics g, Image image, List<YoloResult> results, float keyPointConfidenceThreshold)
@@ -604,14 +619,8 @@ namespace ClearFrost.Yolo
             {
                 string confidence = results[i].Confidence.ToString("_0.00");
                 string textContent;
-                if (results[i].ClassId + 1 > labels.Length)
-                {
-                    textContent = confidence;
-                }
-                else
-                {
-                    textContent = labels[results[i].ClassId] + confidence;
-                }
+                string labelName = GetLabelName(labels, results[i].ClassId, string.Empty);
+                textContent = string.IsNullOrEmpty(labelName) ? confidence : labelName + confidence;
                 float textWidth = g.MeasureString(textContent + "_0.00", font).Width;
                 float textHeight = g.MeasureString(textContent + "_0.00", font).Height;
                 ObbRectangle obb = ConvertObbCoordinates(results[i]);

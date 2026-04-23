@@ -55,6 +55,12 @@ namespace ClearFrost
                 SafeFireAndForget(_uiController.LogToFrontend($"PLC错误: {error}", "error"), "PLC错误日志");
             };
 
+            // Camera 服务事件
+            _cameraService.ErrorOccurred += (error) =>
+            {
+                SafeFireAndForget(_uiController.LogToFrontend($"相机错误: {error}", "error"), "相机错误日志");
+            };
+
             // Detection 服务事件
             _detectionService.DetectionCompleted += (result) =>
             {
@@ -468,6 +474,7 @@ namespace ClearFrost
                     {
                         _appConfig.Cameras.Add(newConfig);
                         _appConfig.ActiveCameraId = newConfig.Id;
+                        _cameraManager.ActiveCameraId = newConfig.Id;
                         _appConfig.Save();
 
                         // 刷新前端相机列表
@@ -750,7 +757,11 @@ namespace ClearFrost
                         _appConfig.PlcSiemensRack = plcSiemensRack;
                         _appConfig.PlcSiemensSlot = plcSiemensSlot;
 #pragma warning disable CS0618
-                        var activeCam = _appConfig.ActiveCamera;
+                        var activeCamBefore = _appConfig.ActiveCamera;
+                        string previousCameraId = activeCamBefore?.Id ?? string.Empty;
+                        string previousSerialNumber = activeCamBefore?.SerialNumber?.Trim() ?? string.Empty;
+                        string previousManufacturer = activeCamBefore?.Manufacturer?.Trim() ?? string.Empty;
+                        var activeCam = activeCamBefore;
                         if (root.TryGetProperty("CameraName", out var cn))
                         {
                             _appConfig.CameraName = cn.GetString()?.Trim() ?? _appConfig.CameraName;
@@ -776,11 +787,35 @@ namespace ClearFrost
                             _appConfig.GainRaw = gr.TryGetDouble(out double grVal) ? grVal : _appConfig.GainRaw;
                             if (activeCam != null) activeCam.Gain = _appConfig.GainRaw;
                         }
+                        activeCam = _appConfig.EnsureActiveCameraConfigFromLegacy();
+                        bool cameraIdentityChanged = activeCam != null &&
+                            (string.IsNullOrWhiteSpace(previousCameraId) ||
+                             !string.Equals(previousCameraId, activeCam.Id, StringComparison.OrdinalIgnoreCase) ||
+                             !string.Equals(previousSerialNumber, activeCam.SerialNumber?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase) ||
+                             !string.Equals(previousManufacturer, activeCam.Manufacturer?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase));
+                        SynchronizeActiveCameraRegistration(activeCam, cameraIdentityChanged);
 #pragma warning restore CS0618
                         if (root.TryGetProperty("TargetLabel", out var tl)) _appConfig.TargetLabel = tl.GetString() ?? _appConfig.TargetLabel;
-                        if (root.TryGetProperty("TargetCount", out var tc)) _appConfig.TargetCount = tc.TryGetInt32(out int tcVal) ? tcVal : _appConfig.TargetCount;
-                        if (root.TryGetProperty("MaxRetryCount", out var mrc)) _appConfig.MaxRetryCount = mrc.TryGetInt32(out int mrcVal) ? mrcVal : _appConfig.MaxRetryCount;
-                        if (root.TryGetProperty("RetryIntervalMs", out var rim)) _appConfig.RetryIntervalMs = rim.TryGetInt32(out int rimVal) ? rimVal : _appConfig.RetryIntervalMs;
+                        if (root.TryGetProperty("TargetCount", out var tc))
+                        {
+                            if (tc.TryGetInt32(out int tcVal))
+                            {
+                                if (tcVal < 0) throw new InvalidOperationException("目标数量不能为负数");
+                                _appConfig.TargetCount = tcVal;
+                            }
+                        }
+                        if (root.TryGetProperty("MaxRetryCount", out var mrc))
+                        {
+                            _appConfig.MaxRetryCount = mrc.TryGetInt32(out int mrcVal)
+                                ? Math.Clamp(mrcVal, 0, 5)
+                                : _appConfig.MaxRetryCount;
+                        }
+                        if (root.TryGetProperty("RetryIntervalMs", out var rim))
+                        {
+                            _appConfig.RetryIntervalMs = rim.TryGetInt32(out int rimVal)
+                                ? Math.Clamp(rimVal, 0, 60000)
+                                : _appConfig.RetryIntervalMs;
+                        }
                         if (root.TryGetProperty("TaskType", out var taskType)) _appConfig.TaskType = taskType.TryGetInt32(out int taskTypeVal) ? taskTypeVal : _appConfig.TaskType;
                         if (root.TryGetProperty("EnableGpu", out var eg)) _appConfig.EnableGpu = eg.ValueKind == JsonValueKind.True;
                         if (root.TryGetProperty("IndustrialRenderMode", out var irm)) _appConfig.IndustrialRenderMode = irm.ValueKind == JsonValueKind.True;
@@ -1089,6 +1124,38 @@ namespace ClearFrost
             }
 
             Environment.Exit(0);
+        }
+
+        private void SynchronizeActiveCameraRegistration(CameraConfig? activeConfig, bool recreateExisting)
+        {
+            if (activeConfig == null)
+            {
+                return;
+            }
+
+            CameraInstance? registeredCamera = _cameraManager.GetCamera(activeConfig.Id);
+            if (registeredCamera != null && recreateExisting)
+            {
+                try
+                {
+                    _cameraService.StopCapture();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[CameraSync] StopCapture before re-register failed: {ex.Message}");
+                }
+
+                _cameraManager.RemoveCamera(activeConfig.Id);
+                registeredCamera = null;
+            }
+
+            if (registeredCamera == null)
+            {
+                _cameraManager.AddCamera(activeConfig);
+            }
+
+            _cameraManager.ActiveCameraId = activeConfig.Id;
+            _appConfig.ActiveCameraId = activeConfig.Id;
         }
 
         private static string GetJsonStringValue(JsonElement value, string fallback)

@@ -28,10 +28,10 @@ namespace ClearFrost.Hardware
         private const uint PixelType_Gvsp_Mono8 = 0x01080001;
         private const uint PixelType_Gvsp_RGB8 = 0x02180014;
         private const uint PixelType_Gvsp_BGR8 = 0x02180015;
+        private const uint PixelType_Gvsp_BayerGR8 = 0x01080008;
         private const uint PixelType_Gvsp_BayerRG8 = 0x01080009;
         private const uint PixelType_Gvsp_BayerGB8 = 0x0108000A;
-        private const uint PixelType_Gvsp_BayerGR8 = 0x0108000B;
-        private const uint PixelType_Gvsp_BayerBG8 = 0x0108000C;
+        private const uint PixelType_Gvsp_BayerBG8 = 0x0108000B;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MV_CC_DEVICE_INFO

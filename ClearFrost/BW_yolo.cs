@@ -888,7 +888,7 @@ namespace ClearFrost.Yolo
 
         public string GetLabelNameByIndex(int index)
         {
-            if (index > Labels.Length || index < 0)
+            if (index >= Labels.Length || index < 0)
             {
                 return "";
             }

@@ -145,6 +145,11 @@ namespace ClearFrost.Hardware
             return _cam.IMV_ExecuteCommandFeature(name);
         }
 
+        public int IMV_ClearFrameBuffer()
+        {
+            return _cam.IMV_ClearFrameBuffer();
+        }
+
         public bool IMV_IsGrabbing()
         {
             return _cam.IMV_IsGrabbing();

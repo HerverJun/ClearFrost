@@ -24,6 +24,7 @@ namespace ClearFrost.Hardware
         int IMV_Close();
         int IMV_DestroyHandle();
         int IMV_ExecuteCommandFeature(string name);
+        int IMV_ClearFrameBuffer();
         bool IMV_IsGrabbing();
         int IMV_GetFrame(ref IMVDefine.IMV_Frame frame, int timeout);
         int IMV_ReleaseFrame(ref IMVDefine.IMV_Frame frame);

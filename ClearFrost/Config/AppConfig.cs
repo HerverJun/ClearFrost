@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ClearFrost.Helpers;
@@ -28,7 +29,7 @@ namespace ClearFrost.Config
         /// <summary>
         /// 不合格时写入PLC的值
         /// </summary>
-        public short PlcNgValue { get; set; } = 2;
+        public short PlcNgValue { get; set; } = 0;
         /// <summary>
         /// PLC协议类型: Mitsubishi_MC_ASCII, Mitsubishi_MC_Binary, Modbus_TCP, Siemens_S7, Omron_Fins
         /// </summary>
@@ -76,7 +77,7 @@ namespace ClearFrost.Config
         // ================== System Settings ==================
         public string AdminPassword { get; set; } = "xxgcb";
         public string StoragePath { get; set; } = @"C:\GreeVisionData";
-        public bool IsDebugMode { get; set; } = true;
+        public bool IsDebugMode { get; set; } = false;
 
         // ================== YOLO Settings ==================
         public float Confidence { get; set; } = 0.5f;
@@ -126,6 +127,7 @@ namespace ClearFrost.Config
         public string? LastError { get; private set; }
 
         private static string ConfigPath => RuntimePaths.ConfigPath;
+        private static string ConfigBackupPath => ConfigPath + ".bak";
         private static string LegacySharedConfigPath => RuntimePaths.LegacySharedConfigPath;
         private static string BundledConfigPath => RuntimePaths.BundledConfigPath;
         private static string ErrorLogPath => RuntimePaths.ConfigErrorLogPath;
@@ -151,11 +153,15 @@ namespace ClearFrost.Config
 
         public static AppConfig Load()
         {
-            try
+            foreach (string loadPath in GetReadableConfigPaths())
             {
-                string loadPath = GetReadableConfigPath();
-                if (File.Exists(loadPath))
+                try
                 {
+                    if (!File.Exists(loadPath))
+                    {
+                        continue;
+                    }
+
                     string json = File.ReadAllText(loadPath);
                     var options = new JsonSerializerOptions
                     {
@@ -173,11 +179,12 @@ namespace ClearFrost.Config
 
                     return config;
                 }
+                catch (Exception ex)
+                {
+                    LogError($"Load({loadPath})", ex);
+                }
             }
-            catch (Exception ex)
-            {
-                LogError("Load", ex);
-            }
+
             return new AppConfig();
         }
 
@@ -206,6 +213,45 @@ namespace ClearFrost.Config
 #pragma warning restore CS0618
         }
 
+        public CameraConfig? EnsureActiveCameraConfigFromLegacy()
+        {
+#pragma warning disable CS0618
+            Cameras ??= new List<CameraConfig>();
+
+            string legacySerial = CameraSerialNumber?.Trim() ?? string.Empty;
+            var activeCamera =
+                Cameras.FirstOrDefault(c => c.Id == ActiveCameraId) ??
+                (!string.IsNullOrWhiteSpace(legacySerial)
+                    ? Cameras.FirstOrDefault(c => string.Equals(c.SerialNumber?.Trim(), legacySerial, StringComparison.OrdinalIgnoreCase))
+                    : null) ??
+                Cameras.FirstOrDefault(c => c.IsEnabled) ??
+                Cameras.FirstOrDefault();
+
+            if (activeCamera == null)
+            {
+                if (string.IsNullOrWhiteSpace(legacySerial))
+                {
+                    return null;
+                }
+
+                activeCamera = new CameraConfig
+                {
+                    Id = "legacy_cam"
+                };
+                Cameras.Add(activeCamera);
+            }
+
+            activeCamera.SerialNumber = legacySerial;
+            activeCamera.DisplayName = CameraName?.Trim() ?? string.Empty;
+            activeCamera.Manufacturer = string.IsNullOrWhiteSpace(CameraManufacturer) ? "Huaray" : CameraManufacturer.Trim();
+            activeCamera.ExposureTime = ExposureTime;
+            activeCamera.Gain = GainRaw;
+            activeCamera.IsEnabled = true;
+            ActiveCameraId = activeCamera.Id;
+            return activeCamera;
+#pragma warning restore CS0618
+        }
+
         /// <summary>
         /// 获取当前活动相机配置
         /// </summary>
@@ -226,7 +272,7 @@ namespace ClearFrost.Config
                 }
 
                 string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(ConfigPath, json);
+                WriteConfigAtomically(ConfigPath, json);
                 LastError = null;
                 return true;
             }
@@ -285,24 +331,68 @@ namespace ClearFrost.Config
             };
         }
 
-        private static string GetReadableConfigPath()
+        private static IEnumerable<string> GetReadableConfigPaths()
         {
             if (File.Exists(ConfigPath))
             {
-                return ConfigPath;
+                yield return ConfigPath;
+            }
+
+            if (File.Exists(ConfigBackupPath))
+            {
+                yield return ConfigBackupPath;
             }
 
             if (File.Exists(LegacySharedConfigPath))
             {
-                return LegacySharedConfigPath;
+                yield return LegacySharedConfigPath;
             }
 
             if (File.Exists(BundledConfigPath))
             {
-                return BundledConfigPath;
+                yield return BundledConfigPath;
+            }
+        }
+
+        private static void WriteConfigAtomically(string targetPath, string json)
+        {
+            string configDir = Path.GetDirectoryName(targetPath) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(configDir))
+            {
+                Directory.CreateDirectory(configDir);
             }
 
-            return ConfigPath;
+            string tempPath = Path.Combine(
+                string.IsNullOrWhiteSpace(configDir) ? "." : configDir,
+                $"config.{Guid.NewGuid():N}.tmp");
+
+            try
+            {
+                File.WriteAllText(tempPath, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+
+                if (File.Exists(targetPath))
+                {
+                    File.Replace(tempPath, targetPath, ConfigBackupPath, ignoreMetadataErrors: true);
+                }
+                else
+                {
+                    File.Move(tempPath, targetPath);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(tempPath))
+                    {
+                        File.Delete(tempPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogError("CleanupTempConfig", ex);
+                }
+            }
         }
 
         private void TrySeedRuntimeConfig()

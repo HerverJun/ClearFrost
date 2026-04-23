@@ -30,7 +30,27 @@ namespace ClearFrost.Hardware
         /// <summary>
         /// 
         /// </summary>
-        public static ICameraProvider CreateMock() => new MockCameraProvider();
+        public static ICameraProvider CreateMock()
+        {
+            if (!IsMockProviderEnabled())
+            {
+                throw new InvalidOperationException("Release 版本默认禁用模拟相机。仅在调试版或 CLEARFROST_ENABLE_MOCK_CAMERA=1 时允许使用。");
+            }
+
+            return new MockCameraProvider();
+        }
+
+        private static bool IsMockProviderEnabled()
+        {
+#if DEBUG
+            return true;
+#else
+            return string.Equals(
+                Environment.GetEnvironmentVariable("CLEARFROST_ENABLE_MOCK_CAMERA"),
+                "1",
+                StringComparison.OrdinalIgnoreCase);
+#endif
+        }
 
         /// <summary>
         /// 发现所有品牌的相机（华睿 + 海康）

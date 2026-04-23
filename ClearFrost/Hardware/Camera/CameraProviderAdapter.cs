@@ -13,10 +13,10 @@ namespace ClearFrost.Hardware
         private const uint GvspPixelMono8 = 0x01080001;
         private const uint GvspPixelRgb8 = 0x02180014;
         private const uint GvspPixelBgr8 = 0x02180015;
+        private const uint GvspPixelBayerGr8 = 0x01080008;
         private const uint GvspPixelBayerRg8 = 0x01080009;
         private const uint GvspPixelBayerGb8 = 0x0108000A;
-        private const uint GvspPixelBayerGr8 = 0x0108000B;
-        private const uint GvspPixelBayerBg8 = 0x0108000C;
+        private const uint GvspPixelBayerBg8 = 0x0108000B;
 
         private readonly ICameraProvider _provider;
         private readonly string _deviceSerialNumber;
@@ -127,6 +127,11 @@ namespace ClearFrost.Hardware
         {
             if (name == "TriggerSoftware")
                 _provider.ExecuteSoftwareTrigger();
+            return IMVDefine.IMV_OK;
+        }
+
+        public int IMV_ClearFrameBuffer()
+        {
             return IMVDefine.IMV_OK;
         }
 

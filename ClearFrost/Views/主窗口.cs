@@ -42,8 +42,8 @@ namespace ClearFrost
             }
             else
             {
-                // 如果没有配置相机，创建默认相机
-                cam = _appConfig.IsDebugMode ? new MockCamera() : new RealCamera();
+                // 未注册活动相机时仅创建真实相机占位，避免配置异常时静默进入模拟相机。
+                cam = new RealCamera();
             }
 
             // 使用系统原生标题栏，启动时保持最大化

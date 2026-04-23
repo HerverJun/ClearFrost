@@ -3,6 +3,7 @@ using ClearFrost.Models;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
+using ClearFrost.Helpers;
 
 namespace ClearFrost.Models
 {
@@ -150,7 +151,7 @@ namespace ClearFrost.Models
             try
             {
                 string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(_savePath, json);
+                AtomicFileWriter.WriteAllText(_savePath, json);
                 LastError = null;
                 return true;
             }

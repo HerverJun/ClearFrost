@@ -71,6 +71,56 @@ namespace ClearFrost.Tests.Hardware.Camera
             factoryCallCount.Should().Be(0);
         }
 
+        [Fact]
+        public void CameraManager_调试模式不会把真实相机配置强制替换成模拟相机()
+        {
+            var config = new CameraConfig
+            {
+                Id = "cam-real",
+                SerialNumber = "EF59632AAK00291",
+                DisplayName = "RealCam",
+                Manufacturer = "Huaray",
+                IsEnabled = true
+            };
+            var appConfig = new AppConfig
+            {
+                Cameras = { config },
+                ActiveCameraId = config.Id,
+                IsDebugMode = true
+            };
+            using var manager = new CameraManager(appConfig.IsDebugMode);
+
+            manager.LoadFromConfig(appConfig);
+
+            manager.ActiveCamera.Should().NotBeNull();
+            manager.ActiveCamera!.Camera.Should().NotBeOfType<MockCamera>();
+        }
+
+        [Fact]
+        public void CameraManager_调试模式只对Mock配置创建模拟相机()
+        {
+            var config = new CameraConfig
+            {
+                Id = "cam-mock",
+                SerialNumber = "MOCK_CAM_001",
+                DisplayName = "MockCam",
+                Manufacturer = "Mock",
+                IsEnabled = true
+            };
+            var appConfig = new AppConfig
+            {
+                Cameras = { config },
+                ActiveCameraId = config.Id,
+                IsDebugMode = true
+            };
+            using var manager = new CameraManager(appConfig.IsDebugMode);
+
+            manager.LoadFromConfig(appConfig);
+
+            manager.ActiveCamera.Should().NotBeNull();
+            manager.ActiveCamera!.Camera.Should().BeOfType<MockCamera>();
+        }
+
         private sealed class FakeCamera : ICamera
         {
             private bool _isGrabbing;
@@ -115,6 +165,8 @@ namespace ClearFrost.Tests.Hardware.Camera
             public int IMV_DestroyHandle() => IMVDefine.IMV_OK;
 
             public int IMV_ExecuteCommandFeature(string name) => IMVDefine.IMV_OK;
+
+            public int IMV_ClearFrameBuffer() => IMVDefine.IMV_OK;
 
             public bool IMV_IsGrabbing() => _isGrabbing;
 

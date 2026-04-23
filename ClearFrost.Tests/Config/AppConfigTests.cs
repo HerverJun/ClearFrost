@@ -20,10 +20,13 @@ public class AppConfigTests
         config.PlcPort.Should().Be(5999);
         config.PlcTriggerAddress.Should().Be("D555");
         config.PlcResultAddress.Should().Be("D556");
+        config.PlcOkValue.Should().Be(1);
+        config.PlcNgValue.Should().Be(0);
         config.PlcDriverProvider.Should().Be("Hsl");
         config.PlcSiemensCpuModel.Should().Be("S1200");
         config.Confidence.Should().BeApproximately(0.5f, 0.001f);
         config.IouThreshold.Should().BeApproximately(0.3f, 0.001f);
+        config.IsDebugMode.Should().BeFalse();
         config.TargetCount.Should().Be(4);
         config.VisionMode.Should().Be(0);
         config.Cameras.Should().ContainSingle();
@@ -39,6 +42,49 @@ public class AppConfigTests
         config.ActiveCameraId = "";
 
         config.ActiveCamera.Should().BeNull();
+    }
+
+    [Fact]
+    public void EnsureActiveCameraConfigFromLegacy_相机列表为空时用设置页序列号创建活动相机()
+    {
+#pragma warning disable CS0618
+        var config = new AppConfig
+        {
+            CameraName = "现场相机",
+            CameraSerialNumber = "SN-FIELD-001",
+            CameraManufacturer = "Huaray",
+            ExposureTime = 12000,
+            GainRaw = 2.0
+        };
+#pragma warning restore CS0618
+        config.Cameras.Clear();
+        config.ActiveCameraId = "";
+
+        var activeCamera = config.EnsureActiveCameraConfigFromLegacy();
+
+        activeCamera.Should().NotBeNull();
+        activeCamera!.SerialNumber.Should().Be("SN-FIELD-001");
+        activeCamera.DisplayName.Should().Be("现场相机");
+        activeCamera.IsEnabled.Should().BeTrue();
+        config.ActiveCameraId.Should().Be(activeCamera.Id);
+    }
+
+    [Fact]
+    public void EnsureActiveCameraConfigFromLegacy_同步设置页序列号到当前活动相机()
+    {
+        var config = new AppConfig();
+        var activeCamera = config.ActiveCamera;
+        activeCamera.Should().NotBeNull();
+
+#pragma warning disable CS0618
+        config.CameraSerialNumber = "SN-UPDATED-001";
+        config.CameraManufacturer = "Hikvision";
+#pragma warning restore CS0618
+
+        config.EnsureActiveCameraConfigFromLegacy();
+
+        activeCamera!.SerialNumber.Should().Be("SN-UPDATED-001");
+        activeCamera.Manufacturer.Should().Be("Hikvision");
     }
 
     [Fact]

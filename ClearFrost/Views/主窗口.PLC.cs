@@ -93,8 +93,13 @@ namespace ClearFrost
             string? targetLabel,
             int targetCount)
         {
-            if (!string.IsNullOrWhiteSpace(targetLabel) && targetCount > 0 && labels != null)
+            if (!string.IsNullOrWhiteSpace(targetLabel) && labels != null)
             {
+                if (targetCount < 0)
+                {
+                    return false;
+                }
+
                 int actualCount = results.Count(r =>
                 {
                     if (r.ClassId < 0 || r.ClassId >= labels.Length)

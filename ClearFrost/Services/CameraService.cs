@@ -31,10 +31,10 @@ namespace ClearFrost.Services
         private const uint GvspPixelMono8 = 0x01080001;
         private const uint GvspPixelRgb8 = 0x02180014;
         private const uint GvspPixelBgr8 = 0x02180015;
+        private const uint GvspPixelBayerGr8 = 0x01080008;
         private const uint GvspPixelBayerRg8 = 0x01080009;
         private const uint GvspPixelBayerGb8 = 0x0108000A;
-        private const uint GvspPixelBayerGr8 = 0x0108000B;
-        private const uint GvspPixelBayerBg8 = 0x0108000C;
+        private const uint GvspPixelBayerBg8 = 0x0108000B;
 
         #region 私有字段
 
@@ -315,6 +315,7 @@ namespace ClearFrost.Services
             var camera = _cameraManager.ActiveCamera?.Camera;
             if (camera == null)
             {
+                LastError = "未找到活动相机实例";
                 return null;
             }
 
@@ -323,9 +324,16 @@ namespace ClearFrost.Services
 
             try
             {
+                int clearRes = camera.IMV_ClearFrameBuffer();
+                if (clearRes != IMVDefine.IMV_OK)
+                {
+                    Debug.WriteLine($"[CameraService] ClearFrameBuffer failed: {clearRes}");
+                }
+
                 int res = camera.IMV_ExecuteCommandFeature("TriggerSoftware");
                 if (res != IMVDefine.IMV_OK)
                 {
+                    LastError = $"软触发失败: {res}";
                     return null;
                 }
 
@@ -333,11 +341,20 @@ namespace ClearFrost.Services
                 shouldReleaseFrame = res == IMVDefine.IMV_OK;
                 if (!shouldReleaseFrame)
                 {
+                    LastError = $"取帧失败: {res}";
                     return null;
                 }
 
                 if (frame.frameInfo.size == 0 || frame.pData == IntPtr.Zero)
                 {
+                    LastError = "SDK 返回空帧";
+                    return null;
+                }
+
+                if (!TryValidateFrame(frame, out string validationError))
+                {
+                    LastError = validationError;
+                    Debug.WriteLine($"[CameraService] Invalid frame rejected: {validationError}");
                     return null;
                 }
 
@@ -348,10 +365,12 @@ namespace ClearFrost.Services
                     _lastFrame = mat.Clone();
                 }
 
+                LastError = null;
                 return mat;
             }
             catch (Exception ex)
             {
+                LastError = $"采集转换失败: {ex.Message}";
                 Debug.WriteLine($"[CameraService] CaptureFrame failed: {ex.Message}");
                 return null;
             }
@@ -458,6 +477,77 @@ namespace ClearFrost.Services
                 GvspPixelBayerBg8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, ColorConversionCodes.BayerBG2BGR),
                 _ => throw new NotSupportedException($"不支持的 SDK 帧像素格式: 0x{pixelFormat:X8}")
             };
+        }
+
+        private static bool TryValidateFrame(IMVDefine.IMV_Frame frame, out string error)
+        {
+            error = string.Empty;
+
+            int width = (int)frame.frameInfo.width;
+            int height = (int)frame.frameInfo.height;
+            int paddingX = (int)frame.frameInfo.paddingX;
+            uint pixelFormat = unchecked((uint)frame.frameInfo.pixelFormat);
+
+            if (frame.frameInfo.status != 0)
+            {
+                error = $"SDK 返回异常帧: status={frame.frameInfo.status}, format=0x{pixelFormat:X8}, size={frame.frameInfo.size}";
+                return false;
+            }
+
+            if (width <= 0 || height <= 0 || paddingX < 0)
+            {
+                error = $"SDK 帧尺寸异常: width={width}, height={height}, paddingX={paddingX}, format=0x{pixelFormat:X8}";
+                return false;
+            }
+
+            if (!TryGetMinimumFrameBytes(width, height, paddingX, pixelFormat, out long minimumBytes, out string formatError))
+            {
+                error = formatError;
+                return false;
+            }
+
+            long actualBytes = frame.frameInfo.size;
+            if (actualBytes < minimumBytes)
+            {
+                error = $"SDK 帧长度不足: actual={actualBytes}, expected>={minimumBytes}, width={width}, height={height}, paddingX={paddingX}, format=0x{pixelFormat:X8}";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryGetMinimumFrameBytes(int width, int height, int paddingX, uint pixelFormat, out long minimumBytes, out string error)
+        {
+            minimumBytes = 0;
+            error = string.Empty;
+
+            int rowBytes = pixelFormat switch
+            {
+                GvspPixelMono8 => width,
+                GvspPixelBayerRg8 => width,
+                GvspPixelBayerGb8 => width,
+                GvspPixelBayerGr8 => width,
+                GvspPixelBayerBg8 => width,
+                GvspPixelBgr8 => checked(width * 3),
+                GvspPixelRgb8 => checked(width * 3),
+                _ => -1
+            };
+
+            if (rowBytes < 0)
+            {
+                error = $"不支持的 SDK 帧像素格式: 0x{pixelFormat:X8}";
+                return false;
+            }
+
+            long srcStride = (long)rowBytes + paddingX;
+            if (srcStride < rowBytes)
+            {
+                error = $"SDK 帧步长异常: rowBytes={rowBytes}, paddingX={paddingX}, format=0x{pixelFormat:X8}";
+                return false;
+            }
+
+            minimumBytes = checked(srcStride * height);
+            return true;
         }
 
         private static Mat ConvertRgbMatToBgr(Mat rgbMat)

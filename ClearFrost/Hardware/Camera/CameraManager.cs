@@ -87,6 +87,14 @@ namespace ClearFrost.Hardware
 
                 camera.IMV_SetDoubleFeatureValue("ExposureTime", Config.ExposureTime);
                 camera.IMV_SetDoubleFeatureValue("GainRaw", Config.Gain);
+                if (!string.IsNullOrWhiteSpace(Config.PixelFormat))
+                {
+                    int pixelResult = camera.IMV_SetEnumFeatureSymbol("PixelFormat", Config.PixelFormat.Trim());
+                    if (pixelResult != IMVDefine.IMV_OK)
+                    {
+                        Debug.WriteLine($"[CameraInstance] Set PixelFormat failed: {Config.PixelFormat}, ErrorCode={pixelResult}");
+                    }
+                }
                 camera.IMV_SetEnumFeatureSymbol("TriggerSelector", "FrameStart");
                 camera.IMV_SetEnumFeatureSymbol("TriggerMode", "On");
                 camera.IMV_SetEnumFeatureSymbol("TriggerSource", "Software");
@@ -253,7 +261,7 @@ namespace ClearFrost.Hardware
         {
             var result = new List<string>();
 
-            if (_isDebugMode)
+            if (ShouldUseMockCamera())
             {
                 // 调试模式：返回模拟相机
                 result.Add("MOCK_CAM_001");
@@ -294,7 +302,7 @@ namespace ClearFrost.Hardware
         /// </summary>
         public List<CameraDeviceInfo> DiscoverAllCameras()
         {
-            if (_isDebugMode)
+            if (ShouldUseMockCamera())
             {
                 return new List<CameraDeviceInfo>
                 {
@@ -326,7 +334,7 @@ namespace ClearFrost.Hardware
         /// </summary>
         public List<CameraDeviceInfo> DiscoverHikvisionCameras()
         {
-            if (_isDebugMode)
+            if (ShouldUseMockCamera())
             {
                 return new List<CameraDeviceInfo>
                 {
@@ -389,7 +397,7 @@ namespace ClearFrost.Hardware
                 return _cameraFactoryOverride(config);
             }
 
-            if (_isDebugMode)
+            if (ShouldUseMockCamera() && IsMockCameraConfig(config))
             {
                 return new MockCamera();
             }
@@ -400,6 +408,29 @@ namespace ClearFrost.Hardware
             }
 
             return new RealCamera(config.SerialNumber);
+        }
+
+        private static bool IsMockCameraConfig(CameraConfig config)
+        {
+            return string.Equals(config.Manufacturer, "Mock", StringComparison.OrdinalIgnoreCase) ||
+                   config.SerialNumber.StartsWith("MOCK_", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool ShouldUseMockCamera()
+        {
+            if (!_isDebugMode)
+            {
+                return false;
+            }
+
+#if DEBUG
+            return true;
+#else
+            return string.Equals(
+                Environment.GetEnvironmentVariable("CLEARFROST_ENABLE_MOCK_CAMERA"),
+                "1",
+                StringComparison.OrdinalIgnoreCase);
+#endif
         }
 
         /// <summary>

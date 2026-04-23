@@ -230,25 +230,21 @@ namespace ClearFrost.Services
         {
             var result = new DetectionResultData();
 
-            if (!IsModelLoaded)
-            {
-                ErrorOccurred?.Invoke("模型未加载");
-                result.IsQualified = false;
-                return result;
-            }
-
             if (image == null || image.Empty())
             {
-                ErrorOccurred?.Invoke("输入图像为空");
-                result.IsQualified = false;
-                return result;
+                return CreateFailedResult("输入图像为空");
+            }
+
+            if (!IsModelLoaded)
+            {
+                return CreateFailedResult("模型未加载");
             }
 
             var sw = Stopwatch.StartNew();
 
             try
             {
-                var inference = await RunInferenceAsync(image, confidence, iouThreshold, targetLabel);
+                var inference = await RunInferenceAsync(image, confidence, iouThreshold, targetLabel, targetCount);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
 
@@ -268,10 +264,7 @@ namespace ClearFrost.Services
             catch (Exception ex)
             {
                 sw.Stop();
-                ErrorOccurred?.Invoke($"检测失败: {ex.Message}");
-                result.IsQualified = false;
-                result.ElapsedMs = sw.ElapsedMilliseconds;
-                return result;
+                return CreateFailedResult($"检测失败: {ex.Message}", sw.ElapsedMilliseconds);
             }
         }
 
@@ -289,18 +282,21 @@ namespace ClearFrost.Services
         {
             var result = new DetectionResultData();
 
+            if (image == null)
+            {
+                return CreateFailedResult("输入图像为空");
+            }
+
             if (!IsModelLoaded)
             {
-                ErrorOccurred?.Invoke("模型未加载");
-                result.IsQualified = false;
-                return result;
+                return CreateFailedResult("模型未加载");
             }
 
             var sw = Stopwatch.StartNew();
 
             try
             {
-                var inference = await RunInferenceAsync(image, confidence, iouThreshold, targetLabel);
+                var inference = await RunInferenceAsync(image, confidence, iouThreshold, targetLabel, targetCount);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
 
@@ -320,20 +316,22 @@ namespace ClearFrost.Services
             catch (Exception ex)
             {
                 sw.Stop();
-                ErrorOccurred?.Invoke($"检测失败: {ex.Message}");
-                result.IsQualified = false;
-                result.ElapsedMs = sw.ElapsedMilliseconds;
-                return result;
+                return CreateFailedResult($"检测失败: {ex.Message}", sw.ElapsedMilliseconds);
             }
         }
 
         private async Task<(List<YoloResult> Results, string UsedModelName, string[] UsedModelLabels, bool WasFallback)> RunInferenceAsync(
-            Bitmap image, float confidence, float iouThreshold, string? targetLabel)
+            Bitmap image, float confidence, float iouThreshold, string? targetLabel, int targetCount)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
                 var inferenceResult = await _modelManager.InferenceWithFallbackAsync(
-                    image, confidence, iouThreshold, false, 1, targetLabel);
+                    image, confidence, iouThreshold, false, 1, targetLabel, targetCount);
+                if (inferenceResult.HasError)
+                {
+                    throw new InvalidOperationException(inferenceResult.ErrorMessage);
+                }
+
                 return (inferenceResult.Results, inferenceResult.UsedModelName, inferenceResult.UsedModelLabels, inferenceResult.WasFallback);
             }
 
@@ -348,12 +346,17 @@ namespace ClearFrost.Services
         }
 
         private async Task<(List<YoloResult> Results, string UsedModelName, string[] UsedModelLabels, bool WasFallback)> RunInferenceAsync(
-            Mat image, float confidence, float iouThreshold, string? targetLabel)
+            Mat image, float confidence, float iouThreshold, string? targetLabel, int targetCount)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
                 var inferenceResult = await _modelManager.InferenceWithFallbackAsync(
-                    image, confidence, iouThreshold, false, 1, targetLabel);
+                    image, confidence, iouThreshold, false, 1, targetLabel, targetCount);
+                if (inferenceResult.HasError)
+                {
+                    throw new InvalidOperationException(inferenceResult.ErrorMessage);
+                }
+
                 return (inferenceResult.Results, inferenceResult.UsedModelName, inferenceResult.UsedModelLabels, inferenceResult.WasFallback);
             }
 
@@ -378,18 +381,26 @@ namespace ClearFrost.Services
             int targetCount)
         {
             bool isQualified;
-            if (!string.IsNullOrEmpty(targetLabel) && targetCount > 0)
+            if (!string.IsNullOrWhiteSpace(targetLabel))
             {
-                int actualCount = allResults.Count(r =>
+                if (targetCount < 0)
                 {
-                    string detectedLabel = (r.ClassId >= 0 && r.ClassId < usedModelLabels.Length)
-                        ? usedModelLabels[r.ClassId]
-                        : "";
-                    return detectedLabel.Equals(targetLabel, StringComparison.OrdinalIgnoreCase);
-                });
+                    isQualified = false;
+                    Debug.WriteLine($"[DetectionService] 判定失败: 目标数量不能为负数 ({targetCount})");
+                }
+                else
+                {
+                    int actualCount = allResults.Count(r =>
+                    {
+                        string detectedLabel = (r.ClassId >= 0 && r.ClassId < usedModelLabels.Length)
+                            ? usedModelLabels[r.ClassId]
+                            : "";
+                        return detectedLabel.Equals(targetLabel, StringComparison.OrdinalIgnoreCase);
+                    });
 
-                isQualified = actualCount == targetCount;
-                Debug.WriteLine($"[DetectionService] 判定: 目标标签='{targetLabel}', 期望数量={targetCount}, 实际数量={actualCount}, 是否合格={isQualified}");
+                    isQualified = actualCount == targetCount;
+                    Debug.WriteLine($"[DetectionService] 判定: 目标标签='{targetLabel}', 期望数量={targetCount}, 实际数量={actualCount}, 是否合格={isQualified}");
+                }
             }
             else
             {
@@ -403,6 +414,23 @@ namespace ClearFrost.Services
             result.UsedModelLabels = usedModelLabels;
             result.UsedModelName = usedModelName;
             result.WasFallback = wasFallback;
+            result.HasError = false;
+            result.ErrorMessage = string.Empty;
+        }
+
+        private DetectionResultData CreateFailedResult(string message, long elapsedMs = 0)
+        {
+            ErrorOccurred?.Invoke(message);
+            return new DetectionResultData
+            {
+                IsQualified = false,
+                Results = new List<YoloResult>(),
+                ElapsedMs = elapsedMs,
+                UsedModelLabels = Array.Empty<string>(),
+                UsedModelName = _currentModelName,
+                HasError = true,
+                ErrorMessage = message
+            };
         }
         #endregion
 

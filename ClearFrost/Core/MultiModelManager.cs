@@ -56,6 +56,16 @@ namespace ClearFrost.Yolo
         /// 
         public bool WasFallback { get; set; } = false;
 
+        /// <summary>
+        /// 推理是否发生错误。所有候选模型均推理失败时置为 true。
+        /// </summary>
+        public bool HasError { get; set; }
+
+        /// <summary>
+        /// 推理错误说明。
+        /// </summary>
+        public string ErrorMessage { get; set; } = string.Empty;
+
         /// 
         public int DetectionCount => Results.Count;
     }
@@ -260,19 +270,20 @@ namespace ClearFrost.Yolo
 
         #region ��������
 
-        private static bool HasTargetLabelHit(IReadOnlyList<YoloResult> results, string[] labels, string? targetLabel)
+        internal static int CountTargetLabelHits(IReadOnlyList<YoloResult>? results, string[]? labels, string? targetLabel)
         {
             if (results == null || results.Count == 0)
             {
-                return false;
+                return 0;
             }
 
             if (string.IsNullOrWhiteSpace(targetLabel))
             {
-                return true;
+                return results.Count;
             }
 
-            return results.Any(r =>
+            labels ??= Array.Empty<string>();
+            return results.Count(r =>
             {
                 if (r.ClassId < 0 || r.ClassId >= labels.Length)
                 {
@@ -281,6 +292,55 @@ namespace ClearFrost.Yolo
 
                 return string.Equals(labels[r.ClassId], targetLabel, StringComparison.OrdinalIgnoreCase);
             });
+        }
+
+        internal static bool IsTargetSatisfied(IReadOnlyList<YoloResult>? results, string[]? labels, string? targetLabel, int targetCount)
+        {
+            if (string.IsNullOrWhiteSpace(targetLabel))
+            {
+                return results != null && results.Count > 0;
+            }
+
+            if (targetCount < 0)
+            {
+                return false;
+            }
+
+            return CountTargetLabelHits(results, labels, targetLabel) == targetCount;
+        }
+
+        private static bool ShouldReplaceBestResult(
+            IReadOnlyList<YoloResult> candidateResults,
+            string[] candidateLabels,
+            IReadOnlyList<YoloResult> currentBestResults,
+            string[] currentBestLabels,
+            string? targetLabel,
+            int targetCount)
+        {
+            if (string.IsNullOrWhiteSpace(targetLabel))
+            {
+                return false;
+            }
+
+            int candidateHits = CountTargetLabelHits(candidateResults, candidateLabels, targetLabel);
+            int bestHits = CountTargetLabelHits(currentBestResults, currentBestLabels, targetLabel);
+
+            if (targetCount == 0)
+            {
+                if (candidateHits != bestHits)
+                {
+                    return candidateHits < bestHits;
+                }
+
+                return candidateResults.Count < currentBestResults.Count;
+            }
+
+            if (candidateHits != bestHits)
+            {
+                return candidateHits > bestHits;
+            }
+
+            return candidateResults.Count > currentBestResults.Count;
         }
 
         /// <summary>
@@ -293,7 +353,8 @@ namespace ClearFrost.Yolo
             float iouThreshold = 0.3f,
             bool globalIou = false,
             int preprocessingMode = 1,
-            string? targetLabel = null)
+            string? targetLabel = null,
+            int targetCount = 0)
         {
             ThrowIfDisposed();
 
@@ -310,10 +371,19 @@ namespace ClearFrost.Yolo
             string bestModelName = string.Empty;
             string[] bestModelLabels = Array.Empty<string>();
             bool bestWasFallback = false;
+            int attemptedModelCount = 0;
+            int successfulInferenceCount = 0;
+            List<string> inferenceErrors = new List<string>();
 
             void CaptureBestResult(List<YoloResult> detections, ModelRole modelRole, string modelPath, string[] labels, bool wasFallback)
             {
-                if (detections.Count == 0 || bestResults != null)
+                if (detections.Count == 0)
+                {
+                    return;
+                }
+
+                if (bestResults != null &&
+                    !ShouldReplaceBestResult(detections, labels, bestResults, bestModelLabels, targetLabel, targetCount))
                 {
                     return;
                 }
@@ -341,12 +411,14 @@ namespace ClearFrost.Yolo
             // 主模型推理
             if (primaryModel != null)
             {
+                attemptedModelCount++;
                 try
                 {
                     var primaryResults = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    successfulInferenceCount++;
                     var primaryLabels = primaryModel.Labels ?? Array.Empty<string>();
                     CaptureBestResult(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false);
-                    bool primaryHit = HasTargetLabelHit(primaryResults, primaryLabels, targetLabel);
+                    bool primaryHit = IsTargetSatisfied(primaryResults, primaryLabels, targetLabel, targetCount);
 
                     // 目标标签命中（或未配置目标标签时任意命中）才停止切换
                     if (primaryHit)
@@ -367,7 +439,8 @@ namespace ClearFrost.Yolo
 
                     if (primaryResults.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
                     {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型检测到非目标标签，继续切换（目标: {targetLabel}）");
+                        int actualCount = CountTargetLabelHits(primaryResults, primaryLabels, targetLabel);
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型目标数量不满足，继续切换（目标: {targetLabel}, 期望: {targetCount}, 实际: {actualCount}）");
                     }
                     else
                     {
@@ -377,6 +450,7 @@ namespace ClearFrost.Yolo
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型推理异常: {ex.Message}");
+                    inferenceErrors.Add($"主模型: {ex.Message}");
                 }
             }
 
@@ -400,19 +474,22 @@ namespace ClearFrost.Yolo
                 result.UsedModel = ModelRole.Primary;
                 result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
                 result.UsedModelLabels = primaryModel?.Labels ?? Array.Empty<string>();
+                MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
                 return result;
             }
 
             // 尝试辅助模型1
             if (auxiliary1Model != null)
             {
+                attemptedModelCount++;
                 try
                 {
                     System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型1进行检测...");
                     var aux1Results = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    successfulInferenceCount++;
                     var aux1Labels = auxiliary1Model.Labels ?? Array.Empty<string>();
                     CaptureBestResult(aux1Results, ModelRole.Auxiliary1, auxiliary1ModelPath, aux1Labels, true);
-                    bool aux1Hit = HasTargetLabelHit(aux1Results, aux1Labels, targetLabel);
+                    bool aux1Hit = IsTargetSatisfied(aux1Results, aux1Labels, targetLabel, targetCount);
 
                     if (aux1Hit)
                     {
@@ -433,24 +510,28 @@ namespace ClearFrost.Yolo
 
                     if (aux1Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
                     {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1检测到非目标标签，继续切换（目标: {targetLabel}）");
+                        int actualCount = CountTargetLabelHits(aux1Results, aux1Labels, targetLabel);
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1目标数量不满足，继续切换（目标: {targetLabel}, 期望: {targetCount}, 实际: {actualCount}）");
                     }
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1推理异常: {ex.Message}");
+                    inferenceErrors.Add($"辅助模型1: {ex.Message}");
                 }
             }
 
             // 尝试辅助模型2
             if (auxiliary2Model != null)
             {
+                attemptedModelCount++;
                 try
                 {
                     var aux2Results = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    successfulInferenceCount++;
                     var aux2Labels = auxiliary2Model.Labels ?? Array.Empty<string>();
                     CaptureBestResult(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true);
-                    bool aux2Hit = HasTargetLabelHit(aux2Results, aux2Labels, targetLabel);
+                    bool aux2Hit = IsTargetSatisfied(aux2Results, aux2Labels, targetLabel, targetCount);
 
                     lock (_lock)
                     {
@@ -473,12 +554,14 @@ namespace ClearFrost.Yolo
 
                     if (aux2Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
                     {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2检测到非目标标签，结束切换（目标: {targetLabel}）");
+                        int actualCount = CountTargetLabelHits(aux2Results, aux2Labels, targetLabel);
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2目标数量不满足，结束切换（目标: {targetLabel}, 期望: {targetCount}, 实际: {actualCount}）");
                     }
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��2�����쳣: {ex.Message}");
+                    inferenceErrors.Add($"辅助模型2: {ex.Message}");
                 }
             }
 
@@ -496,7 +579,24 @@ namespace ClearFrost.Yolo
                 result.WasFallback = bestWasFallback;
             }
 
+            MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
+
             return result;
+        }
+
+        private static void MarkErrorIfAllAttemptsFailed(
+            MultiModelInferenceResult result,
+            int attemptedModelCount,
+            int successfulInferenceCount,
+            List<string> inferenceErrors)
+        {
+            if (attemptedModelCount <= 0 || successfulInferenceCount > 0 || inferenceErrors.Count == 0)
+            {
+                return;
+            }
+
+            result.HasError = true;
+            result.ErrorMessage = string.Join("; ", inferenceErrors);
         }
 
         /// <summary>
@@ -509,13 +609,14 @@ namespace ClearFrost.Yolo
             bool globalIou = false,
             int preprocessingMode = 1,
             string? targetLabel = null,
+            int targetCount = 0,
             CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
             cancellationToken.ThrowIfCancellationRequested();
 
             // 异步执行推理
-            return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode, targetLabel), cancellationToken);
+            return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode, targetLabel, targetCount), cancellationToken);
         }
 
         /// <summary>
@@ -528,7 +629,8 @@ namespace ClearFrost.Yolo
             float iouThreshold = 0.3f,
             bool globalIou = false,
             int preprocessingMode = 1,
-            string? targetLabel = null)
+            string? targetLabel = null,
+            int targetCount = 0)
         {
             ThrowIfDisposed();
 
@@ -545,10 +647,19 @@ namespace ClearFrost.Yolo
             string bestModelName = string.Empty;
             string[] bestModelLabels = Array.Empty<string>();
             bool bestWasFallback = false;
+            int attemptedModelCount = 0;
+            int successfulInferenceCount = 0;
+            List<string> inferenceErrors = new List<string>();
 
             void CaptureBestResult(List<YoloResult> detections, ModelRole modelRole, string modelPath, string[] labels, bool wasFallback)
             {
-                if (detections.Count == 0 || bestResults != null)
+                if (detections.Count == 0)
+                {
+                    return;
+                }
+
+                if (bestResults != null &&
+                    !ShouldReplaceBestResult(detections, labels, bestResults, bestModelLabels, targetLabel, targetCount))
                 {
                     return;
                 }
@@ -574,12 +685,14 @@ namespace ClearFrost.Yolo
 
             if (primaryModel != null)
             {
+                attemptedModelCount++;
                 try
                 {
                     var primaryResults = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    successfulInferenceCount++;
                     var primaryLabels = primaryModel.Labels ?? Array.Empty<string>();
                     CaptureBestResult(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false);
-                    bool primaryHit = HasTargetLabelHit(primaryResults, primaryLabels, targetLabel);
+                    bool primaryHit = IsTargetSatisfied(primaryResults, primaryLabels, targetLabel, targetCount);
 
                     if (primaryHit)
                     {
@@ -599,7 +712,8 @@ namespace ClearFrost.Yolo
 
                     if (primaryResults.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
                     {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型检测到非目标标签，继续切换（目标: {targetLabel}）");
+                        int actualCount = CountTargetLabelHits(primaryResults, primaryLabels, targetLabel);
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型目标数量不满足，继续切换（目标: {targetLabel}, 期望: {targetCount}, 实际: {actualCount}）");
                     }
                     else
                     {
@@ -609,6 +723,7 @@ namespace ClearFrost.Yolo
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型推理异常: {ex.Message}");
+                    inferenceErrors.Add($"主模型: {ex.Message}");
                 }
             }
 
@@ -632,18 +747,21 @@ namespace ClearFrost.Yolo
                 result.UsedModel = ModelRole.Primary;
                 result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
                 result.UsedModelLabels = primaryModel?.Labels ?? Array.Empty<string>();
+                MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
                 return result;
             }
 
             if (auxiliary1Model != null)
             {
+                attemptedModelCount++;
                 try
                 {
                     System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型1进行检测...");
                     var aux1Results = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    successfulInferenceCount++;
                     var aux1Labels = auxiliary1Model.Labels ?? Array.Empty<string>();
                     CaptureBestResult(aux1Results, ModelRole.Auxiliary1, auxiliary1ModelPath, aux1Labels, true);
-                    bool aux1Hit = HasTargetLabelHit(aux1Results, aux1Labels, targetLabel);
+                    bool aux1Hit = IsTargetSatisfied(aux1Results, aux1Labels, targetLabel, targetCount);
 
                     if (aux1Hit)
                     {
@@ -664,23 +782,27 @@ namespace ClearFrost.Yolo
 
                     if (aux1Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
                     {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1检测到非目标标签，继续切换（目标: {targetLabel}）");
+                        int actualCount = CountTargetLabelHits(aux1Results, aux1Labels, targetLabel);
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1目标数量不满足，继续切换（目标: {targetLabel}, 期望: {targetCount}, 实际: {actualCount}）");
                     }
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1推理异常: {ex.Message}");
+                    inferenceErrors.Add($"辅助模型1: {ex.Message}");
                 }
             }
 
             if (auxiliary2Model != null)
             {
+                attemptedModelCount++;
                 try
                 {
                     var aux2Results = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    successfulInferenceCount++;
                     var aux2Labels = auxiliary2Model.Labels ?? Array.Empty<string>();
                     CaptureBestResult(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true);
-                    bool aux2Hit = HasTargetLabelHit(aux2Results, aux2Labels, targetLabel);
+                    bool aux2Hit = IsTargetSatisfied(aux2Results, aux2Labels, targetLabel, targetCount);
 
                     lock (_lock)
                     {
@@ -703,12 +825,14 @@ namespace ClearFrost.Yolo
 
                     if (aux2Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
                     {
-                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2检测到非目标标签，结束切换（目标: {targetLabel}）");
+                        int actualCount = CountTargetLabelHits(aux2Results, aux2Labels, targetLabel);
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2目标数量不满足，结束切换（目标: {targetLabel}, 期望: {targetCount}, 实际: {actualCount}）");
                     }
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2推理异常: {ex.Message}");
+                    inferenceErrors.Add($"辅助模型2: {ex.Message}");
                 }
             }
 
@@ -726,6 +850,8 @@ namespace ClearFrost.Yolo
                 result.WasFallback = bestWasFallback;
             }
 
+            MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
+
             return result;
         }
 
@@ -739,12 +865,13 @@ namespace ClearFrost.Yolo
             bool globalIou = false,
             int preprocessingMode = 1,
             string? targetLabel = null,
+            int targetCount = 0,
             CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
             cancellationToken.ThrowIfCancellationRequested();
 
-            return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode, targetLabel), cancellationToken);
+            return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode, targetLabel, targetCount), cancellationToken);
         }
 
         /// <summary>

@@ -55,6 +55,16 @@ namespace ClearFrost.Interfaces
         /// 是否触发模型回退
         /// </summary>
         public bool WasFallback { get; set; }
+
+        /// <summary>
+        /// 检测流程是否发生错误。发生错误时必须按 NG 处理，不能再用空结果重新判定为 OK。
+        /// </summary>
+        public bool HasError { get; set; }
+
+        /// <summary>
+        /// 检测错误说明。
+        /// </summary>
+        public string ErrorMessage { get; set; } = string.Empty;
     }
 
     /// <summary>

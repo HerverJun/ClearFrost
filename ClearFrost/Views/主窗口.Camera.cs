@@ -113,11 +113,13 @@ namespace ClearFrost
                     {
                         token.ThrowIfCancellationRequested();
 
-                        var activeConfig = _appConfig.ActiveCamera;
+                        var activeConfig = _appConfig.ActiveCamera ?? _appConfig.EnsureActiveCameraConfigFromLegacy();
                         if (activeConfig == null || string.IsNullOrWhiteSpace(activeConfig.SerialNumber))
                         {
                             return (false, "未配置活动相机或序列号为空", false, string.Empty);
                         }
+
+                        SynchronizeActiveCameraRegistration(activeConfig, recreateExisting: false);
 
                         // 先关闭旧连接，再重开当前配置相机（复用句柄，不销毁）
                         _cameraService.Close();
@@ -137,6 +139,9 @@ namespace ClearFrost
                         }
 
                         cam = activeCamera.Camera;
+                        string mockCameraNotice = cam is MockCamera
+                            ? "警告：当前连接的是模拟相机，画面为软件生成的测试图，不是真实工业相机。请检查 IsDebugMode 和相机配置。"
+                            : string.Empty;
 
                         token.ThrowIfCancellationRequested();
                         getParam();
@@ -145,7 +150,9 @@ namespace ClearFrost
                             throw new Exception(startupError);
                         }
 
-                        return (true, string.Empty, startupUsedMonoFallback, startupNoticeLocal);
+                        string combinedNotice = string.Join(" ",
+                            new[] { mockCameraNotice, startupNoticeLocal }.Where(n => !string.IsNullOrWhiteSpace(n)));
+                        return (true, string.Empty, startupUsedMonoFallback, combinedNotice);
                     }
                     catch (OperationCanceledException)
                     {
@@ -171,7 +178,7 @@ namespace ClearFrost
                     await _uiController.LogToFrontend("相机开启成功", "success");
                     if (!string.IsNullOrWhiteSpace(startupNotice))
                     {
-                        string level = startupNotice.Contains("仍输出单通道", StringComparison.Ordinal) ? "warning" : "info";
+                        string level = startupNotice.Contains("警告", StringComparison.Ordinal) ? "warning" : "info";
                         await _uiController.LogToFrontend(startupNotice, level);
                     }
                     if (usedMonoFallback)
@@ -223,14 +230,7 @@ namespace ClearFrost
             {
                 if (channelCount == 1)
                 {
-                    if (TryPromoteMonoToColor(activeCamera, token, out string appliedPixelFormat))
-                    {
-                        startupNotice = $"检测到相机默认输出单通道，已自动切换到 {appliedPixelFormat}。";
-                    }
-                    else
-                    {
-                        startupNotice = "当前相机已正常取图，但仍输出单通道图像；请检查相机 PixelFormat 是否为彩色模式。";
-                    }
+                    startupNotice = "相机当前输出 Mono8 单通道图像，已按工业检测模式稳定采集。";
                 }
 
                 return true;
@@ -284,129 +284,6 @@ namespace ClearFrost
             }
 
             return false;
-        }
-
-        private bool TryPromoteMonoToColor(ICamera activeCamera, CancellationToken token, out string appliedPixelFormat)
-        {
-            appliedPixelFormat = string.Empty;
-
-            if (activeCamera is not RealCamera realCamera)
-            {
-                return false;
-            }
-
-            if (!realCamera.TryGetEnumFeatureSymbol("PixelFormat", out string originalPixelFormat) ||
-                string.IsNullOrWhiteSpace(originalPixelFormat) ||
-                IsColorPixelFormat(originalPixelFormat))
-            {
-                return false;
-            }
-
-            foreach (string candidate in BuildPreferredColorPixelFormats(realCamera))
-            {
-                token.ThrowIfCancellationRequested();
-
-                if (string.Equals(candidate, originalPixelFormat, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                _cameraService.StopCapture();
-                int setResult = activeCamera.IMV_SetEnumFeatureSymbol("PixelFormat", candidate);
-                if (setResult != IMVDefine.IMV_OK)
-                {
-                    continue;
-                }
-
-                _cameraService.StartCapture();
-                if (TryCaptureStartupFrame(1500, 1, token, out int channelCount) && channelCount > 1)
-                {
-                    appliedPixelFormat = candidate;
-                    return true;
-                }
-            }
-
-            _cameraService.StopCapture();
-            activeCamera.IMV_SetEnumFeatureSymbol("PixelFormat", originalPixelFormat);
-            _cameraService.StartCapture();
-            TryCaptureStartupFrame(1000, 1, token, out _);
-            return false;
-        }
-
-        private static bool IsColorPixelFormat(string pixelFormat)
-        {
-            if (string.IsNullOrWhiteSpace(pixelFormat))
-            {
-                return false;
-            }
-
-            return pixelFormat.Contains("RGB", StringComparison.OrdinalIgnoreCase)
-                || pixelFormat.Contains("BGR", StringComparison.OrdinalIgnoreCase)
-                || pixelFormat.Contains("Bayer", StringComparison.OrdinalIgnoreCase)
-                || pixelFormat.Contains("YCbCr", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static IReadOnlyList<string> BuildPreferredColorPixelFormats(RealCamera realCamera)
-        {
-            List<string> candidates = new List<string>();
-
-            if (realCamera.TryGetEnumFeatureSymbol("PixelColorFilter", out string pixelColorFilter))
-            {
-                string? preferredBayer = MapPixelColorFilterToPixelFormat(pixelColorFilter);
-                if (!string.IsNullOrWhiteSpace(preferredBayer))
-                {
-                    AddPixelFormatCandidate(candidates, preferredBayer);
-                }
-            }
-
-            AddPixelFormatCandidate(candidates, "BayerRG8");
-            AddPixelFormatCandidate(candidates, "BayerGB8");
-            AddPixelFormatCandidate(candidates, "BayerGR8");
-            AddPixelFormatCandidate(candidates, "BayerBG8");
-
-            AddPixelFormatCandidate(candidates, "BGR8");
-            AddPixelFormatCandidate(candidates, "RGB8");
-
-            return candidates;
-        }
-
-        private static string? MapPixelColorFilterToPixelFormat(string pixelColorFilter)
-        {
-            if (pixelColorFilter.Contains("BayerRG", StringComparison.OrdinalIgnoreCase) ||
-                pixelColorFilter.EndsWith("RG", StringComparison.OrdinalIgnoreCase))
-            {
-                return "BayerRG8";
-            }
-
-            if (pixelColorFilter.Contains("BayerGB", StringComparison.OrdinalIgnoreCase) ||
-                pixelColorFilter.EndsWith("GB", StringComparison.OrdinalIgnoreCase))
-            {
-                return "BayerGB8";
-            }
-
-            if (pixelColorFilter.Contains("BayerGR", StringComparison.OrdinalIgnoreCase) ||
-                pixelColorFilter.EndsWith("GR", StringComparison.OrdinalIgnoreCase))
-            {
-                return "BayerGR8";
-            }
-
-            if (pixelColorFilter.Contains("BayerBG", StringComparison.OrdinalIgnoreCase) ||
-                pixelColorFilter.EndsWith("BG", StringComparison.OrdinalIgnoreCase))
-            {
-                return "BayerBG8";
-            }
-
-            return null;
-        }
-
-        private static void AddPixelFormatCandidate(List<string> candidates, string pixelFormat)
-        {
-            if (candidates.Any(candidate => string.Equals(candidate, pixelFormat, StringComparison.OrdinalIgnoreCase)))
-            {
-                return;
-            }
-
-            candidates.Add(pixelFormat);
         }
 
         private bool TryFallbackToMono8(ICamera activeCamera)
