@@ -43,6 +43,7 @@ namespace ClearFrost.Services
         private Thread? _captureThread;
         private Mat? _lastFrame;
         private readonly object _frameLock = new object();
+        private readonly SemaphoreSlim _cameraOperationLock = new SemaphoreSlim(1, 1);
         private bool _disposed;
 
         #endregion
@@ -99,6 +100,14 @@ namespace ClearFrost.Services
         /// <returns>成功返回 true</returns>
         public bool Open(string serialNumber, string manufacturer)
         {
+            _cameraOperationLock.Wait();
+            try
+            {
+            if (_disposed)
+            {
+                return FailOpen("相机服务已释放");
+            }
+
             serialNumber = serialNumber?.Trim() ?? string.Empty;
             manufacturer = string.IsNullOrWhiteSpace(manufacturer) ? "Huaray" : manufacturer.Trim();
 
@@ -155,6 +164,11 @@ namespace ClearFrost.Services
             {
                 return FailOpen($"打开相机异常: {ex.Message} (序列号: {serialNumber})");
             }
+            }
+            finally
+            {
+                _cameraOperationLock.Release();
+            }
         }
 
         /// <summary>
@@ -162,9 +176,22 @@ namespace ClearFrost.Services
         /// </summary>
         public void Close()
         {
+            _cameraOperationLock.Wait();
             try
             {
-                StopCapture();
+                CloseCore();
+            }
+            finally
+            {
+                _cameraOperationLock.Release();
+            }
+        }
+
+        private void CloseCore()
+        {
+            try
+            {
+                StopCaptureCore();
 
                 var activeCamera = _cameraManager.ActiveCamera;
                 if (activeCamera != null)
@@ -189,6 +216,37 @@ namespace ClearFrost.Services
             return false;
         }
 
+        public CameraInstance? SwitchActiveCamera(string cameraId)
+        {
+            _cameraOperationLock.Wait();
+            try
+            {
+                StopCaptureCore();
+
+                var previousCamera = _cameraManager.ActiveCamera;
+                if (previousCamera != null && previousCamera.IsOpen)
+                {
+                    previousCamera.Close();
+                }
+
+                _cameraManager.ActiveCameraId = cameraId;
+                var activeCamera = _cameraManager.ActiveCamera;
+                if (activeCamera != null)
+                {
+                    if (activeCamera.IsOpen)
+                    {
+                        StartCaptureCore();
+                    }
+                }
+
+                return activeCamera;
+            }
+            finally
+            {
+                _cameraOperationLock.Release();
+            }
+        }
+
         #endregion
 
         #region 采集控制
@@ -197,6 +255,19 @@ namespace ClearFrost.Services
         /// 启动后台采集线程
         /// </summary>
         public void StartCapture()
+        {
+            _cameraOperationLock.Wait();
+            try
+            {
+                StartCaptureCore();
+            }
+            finally
+            {
+                _cameraOperationLock.Release();
+            }
+        }
+
+        private void StartCaptureCore()
         {
             var activeCamera = _cameraManager.ActiveCamera;
             if (activeCamera == null)
@@ -251,6 +322,19 @@ namespace ClearFrost.Services
         /// </summary>
         public void StopCapture()
         {
+            _cameraOperationLock.Wait();
+            try
+            {
+                StopCaptureCore();
+            }
+            finally
+            {
+                _cameraOperationLock.Release();
+            }
+        }
+
+        private void StopCaptureCore()
+        {
             _captureCts?.Cancel();
 
             if (_captureThread != null && _captureThread.IsAlive)
@@ -285,6 +369,7 @@ namespace ClearFrost.Services
         /// </summary>
         public void TriggerOnce()
         {
+            _cameraOperationLock.Wait();
             try
             {
                 var activeCamera = _cameraManager.ActiveCamera;
@@ -303,6 +388,10 @@ namespace ClearFrost.Services
             {
                 ErrorOccurred?.Invoke($"触发采集失败: {ex.Message}");
             }
+            finally
+            {
+                _cameraOperationLock.Release();
+            }
         }
 
         /// <summary>
@@ -312,6 +401,9 @@ namespace ClearFrost.Services
         /// <returns>成功返回图像，失败返回 null</returns>
         public Mat? CaptureFrame(int timeoutMs = 3000)
         {
+            _cameraOperationLock.Wait();
+            try
+            {
             var camera = _cameraManager.ActiveCamera?.Camera;
             if (camera == null)
             {
@@ -380,6 +472,11 @@ namespace ClearFrost.Services
                 {
                     camera.IMV_ReleaseFrame(ref frame);
                 }
+            }
+            }
+            finally
+            {
+                _cameraOperationLock.Release();
             }
         }
 
@@ -622,6 +719,7 @@ namespace ClearFrost.Services
         /// <param name="exposureUs">曝光时间（微秒）</param>
         public void SetExposure(double exposureUs)
         {
+            _cameraOperationLock.Wait();
             try
             {
                 var activeCamera = _cameraManager.ActiveCamera;
@@ -640,6 +738,10 @@ namespace ClearFrost.Services
             {
                 ErrorOccurred?.Invoke($"设置曝光失败: {ex.Message}");
             }
+            finally
+            {
+                _cameraOperationLock.Release();
+            }
         }
 
         /// <summary>
@@ -648,6 +750,7 @@ namespace ClearFrost.Services
         /// <param name="gain">增益值</param>
         public void SetGain(double gain)
         {
+            _cameraOperationLock.Wait();
             try
             {
                 var activeCamera = _cameraManager.ActiveCamera;
@@ -666,6 +769,10 @@ namespace ClearFrost.Services
             {
                 ErrorOccurred?.Invoke($"设置增益失败: {ex.Message}");
             }
+            finally
+            {
+                _cameraOperationLock.Release();
+            }
         }
 
         #endregion
@@ -675,15 +782,24 @@ namespace ClearFrost.Services
         public void Dispose()
         {
             if (_disposed) return;
-            _disposed = true;
 
-            StopCapture();
-            Close();
-
-            lock (_frameLock)
+            _cameraOperationLock.Wait();
+            try
             {
-                _lastFrame?.Dispose();
-                _lastFrame = null;
+                if (_disposed) return;
+                _disposed = true;
+
+                CloseCore();
+
+                lock (_frameLock)
+                {
+                    _lastFrame?.Dispose();
+                    _lastFrame = null;
+                }
+            }
+            finally
+            {
+                _cameraOperationLock.Release();
             }
 
             GC.SuppressFinalize(this);

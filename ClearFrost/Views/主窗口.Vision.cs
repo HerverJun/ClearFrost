@@ -594,11 +594,10 @@ namespace ClearFrost
             // 工业模式：纯 Mat 快速路径（避免 MatBitmap 双重转换）
             if (YoloDetector.IndustrialRenderMode)
             {
-                var detector = (_detectionService as DetectionService)?.PrimaryDetector;
-                if (detector != null)
+                Mat? matResult = (_detectionService as DetectionService)?.GenerateResultMat(sourceImage, results, labels);
+                if (matResult != null)
                 {
-                    var matResult = detector.GenerateImageMat(sourceImage, results, labels);
-                    if (matResult != null) return matResult;
+                    return matResult;
                 }
             }
 

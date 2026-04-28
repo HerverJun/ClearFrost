@@ -93,7 +93,7 @@ namespace ClearFrost
         private volatile bool _isCameraOpening = false;
         private CancellationTokenSource _appShutdownCts = new();
         private readonly object _shutdownTaskSync = new();
-        private readonly TimeSpan _shutdownTimeout = TimeSpan.FromSeconds(5);
+        private readonly TimeSpan _shutdownTimeout = TimeSpan.FromSeconds(15);
         private Task? _shutdownTask;
         private int _shutdownState = 0;
 

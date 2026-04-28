@@ -12,6 +12,8 @@ namespace ClearFrost
 {
     internal sealed class AppRuntime : IAsyncDisposable, IDisposable
     {
+        private static readonly TimeSpan QueueFlushTimeout = TimeSpan.FromSeconds(10);
+
         private bool _stopRequested;
         private bool _disposed;
 
@@ -124,8 +126,45 @@ namespace ClearFrost
                 Debug.WriteLine($"[AppRuntime] 保存统计失败: {ex.Message}");
             }
 
-            await DetectionRecordQueue.StopAsync(cancellationToken).ConfigureAwait(false);
-            await ImageSaveQueue.StopAsync(cancellationToken).ConfigureAwait(false);
+            await FlushQueuesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task FlushQueuesAsync(CancellationToken cancellationToken)
+        {
+            Debug.WriteLine(
+                $"[AppRuntime] 准备排空保存队列: Images={ImageSaveQueue.PendingCount}/{ImageSaveQueue.Capacity}, " +
+                $"ImageDropped={ImageSaveQueue.DroppedCount}, ImageFailed={ImageSaveQueue.FailedCount}, " +
+                $"Records={DetectionRecordQueue.PendingCount}/{DetectionRecordQueue.Capacity}, " +
+                $"RecordDropped={DetectionRecordQueue.DroppedCount}, RecordFailed={DetectionRecordQueue.FailedCount}");
+
+            try
+            {
+                using var recordFlushCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                recordFlushCts.CancelAfter(QueueFlushTimeout);
+                await DetectionRecordQueue.StopAsync(recordFlushCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                Debug.WriteLine(
+                    $"[AppRuntime] 数据库记录队列排空超时: Pending={DetectionRecordQueue.PendingCount}, " +
+                    $"Saved={DetectionRecordQueue.SavedCount}, Dropped={DetectionRecordQueue.DroppedCount}, Failed={DetectionRecordQueue.FailedCount}");
+            }
+
+            try
+            {
+                using var imageFlushCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                imageFlushCts.CancelAfter(QueueFlushTimeout);
+                await ImageSaveQueue.StopAsync(imageFlushCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                Debug.WriteLine(
+                    $"[AppRuntime] 图像保存队列排空超时: Pending={ImageSaveQueue.PendingCount}, " +
+                    $"Saved={ImageSaveQueue.SavedCount}, Dropped={ImageSaveQueue.DroppedCount}, Failed={ImageSaveQueue.FailedCount}");
+            }
+
+            Debug.WriteLine(
+                $"[AppRuntime] 保存队列排空结束: Images={ImageSaveQueue.PendingCount}, Records={DetectionRecordQueue.PendingCount}");
         }
 
         public async ValueTask DisposeAsync()
@@ -139,7 +178,8 @@ namespace ClearFrost
 
             try
             {
-                await StopAsync(CancellationToken.None).ConfigureAwait(false);
+                using var disposeCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                await StopAsync(disposeCts.Token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

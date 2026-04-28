@@ -87,8 +87,10 @@ namespace ClearFrost.Yolo
 
         private bool _useGpu = true;
         private int _gpuDeviceId = 0;
+        private bool _enableFallback = true;
 
         private readonly object _lock = new object();
+        private readonly ReaderWriterLockSlim _modelLock = new ReaderWriterLockSlim();
         private bool _disposed = false;
 
         #endregion
@@ -105,16 +107,85 @@ namespace ClearFrost.Yolo
         public string Auxiliary2ModelPath => _auxiliary2ModelPath;
 
         /// 
-        public bool IsPrimaryLoaded => _primaryModel != null;
+        public bool IsPrimaryLoaded
+        {
+            get
+            {
+                _modelLock.EnterReadLock();
+                try
+                {
+                    return !_disposed && _primaryModel != null;
+                }
+                finally
+                {
+                    _modelLock.ExitReadLock();
+                }
+            }
+        }
 
         /// 
-        public bool IsAuxiliary1Loaded => _auxiliary1Model != null;
+        public bool IsAuxiliary1Loaded
+        {
+            get
+            {
+                _modelLock.EnterReadLock();
+                try
+                {
+                    return !_disposed && _auxiliary1Model != null;
+                }
+                finally
+                {
+                    _modelLock.ExitReadLock();
+                }
+            }
+        }
 
         /// 
-        public bool IsAuxiliary2Loaded => _auxiliary2Model != null;
+        public bool IsAuxiliary2Loaded
+        {
+            get
+            {
+                _modelLock.EnterReadLock();
+                try
+                {
+                    return !_disposed && _auxiliary2Model != null;
+                }
+                finally
+                {
+                    _modelLock.ExitReadLock();
+                }
+            }
+        }
 
         /// 
-        public bool EnableFallback { get; set; } = true;
+        public bool EnableFallback
+        {
+            get
+            {
+                _modelLock.EnterReadLock();
+                try
+                {
+                    return _enableFallback;
+                }
+                finally
+                {
+                    _modelLock.ExitReadLock();
+                }
+            }
+            set
+            {
+                _modelLock.EnterWriteLock();
+                try
+                {
+                    ThrowIfDisposed();
+                    _enableFallback = value;
+                }
+                finally
+                {
+                    _modelLock.ExitWriteLock();
+                }
+            }
+        }
 
         /// 
         public int PrimaryHitCount { get; private set; }
@@ -132,7 +203,21 @@ namespace ClearFrost.Yolo
         public ModelRole LastUsedModel { get; private set; } = ModelRole.None;
 
         /// 
-        public string[] PrimaryLabels => _primaryModel?.Labels ?? Array.Empty<string>();
+        public string[] PrimaryLabels
+        {
+            get
+            {
+                _modelLock.EnterReadLock();
+                try
+                {
+                    return _primaryModel?.Labels ?? Array.Empty<string>();
+                }
+                finally
+                {
+                    _modelLock.ExitReadLock();
+                }
+            }
+        }
 
         /// 
         internal YoloDetector? PrimaryDetector => _primaryModel;
@@ -163,24 +248,39 @@ namespace ClearFrost.Yolo
         {
             if (string.IsNullOrWhiteSpace(modelPath)) return;
 
-            lock (_lock)
-            {
-                // 
-                _primaryModel?.Dispose();
-                _primaryModel = null;
-                _primaryModelPath = "";
+            ThrowIfDisposed();
+            YoloDetector? newModel = null;
+            YoloDetector? oldModel = null;
 
+            try
+            {
+                newModel = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
+
+                _modelLock.EnterWriteLock();
                 try
                 {
-                    _primaryModel = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
+                    ThrowIfDisposed();
+                    oldModel = _primaryModel;
+                    _primaryModel = newModel;
                     _primaryModelPath = modelPath;
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ��ģ�ͼ��سɹ�: {System.IO.Path.GetFileName(modelPath)}");
+                    newModel = null;
                 }
-                catch (Exception ex)
+                finally
                 {
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ��ģ�ͼ���ʧ��: {ex.Message}");
-                    throw;
+                    _modelLock.ExitWriteLock();
                 }
+
+                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ��ģ�ͼ��سɹ�: {System.IO.Path.GetFileName(modelPath)}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ��ģ�ͼ���ʧ��: {ex.Message}");
+                throw;
+            }
+            finally
+            {
+                oldModel?.Dispose();
+                newModel?.Dispose();
             }
         }
 
@@ -191,24 +291,39 @@ namespace ClearFrost.Yolo
         {
             if (string.IsNullOrWhiteSpace(modelPath)) return;
 
-            lock (_lock)
-            {
-                // 
-                _auxiliary1Model?.Dispose();
-                _auxiliary1Model = null;
-                _auxiliary1ModelPath = "";
+            ThrowIfDisposed();
+            YoloDetector? newModel = null;
+            YoloDetector? oldModel = null;
 
+            try
+            {
+                newModel = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
+
+                _modelLock.EnterWriteLock();
                 try
                 {
-                    _auxiliary1Model = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
+                    ThrowIfDisposed();
+                    oldModel = _auxiliary1Model;
+                    _auxiliary1Model = newModel;
                     _auxiliary1ModelPath = modelPath;
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��1���سɹ�: {System.IO.Path.GetFileName(modelPath)}");
+                    newModel = null;
                 }
-                catch (Exception ex)
+                finally
                 {
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��1����ʧ��: {ex.Message}");
-                    throw;
+                    _modelLock.ExitWriteLock();
                 }
+
+                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��1���سɹ�: {System.IO.Path.GetFileName(modelPath)}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��1����ʧ��: {ex.Message}");
+                throw;
+            }
+            finally
+            {
+                oldModel?.Dispose();
+                newModel?.Dispose();
             }
         }
 
@@ -219,24 +334,39 @@ namespace ClearFrost.Yolo
         {
             if (string.IsNullOrWhiteSpace(modelPath)) return;
 
-            lock (_lock)
-            {
-                // 
-                _auxiliary2Model?.Dispose();
-                _auxiliary2Model = null;
-                _auxiliary2ModelPath = "";
+            ThrowIfDisposed();
+            YoloDetector? newModel = null;
+            YoloDetector? oldModel = null;
 
+            try
+            {
+                newModel = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
+
+                _modelLock.EnterWriteLock();
                 try
                 {
-                    _auxiliary2Model = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
+                    ThrowIfDisposed();
+                    oldModel = _auxiliary2Model;
+                    _auxiliary2Model = newModel;
                     _auxiliary2ModelPath = modelPath;
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��2���سɹ�: {System.IO.Path.GetFileName(modelPath)}");
+                    newModel = null;
                 }
-                catch (Exception ex)
+                finally
                 {
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��2����ʧ��: {ex.Message}");
-                    throw;
+                    _modelLock.ExitWriteLock();
                 }
+
+                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��2���سɹ�: {System.IO.Path.GetFileName(modelPath)}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��2����ʧ��: {ex.Message}");
+                throw;
+            }
+            finally
+            {
+                oldModel?.Dispose();
+                newModel?.Dispose();
             }
         }
 
@@ -245,12 +375,22 @@ namespace ClearFrost.Yolo
         /// </summary>
         public void UnloadAuxiliary1Model()
         {
-            lock (_lock)
+            YoloDetector? oldModel;
+
+            _modelLock.EnterWriteLock();
+            try
             {
-                _auxiliary1Model?.Dispose();
+                ThrowIfDisposed();
+                oldModel = _auxiliary1Model;
                 _auxiliary1Model = null;
                 _auxiliary1ModelPath = "";
             }
+            finally
+            {
+                _modelLock.ExitWriteLock();
+            }
+
+            oldModel?.Dispose();
         }
 
         /// <summary>
@@ -258,12 +398,22 @@ namespace ClearFrost.Yolo
         /// </summary>
         public void UnloadAuxiliary2Model()
         {
-            lock (_lock)
+            YoloDetector? oldModel;
+
+            _modelLock.EnterWriteLock();
+            try
             {
-                _auxiliary2Model?.Dispose();
+                ThrowIfDisposed();
+                oldModel = _auxiliary2Model;
                 _auxiliary2Model = null;
                 _auxiliary2ModelPath = "";
             }
+            finally
+            {
+                _modelLock.ExitWriteLock();
+            }
+
+            oldModel?.Dispose();
         }
 
         #endregion
@@ -356,7 +506,10 @@ namespace ClearFrost.Yolo
             string? targetLabel = null,
             int targetCount = 0)
         {
-            ThrowIfDisposed();
+            _modelLock.EnterReadLock();
+            try
+            {
+                ThrowIfDisposed();
 
             var result = new MultiModelInferenceResult();
             YoloDetector? primaryModel;
@@ -405,7 +558,7 @@ namespace ClearFrost.Yolo
                 primaryModelPath = _primaryModelPath;
                 auxiliary1ModelPath = _auxiliary1ModelPath;
                 auxiliary2ModelPath = _auxiliary2ModelPath;
-                enableFallback = EnableFallback;
+                enableFallback = _enableFallback;
             }
 
             // 主模型推理
@@ -582,6 +735,11 @@ namespace ClearFrost.Yolo
             MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
 
             return result;
+            }
+            finally
+            {
+                _modelLock.ExitReadLock();
+            }
         }
 
         private static void MarkErrorIfAllAttemptsFailed(
@@ -632,7 +790,10 @@ namespace ClearFrost.Yolo
             string? targetLabel = null,
             int targetCount = 0)
         {
-            ThrowIfDisposed();
+            _modelLock.EnterReadLock();
+            try
+            {
+                ThrowIfDisposed();
 
             var result = new MultiModelInferenceResult();
             YoloDetector? primaryModel;
@@ -680,7 +841,7 @@ namespace ClearFrost.Yolo
                 primaryModelPath = _primaryModelPath;
                 auxiliary1ModelPath = _auxiliary1ModelPath;
                 auxiliary2ModelPath = _auxiliary2ModelPath;
-                enableFallback = EnableFallback;
+                enableFallback = _enableFallback;
             }
 
             if (primaryModel != null)
@@ -853,6 +1014,11 @@ namespace ClearFrost.Yolo
             MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
 
             return result;
+            }
+            finally
+            {
+                _modelLock.ExitReadLock();
+            }
         }
 
         /// <summary>
@@ -884,18 +1050,65 @@ namespace ClearFrost.Yolo
             bool globalIou = false,
             int preprocessingMode = 1)
         {
-            ThrowIfDisposed();
-
-            YoloDetector? primaryModel;
-            lock (_lock)
+            _modelLock.EnterReadLock();
+            try
             {
-                primaryModel = _primaryModel;
+                ThrowIfDisposed();
+
+                YoloDetector? primaryModel = _primaryModel;
+                if (primaryModel == null)
+                    return new List<YoloResult>();
+
+                return primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
             }
+            finally
+            {
+                _modelLock.ExitReadLock();
+            }
+        }
 
-            if (primaryModel == null)
-                return new List<YoloResult>();
+        public Bitmap? GeneratePrimaryResultImage(Bitmap original, List<YoloResult> results, string[] labels)
+        {
+            _modelLock.EnterReadLock();
+            try
+            {
+                ThrowIfDisposed();
+                return _primaryModel == null
+                    ? null
+                    : (Bitmap)_primaryModel.GenerateImage(original, results, labels);
+            }
+            finally
+            {
+                _modelLock.ExitReadLock();
+            }
+        }
 
-            return primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+        public Mat? GeneratePrimaryResultMat(Mat original, List<YoloResult> results, string[] labels)
+        {
+            _modelLock.EnterReadLock();
+            try
+            {
+                ThrowIfDisposed();
+                return _primaryModel?.GenerateImageMat(original, results, labels);
+            }
+            finally
+            {
+                _modelLock.ExitReadLock();
+            }
+        }
+
+        public object? GetPrimaryLastMetrics()
+        {
+            _modelLock.EnterReadLock();
+            try
+            {
+                ThrowIfDisposed();
+                return _primaryModel?.LastMetrics;
+            }
+            finally
+            {
+                _modelLock.ExitReadLock();
+            }
         }
 
         #endregion
@@ -937,23 +1150,22 @@ namespace ClearFrost.Yolo
         /// </summary>
         public void SetTaskMode(YoloTaskType taskType)
         {
-            YoloDetector? primaryModel;
-            YoloDetector? auxiliary1Model;
-            YoloDetector? auxiliary2Model;
-
-            lock (_lock)
+            _modelLock.EnterWriteLock();
+            try
             {
-                primaryModel = _primaryModel;
-                auxiliary1Model = _auxiliary1Model;
-                auxiliary2Model = _auxiliary2Model;
-            }
+                ThrowIfDisposed();
 
-            if (primaryModel != null)
-                primaryModel.TaskMode = taskType;
-            if (auxiliary1Model != null)
-                auxiliary1Model.TaskMode = taskType;
-            if (auxiliary2Model != null)
-                auxiliary2Model.TaskMode = taskType;
+                if (_primaryModel != null)
+                    _primaryModel.TaskMode = taskType;
+                if (_auxiliary1Model != null)
+                    _auxiliary1Model.TaskMode = taskType;
+                if (_auxiliary2Model != null)
+                    _auxiliary2Model.TaskMode = taskType;
+            }
+            finally
+            {
+                _modelLock.ExitWriteLock();
+            }
         }
 
         #endregion
@@ -978,16 +1190,36 @@ namespace ClearFrost.Yolo
 
             if (disposing)
             {
-                lock (_lock)
-                {
-                    _primaryModel?.Dispose();
-                    _auxiliary1Model?.Dispose();
-                    _auxiliary2Model?.Dispose();
+                YoloDetector? primaryModel;
+                YoloDetector? auxiliary1Model;
+                YoloDetector? auxiliary2Model;
 
+                _modelLock.EnterWriteLock();
+                try
+                {
+                    if (_disposed) return;
+
+                    primaryModel = _primaryModel;
+                    auxiliary1Model = _auxiliary1Model;
+                    auxiliary2Model = _auxiliary2Model;
                     _primaryModel = null;
                     _auxiliary1Model = null;
                     _auxiliary2Model = null;
+                    _primaryModelPath = "";
+                    _auxiliary1ModelPath = "";
+                    _auxiliary2ModelPath = "";
+                    _disposed = true;
                 }
+                finally
+                {
+                    _modelLock.ExitWriteLock();
+                }
+
+                primaryModel?.Dispose();
+                auxiliary1Model?.Dispose();
+                auxiliary2Model?.Dispose();
+                _modelLock.Dispose();
+                return;
             }
 
             _disposed = true;

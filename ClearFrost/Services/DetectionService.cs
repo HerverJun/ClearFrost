@@ -447,11 +447,10 @@ namespace ClearFrost.Services
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
-                // 使用 MultiModelManager 的 GenerateImage 方法
-                var detector = _modelManager.PrimaryDetector;
-                if (detector != null)
+                Bitmap? image = _modelManager.GeneratePrimaryResultImage(original, results, labels);
+                if (image != null)
                 {
-                    return (Bitmap)detector.GenerateImage(original, results, labels);
+                    return image;
                 }
             }
 
@@ -462,6 +461,20 @@ namespace ClearFrost.Services
 
             // 返回原图的副本
             return new Bitmap(original);
+        }
+
+        internal Mat? GenerateResultMat(Mat original, List<YoloResult> results, string[] labels)
+        {
+            if (_modelManager != null && _modelManager.IsPrimaryLoaded)
+            {
+                Mat? image = _modelManager.GeneratePrimaryResultMat(original, results, labels);
+                if (image != null)
+                {
+                    return image;
+                }
+            }
+
+            return _yolo?.GenerateImageMat(original, results, labels);
         }
 
         #endregion
@@ -542,7 +555,7 @@ namespace ClearFrost.Services
 
         public object? GetLastMetrics()
         {
-            return _modelManager?.PrimaryDetector?.LastMetrics ?? _yolo?.LastMetrics;
+            return _modelManager?.GetPrimaryLastMetrics() ?? _yolo?.LastMetrics;
         }
 
         #endregion

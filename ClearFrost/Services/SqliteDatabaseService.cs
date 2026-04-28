@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Diagnostics;
 using System.Collections.Generic;
@@ -15,6 +15,8 @@ namespace ClearFrost.Services
     /// </summary>
     public class SqliteDatabaseService : IDatabaseService
     {
+        private const int BusyTimeoutMs = 5000;
+
         private readonly string _connectionString;
         private readonly string _dbPath;
         private bool _initialized = false;
@@ -45,7 +47,7 @@ namespace ClearFrost.Services
                 Directory.CreateDirectory(directory);
             }
 
-            _connectionString = $"Data Source={_dbPath}";
+            _connectionString = $"Data Source={_dbPath};Cache=Shared;Pooling=True;Default Timeout={BusyTimeoutMs / 1000}";
             Debug.WriteLine($"[SqliteDatabaseService] Database path: {_dbPath}");
         }
 
@@ -181,9 +183,40 @@ namespace ClearFrost.Services
 
         private static SqliteConnection OpenDatabase(string dbPath)
         {
-            var connection = new SqliteConnection($"Data Source={dbPath}");
+            var connection = new SqliteConnection($"Data Source={dbPath};Cache=Shared;Pooling=True;Default Timeout={BusyTimeoutMs / 1000}");
             connection.Open();
+            ConfigureConnection(connection);
             return connection;
+        }
+
+        private async Task<SqliteConnection> OpenConnectionAsync()
+        {
+            var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+            await ConfigureConnectionAsync(connection);
+            return connection;
+        }
+
+        private static void ConfigureConnection(SqliteConnection connection)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = $@"
+                PRAGMA busy_timeout = {BusyTimeoutMs};
+                PRAGMA journal_mode = WAL;
+                PRAGMA synchronous = NORMAL;
+            ";
+            command.ExecuteNonQuery();
+        }
+
+        private static async Task ConfigureConnectionAsync(SqliteConnection connection)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = $@"
+                PRAGMA busy_timeout = {BusyTimeoutMs};
+                PRAGMA journal_mode = WAL;
+                PRAGMA synchronous = NORMAL;
+            ";
+            await command.ExecuteNonQueryAsync();
         }
 
         private static void EnsureDatabaseDirectory(string dbPath)
@@ -238,8 +271,7 @@ namespace ClearFrost.Services
 
             try
             {
-                using var connection = new SqliteConnection(_connectionString);
-                await connection.OpenAsync();
+                using var connection = await OpenConnectionAsync();
 
                 EnsureSchema(connection);
 
@@ -259,8 +291,7 @@ namespace ClearFrost.Services
 
             try
             {
-                using var connection = new SqliteConnection(_connectionString);
-                await connection.OpenAsync();
+                using var connection = await OpenConnectionAsync();
 
                 string insertSql = @"
                     INSERT INTO DetectionRecords 
@@ -269,7 +300,7 @@ namespace ClearFrost.Services
                 ";
 
                 using var command = new SqliteCommand(insertSql, connection);
-                command.Parameters.AddWithValue("@Timestamp", record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"));
+                command.Parameters.AddWithValue("@Timestamp", record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"));
                 command.Parameters.AddWithValue("@IsQualified", record.IsQualified ? 1 : 0);
                 command.Parameters.AddWithValue("@TargetLabel", record.TargetLabel ?? "");
                 command.Parameters.AddWithValue("@ExpectedCount", record.ExpectedCount);
@@ -284,6 +315,8 @@ namespace ClearFrost.Services
             catch (Exception ex)
             {
                 Debug.WriteLine($"[SqliteDatabaseService] Save error: {ex.Message}");
+                Trace.TraceError($"[SqliteDatabaseService] Save error: {ex}");
+                throw;
             }
         }
 
@@ -295,8 +328,7 @@ namespace ClearFrost.Services
 
             try
             {
-                using var connection = new SqliteConnection(_connectionString);
-                await connection.OpenAsync();
+                using var connection = await OpenConnectionAsync();
 
                 var conditions = new List<string>();
                 if (startDate.HasValue)
@@ -307,15 +339,15 @@ namespace ClearFrost.Services
                     conditions.Add("IsQualified = @IsQualified");
 
                 string whereClause = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
-                string querySql = $"SELECT * FROM DetectionRecords {whereClause} ORDER BY Timestamp DESC LIMIT @Limit";
+                string querySql = $"SELECT * FROM DetectionRecords {whereClause} ORDER BY Timestamp DESC, Id DESC LIMIT @Limit";
 
                 using var command = new SqliteCommand(querySql, connection);
                 command.Parameters.AddWithValue("@Limit", limit);
 
                 if (startDate.HasValue)
-                    command.Parameters.AddWithValue("@StartDate", startDate.Value.ToString("yyyy-MM-dd 00:00:00"));
+                    command.Parameters.AddWithValue("@StartDate", startDate.Value.ToString("yyyy-MM-dd 00:00:00.000"));
                 if (endDate.HasValue)
-                    command.Parameters.AddWithValue("@EndDate", endDate.Value.ToString("yyyy-MM-dd 23:59:59"));
+                    command.Parameters.AddWithValue("@EndDate", endDate.Value.ToString("yyyy-MM-dd 23:59:59.999"));
                 if (isQualified.HasValue)
                     command.Parameters.AddWithValue("@IsQualified", isQualified.Value ? 1 : 0);
 
@@ -351,8 +383,7 @@ namespace ClearFrost.Services
 
             try
             {
-                using var connection = new SqliteConnection(_connectionString);
-                await connection.OpenAsync();
+                using var connection = await OpenConnectionAsync();
 
                 string dateStr = date.ToString("yyyy-MM-dd");
                 string sql = @"
@@ -390,10 +421,9 @@ namespace ClearFrost.Services
 
             try
             {
-                using var connection = new SqliteConnection(_connectionString);
-                await connection.OpenAsync();
+                using var connection = await OpenConnectionAsync();
 
-                string cutoffDate = DateTime.Now.AddDays(-daysToKeep).ToString("yyyy-MM-dd 00:00:00");
+                string cutoffDate = DateTime.Now.AddDays(-daysToKeep).ToString("yyyy-MM-dd 00:00:00.000");
                 string sql = "DELETE FROM DetectionRecords WHERE Timestamp < @CutoffDate";
 
                 using var command = new SqliteCommand(sql, connection);

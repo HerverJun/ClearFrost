@@ -185,16 +185,20 @@ namespace ClearFrost
             {
                 try
                 {
-                    _cameraService.StopCapture();
+                    var newCam = _cameraService is CameraService cameraService
+                        ? cameraService.SwitchActiveCamera(cameraId)
+                        : null;
 
-                    var prevCam = _cameraManager.ActiveCamera;
-                    if (prevCam != null && prevCam.IsOpen)
+                    if (newCam == null && _cameraService is not CameraService)
                     {
-                        prevCam.Close();
+                        _cameraService.StopCapture();
+                        _cameraManager.ActiveCameraId = cameraId;
+                        newCam = _cameraManager.ActiveCamera;
+                        if (newCam?.IsOpen == true)
+                        {
+                            _cameraService.StartCapture();
+                        }
                     }
-
-                    _cameraManager.ActiveCameraId = cameraId;
-                    var newCam = _cameraManager.ActiveCamera;
 
                     if (newCam != null)
                     {
@@ -1050,6 +1054,12 @@ namespace ClearFrost
 
             try
             {
+                Debug.WriteLine(
+                    $"[Shutdown] 清理前队列状态: Images={_imageSaveQueue.PendingCount}/{_imageSaveQueue.Capacity}, " +
+                    $"ImageDropped={_imageSaveQueue.DroppedCount}, ImageFailed={_imageSaveQueue.FailedCount}, " +
+                    $"Records={_detectionRecordQueue.PendingCount}/{_detectionRecordQueue.Capacity}, " +
+                    $"RecordDropped={_detectionRecordQueue.DroppedCount}, RecordFailed={_detectionRecordQueue.FailedCount}");
+
                 _appRuntime.DisposeAsync().AsTask().GetAwaiter().GetResult();
             }
             catch (Exception ex)
@@ -1077,7 +1087,12 @@ namespace ClearFrost
             }
             catch (TimeoutException)
             {
-                Debug.WriteLine($"[Shutdown] 清理超时，强制退出: {source}");
+                Debug.WriteLine($"[Shutdown] 清理超时，尝试退出并保留最终兜底: {source}");
+                Debug.WriteLine(
+                    $"[Shutdown] 超时时队列状态: Images={_imageSaveQueue.PendingCount}/{_imageSaveQueue.Capacity}, " +
+                    $"ImageDropped={_imageSaveQueue.DroppedCount}, ImageFailed={_imageSaveQueue.FailedCount}, " +
+                    $"Records={_detectionRecordQueue.PendingCount}/{_detectionRecordQueue.Capacity}, " +
+                    $"RecordDropped={_detectionRecordQueue.DroppedCount}, RecordFailed={_detectionRecordQueue.FailedCount}");
 
                 try
                 {
@@ -1088,7 +1103,7 @@ namespace ClearFrost
                     Debug.WriteLine($"[Shutdown] 记录强退日志失败: {ex.Message}");
                 }
 
-                Environment.Exit(0);
+                RequestGracefulExit(source, TimeSpan.FromSeconds(5));
             }
             catch (Exception ex)
             {
@@ -1097,7 +1112,7 @@ namespace ClearFrost
             }
         }
 
-        private void RequestGracefulExit(string source)
+        private void RequestGracefulExit(string source, TimeSpan? forceAfter = null)
         {
             try
             {
@@ -1109,11 +1124,14 @@ namespace ClearFrost
                         Application.Exit();
                     });
 
-                    _ = Task.Run(async () =>
+                    if (forceAfter.HasValue)
                     {
-                        await Task.Delay(1500);
-                        Environment.Exit(0);
-                    });
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(forceAfter.Value);
+                            Environment.Exit(0);
+                        });
+                    }
 
                     return;
                 }
@@ -1179,8 +1197,43 @@ namespace ClearFrost
 
         private void InvokeOnUIThread(Action action)
         {
-            if (InvokeRequired) Invoke(action);
-            else action();
+            if (action == null || IsShutdownInProgress || IsDisposed || Disposing || !IsHandleCreated)
+            {
+                return;
+            }
+
+            void SafeInvoke()
+            {
+                if (IsShutdownInProgress || IsDisposed || Disposing || !IsHandleCreated)
+                {
+                    return;
+                }
+
+                try
+                {
+                    action();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[UI] Invoke action failed: {ex.Message}");
+                }
+            }
+
+            try
+            {
+                if (InvokeRequired)
+                {
+                    BeginInvoke((MethodInvoker)SafeInvoke);
+                }
+                else
+                {
+                    SafeInvoke();
+                }
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
+            {
+                Debug.WriteLine($"[UI] Invoke skipped: {ex.Message}");
+            }
         }
 
         #endregion

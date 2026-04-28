@@ -22,6 +22,11 @@ namespace ClearFrost.Services
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly Task _workerTask;
         private readonly object _enqueueLock = new object();
+        private readonly int _capacity;
+        private long _pendingCount;
+        private long _droppedCount;
+        private long _savedCount;
+        private long _failedCount;
         private bool _disposed;
         private bool _stopped;
 
@@ -32,6 +37,7 @@ namespace ClearFrost.Services
                 capacity = 64;
             }
 
+            _capacity = capacity;
             _channel = Channel.CreateBounded<ImageSavePayload>(new BoundedChannelOptions(capacity)
             {
                 SingleReader = true,
@@ -41,6 +47,16 @@ namespace ClearFrost.Services
 
             _workerTask = Task.Run(() => ProcessLoopAsync(_cts.Token));
         }
+
+        public int Capacity => _capacity;
+
+        public long PendingCount => Interlocked.Read(ref _pendingCount);
+
+        public long DroppedCount => Interlocked.Read(ref _droppedCount);
+
+        public long SavedCount => Interlocked.Read(ref _savedCount);
+
+        public long FailedCount => Interlocked.Read(ref _failedCount);
 
         /// <summary>
         /// 将图像入队。内部会 clone 一份，调用方可立即释放原 Mat。
@@ -76,23 +92,30 @@ namespace ClearFrost.Services
                     return false;
                 }
 
+                Interlocked.Increment(ref _pendingCount);
                 if (_channel.Writer.TryWrite(payload))
                 {
                     return true;
                 }
+                Interlocked.Decrement(ref _pendingCount);
 
                 // 队列满时丢弃最旧项，防止慢盘导致内存持续堆积。
                 if (_channel.Reader.TryRead(out ImageSavePayload? dropped))
                 {
                     dropped.Dispose();
+                    Interlocked.Decrement(ref _pendingCount);
+                    Interlocked.Increment(ref _droppedCount);
                 }
 
+                Interlocked.Increment(ref _pendingCount);
                 if (_channel.Writer.TryWrite(payload))
                 {
                     return true;
                 }
+                Interlocked.Decrement(ref _pendingCount);
             }
 
+            Interlocked.Increment(ref _droppedCount);
             return false;
         }
 
@@ -117,6 +140,7 @@ namespace ClearFrost.Services
                 {
                     while (_channel.Reader.TryRead(out ImageSavePayload? item))
                     {
+                        Interlocked.Decrement(ref _pendingCount);
                         try
                         {
                             string? dir = Path.GetDirectoryName(item.Path);
@@ -126,9 +150,11 @@ namespace ClearFrost.Services
                             }
 
                             Cv2.ImWrite(item.Path, item.Image);
+                            Interlocked.Increment(ref _savedCount);
                         }
                         catch (Exception ex)
                         {
+                            Interlocked.Increment(ref _failedCount);
                             Debug.WriteLine($"[ImageSaveQueue] 图像写入失败: {ex.Message}");
                         }
                         finally
@@ -150,6 +176,7 @@ namespace ClearFrost.Services
                 while (_channel.Reader.TryRead(out ImageSavePayload? remaining))
                 {
                     remaining.Dispose();
+                    Interlocked.Decrement(ref _pendingCount);
                 }
             }
         }

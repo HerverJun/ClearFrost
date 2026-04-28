@@ -159,32 +159,67 @@ namespace ClearFrost.Services
 
     internal sealed class DetectionRecordQueue : IDisposable
     {
+        private const int DefaultCapacity = 4096;
+
         private readonly IDatabaseService _databaseService;
         private readonly Channel<DetectionPersistencePayload> _channel;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly Task _workerTask;
+        private readonly int _capacity;
+        private long _pendingCount;
+        private long _droppedCount;
+        private long _savedCount;
+        private long _failedCount;
         private bool _disposed;
         private bool _stopped;
 
-        public DetectionRecordQueue(IDatabaseService databaseService)
+        public DetectionRecordQueue(IDatabaseService databaseService, int capacity = DefaultCapacity)
         {
             _databaseService = databaseService ?? throw new ArgumentNullException(nameof(databaseService));
-            _channel = Channel.CreateUnbounded<DetectionPersistencePayload>(new UnboundedChannelOptions
+
+            _capacity = capacity > 0 ? capacity : DefaultCapacity;
+            _channel = Channel.CreateBounded<DetectionPersistencePayload>(new BoundedChannelOptions(_capacity)
             {
                 SingleReader = true,
-                SingleWriter = false
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait
             });
             _workerTask = Task.Run(() => ProcessLoopAsync(_cts.Token));
         }
 
+        public int Capacity => _capacity;
+
+        public long PendingCount => Interlocked.Read(ref _pendingCount);
+
+        public long DroppedCount => Interlocked.Read(ref _droppedCount);
+
+        public long SavedCount => Interlocked.Read(ref _savedCount);
+
+        public long FailedCount => Interlocked.Read(ref _failedCount);
+
         public bool Enqueue(DetectionPersistencePayload payload)
         {
-            if (_disposed || payload == null)
+            if (_disposed || _stopped || payload == null)
             {
                 return false;
             }
 
-            return _channel.Writer.TryWrite(payload);
+            Interlocked.Increment(ref _pendingCount);
+            if (_channel.Writer.TryWrite(payload))
+            {
+                long pending = PendingCount;
+                if (pending >= _capacity * 3L / 4L)
+                {
+                    Debug.WriteLine($"[DetectionRecordQueue] 数据库记录队列堆积: {pending}/{_capacity}");
+                }
+
+                return true;
+            }
+
+            Interlocked.Decrement(ref _pendingCount);
+            long dropped = Interlocked.Increment(ref _droppedCount);
+            Debug.WriteLine($"[DetectionRecordQueue] 数据库记录队列已满，丢弃新记录。Dropped={dropped}, Pending={PendingCount}/{_capacity}");
+            return false;
         }
 
         public async Task StopAsync(CancellationToken cancellationToken = default)
@@ -208,15 +243,19 @@ namespace ClearFrost.Services
                 {
                     while (_channel.Reader.TryRead(out DetectionPersistencePayload? payload))
                     {
+                        Interlocked.Decrement(ref _pendingCount);
                         try
                         {
                             await _databaseService
                                 .SaveDetectionRecordAsync(payload.ToDetectionRecord())
                                 .ConfigureAwait(false);
+                            Interlocked.Increment(ref _savedCount);
                         }
                         catch (Exception ex)
                         {
+                            Interlocked.Increment(ref _failedCount);
                             Debug.WriteLine($"[DetectionRecordQueue] 数据库写入失败: {ex.Message}");
+                            Trace.TraceError($"[DetectionRecordQueue] 数据库写入失败: {ex}");
                         }
                     }
                 }
@@ -227,6 +266,13 @@ namespace ClearFrost.Services
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DetectionRecordQueue] 后台保存循环异常: {ex.Message}");
+            }
+            finally
+            {
+                while (_channel.Reader.TryRead(out _))
+                {
+                    Interlocked.Decrement(ref _pendingCount);
+                }
             }
         }
 

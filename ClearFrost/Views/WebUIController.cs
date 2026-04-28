@@ -22,6 +22,7 @@ using ClearFrost.Models;
 // 创建日期: 2024
 // ============================================================================
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -264,7 +265,7 @@ namespace ClearFrost
         /// </summary>
         public async Task UpdateImage(string base64Image)
         {
-            if (_webView?.CoreWebView2 == null) return;
+            if (!IsWebViewReady(_webView)) return;
 
             // Note: Sending very large strings via ExecuteScriptAsync can be performant enough for simple use cases,
             // but for high FPS, PostWebMessageAsJson or shared buffer is better. 
@@ -274,7 +275,7 @@ namespace ClearFrost
 
         public async Task UpdateImageUrl(string url)
         {
-            if (_webView?.CoreWebView2 == null) return;
+            if (!IsWebViewReady(_webView)) return;
 
             string safeUrl = url.Replace("'", "\\'");
             await ExecuteScriptOnUiThreadAsync($"updateImageUrl('{safeUrl}')");
@@ -285,7 +286,7 @@ namespace ClearFrost
         /// </summary>
         public async Task UpdateImage(Mat image, int targetWidth = 960, int targetHeight = 540, int jpegQuality = 60)
         {
-            if (_webView?.CoreWebView2 == null || image == null || image.Empty())
+            if (!IsWebViewReady(_webView) || image == null || image.Empty())
             {
                 return;
             }
@@ -310,8 +311,7 @@ namespace ClearFrost
                     return;
                 }
 
-                using Mat resized = new Mat();
-                Cv2.Resize(image, resized, new OpenCvSharp.Size(targetWidth, targetHeight), 0, 0, InterpolationFlags.Linear);
+                using Mat resized = ResizeForPreview(image, targetWidth, targetHeight);
 
                 int quality = Math.Clamp(jpegQuality, 1, 100);
                 Cv2.ImEncode(".jpg", resized, out byte[] encoded, new[] { new ImageEncodingParam(ImwriteFlags.JpegQuality, quality) });
@@ -351,6 +351,28 @@ namespace ClearFrost
 
             string imageUrl = $"https://{PreviewHostName}/{fileName}?t={Environment.TickCount64}";
             await UpdateImageUrl(imageUrl);
+        }
+
+        private static Mat ResizeForPreview(Mat image, int targetWidth, int targetHeight)
+        {
+            targetWidth = Math.Max(1, targetWidth);
+            targetHeight = Math.Max(1, targetHeight);
+
+            double scale = Math.Min(
+                targetWidth / (double)Math.Max(1, image.Width),
+                targetHeight / (double)Math.Max(1, image.Height));
+            int width = Math.Max(1, (int)Math.Round(image.Width * scale));
+            int height = Math.Max(1, (int)Math.Round(image.Height * scale));
+
+            Mat canvas = new Mat(new OpenCvSharp.Size(targetWidth, targetHeight), image.Type(), Scalar.All(0));
+            using Mat resized = new Mat();
+            Cv2.Resize(image, resized, new OpenCvSharp.Size(width, height), 0, 0, InterpolationFlags.Linear);
+
+            int x = (targetWidth - width) / 2;
+            int y = (targetHeight - height) / 2;
+            using Mat roi = new Mat(canvas, new Rect(x, y, width, height));
+            resized.CopyTo(roi);
+            return canvas;
         }
 
         /// <summary>
@@ -425,35 +447,38 @@ namespace ClearFrost
 
         private Task ExecuteScriptOnUiThreadAsync(string script)
         {
-            if (_webView?.CoreWebView2 == null)
+            WebView2? webView = _webView;
+            if (!IsWebViewReady(webView))
             {
                 return Task.CompletedTask;
             }
 
-            if (_webView.InvokeRequired)
+            if (webView!.InvokeRequired)
             {
                 var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                _webView.BeginInvoke(new Action(async () =>
+                try
                 {
-                    try
+                    webView.BeginInvoke(new Action(async () =>
                     {
-                        await _webView.ExecuteScriptAsync(script);
-                        tcs.TrySetResult(true);
-                    }
-                    catch (Exception ex)
-                    {
-                        tcs.TrySetException(ex);
-                    }
-                }));
+                        await ExecuteScriptCoreAsync(webView, script, tcs);
+                    }));
+                }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
+                {
+                    Debug.WriteLine($"[WebUIController] ExecuteScript BeginInvoke skipped: {ex.Message}");
+                    tcs.TrySetResult(false);
+                }
+
                 return tcs.Task;
             }
 
-            return _webView.ExecuteScriptAsync(script);
+            return ExecuteScriptCoreAsync(webView, script);
         }
 
         private void PostMessage(string type, object? data = null)
         {
-            if (_webView?.CoreWebView2 == null) return;
+            WebView2? webView = _webView;
+            if (!IsWebViewReady(webView)) return;
 
             string json = JsonSerializer.Serialize(new { type = type, data = data });
 
@@ -461,7 +486,10 @@ namespace ClearFrost
             {
                 try
                 {
-                    _webView?.CoreWebView2?.PostWebMessageAsJson(json);
+                    if (IsWebViewReady(webView))
+                    {
+                        webView!.CoreWebView2!.PostWebMessageAsJson(json);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -469,13 +497,58 @@ namespace ClearFrost
                 }
             }
 
-            if (_webView.InvokeRequired)
+            if (webView!.InvokeRequired)
             {
-                _webView.BeginInvoke(new Action(PostCoreMessage));
+                try
+                {
+                    webView.BeginInvoke(new Action(PostCoreMessage));
+                }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
+                {
+                    Debug.WriteLine($"[WebUIController] PostMessage BeginInvoke skipped: {ex.Message}");
+                }
                 return;
             }
 
             PostCoreMessage();
+        }
+
+        private static bool IsWebViewReady(WebView2? webView)
+        {
+            return webView != null &&
+                   !webView.IsDisposed &&
+                   !webView.Disposing &&
+                   webView.IsHandleCreated &&
+                   webView.CoreWebView2 != null;
+        }
+
+        private static async Task ExecuteScriptCoreAsync(WebView2 webView, string script, TaskCompletionSource<bool>? completion = null)
+        {
+            try
+            {
+                if (!IsWebViewReady(webView))
+                {
+                    completion?.TrySetResult(false);
+                    return;
+                }
+
+                await webView.ExecuteScriptAsync(script);
+                completion?.TrySetResult(true);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
+            {
+                Debug.WriteLine($"[WebUIController] ExecuteScript skipped: {ex.Message}");
+                completion?.TrySetResult(false);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WebUIController] ExecuteScript failed: {ex.Message}");
+                completion?.TrySetException(ex);
+                if (completion == null)
+                {
+                    throw;
+                }
+            }
         }
 
         /// <summary>
