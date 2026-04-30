@@ -15,6 +15,8 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using ClearFrost.Core.Models;
+using ClearFrost.Core.Recipes;
 using ClearFrost.Yolo;
 using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
@@ -36,6 +38,10 @@ namespace ClearFrost
         private readonly ICameraService _cameraService;
         private readonly ImageSaveQueue _imageSaveQueue;
         private readonly DetectionRecordQueue _detectionRecordQueue;
+        private readonly RecipeManager _recipeManager;
+        private readonly ModelRegistry _modelRegistry;
+        private readonly HealthMonitor _healthMonitor;
+        private readonly StartupDiagnostics _startupDiagnostics;
 
         // WebUI 控制器
         private WebUIController _uiController;

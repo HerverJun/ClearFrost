@@ -50,14 +50,28 @@ namespace ClearFrost
 
                 InvokeOnUIThread(() => SafeFireAndForget(btnCapture_LogicAsync("PLC半自动"), "PLC触发检测"));
             };
+            _plcService.TriggerContextReceived += (context) =>
+            {
+                Debug.WriteLine($"[主窗口] 📥 收到PLC上下文触发事件 - Seq={context.TriggerSeq?.ToString() ?? "-"} - {DateTime.Now:HH:mm:ss.fff}");
+                InvokeOnUIThread(() =>
+                {
+                    SafeFireAndForget(_uiController.FlashPlcTrigger(), "PLC触发指示灯");
+                });
+
+                InvokeOnUIThread(() => SafeFireAndForget(
+                    btnCapture_LogicAsync(context.TriggerSource, context.TriggerSeq),
+                    "PLC上下文触发检测"));
+            };
             _plcService.ErrorOccurred += (error) =>
             {
+                RecordHealthError("PLC", error);
                 SafeFireAndForget(_uiController.LogToFrontend($"PLC错误: {error}", "error"), "PLC错误日志");
             };
 
             // Camera 服务事件
             _cameraService.ErrorOccurred += (error) =>
             {
+                RecordHealthError("Camera", error);
                 SafeFireAndForget(_uiController.LogToFrontend($"相机错误: {error}", "error"), "相机错误日志");
             };
 
@@ -75,6 +89,7 @@ namespace ClearFrost
             };
             _detectionService.ErrorOccurred += (error) =>
             {
+                RecordHealthError("Detection", error);
                 SafeFireAndForget(_uiController.LogToFrontend($"检测错误: {error}", "error"), "检测错误日志");
             };
 
@@ -708,10 +723,21 @@ namespace ClearFrost
 
                         string plcProtocol = _appConfig.PlcProtocol;
                         string plcDriverProvider = _appConfig.PlcDriverProvider;
+                        PlcProtocolMode plcProtocolMode = _appConfig.PlcProtocolMode;
                         string plcIp = _appConfig.PlcIp;
                         int plcPort = _appConfig.PlcPort;
                         string plcTriggerAddress = _appConfig.PlcTriggerAddress;
                         string plcResultAddress = _appConfig.PlcResultAddress;
+                        string plcTriggerSeqAddress = _appConfig.PlcTriggerSeqAddress;
+                        string plcResultSeqAddress = _appConfig.PlcResultSeqAddress;
+                        string plcVisionOnlineAddress = _appConfig.PlcVisionOnlineAddress;
+                        string plcVisionReadyAddress = _appConfig.PlcVisionReadyAddress;
+                        string plcVisionBusyAddress = _appConfig.PlcVisionBusyAddress;
+                        string plcInspectionDoneAddress = _appConfig.PlcInspectionDoneAddress;
+                        string plcErrorCodeAddress = _appConfig.PlcErrorCodeAddress;
+                        string plcTraceSavedAddress = _appConfig.PlcTraceSavedAddress;
+                        string plcHeartbeatAddress = _appConfig.PlcHeartbeatAddress;
+                        string plcResetFaultAddress = _appConfig.PlcResetFaultAddress;
                         int plcTriggerDelayMs = _appConfig.PlcTriggerDelayMs;
                         int plcPollingIntervalMs = _appConfig.PlcPollingIntervalMs;
                         short plcOkValue = _appConfig.PlcOkValue;
@@ -722,10 +748,21 @@ namespace ClearFrost
 
                         if (root.TryGetProperty("PlcProtocol", out var ppr)) plcProtocol = ppr.GetString() ?? plcProtocol;
                         if (root.TryGetProperty("PlcDriverProvider", out var pdp)) plcDriverProvider = pdp.GetString() ?? plcDriverProvider;
+                        if (root.TryGetProperty("PlcProtocolMode", out var ppm)) plcProtocolMode = GetJsonEnumValue(ppm, plcProtocolMode);
                         if (root.TryGetProperty("PlcIp", out var pi)) plcIp = pi.GetString() ?? plcIp;
                         if (root.TryGetProperty("PlcPort", out var pp)) plcPort = pp.TryGetInt32(out int ppVal) ? ppVal : plcPort;
                         if (root.TryGetProperty("PlcTriggerAddress", out var pt)) plcTriggerAddress = GetJsonStringValue(pt, plcTriggerAddress);
                         if (root.TryGetProperty("PlcResultAddress", out var pr)) plcResultAddress = GetJsonStringValue(pr, plcResultAddress);
+                        if (root.TryGetProperty("PlcTriggerSeqAddress", out var pts)) plcTriggerSeqAddress = GetJsonStringValue(pts, plcTriggerSeqAddress);
+                        if (root.TryGetProperty("PlcResultSeqAddress", out var prs)) plcResultSeqAddress = GetJsonStringValue(prs, plcResultSeqAddress);
+                        if (root.TryGetProperty("PlcVisionOnlineAddress", out var pvo)) plcVisionOnlineAddress = GetJsonStringValue(pvo, plcVisionOnlineAddress);
+                        if (root.TryGetProperty("PlcVisionReadyAddress", out var pvr)) plcVisionReadyAddress = GetJsonStringValue(pvr, plcVisionReadyAddress);
+                        if (root.TryGetProperty("PlcVisionBusyAddress", out var pvb)) plcVisionBusyAddress = GetJsonStringValue(pvb, plcVisionBusyAddress);
+                        if (root.TryGetProperty("PlcInspectionDoneAddress", out var pid)) plcInspectionDoneAddress = GetJsonStringValue(pid, plcInspectionDoneAddress);
+                        if (root.TryGetProperty("PlcErrorCodeAddress", out var pec)) plcErrorCodeAddress = GetJsonStringValue(pec, plcErrorCodeAddress);
+                        if (root.TryGetProperty("PlcTraceSavedAddress", out var ptsa)) plcTraceSavedAddress = GetJsonStringValue(ptsa, plcTraceSavedAddress);
+                        if (root.TryGetProperty("PlcHeartbeatAddress", out var phb)) plcHeartbeatAddress = GetJsonStringValue(phb, plcHeartbeatAddress);
+                        if (root.TryGetProperty("PlcResetFaultAddress", out var prf)) plcResetFaultAddress = GetJsonStringValue(prf, plcResetFaultAddress);
                         if (root.TryGetProperty("PlcTriggerDelayMs", out var ptd)) plcTriggerDelayMs = ptd.TryGetInt32(out int ptdVal) ? Math.Max(0, ptdVal) : plcTriggerDelayMs;
                         if (root.TryGetProperty("PlcPollingIntervalMs", out var ppi)) plcPollingIntervalMs = ppi.TryGetInt32(out int ppiVal) ? Math.Max(50, ppiVal) : plcPollingIntervalMs;
                         if (root.TryGetProperty("PlcOkValue", out var pok)) plcOkValue = pok.TryGetInt16(out short pokVal) ? pokVal : plcOkValue;
@@ -746,13 +783,34 @@ namespace ClearFrost
 
                         plcTriggerAddress = PlcAddressNormalizer.NormalizeOrThrow(plcTriggerAddress, plcProtocolType);
                         plcResultAddress = PlcAddressNormalizer.NormalizeOrThrow(plcResultAddress, plcProtocolType);
+                        plcTriggerSeqAddress = PlcAddressNormalizer.NormalizeOrThrow(plcTriggerSeqAddress, plcProtocolType);
+                        plcResultSeqAddress = PlcAddressNormalizer.NormalizeOrThrow(plcResultSeqAddress, plcProtocolType);
+                        plcVisionOnlineAddress = PlcAddressNormalizer.NormalizeOrThrow(plcVisionOnlineAddress, plcProtocolType);
+                        plcVisionReadyAddress = PlcAddressNormalizer.NormalizeOrThrow(plcVisionReadyAddress, plcProtocolType);
+                        plcVisionBusyAddress = PlcAddressNormalizer.NormalizeOrThrow(plcVisionBusyAddress, plcProtocolType);
+                        plcInspectionDoneAddress = PlcAddressNormalizer.NormalizeOrThrow(plcInspectionDoneAddress, plcProtocolType);
+                        plcErrorCodeAddress = PlcAddressNormalizer.NormalizeOrThrow(plcErrorCodeAddress, plcProtocolType);
+                        plcTraceSavedAddress = PlcAddressNormalizer.NormalizeOrThrow(plcTraceSavedAddress, plcProtocolType);
+                        plcHeartbeatAddress = PlcAddressNormalizer.NormalizeOrThrow(plcHeartbeatAddress, plcProtocolType);
+                        plcResetFaultAddress = PlcAddressNormalizer.NormalizeOrThrow(plcResetFaultAddress, plcProtocolType);
 
                         _appConfig.PlcProtocol = plcProtocol;
                         _appConfig.PlcDriverProvider = plcDriverProvider;
+                        _appConfig.PlcProtocolMode = plcProtocolMode;
                         _appConfig.PlcIp = plcIp;
                         _appConfig.PlcPort = plcPort;
                         _appConfig.PlcTriggerAddress = plcTriggerAddress;
                         _appConfig.PlcResultAddress = plcResultAddress;
+                        _appConfig.PlcTriggerSeqAddress = plcTriggerSeqAddress;
+                        _appConfig.PlcResultSeqAddress = plcResultSeqAddress;
+                        _appConfig.PlcVisionOnlineAddress = plcVisionOnlineAddress;
+                        _appConfig.PlcVisionReadyAddress = plcVisionReadyAddress;
+                        _appConfig.PlcVisionBusyAddress = plcVisionBusyAddress;
+                        _appConfig.PlcInspectionDoneAddress = plcInspectionDoneAddress;
+                        _appConfig.PlcErrorCodeAddress = plcErrorCodeAddress;
+                        _appConfig.PlcTraceSavedAddress = plcTraceSavedAddress;
+                        _appConfig.PlcHeartbeatAddress = plcHeartbeatAddress;
+                        _appConfig.PlcResetFaultAddress = plcResetFaultAddress;
                         _appConfig.PlcTriggerDelayMs = plcTriggerDelayMs;
                         _appConfig.PlcPollingIntervalMs = plcPollingIntervalMs;
                         _appConfig.PlcOkValue = plcOkValue;
@@ -1190,6 +1248,27 @@ namespace ClearFrost
                 {
                     return longValue.ToString();
                 }
+            }
+
+            return fallback;
+        }
+
+        private static TEnum GetJsonEnumValue<TEnum>(JsonElement value, TEnum fallback)
+            where TEnum : struct, Enum
+        {
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                string? raw = value.GetString();
+                return Enum.TryParse(raw, ignoreCase: true, out TEnum parsed)
+                    ? parsed
+                    : fallback;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int intValue))
+            {
+                return Enum.IsDefined(typeof(TEnum), intValue)
+                    ? (TEnum)Enum.ToObject(typeof(TEnum), intValue)
+                    : fallback;
             }
 
             return fallback;

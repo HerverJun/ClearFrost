@@ -15,6 +15,8 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using ClearFrost.Core.Models;
+using ClearFrost.Core.Recipes;
 using ClearFrost.Yolo;
 using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
@@ -65,9 +67,55 @@ namespace ClearFrost
             SafeFireAndForget(_databaseService.InitializeAsync(), "数据库初始化");
             _imageSaveQueue = _appRuntime.ImageSaveQueue;
             _detectionRecordQueue = _appRuntime.DetectionRecordQueue;
+            _recipeManager = _appRuntime.RecipeManager;
+            _modelRegistry = _appRuntime.ModelRegistry;
+            _healthMonitor = _appRuntime.HealthMonitor;
+            _startupDiagnostics = _appRuntime.StartupDiagnostics;
+            LogStartupDiagnostics();
 
             // 注册所有事件监听 (实现位于 主窗口.Init.cs)
             RegisterEvents();
+        }
+
+        private void LogStartupDiagnostics()
+        {
+            try
+            {
+                StartupDiagnosticReport report = _startupDiagnostics.CurrentReport;
+                int failCount = report.Items.Count(i => i.Status == StartupDiagnosticStatus.Fail);
+                int warningCount = report.Items.Count(i => i.Status == StartupDiagnosticStatus.Warning);
+                _storageService.WriteStartupLog(
+                    $"StartupDiagnostics Ready={report.IsReady}, Fail={failCount}, Warning={warningCount}");
+
+                foreach (StartupDiagnosticItem item in report.Items)
+                {
+                    _storageService.WriteStartupLog(
+                        $"StartupDiagnostics[{item.Status}] {item.Name}: {item.Message} {item.Details}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[StartupDiagnostics] 写入启动诊断失败: {ex.Message}");
+            }
+        }
+
+        private async Task<bool> EnsureStartupReadyForProductionAsync(string operation, string? inspectionId = null)
+        {
+            if (_startupDiagnostics.CurrentReport.IsReady)
+            {
+                return true;
+            }
+
+            string summary = _appRuntime.StartupBlockingSummary;
+            if (string.IsNullOrWhiteSpace(summary))
+            {
+                summary = "启动诊断存在阻塞项";
+            }
+
+            string message = $"启动诊断未通过，已阻止{operation}: {summary}";
+            RecordHealthError("StartupDiagnostics", message, inspectionId);
+            await _uiController.LogToFrontend(message, "error");
+            return false;
         }
 
         #endregion
