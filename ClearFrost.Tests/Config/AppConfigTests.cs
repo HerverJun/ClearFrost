@@ -1,7 +1,8 @@
-// ============================================================================
+﻿// ============================================================================
 // AppConfigTests.cs - 配置管理单元测试
 // ============================================================================
 using ClearFrost.Config;
+using ClearFrost.Hardware;
 using FluentAssertions;
 using System.Text.Json;
 
@@ -23,9 +24,17 @@ public class AppConfigTests
         config.PlcOkValue.Should().Be(1);
         config.PlcNgValue.Should().Be(0);
         config.PlcDriverProvider.Should().Be("Hsl");
+        config.PlcProtocolMode.Should().Be(PlcProtocolMode.Legacy);
+        config.PlcTriggerSeqAddress.Should().Be("D557");
+        config.PlcResultSeqAddress.Should().Be("D558");
+        config.PlcVisionBusyAddress.Should().Be("D561");
+        config.PlcInspectionDoneAddress.Should().Be("D562");
+        config.PlcTraceSavedAddress.Should().Be("D564");
         config.PlcSiemensCpuModel.Should().Be("S1200");
         config.Confidence.Should().BeApproximately(0.5f, 0.001f);
         config.IouThreshold.Should().BeApproximately(0.3f, 0.001f);
+        config.ModelPackageDirectory.Should().Be("models");
+        config.StrictModelPackageMode.Should().BeFalse();
         config.IsDebugMode.Should().BeFalse();
         config.TargetCount.Should().Be(4);
         config.VisionMode.Should().Be(0);
@@ -42,6 +51,25 @@ public class AppConfigTests
         config.ActiveCameraId = "";
 
         config.ActiveCamera.Should().BeNull();
+    }
+
+    [Fact]
+    public void 旧配置未包含PlcProtocolMode时默认Legacy()
+    {
+        string json = """
+        {
+          "PlcProtocol": "Mitsubishi_MC_ASCII",
+          "PlcTriggerAddress": "D555",
+          "PlcResultAddress": "D556"
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<AppConfig>(json);
+        config!.OnDeserialized();
+
+        config.PlcProtocolMode.Should().Be(PlcProtocolMode.Legacy);
+        config.PlcTriggerSeqAddress.Should().Be("D557");
+        config.PlcVisionBusyAddress.Should().Be("D561");
     }
 
     [Fact]

@@ -39,6 +39,31 @@ namespace ClearFrost.Config
         /// </summary>
         public string PlcDriverProvider { get; set; } = "Hsl";
         /// <summary>
+        /// PLC 业务协议模式。默认 Legacy，保持旧现场行为不变。
+        /// </summary>
+        [JsonConverter(typeof(JsonStringEnumConverter))]
+        public PlcProtocolMode PlcProtocolMode { get; set; } = PlcProtocolMode.Legacy;
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcTriggerSeqAddress { get; set; } = "D557";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcResultSeqAddress { get; set; } = "D558";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcVisionOnlineAddress { get; set; } = "D559";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcVisionReadyAddress { get; set; } = "D560";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcVisionBusyAddress { get; set; } = "D561";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcInspectionDoneAddress { get; set; } = "D562";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcErrorCodeAddress { get; set; } = "D563";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcTraceSavedAddress { get; set; } = "D564";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcHeartbeatAddress { get; set; } = "D565";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcResetFaultAddress { get; set; } = "D566";
+        /// <summary>
         /// 西门子 CPU 型号: S1200, S1500, S300, S400
         /// </summary>
         public string PlcSiemensCpuModel { get; set; } = "S1200";
@@ -94,6 +119,8 @@ namespace ClearFrost.Config
         public int GpuIndex { get; set; } = 0;
         public bool IndustrialRenderMode { get; set; } = true;
         public bool UseFileBackedWebImageTransport { get; set; } = true;
+        public string ModelPackageDirectory { get; set; } = "models";
+        public bool StrictModelPackageMode { get; set; } = false;
 
         // ================== Multi-Model Fallback Settings ==================
         /// <summary>
@@ -301,6 +328,16 @@ namespace ClearFrost.Config
                 PlcResultAddress,
                 protocolType,
                 GetProtocolDefaultAddress(protocolType, 556));
+            PlcTriggerSeqAddress = NormalizePlcAddressOrDefault(protocolType, PlcTriggerSeqAddress, 557);
+            PlcResultSeqAddress = NormalizePlcAddressOrDefault(protocolType, PlcResultSeqAddress, 558);
+            PlcVisionOnlineAddress = NormalizePlcAddressOrDefault(protocolType, PlcVisionOnlineAddress, 559);
+            PlcVisionReadyAddress = NormalizePlcAddressOrDefault(protocolType, PlcVisionReadyAddress, 560);
+            PlcVisionBusyAddress = NormalizePlcAddressOrDefault(protocolType, PlcVisionBusyAddress, 561);
+            PlcInspectionDoneAddress = NormalizePlcAddressOrDefault(protocolType, PlcInspectionDoneAddress, 562);
+            PlcErrorCodeAddress = NormalizePlcAddressOrDefault(protocolType, PlcErrorCodeAddress, 563);
+            PlcTraceSavedAddress = NormalizePlcAddressOrDefault(protocolType, PlcTraceSavedAddress, 564);
+            PlcHeartbeatAddress = NormalizePlcAddressOrDefault(protocolType, PlcHeartbeatAddress, 565);
+            PlcResetFaultAddress = NormalizePlcAddressOrDefault(protocolType, PlcResetFaultAddress, 566);
 
             if (!IsMitsubishiProtocol(protocolType) &&
                 string.Equals(PlcDriverProvider, "McpX", StringComparison.OrdinalIgnoreCase))
@@ -312,6 +349,14 @@ namespace ClearFrost.Config
             {
                 PlcSiemensCpuModel = "S1200";
             }
+        }
+
+        private static string NormalizePlcAddressOrDefault(PlcProtocolType protocolType, string address, int defaultNumber)
+        {
+            return PlcAddressNormalizer.MigrateLegacyAddress(
+                address,
+                protocolType,
+                GetProtocolDefaultAddress(protocolType, defaultNumber));
         }
 
         private static bool IsMitsubishiProtocol(PlcProtocolType protocolType)
