@@ -1,0 +1,82 @@
+﻿using ClearFrost.Config;
+using ClearFrost.Core.Models;
+using ClearFrost.Hardware;
+using ClearFrost.Services;
+using FluentAssertions;
+
+namespace ClearFrost.Tests.Services;
+
+public class StartupDiagnosticsTests
+{
+    [Fact]
+    public void Run_空模型注册表会产生阻塞失败()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig { StoragePath = tempDir };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Model registry" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking);
+            report.IsReady.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_Plc地址错误会产生阻塞失败()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                PlcProtocol = PlcProtocolType.Mitsubishi_MC_ASCII.ToString(),
+                PlcTriggerAddress = "bad-address"
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "PLC address config" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking);
+            report.IsReady.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    private static string CreateTempDirectory()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(StartupDiagnosticsTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static void DeleteDirectory(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, true);
+        }
+    }
+}
