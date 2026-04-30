@@ -1,8 +1,12 @@
 ﻿using System;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Config;
+using ClearFrost.Core.Models;
+using ClearFrost.Core.Recipes;
 using ClearFrost.Hardware;
 using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
@@ -44,7 +48,11 @@ namespace ClearFrost
             IDatabaseService? databaseService,
             ImageSaveQueue? imageSaveQueue,
             DetectionRecordQueue? detectionRecordQueue,
-            WebUIController? webUIController)
+            WebUIController? webUIController,
+            RecipeManager? recipeManager = null,
+            ModelRegistry? modelRegistry = null,
+            StartupDiagnostics? startupDiagnostics = null,
+            DiagnosticPackageExporter? diagnosticPackageExporter = null)
         {
             AppConfig = appConfig ?? throw new ArgumentNullException(nameof(appConfig));
             CameraManager = cameraManager ?? throw new ArgumentNullException(nameof(cameraManager));
@@ -56,7 +64,21 @@ namespace ClearFrost
             DatabaseService = databaseService ?? new SqliteDatabaseService();
             ImageSaveQueue = imageSaveQueue ?? new ImageSaveQueue();
             DetectionRecordQueue = detectionRecordQueue ?? new DetectionRecordQueue(DatabaseService);
+            RecipeManager = recipeManager ?? new RecipeManager();
+            RecipeManager.LoadOrCreateDefault(appConfig);
+            ModelRegistry = modelRegistry ?? new ModelRegistry();
+            ModelRegistry.Scan(CreateModelRegistryScanOptions(appConfig));
+            HealthMonitor = new HealthMonitor(
+                CameraService,
+                PlcService,
+                DetectionService,
+                StorageService,
+                ImageSaveQueue,
+                DetectionRecordQueue);
             WebUIController = webUIController ?? new WebUIController();
+            StartupDiagnostics = startupDiagnostics ?? new StartupDiagnostics();
+            StartupDiagnostics.Run(AppConfig, StorageService, ModelRegistry);
+            DiagnosticPackageExporter = diagnosticPackageExporter ?? new DiagnosticPackageExporter();
         }
 
         public AppConfig AppConfig { get; }
@@ -79,7 +101,48 @@ namespace ClearFrost
 
         public DetectionRecordQueue DetectionRecordQueue { get; }
 
+        public RecipeManager RecipeManager { get; }
+
+        public ModelRegistry ModelRegistry { get; }
+
+        public HealthMonitor HealthMonitor { get; }
+
+        public StartupDiagnostics StartupDiagnostics { get; }
+
+        public DiagnosticPackageExporter DiagnosticPackageExporter { get; }
+
         public WebUIController WebUIController { get; }
+
+        public bool IsStartupReady => StartupDiagnostics.CurrentReport.IsReady;
+
+        public string StartupBlockingSummary =>
+            string.Join(
+                "; ",
+                StartupDiagnostics.CurrentReport.Items
+                    .Where(i => i.Status == StartupDiagnosticStatus.Fail && i.IsBlocking)
+                    .Select(i => string.IsNullOrWhiteSpace(i.Details)
+                        ? $"{i.Name}: {i.Message}"
+                        : $"{i.Name}: {i.Message} {i.Details}"));
+
+        public async Task<string> ExportDiagnosticPackageAsync(
+            string outputDirectory,
+            CancellationToken cancellationToken = default)
+        {
+            var recentRecords = await DatabaseService.GetRecordsAsync(limit: 100).ConfigureAwait(false);
+            return await DiagnosticPackageExporter.ExportAsync(
+                new DiagnosticPackageRequest
+                {
+                    OutputDirectory = outputDirectory,
+                    AppConfig = AppConfig,
+                    Recipe = RecipeManager.CurrentRecipe,
+                    ModelEntries = ModelRegistry.Entries,
+                    StartupDiagnostics = StartupDiagnostics.CurrentReport,
+                    HealthSnapshot = HealthMonitor.GetSnapshot(),
+                    RecentRecords = recentRecords,
+                    LogsDirectory = StorageService.LogBasePath
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
 
         public async Task StopAsync(CancellationToken cancellationToken)
         {
@@ -298,6 +361,21 @@ namespace ClearFrost
             var manager = new CameraManager(appConfig.IsDebugMode);
             manager.LoadFromConfig(appConfig);
             return manager;
+        }
+
+        private static ModelRegistryScanOptions CreateModelRegistryScanOptions(AppConfig appConfig)
+        {
+            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            string packageDirectory = Path.IsPathRooted(appConfig.ModelPackageDirectory)
+                ? appConfig.ModelPackageDirectory
+                : Path.Combine(baseDirectory, appConfig.ModelPackageDirectory);
+
+            return new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageDirectory,
+                OnnxDirectory = Path.Combine(baseDirectory, "ONNX"),
+                StrictPackageMode = appConfig.StrictModelPackageMode
+            };
         }
     }
 }

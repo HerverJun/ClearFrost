@@ -125,6 +125,7 @@ namespace ClearFrost.Tests
 
             public event Action<bool>? ConnectionChanged;
             public event Action? TriggerReceived;
+            public event Action<PlcTriggerContext>? TriggerContextReceived;
             public event Action<string>? ErrorOccurred;
 
             public bool IsConnected => false;
@@ -135,7 +136,11 @@ namespace ClearFrost.Tests
                 => Task.FromResult(true);
 
             public void Disconnect() => _order.Add("plc-disconnect");
-            public void StartMonitoring(string triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800)
+            public void StartMonitoring(
+                string triggerAddress,
+                int pollingIntervalMs = 500,
+                int triggerDelayMs = 800,
+                PlcMonitoringOptions? options = null)
                 => _order.Add("plc-start-monitoring");
             public void StopMonitoring() => _order.Add("plc-stop-monitoring");
             public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);

@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
+using ClearFrost.Core.Inspection;
 using ClearFrost.Interfaces;
 using ClearFrost.Helpers;
 
@@ -236,6 +237,29 @@ namespace ClearFrost.Services
                     Id INTEGER PRIMARY KEY AUTOINCREMENT,
                     Timestamp TEXT NOT NULL,
                     IsQualified INTEGER NOT NULL,
+                    InspectionId TEXT,
+                    TriggerSource TEXT,
+                    TriggerSeq INTEGER,
+                    ResultSeq INTEGER,
+                    TraceStatus TEXT,
+                    ImagePath TEXT,
+                    RenderedImagePath TEXT,
+                    ErrorStage TEXT,
+                    ErrorCode TEXT,
+                    ErrorMessage TEXT,
+                    TotalMs INTEGER,
+                    CaptureMs INTEGER,
+                    RoiMs INTEGER,
+                    PlcWriteMs INTEGER,
+                    SaveImageMs INTEGER,
+                    SaveRecordMs INTEGER,
+                    RecipeId TEXT,
+                    RecipeVersion TEXT,
+                    ModelId TEXT,
+                    ModelVersion TEXT,
+                    ModelHash TEXT,
+                    WasFallback INTEGER,
+                    UsedModelName TEXT,
                     TargetLabel TEXT,
                     ExpectedCount INTEGER,
                     ActualCount INTEGER,
@@ -248,6 +272,71 @@ namespace ClearFrost.Services
                 CREATE INDEX IF NOT EXISTS idx_qualified ON DetectionRecords(IsQualified);
             ";
             command.ExecuteNonQuery();
+
+            EnsureDetectionRecordColumns(connection);
+        }
+
+        private static void EnsureDetectionRecordColumns(SqliteConnection connection)
+        {
+            HashSet<string> existingColumns = GetDetectionRecordColumns(connection);
+            AddColumnIfMissing(connection, existingColumns, "InspectionId", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "TriggerSource", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "TriggerSeq", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "ResultSeq", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "TraceStatus", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "ImagePath", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "RenderedImagePath", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "ErrorStage", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "ErrorCode", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "ErrorMessage", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "TotalMs", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "CaptureMs", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "RoiMs", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "PlcWriteMs", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "SaveImageMs", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "SaveRecordMs", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "RecipeId", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "RecipeVersion", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "ModelId", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "ModelVersion", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "ModelHash", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "WasFallback", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "UsedModelName", "TEXT");
+
+            using var indexCommand = connection.CreateCommand();
+            indexCommand.CommandText = "CREATE INDEX IF NOT EXISTS idx_inspection_id ON DetectionRecords(InspectionId);";
+            indexCommand.ExecuteNonQuery();
+        }
+
+        private static HashSet<string> GetDetectionRecordColumns(SqliteConnection connection)
+        {
+            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA table_info(DetectionRecords);";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                columns.Add(reader.GetString(1));
+            }
+
+            return columns;
+        }
+
+        private static void AddColumnIfMissing(
+            SqliteConnection connection,
+            HashSet<string> existingColumns,
+            string columnName,
+            string columnDefinition)
+        {
+            if (existingColumns.Contains(columnName))
+            {
+                return;
+            }
+
+            using var command = connection.CreateCommand();
+            command.CommandText = $"ALTER TABLE DetectionRecords ADD COLUMN {columnName} {columnDefinition};";
+            command.ExecuteNonQuery();
+            existingColumns.Add(columnName);
         }
 
         private static bool PathsEqual(string left, string right)
@@ -295,13 +384,103 @@ namespace ClearFrost.Services
 
                 string insertSql = @"
                     INSERT INTO DetectionRecords 
-                    (Timestamp, IsQualified, TargetLabel, ExpectedCount, ActualCount, InferenceMs, ModelName, CameraId, ResultJson)
-                    VALUES (@Timestamp, @IsQualified, @TargetLabel, @ExpectedCount, @ActualCount, @InferenceMs, @ModelName, @CameraId, @ResultJson)
+                    (
+                        Timestamp,
+                        IsQualified,
+                        InspectionId,
+                        TriggerSource,
+                        TriggerSeq,
+                        ResultSeq,
+                        TraceStatus,
+                        ImagePath,
+                        RenderedImagePath,
+                        ErrorStage,
+                        ErrorCode,
+                        ErrorMessage,
+                        TotalMs,
+                        CaptureMs,
+                        RoiMs,
+                        PlcWriteMs,
+                        SaveImageMs,
+                        SaveRecordMs,
+                        RecipeId,
+                        RecipeVersion,
+                        ModelId,
+                        ModelVersion,
+                        ModelHash,
+                        WasFallback,
+                        UsedModelName,
+                        TargetLabel,
+                        ExpectedCount,
+                        ActualCount,
+                        InferenceMs,
+                        ModelName,
+                        CameraId,
+                        ResultJson
+                    )
+                    VALUES
+                    (
+                        @Timestamp,
+                        @IsQualified,
+                        @InspectionId,
+                        @TriggerSource,
+                        @TriggerSeq,
+                        @ResultSeq,
+                        @TraceStatus,
+                        @ImagePath,
+                        @RenderedImagePath,
+                        @ErrorStage,
+                        @ErrorCode,
+                        @ErrorMessage,
+                        @TotalMs,
+                        @CaptureMs,
+                        @RoiMs,
+                        @PlcWriteMs,
+                        @SaveImageMs,
+                        @SaveRecordMs,
+                        @RecipeId,
+                        @RecipeVersion,
+                        @ModelId,
+                        @ModelVersion,
+                        @ModelHash,
+                        @WasFallback,
+                        @UsedModelName,
+                        @TargetLabel,
+                        @ExpectedCount,
+                        @ActualCount,
+                        @InferenceMs,
+                        @ModelName,
+                        @CameraId,
+                        @ResultJson
+                    )
                 ";
 
                 using var command = new SqliteCommand(insertSql, connection);
                 command.Parameters.AddWithValue("@Timestamp", record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"));
                 command.Parameters.AddWithValue("@IsQualified", record.IsQualified ? 1 : 0);
+                command.Parameters.AddWithValue("@InspectionId", record.InspectionId ?? "");
+                command.Parameters.AddWithValue("@TriggerSource", record.TriggerSource ?? "");
+                command.Parameters.AddWithValue("@TriggerSeq", (object?)record.TriggerSeq ?? DBNull.Value);
+                command.Parameters.AddWithValue("@ResultSeq", (object?)record.ResultSeq ?? DBNull.Value);
+                command.Parameters.AddWithValue("@TraceStatus", record.TraceStatus.ToString());
+                command.Parameters.AddWithValue("@ImagePath", record.ImagePath ?? "");
+                command.Parameters.AddWithValue("@RenderedImagePath", record.RenderedImagePath ?? "");
+                command.Parameters.AddWithValue("@ErrorStage", record.ErrorStage ?? "");
+                command.Parameters.AddWithValue("@ErrorCode", record.ErrorCode ?? "");
+                command.Parameters.AddWithValue("@ErrorMessage", record.ErrorMessage ?? "");
+                command.Parameters.AddWithValue("@TotalMs", record.TotalMs);
+                command.Parameters.AddWithValue("@CaptureMs", record.CaptureMs);
+                command.Parameters.AddWithValue("@RoiMs", record.RoiMs);
+                command.Parameters.AddWithValue("@PlcWriteMs", record.PlcWriteMs);
+                command.Parameters.AddWithValue("@SaveImageMs", record.SaveImageMs);
+                command.Parameters.AddWithValue("@SaveRecordMs", record.SaveRecordMs);
+                command.Parameters.AddWithValue("@RecipeId", record.RecipeId ?? "");
+                command.Parameters.AddWithValue("@RecipeVersion", record.RecipeVersion ?? "");
+                command.Parameters.AddWithValue("@ModelId", record.ModelId ?? "");
+                command.Parameters.AddWithValue("@ModelVersion", record.ModelVersion ?? "");
+                command.Parameters.AddWithValue("@ModelHash", record.ModelHash ?? "");
+                command.Parameters.AddWithValue("@WasFallback", record.WasFallback ? 1 : 0);
+                command.Parameters.AddWithValue("@UsedModelName", record.UsedModelName ?? "");
                 command.Parameters.AddWithValue("@TargetLabel", record.TargetLabel ?? "");
                 command.Parameters.AddWithValue("@ExpectedCount", record.ExpectedCount);
                 command.Parameters.AddWithValue("@ActualCount", record.ActualCount);
@@ -356,16 +535,39 @@ namespace ClearFrost.Services
                 {
                     records.Add(new DetectionRecord
                     {
-                        Id = reader.GetInt64(0),
-                        Timestamp = DateTime.Parse(reader.GetString(1)),
-                        IsQualified = reader.GetInt32(2) == 1,
-                        TargetLabel = reader.IsDBNull(3) ? "" : reader.GetString(3),
-                        ExpectedCount = reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
-                        ActualCount = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
-                        InferenceMs = reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
-                        ModelName = reader.IsDBNull(7) ? "" : reader.GetString(7),
-                        CameraId = reader.IsDBNull(8) ? "" : reader.GetString(8),
-                        ResultJson = reader.IsDBNull(9) ? "" : reader.GetString(9)
+                        Id = GetInt64OrDefault(reader, "Id"),
+                        Timestamp = DateTime.Parse(GetStringOrDefault(reader, "Timestamp")),
+                        IsQualified = GetInt32OrDefault(reader, "IsQualified") == 1,
+                        InspectionId = GetStringOrDefault(reader, "InspectionId"),
+                        TriggerSource = GetStringOrDefault(reader, "TriggerSource"),
+                        TriggerSeq = GetNullableInt32(reader, "TriggerSeq"),
+                        ResultSeq = GetNullableInt32(reader, "ResultSeq"),
+                        TraceStatus = ParseTraceStatus(GetStringOrDefault(reader, "TraceStatus")),
+                        ImagePath = GetStringOrDefault(reader, "ImagePath"),
+                        RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
+                        ErrorStage = GetStringOrDefault(reader, "ErrorStage"),
+                        ErrorCode = GetStringOrDefault(reader, "ErrorCode"),
+                        ErrorMessage = GetStringOrDefault(reader, "ErrorMessage"),
+                        TotalMs = GetInt64OrDefault(reader, "TotalMs"),
+                        CaptureMs = GetInt64OrDefault(reader, "CaptureMs"),
+                        RoiMs = GetInt64OrDefault(reader, "RoiMs"),
+                        PlcWriteMs = GetInt64OrDefault(reader, "PlcWriteMs"),
+                        SaveImageMs = GetInt64OrDefault(reader, "SaveImageMs"),
+                        SaveRecordMs = GetInt64OrDefault(reader, "SaveRecordMs"),
+                        RecipeId = GetStringOrDefault(reader, "RecipeId"),
+                        RecipeVersion = GetStringOrDefault(reader, "RecipeVersion"),
+                        ModelId = GetStringOrDefault(reader, "ModelId"),
+                        ModelVersion = GetStringOrDefault(reader, "ModelVersion"),
+                        ModelHash = GetStringOrDefault(reader, "ModelHash"),
+                        WasFallback = GetInt32OrDefault(reader, "WasFallback") == 1,
+                        UsedModelName = GetStringOrDefault(reader, "UsedModelName"),
+                        TargetLabel = GetStringOrDefault(reader, "TargetLabel"),
+                        ExpectedCount = GetInt32OrDefault(reader, "ExpectedCount"),
+                        ActualCount = GetInt32OrDefault(reader, "ActualCount"),
+                        InferenceMs = GetInt32OrDefault(reader, "InferenceMs"),
+                        ModelName = GetStringOrDefault(reader, "ModelName"),
+                        CameraId = GetStringOrDefault(reader, "CameraId"),
+                        ResultJson = GetStringOrDefault(reader, "ResultJson")
                     });
                 }
             }
@@ -375,6 +577,50 @@ namespace ClearFrost.Services
             }
 
             return records;
+        }
+
+        private static string GetStringOrDefault(SqliteDataReader reader, string columnName)
+        {
+            int ordinal = GetOrdinalOrMinusOne(reader, columnName);
+            return ordinal < 0 || reader.IsDBNull(ordinal) ? "" : reader.GetString(ordinal);
+        }
+
+        private static int GetInt32OrDefault(SqliteDataReader reader, string columnName)
+        {
+            int ordinal = GetOrdinalOrMinusOne(reader, columnName);
+            return ordinal < 0 || reader.IsDBNull(ordinal) ? 0 : reader.GetInt32(ordinal);
+        }
+
+        private static int? GetNullableInt32(SqliteDataReader reader, string columnName)
+        {
+            int ordinal = GetOrdinalOrMinusOne(reader, columnName);
+            return ordinal < 0 || reader.IsDBNull(ordinal) ? null : reader.GetInt32(ordinal);
+        }
+
+        private static long GetInt64OrDefault(SqliteDataReader reader, string columnName)
+        {
+            int ordinal = GetOrdinalOrMinusOne(reader, columnName);
+            return ordinal < 0 || reader.IsDBNull(ordinal) ? 0 : reader.GetInt64(ordinal);
+        }
+
+        private static int GetOrdinalOrMinusOne(SqliteDataReader reader, string columnName)
+        {
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                if (string.Equals(reader.GetName(i), columnName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static TraceStatus ParseTraceStatus(string value)
+        {
+            return Enum.TryParse(value, ignoreCase: true, out TraceStatus status)
+                ? status
+                : TraceStatus.Unknown;
         }
 
         public async Task<(int total, int pass, int fail)> GetStatisticsAsync(DateTime date)

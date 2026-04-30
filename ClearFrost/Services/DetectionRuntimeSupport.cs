@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using ClearFrost.Core.Inspection;
 using ClearFrost.Interfaces;
 using OpenCvSharp;
 
@@ -108,6 +109,29 @@ namespace ClearFrost.Services
     {
         public DateTime Timestamp { get; init; }
         public bool IsQualified { get; init; }
+        public string InspectionId { get; set; } = string.Empty;
+        public string TriggerSource { get; init; } = string.Empty;
+        public int? TriggerSeq { get; init; }
+        public int? ResultSeq { get; init; }
+        public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;
+        public string ImagePath { get; set; } = string.Empty;
+        public string RenderedImagePath { get; set; } = string.Empty;
+        public string ErrorStage { get; set; } = string.Empty;
+        public string ErrorCode { get; set; } = string.Empty;
+        public string ErrorMessage { get; set; } = string.Empty;
+        public long TotalMs { get; set; }
+        public long CaptureMs { get; init; }
+        public long RoiMs { get; init; }
+        public long PlcWriteMs { get; init; }
+        public long SaveImageMs { get; set; }
+        public long SaveRecordMs { get; set; }
+        public string RecipeId { get; init; } = string.Empty;
+        public string RecipeVersion { get; init; } = string.Empty;
+        public string ModelId { get; init; } = string.Empty;
+        public string ModelVersion { get; init; } = string.Empty;
+        public string ModelHash { get; init; } = string.Empty;
+        public bool WasFallback { get; init; }
+        public string UsedModelName { get; init; } = string.Empty;
         public string TargetLabel { get; init; } = string.Empty;
         public int ExpectedCount { get; init; }
         public int ActualCount { get; init; }
@@ -122,6 +146,29 @@ namespace ClearFrost.Services
             {
                 Timestamp = Timestamp,
                 IsQualified = IsQualified,
+                InspectionId = InspectionId,
+                TriggerSource = TriggerSource,
+                TriggerSeq = TriggerSeq,
+                ResultSeq = ResultSeq,
+                TraceStatus = TraceStatus,
+                ImagePath = ImagePath,
+                RenderedImagePath = RenderedImagePath,
+                ErrorStage = ErrorStage,
+                ErrorCode = ErrorCode,
+                ErrorMessage = ErrorMessage,
+                TotalMs = TotalMs,
+                CaptureMs = CaptureMs,
+                RoiMs = RoiMs,
+                PlcWriteMs = PlcWriteMs,
+                SaveImageMs = SaveImageMs,
+                SaveRecordMs = SaveRecordMs,
+                RecipeId = RecipeId,
+                RecipeVersion = RecipeVersion,
+                ModelId = ModelId,
+                ModelVersion = ModelVersion,
+                ModelHash = ModelHash,
+                WasFallback = WasFallback,
+                UsedModelName = UsedModelName,
                 TargetLabel = TargetLabel,
                 ExpectedCount = ExpectedCount,
                 ActualCount = ActualCount,
