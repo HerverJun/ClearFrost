@@ -11,6 +11,7 @@ namespace ClearFrost.Hardware
         private static readonly Regex DigitsRegex = new Regex(@"^\d+$", RegexOptions.Compiled);
         private static readonly Regex MitsubishiRegex = new Regex(@"^D(\d+)$", RegexOptions.Compiled);
         private static readonly Regex SiemensDbWordRegex = new Regex(@"^DB(\d+)\.(\d+)$", RegexOptions.Compiled);
+        private static readonly Regex SiemensDbByteRegex = new Regex(@"^DB(\d+)\.DBB(\d+)$", RegexOptions.Compiled);
 
         public static string NormalizeOrThrow(string? rawAddress, PlcProtocolType protocolType)
         {
@@ -76,6 +77,70 @@ namespace ClearFrost.Hardware
             }
 
             return fallback;
+        }
+
+        public static string NormalizeByteAddressOrThrow(string? rawAddress, PlcProtocolType protocolType)
+        {
+            if (TryNormalizeByteAddress(rawAddress, protocolType, out string normalized, out string? error))
+            {
+                return normalized;
+            }
+
+            throw new ArgumentException(error ?? "PLC 字节地址格式无效", nameof(rawAddress));
+        }
+
+        public static bool TryNormalizeByteAddress(
+            string? rawAddress,
+            PlcProtocolType protocolType,
+            out string normalized,
+            out string? error)
+        {
+            string compact = Compact(rawAddress);
+            normalized = string.Empty;
+            error = null;
+
+            if (string.IsNullOrWhiteSpace(compact))
+            {
+                error = "PLC 字节地址不能为空";
+                return false;
+            }
+
+            if (protocolType == PlcProtocolType.Siemens_S7)
+            {
+                return TryNormalizeSiemensByteAddress(compact, out normalized, out error);
+            }
+
+            return TryNormalize(compact, protocolType, out normalized, out error);
+        }
+
+        public static string MigrateByteAddress(string? rawAddress, PlcProtocolType protocolType, string fallback)
+        {
+            string compact = Compact(rawAddress);
+            if (string.IsNullOrWhiteSpace(compact))
+            {
+                return fallback;
+            }
+
+            return TryNormalizeByteAddress(compact, protocolType, out string normalized, out _)
+                ? normalized
+                : fallback;
+        }
+
+        public static string ToHslByteReadAddress(string address, PlcProtocolType protocolType)
+        {
+            string normalized = NormalizeByteAddressOrThrow(address, protocolType);
+            if (protocolType != PlcProtocolType.Siemens_S7)
+            {
+                return normalized;
+            }
+
+            Match byteMatch = SiemensDbByteRegex.Match(normalized.ToUpperInvariant());
+            if (byteMatch.Success)
+            {
+                return $"DB{byteMatch.Groups[1].Value}.{byteMatch.Groups[2].Value}";
+            }
+
+            return normalized;
         }
 
         public static string GetProbeAddress(PlcProtocolType protocolType, string? preferredAddress)
@@ -145,6 +210,48 @@ namespace ClearFrost.Hardware
             normalized = $"DB{dbNumber}.{byteOffset}";
             error = null;
             return true;
+        }
+
+        private static bool TryNormalizeSiemensByteAddress(string compact, out string normalized, out string? error)
+        {
+            string upper = compact.ToUpperInvariant();
+            Match byteMatch = SiemensDbByteRegex.Match(upper);
+            if (byteMatch.Success)
+            {
+                if (!int.TryParse(byteMatch.Groups[1].Value, out int dbNumber) || dbNumber < 0)
+                {
+                    return Fail("西门子 DB 块号无效", out normalized, out error);
+                }
+
+                if (!int.TryParse(byteMatch.Groups[2].Value, out int byteOffset) || byteOffset < 0)
+                {
+                    return Fail("西门子字节偏移无效", out normalized, out error);
+                }
+
+                normalized = $"DB{dbNumber}.DBB{byteOffset}";
+                error = null;
+                return true;
+            }
+
+            Match wordMatch = SiemensDbWordRegex.Match(upper);
+            if (wordMatch.Success)
+            {
+                if (!int.TryParse(wordMatch.Groups[1].Value, out int dbNumber) || dbNumber < 0)
+                {
+                    return Fail("西门子 DB 块号无效", out normalized, out error);
+                }
+
+                if (!int.TryParse(wordMatch.Groups[2].Value, out int byteOffset) || byteOffset < 0)
+                {
+                    return Fail("西门子字节偏移无效", out normalized, out error);
+                }
+
+                normalized = $"DB{dbNumber}.{byteOffset}";
+                error = null;
+                return true;
+            }
+
+            return Fail("西门子字节地址仅支持 DB15.DBB2 或 DB15.2 格式", out normalized, out error);
         }
 
         private static bool TryNormalizeModbus(string compact, out string normalized, out string? error)

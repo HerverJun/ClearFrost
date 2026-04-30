@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using ClearFrost.Config;
+using ClearFrost.Core.Inspection;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
 using FluentAssertions;
@@ -90,6 +92,69 @@ namespace ClearFrost.Tests.Services
             database.SavedRecords.Should().HaveCount(2);
             database.SavedRecords[0].ModelName.Should().Be("model-a");
             database.SavedRecords[1].ModelName.Should().Be("model-b");
+        }
+
+        [Fact]
+        public void PlcBarcodeDetectionGate_Plc必填空条码会拦截()
+        {
+            var config = new AppConfig
+            {
+                EnablePlcBarcodeReading = true,
+                PlcBarcodeRequired = true
+            };
+            var context = new InspectionContext
+            {
+                TriggerSource = "PLC",
+                BarcodeReadSucceeded = true,
+                ProductBarcode = ""
+            };
+
+            bool blocked = PlcBarcodeDetectionGate.ShouldBlockDetection(config, context, out string errorCode, out string errorMessage);
+
+            blocked.Should().BeTrue();
+            errorCode.Should().Be("NoBarcode");
+            errorMessage.Should().Contain("条码为空");
+        }
+
+        [Fact]
+        public void PlcBarcodeDetectionGate_Plc读取失败会拦截()
+        {
+            var config = new AppConfig
+            {
+                EnablePlcBarcodeReading = true,
+                PlcBarcodeRequired = true
+            };
+            var context = new InspectionContext
+            {
+                TriggerSource = "PLC",
+                BarcodeReadSucceeded = false,
+                BarcodeError = "read failed"
+            };
+
+            bool blocked = PlcBarcodeDetectionGate.ShouldBlockDetection(config, context, out string errorCode, out string errorMessage);
+
+            blocked.Should().BeTrue();
+            errorCode.Should().Be("BarcodeReadFailed");
+            errorMessage.Should().Contain("read failed");
+        }
+
+        [Fact]
+        public void PlcBarcodeDetectionGate_手动检测不拦截()
+        {
+            var config = new AppConfig
+            {
+                EnablePlcBarcodeReading = true,
+                PlcBarcodeRequired = true
+            };
+            var context = new InspectionContext
+            {
+                TriggerSource = "手动",
+                ProductBarcode = ""
+            };
+
+            bool blocked = PlcBarcodeDetectionGate.ShouldBlockDetection(config, context, out _, out _);
+
+            blocked.Should().BeFalse();
         }
 
         private sealed class RecordingDatabaseService : IDatabaseService

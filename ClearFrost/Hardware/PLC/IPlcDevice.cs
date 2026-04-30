@@ -26,6 +26,11 @@ namespace ClearFrost.Hardware
         Task<(bool Success, short Value)> ReadInt16Async(string address);
 
         /// <summary>
+        /// 读取指定地址起始的原始字节数据。
+        /// </summary>
+        Task<(bool Success, byte[] Bytes)> ReadBytesAsync(string address, ushort length);
+
+        /// <summary>
         /// 
         /// </summary>
         /// 

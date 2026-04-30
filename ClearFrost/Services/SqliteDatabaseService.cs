@@ -240,6 +240,7 @@ namespace ClearFrost.Services
                     InspectionId TEXT,
                     TriggerSource TEXT,
                     TriggerSeq INTEGER,
+                    ProductBarcode TEXT,
                     ResultSeq INTEGER,
                     TraceStatus TEXT,
                     ImagePath TEXT,
@@ -282,6 +283,7 @@ namespace ClearFrost.Services
             AddColumnIfMissing(connection, existingColumns, "InspectionId", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "TriggerSource", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "TriggerSeq", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "ProductBarcode", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "ResultSeq", "INTEGER");
             AddColumnIfMissing(connection, existingColumns, "TraceStatus", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "ImagePath", "TEXT");
@@ -304,7 +306,10 @@ namespace ClearFrost.Services
             AddColumnIfMissing(connection, existingColumns, "UsedModelName", "TEXT");
 
             using var indexCommand = connection.CreateCommand();
-            indexCommand.CommandText = "CREATE INDEX IF NOT EXISTS idx_inspection_id ON DetectionRecords(InspectionId);";
+            indexCommand.CommandText = @"
+                CREATE INDEX IF NOT EXISTS idx_inspection_id ON DetectionRecords(InspectionId);
+                CREATE INDEX IF NOT EXISTS idx_product_barcode ON DetectionRecords(ProductBarcode);
+            ";
             indexCommand.ExecuteNonQuery();
         }
 
@@ -390,6 +395,7 @@ namespace ClearFrost.Services
                         InspectionId,
                         TriggerSource,
                         TriggerSeq,
+                        ProductBarcode,
                         ResultSeq,
                         TraceStatus,
                         ImagePath,
@@ -425,6 +431,7 @@ namespace ClearFrost.Services
                         @InspectionId,
                         @TriggerSource,
                         @TriggerSeq,
+                        @ProductBarcode,
                         @ResultSeq,
                         @TraceStatus,
                         @ImagePath,
@@ -461,6 +468,7 @@ namespace ClearFrost.Services
                 command.Parameters.AddWithValue("@InspectionId", record.InspectionId ?? "");
                 command.Parameters.AddWithValue("@TriggerSource", record.TriggerSource ?? "");
                 command.Parameters.AddWithValue("@TriggerSeq", (object?)record.TriggerSeq ?? DBNull.Value);
+                command.Parameters.AddWithValue("@ProductBarcode", record.ProductBarcode ?? "");
                 command.Parameters.AddWithValue("@ResultSeq", (object?)record.ResultSeq ?? DBNull.Value);
                 command.Parameters.AddWithValue("@TraceStatus", record.TraceStatus.ToString());
                 command.Parameters.AddWithValue("@ImagePath", record.ImagePath ?? "");
@@ -541,6 +549,7 @@ namespace ClearFrost.Services
                         InspectionId = GetStringOrDefault(reader, "InspectionId"),
                         TriggerSource = GetStringOrDefault(reader, "TriggerSource"),
                         TriggerSeq = GetNullableInt32(reader, "TriggerSeq"),
+                        ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
                         ResultSeq = GetNullableInt32(reader, "ResultSeq"),
                         TraceStatus = ParseTraceStatus(GetStringOrDefault(reader, "TraceStatus")),
                         ImagePath = GetStringOrDefault(reader, "ImagePath"),

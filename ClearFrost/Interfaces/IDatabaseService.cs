@@ -16,6 +16,7 @@ namespace ClearFrost.Interfaces
         public string InspectionId { get; set; } = "";
         public string TriggerSource { get; set; } = "";
         public int? TriggerSeq { get; set; }
+        public string ProductBarcode { get; set; } = "";
         public int? ResultSeq { get; set; }
         public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;
         public string ImagePath { get; set; } = "";

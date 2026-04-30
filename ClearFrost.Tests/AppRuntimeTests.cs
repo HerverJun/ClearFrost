@@ -145,6 +145,8 @@ namespace ClearFrost.Tests
             public void StopMonitoring() => _order.Add("plc-stop-monitoring");
             public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
             public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite) => Task.FromResult(true);
+            public Task<PlcStringReadResult> ReadAsciiStringAsync(string address, ushort length, string encodingName = "ASCII")
+                => Task.FromResult(new PlcStringReadResult { Success = true });
             public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
             public void Dispose() => _order.Add("plc-dispose");
         }

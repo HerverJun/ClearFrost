@@ -11,6 +11,8 @@
 
 using System;
 using System.Diagnostics;
+using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Interfaces;
@@ -39,6 +41,11 @@ namespace ClearFrost.Services
         private string _lastTriggerAddress = string.Empty;
         private PlcProtocolMode _lastProtocolMode = PlcProtocolMode.Legacy;
         private string _lastTriggerSeqAddress = string.Empty;
+        private bool _lastBarcodeReadingEnabled;
+        private string _lastBarcodeAddress = string.Empty;
+        private int _lastBarcodeLength = 13;
+        private string _lastBarcodeEncoding = "ASCII";
+        private bool _lastBarcodeRequired = true;
         private string _lastSiemensCpuModel = "S1200";
         private int _lastSiemensRack;
         private int _lastSiemensSlot = 2;
@@ -198,6 +205,11 @@ namespace ClearFrost.Services
             _lastTriggerDelayMs = Math.Max(0, triggerDelayMs);
             _lastProtocolMode = options.ProtocolMode;
             _lastTriggerSeqAddress = options.TriggerSeqAddress ?? string.Empty;
+            _lastBarcodeReadingEnabled = options.EnableBarcodeReading;
+            _lastBarcodeAddress = options.BarcodeAddress ?? string.Empty;
+            _lastBarcodeLength = Math.Clamp(options.BarcodeLength, 1, 256);
+            _lastBarcodeEncoding = string.IsNullOrWhiteSpace(options.BarcodeEncoding) ? "ASCII" : options.BarcodeEncoding;
+            _lastBarcodeRequired = options.BarcodeRequired;
             Interlocked.Exchange(ref _lastAcceptedTriggerTicks, 0);
 
             _monitoringCts = new CancellationTokenSource();
@@ -328,17 +340,22 @@ namespace ClearFrost.Services
                         Interlocked.Exchange(ref _lastAcceptedTriggerTicks, nowTicks);
                         await Task.Delay(triggerDelayMs, token);
 
+                        PlcStringReadResult barcodeResult = await TryReadBarcodeAsync(plc);
+
                         // 触发事件通知
-                        if (_lastProtocolMode == PlcProtocolMode.HandshakeV1)
+                        if (_lastProtocolMode == PlcProtocolMode.HandshakeV1 || _lastBarcodeReadingEnabled)
                         {
                             var context = new PlcTriggerContext
                             {
                                 TriggerSource = "PLC",
                                 TriggerSeq = triggerSeq,
-                                TriggerTime = DateTimeOffset.Now
+                                TriggerTime = DateTimeOffset.Now,
+                                ProductBarcode = barcodeResult.Text,
+                                BarcodeReadSucceeded = barcodeResult.Success,
+                                BarcodeError = barcodeResult.ErrorMessage
                             };
 
-                            Debug.WriteLine($"[PlcService] 📤 触发 TriggerContextReceived 事件: TriggerSeq={triggerSeq?.ToString() ?? "-"}");
+                            Debug.WriteLine($"[PlcService] 📤 触发 TriggerContextReceived 事件: TriggerSeq={triggerSeq?.ToString() ?? "-"}, Barcode={(string.IsNullOrWhiteSpace(context.ProductBarcode) ? "-" : context.ProductBarcode)}");
                             TriggerContextReceived?.Invoke(context);
                             Debug.WriteLine("[PlcService] ✅ TriggerContextReceived 事件已发送");
                         }
@@ -435,6 +452,51 @@ namespace ClearFrost.Services
                 LastError = ex.Message;
                 ErrorOccurred?.Invoke($"写入异常: {ex.Message}");
                 return false;
+            }
+        }
+
+        public async Task<PlcStringReadResult> ReadAsciiStringAsync(
+            string address,
+            ushort length,
+            string encodingName = "ASCII")
+        {
+            if (!IsConnected || _plcDevice == null)
+            {
+                return PlcStringReadResult.Failed("PLC未连接，无法读取条码");
+            }
+
+            if (string.IsNullOrWhiteSpace(address))
+            {
+                return PlcStringReadResult.Failed("PLC条码地址不能为空");
+            }
+
+            if (length == 0)
+            {
+                return PlcStringReadResult.Failed("PLC条码读取长度必须大于0");
+            }
+
+            try
+            {
+                var (success, bytes) = await _plcDevice.ReadBytesAsync(address, length);
+                if (!success)
+                {
+                    LastError = _plcDevice.LastError;
+                    return PlcStringReadResult.Failed(LastError ?? "PLC条码读取失败");
+                }
+
+                Encoding encoding = ResolveBarcodeEncoding(encodingName);
+                string text = SanitizeBarcodeText(encoding.GetString(bytes ?? Array.Empty<byte>()));
+                return new PlcStringReadResult
+                {
+                    Success = true,
+                    RawBytes = bytes ?? Array.Empty<byte>(),
+                    Text = text
+                };
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                return PlcStringReadResult.Failed(ex.Message);
             }
         }
 
@@ -573,6 +635,67 @@ namespace ClearFrost.Services
                 ErrorOccurred?.Invoke($"读取 TriggerSeq 异常: {ex.Message}");
                 return null;
             }
+        }
+
+        private async Task<PlcStringReadResult> TryReadBarcodeAsync(IPlcDevice plc)
+        {
+            if (!_lastBarcodeReadingEnabled)
+            {
+                return new PlcStringReadResult { Success = true };
+            }
+
+            try
+            {
+                PlcStringReadResult result = await ReadAsciiStringAsync(
+                    _lastBarcodeAddress,
+                    (ushort)Math.Clamp(_lastBarcodeLength, 1, ushort.MaxValue),
+                    _lastBarcodeEncoding);
+
+                if (!result.Success)
+                {
+                    string message = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                        ? "PLC条码读取失败"
+                        : result.ErrorMessage;
+                    ErrorOccurred?.Invoke($"读取 PLC 条码失败: {message}");
+                    return result;
+                }
+
+                if (result.IsEmpty && _lastBarcodeRequired)
+                {
+                    Debug.WriteLine("[PlcService] PLC条码为空");
+                }
+                else
+                {
+                    Debug.WriteLine($"[PlcService] PLC条码读取成功: {(result.IsEmpty ? "<空>" : result.Text)}");
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                ErrorOccurred?.Invoke($"读取 PLC 条码异常: {ex.Message}");
+                return PlcStringReadResult.Failed(ex.Message);
+            }
+        }
+
+        private static Encoding ResolveBarcodeEncoding(string? encodingName)
+        {
+            if (string.IsNullOrWhiteSpace(encodingName) ||
+                string.Equals(encodingName, "ASCII", StringComparison.OrdinalIgnoreCase))
+            {
+                return Encoding.ASCII;
+            }
+
+            return Encoding.GetEncoding(encodingName.Trim());
+        }
+
+        private static string SanitizeBarcodeText(string value)
+        {
+            string text = new string((value ?? string.Empty).Where(c => c != '\0').ToArray()).Trim();
+            return string.Equals(text, "null", StringComparison.OrdinalIgnoreCase)
+                ? string.Empty
+                : text;
         }
 
         private PlcConnectionOptions BuildLastConnectionOptions()

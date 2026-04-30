@@ -305,7 +305,12 @@ namespace ClearFrost
             int? TriggerSeq,
             InspectionContext Context);
 
-        private async Task btnCapture_LogicAsync(string triggerSource = "手动", int? triggerSeq = null)
+        private async Task btnCapture_LogicAsync(
+            string triggerSource = "手动",
+            int? triggerSeq = null,
+            string? productBarcode = null,
+            bool barcodeReadSucceeded = true,
+            string? barcodeError = null)
         {
             DateTimeOffset triggerTime = DateTimeOffset.Now;
             string inspectionId = InspectionIdGenerator.Next(triggerSource, triggerTime);
@@ -315,6 +320,9 @@ namespace ClearFrost
                 TriggerTime = triggerTime,
                 TriggerSource = triggerSource,
                 TriggerSeq = triggerSeq,
+                ProductBarcode = productBarcode?.Trim() ?? string.Empty,
+                BarcodeReadSucceeded = barcodeReadSucceeded,
+                BarcodeError = barcodeError ?? string.Empty,
                 CurrentStage = InspectionStage.Triggered,
                 TraceStatus = TraceStatus.Unknown
             };
@@ -416,12 +424,33 @@ namespace ClearFrost
             return decision;
         }
 
+        private bool ShouldBlockDetectionForBarcode(
+            InspectionContext context,
+            out string errorCode,
+            out string errorMessage)
+        {
+            return PlcBarcodeDetectionGate.ShouldBlockDetection(
+                _appConfig,
+                context,
+                out errorCode,
+                out errorMessage);
+        }
+
+        private static string FormatBarcodeSuffix(InspectionContext context)
+        {
+            return string.IsNullOrWhiteSpace(context.ProductBarcode)
+                ? string.Empty
+                : $"，条码: {context.ProductBarcode}";
+        }
+
         private async Task<(long CaptureMs, long InferenceMs, long RoiFilterMs, long PlcWriteMs, long RenderToUiMs, long SaveQueueMs, long DbWriteMs, bool FinalQualified, int FinalResultCount, int AttemptCount)> ExecuteDetectionCycleAsync(
             DetectionCycleRequest request,
             CancellationToken cancellationToken)
         {
             InspectionContext context = request.Context;
-            await _uiController.LogToFrontend($"开始检测... ({request.TriggerSource}触发, ID: {request.InspectionId})", "info");
+            await _uiController.LogToFrontend(
+                $"开始检测... ({request.TriggerSource}触发, ID: {request.InspectionId}){FormatBarcodeSuffix(context)}",
+                "info");
             await WriteHandshakeDetectionStartedAsync(context);
 
             long captureMs = 0;
@@ -436,6 +465,44 @@ namespace ClearFrost
             int attemptCount = 0;
             ImageSavePayload? imagePayload = null;
             DetectionPersistencePayload? persistencePayload = null;
+
+            if (ShouldBlockDetectionForBarcode(context, out string barcodeErrorCode, out string barcodeErrorMessage))
+            {
+                context.CurrentStage = InspectionStage.BarcodeRead;
+                context.SetError(InspectionStage.BarcodeRead, barcodeErrorCode, barcodeErrorMessage);
+                await _uiController.LogToFrontend($"{barcodeErrorMessage}，已判 NG (ID: {request.InspectionId})", "error");
+                DiagLog($"❌ [{request.TriggerSource}] [{request.InspectionId}] {barcodeErrorMessage}");
+
+                var plcSw = Stopwatch.StartNew();
+                await WriteDetectionResultToPlc(false, context);
+                plcSw.Stop();
+                plcWriteMs = plcSw.ElapsedMilliseconds;
+                context.PlcWriteMs = plcWriteMs;
+
+                _statisticsService.RecordDetection(false);
+                _storageService.WriteDetectionLog(
+                    $"InspectionId: {request.InspectionId}{Environment.NewLine}{barcodeErrorMessage}",
+                    false);
+
+                context.TotalMs = plcWriteMs;
+                var barcodeFailurePayload = BuildDetectionPersistencePayload(
+                    context,
+                    null,
+                    new List<YoloResult>(),
+                    0,
+                    false,
+                    JsonSerializer.Serialize(new
+                    {
+                        Error = barcodeErrorMessage,
+                        Stage = nameof(InspectionStage.BarcodeRead),
+                        context.InspectionId,
+                        context.ProductBarcode,
+                        context.BarcodeError
+                    }));
+                dbWriteMs = await EnqueueDetectionRecordAsync(context, barcodeFailurePayload, imageQueued: false);
+
+                return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, false, finalResultCount, Math.Max(1, attemptCount));
+            }
 
             Mat? frameToProcess = null;
 
@@ -580,9 +647,12 @@ namespace ClearFrost
                         var renderSw = Stopwatch.StartNew();
                         string objDesc = GetDetailedDetectionLog(results, labels);
                         string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
+                        string barcodeInfo = string.IsNullOrWhiteSpace(context.ProductBarcode)
+                            ? string.Empty
+                            : $" | 条码: {context.ProductBarcode}";
                         string statusMessage = detectionFailed
-                            ? $"[{request.TriggerSource}] ID {request.InspectionId} 检测失败，已判定为不合格: {result.ErrorMessage} | {inferenceMs}ms"
-                            : $"[{request.TriggerSource}] ID {request.InspectionId} 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {inferenceMs}ms{modelInfo}";
+                            ? $"[{request.TriggerSource}] ID {request.InspectionId} 检测失败，已判定为不合格: {result.ErrorMessage} | {inferenceMs}ms{barcodeInfo}"
+                            : $"[{request.TriggerSource}] ID {request.InspectionId} 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {inferenceMs}ms{modelInfo}{barcodeInfo}";
                         await _uiController.SendDetectionFrame(
                             renderedMat ?? frameToProcess,
                             isQualified,
@@ -918,6 +988,7 @@ namespace ClearFrost
                 InspectionId = context.InspectionId,
                 TriggerSource = context.TriggerSource,
                 TriggerSeq = context.TriggerSeq,
+                ProductBarcode = context.ProductBarcode ?? string.Empty,
                 ResultSeq = context.ResultSeq,
                 TraceStatus = context.TraceStatus,
                 ImagePath = context.ImagePath ?? string.Empty,
@@ -1006,6 +1077,10 @@ namespace ClearFrost
                 sb.AppendLine($"InspectionId: {context.InspectionId}");
                 sb.AppendLine($"触发来源: {context.TriggerSource}");
                 sb.AppendLine($"TriggerSeq: {(context.TriggerSeq.HasValue ? context.TriggerSeq.Value.ToString(CultureInfo.InvariantCulture) : "-")}");
+                if (!string.IsNullOrWhiteSpace(context.ProductBarcode))
+                {
+                    sb.AppendLine($"ProductBarcode: {context.ProductBarcode}");
+                }
                 sb.AppendLine($"TraceStatus: {context.TraceStatus}");
                 if (!string.IsNullOrWhiteSpace(context.ErrorCode))
                 {
@@ -1111,6 +1186,11 @@ namespace ClearFrost
             }
 
             string stage = context.ErrorStage ?? string.Empty;
+            if (stage.Contains(nameof(InspectionStage.BarcodeRead), StringComparison.OrdinalIgnoreCase))
+            {
+                return 150;
+            }
+
             if (stage.Contains(nameof(InspectionStage.Capture), StringComparison.OrdinalIgnoreCase))
             {
                 return 100;

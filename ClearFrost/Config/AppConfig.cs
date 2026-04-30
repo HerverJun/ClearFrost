@@ -63,6 +63,11 @@ namespace ClearFrost.Config
         public string PlcHeartbeatAddress { get; set; } = "D565";
         [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
         public string PlcResetFaultAddress { get; set; } = "D566";
+        public bool EnablePlcBarcodeReading { get; set; } = false;
+        public string PlcBarcodeAddress { get; set; } = "DB15.DBB2";
+        public int PlcBarcodeLength { get; set; } = 13;
+        public string PlcBarcodeEncoding { get; set; } = "ASCII";
+        public bool PlcBarcodeRequired { get; set; } = true;
         /// <summary>
         /// 西门子 CPU 型号: S1200, S1500, S300, S400
         /// </summary>
@@ -338,6 +343,22 @@ namespace ClearFrost.Config
             PlcTraceSavedAddress = NormalizePlcAddressOrDefault(protocolType, PlcTraceSavedAddress, 564);
             PlcHeartbeatAddress = NormalizePlcAddressOrDefault(protocolType, PlcHeartbeatAddress, 565);
             PlcResetFaultAddress = NormalizePlcAddressOrDefault(protocolType, PlcResetFaultAddress, 566);
+            if (EnablePlcBarcodeReading)
+            {
+                PlcBarcodeAddress = PlcAddressNormalizer.MigrateByteAddress(
+                    PlcBarcodeAddress,
+                    protocolType,
+                    GetProtocolDefaultByteAddress(protocolType));
+            }
+            else if (string.IsNullOrWhiteSpace(PlcBarcodeAddress))
+            {
+                PlcBarcodeAddress = GetProtocolDefaultByteAddress(protocolType);
+            }
+
+            PlcBarcodeLength = Math.Clamp(PlcBarcodeLength, 1, 256);
+            PlcBarcodeEncoding = string.IsNullOrWhiteSpace(PlcBarcodeEncoding)
+                ? "ASCII"
+                : PlcBarcodeEncoding.Trim();
 
             if (!IsMitsubishiProtocol(protocolType) &&
                 string.Equals(PlcDriverProvider, "McpX", StringComparison.OrdinalIgnoreCase))
@@ -373,6 +394,17 @@ namespace ClearFrost.Config
                 PlcProtocolType.Modbus_TCP => number.ToString(),
                 PlcProtocolType.Omron_Fins => $"D{number}",
                 _ => $"D{number}"
+            };
+        }
+
+        private static string GetProtocolDefaultByteAddress(PlcProtocolType protocolType)
+        {
+            return protocolType switch
+            {
+                PlcProtocolType.Siemens_S7 => "DB15.DBB2",
+                PlcProtocolType.Modbus_TCP => "0",
+                PlcProtocolType.Omron_Fins => "D0",
+                _ => "D0"
             };
         }
 

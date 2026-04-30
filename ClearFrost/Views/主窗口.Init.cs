@@ -52,14 +52,19 @@ namespace ClearFrost
             };
             _plcService.TriggerContextReceived += (context) =>
             {
-                Debug.WriteLine($"[主窗口] 📥 收到PLC上下文触发事件 - Seq={context.TriggerSeq?.ToString() ?? "-"} - {DateTime.Now:HH:mm:ss.fff}");
+                Debug.WriteLine($"[主窗口] 📥 收到PLC上下文触发事件 - Seq={context.TriggerSeq?.ToString() ?? "-"}, Barcode={(string.IsNullOrWhiteSpace(context.ProductBarcode) ? "-" : context.ProductBarcode)} - {DateTime.Now:HH:mm:ss.fff}");
                 InvokeOnUIThread(() =>
                 {
                     SafeFireAndForget(_uiController.FlashPlcTrigger(), "PLC触发指示灯");
                 });
 
                 InvokeOnUIThread(() => SafeFireAndForget(
-                    btnCapture_LogicAsync(context.TriggerSource, context.TriggerSeq),
+                    btnCapture_LogicAsync(
+                        context.TriggerSource,
+                        context.TriggerSeq,
+                        context.ProductBarcode,
+                        context.BarcodeReadSucceeded,
+                        context.BarcodeError),
                     "PLC上下文触发检测"));
             };
             _plcService.ErrorOccurred += (error) =>
@@ -738,6 +743,11 @@ namespace ClearFrost
                         string plcTraceSavedAddress = _appConfig.PlcTraceSavedAddress;
                         string plcHeartbeatAddress = _appConfig.PlcHeartbeatAddress;
                         string plcResetFaultAddress = _appConfig.PlcResetFaultAddress;
+                        bool enablePlcBarcodeReading = _appConfig.EnablePlcBarcodeReading;
+                        string plcBarcodeAddress = _appConfig.PlcBarcodeAddress;
+                        int plcBarcodeLength = _appConfig.PlcBarcodeLength;
+                        string plcBarcodeEncoding = _appConfig.PlcBarcodeEncoding;
+                        bool plcBarcodeRequired = _appConfig.PlcBarcodeRequired;
                         int plcTriggerDelayMs = _appConfig.PlcTriggerDelayMs;
                         int plcPollingIntervalMs = _appConfig.PlcPollingIntervalMs;
                         short plcOkValue = _appConfig.PlcOkValue;
@@ -763,6 +773,11 @@ namespace ClearFrost
                         if (root.TryGetProperty("PlcTraceSavedAddress", out var ptsa)) plcTraceSavedAddress = GetJsonStringValue(ptsa, plcTraceSavedAddress);
                         if (root.TryGetProperty("PlcHeartbeatAddress", out var phb)) plcHeartbeatAddress = GetJsonStringValue(phb, plcHeartbeatAddress);
                         if (root.TryGetProperty("PlcResetFaultAddress", out var prf)) plcResetFaultAddress = GetJsonStringValue(prf, plcResetFaultAddress);
+                        if (root.TryGetProperty("EnablePlcBarcodeReading", out var epbr)) enablePlcBarcodeReading = epbr.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("PlcBarcodeAddress", out var pba)) plcBarcodeAddress = GetJsonStringValue(pba, plcBarcodeAddress);
+                        if (root.TryGetProperty("PlcBarcodeLength", out var pbl)) plcBarcodeLength = pbl.TryGetInt32(out int pblVal) ? Math.Clamp(pblVal, 1, 256) : plcBarcodeLength;
+                        if (root.TryGetProperty("PlcBarcodeEncoding", out var pbe)) plcBarcodeEncoding = pbe.GetString() ?? plcBarcodeEncoding;
+                        if (root.TryGetProperty("PlcBarcodeRequired", out var pbr)) plcBarcodeRequired = pbr.ValueKind == JsonValueKind.True;
                         if (root.TryGetProperty("PlcTriggerDelayMs", out var ptd)) plcTriggerDelayMs = ptd.TryGetInt32(out int ptdVal) ? Math.Max(0, ptdVal) : plcTriggerDelayMs;
                         if (root.TryGetProperty("PlcPollingIntervalMs", out var ppi)) plcPollingIntervalMs = ppi.TryGetInt32(out int ppiVal) ? Math.Max(50, ppiVal) : plcPollingIntervalMs;
                         if (root.TryGetProperty("PlcOkValue", out var pok)) plcOkValue = pok.TryGetInt16(out short pokVal) ? pokVal : plcOkValue;
@@ -793,6 +808,10 @@ namespace ClearFrost
                         plcTraceSavedAddress = PlcAddressNormalizer.NormalizeOrThrow(plcTraceSavedAddress, plcProtocolType);
                         plcHeartbeatAddress = PlcAddressNormalizer.NormalizeOrThrow(plcHeartbeatAddress, plcProtocolType);
                         plcResetFaultAddress = PlcAddressNormalizer.NormalizeOrThrow(plcResetFaultAddress, plcProtocolType);
+                        if (enablePlcBarcodeReading)
+                        {
+                            plcBarcodeAddress = PlcAddressNormalizer.NormalizeByteAddressOrThrow(plcBarcodeAddress, plcProtocolType);
+                        }
 
                         _appConfig.PlcProtocol = plcProtocol;
                         _appConfig.PlcDriverProvider = plcDriverProvider;
@@ -811,6 +830,11 @@ namespace ClearFrost
                         _appConfig.PlcTraceSavedAddress = plcTraceSavedAddress;
                         _appConfig.PlcHeartbeatAddress = plcHeartbeatAddress;
                         _appConfig.PlcResetFaultAddress = plcResetFaultAddress;
+                        _appConfig.EnablePlcBarcodeReading = enablePlcBarcodeReading;
+                        _appConfig.PlcBarcodeAddress = plcBarcodeAddress;
+                        _appConfig.PlcBarcodeLength = Math.Clamp(plcBarcodeLength, 1, 256);
+                        _appConfig.PlcBarcodeEncoding = string.IsNullOrWhiteSpace(plcBarcodeEncoding) ? "ASCII" : plcBarcodeEncoding.Trim();
+                        _appConfig.PlcBarcodeRequired = plcBarcodeRequired;
                         _appConfig.PlcTriggerDelayMs = plcTriggerDelayMs;
                         _appConfig.PlcPollingIntervalMs = plcPollingIntervalMs;
                         _appConfig.PlcOkValue = plcOkValue;

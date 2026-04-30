@@ -106,6 +106,43 @@ namespace ClearFrost.Hardware
         }
     }
 
+    internal static class HslPlcAdapterHelper
+    {
+        public static async Task<(bool Success, byte[] Bytes)> ReadBytesAsync(
+            Func<string, ushort, OperateResult<byte[]>> read,
+            Action<string> setLastError,
+            Action markDisconnected,
+            PlcProtocolType protocolType,
+            string address,
+            ushort length)
+        {
+            try
+            {
+                if (length == 0)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(length), "读取长度必须大于 0");
+                }
+
+                string readAddress = PlcAddressNormalizer.ToHslByteReadAddress(address, protocolType);
+                var result = await Task.Run(() => read(readAddress, length));
+                if (!result.IsSuccess)
+                {
+                    setLastError(result.Message);
+                    markDisconnected();
+                    return (false, Array.Empty<byte>());
+                }
+
+                return (true, result.Content ?? Array.Empty<byte>());
+            }
+            catch (Exception ex)
+            {
+                setLastError(ex.Message);
+                markDisconnected();
+                return (false, Array.Empty<byte>());
+            }
+        }
+    }
+
     /// <summary>
     /// 
     /// </summary>
@@ -175,6 +212,17 @@ namespace ClearFrost.Hardware
                 _isConnected = false;
                 return (false, 0);
             }
+        }
+
+        public Task<(bool Success, byte[] Bytes)> ReadBytesAsync(string address, ushort length)
+        {
+            return HslPlcAdapterHelper.ReadBytesAsync(
+                _plc.Read,
+                message => LastError = message,
+                () => _isConnected = false,
+                PlcProtocolType.Mitsubishi_MC_ASCII,
+                address,
+                length);
         }
 
         public async Task<bool> WriteInt16Async(string address, short value)
@@ -267,6 +315,17 @@ namespace ClearFrost.Hardware
                 _isConnected = false;
                 return (false, 0);
             }
+        }
+
+        public Task<(bool Success, byte[] Bytes)> ReadBytesAsync(string address, ushort length)
+        {
+            return HslPlcAdapterHelper.ReadBytesAsync(
+                _plc.Read,
+                message => LastError = message,
+                () => _isConnected = false,
+                PlcProtocolType.Mitsubishi_MC_Binary,
+                address,
+                length);
         }
 
         public async Task<bool> WriteInt16Async(string address, short value)
@@ -362,6 +421,17 @@ namespace ClearFrost.Hardware
                 _isConnected = false;
                 return (false, 0);
             }
+        }
+
+        public Task<(bool Success, byte[] Bytes)> ReadBytesAsync(string address, ushort length)
+        {
+            return HslPlcAdapterHelper.ReadBytesAsync(
+                _plc.Read,
+                message => LastError = message,
+                () => _isConnected = false,
+                PlcProtocolType.Modbus_TCP,
+                address,
+                length);
         }
 
         public async Task<bool> WriteInt16Async(string address, short value)
@@ -473,6 +543,17 @@ namespace ClearFrost.Hardware
             }
         }
 
+        public Task<(bool Success, byte[] Bytes)> ReadBytesAsync(string address, ushort length)
+        {
+            return HslPlcAdapterHelper.ReadBytesAsync(
+                _plc.Read,
+                message => LastError = message,
+                () => _isConnected = false,
+                PlcProtocolType.Siemens_S7,
+                address,
+                length);
+        }
+
         public async Task<bool> WriteInt16Async(string address, short value)
         {
             try
@@ -567,6 +648,17 @@ namespace ClearFrost.Hardware
                 _isConnected = false;
                 return (false, 0);
             }
+        }
+
+        public Task<(bool Success, byte[] Bytes)> ReadBytesAsync(string address, ushort length)
+        {
+            return HslPlcAdapterHelper.ReadBytesAsync(
+                _plc.Read,
+                message => LastError = message,
+                () => _isConnected = false,
+                PlcProtocolType.Omron_Fins,
+                address,
+                length);
         }
 
         public async Task<bool> WriteInt16Async(string address, short value)

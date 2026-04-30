@@ -65,6 +65,40 @@ public class StartupDiagnosticsTests
         }
     }
 
+    [Fact]
+    public void Run_Plc条码地址错误会产生阻塞失败()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                PlcProtocol = PlcProtocolType.Siemens_S7.ToString(),
+                PlcTriggerAddress = "DB1.555",
+                PlcResultAddress = "DB1.556",
+                EnablePlcBarcodeReading = true,
+                PlcBarcodeAddress = "M100"
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "PLC address config" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking);
+            report.IsReady.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(StartupDiagnosticsTests), Guid.NewGuid().ToString("N"));

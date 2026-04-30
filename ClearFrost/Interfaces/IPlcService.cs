@@ -105,6 +105,14 @@ namespace ClearFrost.Interfaces
         Task<bool> WriteResultAsync(string resultAddress, short valueToWrite);
 
         /// <summary>
+        /// 从 PLC 读取 ASCII 字符串。
+        /// </summary>
+        Task<PlcStringReadResult> ReadAsciiStringAsync(
+            string address,
+            ushort length,
+            string encodingName = "ASCII");
+
+        /// <summary>
         /// 写入放行信号
         /// </summary>
         /// <param name="resultAddress">结果地址</param>

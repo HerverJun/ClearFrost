@@ -30,6 +30,11 @@ public class AppConfigTests
         config.PlcVisionBusyAddress.Should().Be("D561");
         config.PlcInspectionDoneAddress.Should().Be("D562");
         config.PlcTraceSavedAddress.Should().Be("D564");
+        config.EnablePlcBarcodeReading.Should().BeFalse();
+        config.PlcBarcodeAddress.Should().Be("DB15.DBB2");
+        config.PlcBarcodeLength.Should().Be(13);
+        config.PlcBarcodeEncoding.Should().Be("ASCII");
+        config.PlcBarcodeRequired.Should().BeTrue();
         config.PlcSiemensCpuModel.Should().Be("S1200");
         config.Confidence.Should().BeApproximately(0.5f, 0.001f);
         config.IouThreshold.Should().BeApproximately(0.3f, 0.001f);
@@ -70,6 +75,8 @@ public class AppConfigTests
         config.PlcProtocolMode.Should().Be(PlcProtocolMode.Legacy);
         config.PlcTriggerSeqAddress.Should().Be("D557");
         config.PlcVisionBusyAddress.Should().Be("D561");
+        config.EnablePlcBarcodeReading.Should().BeFalse();
+        config.PlcBarcodeAddress.Should().Be("DB15.DBB2");
     }
 
     [Fact]
@@ -292,6 +299,30 @@ public class AppConfigTests
         restored!.PlcTriggerAddress.Should().Be("DB100.0");
         restored.PlcResultAddress.Should().Be("DB100.2");
         restored.PlcSiemensCpuModel.Should().Be("S1500");
+    }
+
+    [Fact]
+    public void Plc条码配置_Json序列化往返()
+    {
+        var config = new AppConfig
+        {
+            PlcProtocol = "Siemens_S7",
+            EnablePlcBarcodeReading = true,
+            PlcBarcodeAddress = "DB15.DBB2",
+            PlcBarcodeLength = 13,
+            PlcBarcodeEncoding = "ASCII",
+            PlcBarcodeRequired = true
+        };
+
+        string json = JsonSerializer.Serialize(config);
+        var restored = JsonSerializer.Deserialize<AppConfig>(json);
+
+        restored.Should().NotBeNull();
+        restored!.EnablePlcBarcodeReading.Should().BeTrue();
+        restored.PlcBarcodeAddress.Should().Be("DB15.DBB2");
+        restored.PlcBarcodeLength.Should().Be(13);
+        restored.PlcBarcodeEncoding.Should().Be("ASCII");
+        restored.PlcBarcodeRequired.Should().BeTrue();
     }
 
     [Fact]

@@ -169,7 +169,7 @@ internal sealed class ProbeOptions
 
     public string ConfigPath { get; private set; } = Path.Combine("ClearFrost", "config.json");
 
-    public string DriverProvider { get; private set; } = "Hsl";
+    public string DriverProvider { get; private set; } = "McpX";
 
     public string Protocol { get; private set; } = "Mitsubishi_MC_ASCII";
 
@@ -352,7 +352,7 @@ Examples:
 
 Options:
   --config <path>              Defaults to ClearFrost/config.json.
-  --driver <Hsl|McpX>          Defaults to config value, then Hsl.
+  --driver <Hsl|McpX>          Defaults to config value, then McpX.
   --protocol <name>            Defaults to config value, then Mitsubishi_MC_ASCII.
   --ip <address>               PLC IP, defaults to config value.
   --port <number>              PLC port, defaults to config value.

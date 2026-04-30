@@ -95,6 +95,12 @@ namespace ClearFrost.Hardware
             }
         }
 
+        public Task<(bool Success, byte[] Bytes)> ReadBytesAsync(string address, ushort length)
+        {
+            LastError = "McpX 驱动暂不支持原始字节读取，请使用 Hsl 驱动读取 PLC 条码";
+            return Task.FromResult((false, Array.Empty<byte>()));
+        }
+
         public async Task<bool> WriteInt16Async(string address, short value)
         {
             try

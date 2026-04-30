@@ -37,6 +37,33 @@ public class PlcAddressNormalizerTests
 
         action.Should().Throw<ArgumentException>();
     }
+
+    [Theory]
+    [InlineData("DB15.DBB2", "DB15.DBB2", "DB15.2")]
+    [InlineData("DB15.2", "DB15.2", "DB15.2")]
+    [InlineData("db15.dbb2", "DB15.DBB2", "DB15.2")]
+    public void NormalizeByteAddress_Siemens条码地址支持Dbb写法(
+        string rawAddress,
+        string expectedNormalized,
+        string expectedHslAddress)
+    {
+        string normalized = PlcAddressNormalizer.NormalizeByteAddressOrThrow(rawAddress, PlcProtocolType.Siemens_S7);
+        string hslAddress = PlcAddressNormalizer.ToHslByteReadAddress(rawAddress, PlcProtocolType.Siemens_S7);
+
+        normalized.Should().Be(expectedNormalized);
+        hslAddress.Should().Be(expectedHslAddress);
+    }
+
+    [Theory]
+    [InlineData("M100")]
+    [InlineData("DB15.DBX2.0")]
+    [InlineData("DB15.DBB")]
+    public void NormalizeByteAddress_Siemens非法条码地址抛异常(string rawAddress)
+    {
+        var action = () => PlcAddressNormalizer.NormalizeByteAddressOrThrow(rawAddress, PlcProtocolType.Siemens_S7);
+
+        action.Should().Throw<ArgumentException>();
+    }
 }
 
 [Trait("Category", "PLC.Factory")]

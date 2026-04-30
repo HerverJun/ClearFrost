@@ -552,6 +552,7 @@
                         <option value="N6_screw">N6螺钉视觉检测</option>
                         <option value="W5_screw">W5螺钉视觉检测</option>
                         <option value="W6_screw">W6螺钉视觉检测</option>
+                        <option value="S7_barcode_aircon">S7空调条码视觉检测</option>
                     </select>
                     <p class="text-[9px] text-ink-400 mt-2 italic">选择后自动填充下方配置项，填充后仍可手动修改各参数</p>
                 </div>
@@ -616,6 +617,28 @@
                                 <input id="cfg-plc-result"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="102 或 D102">
                             </div>
+                            <label class="flex items-center gap-2 text-[10px] font-bold text-ink-500">
+                                <input id="cfg-plc-barcode-enabled" type="checkbox"
+                                    class="w-4 h-4 accent-celadon-500">
+                                启用 PLC 条码读取
+                            </label>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-[10px] text-ink-400 mb-1 block">条码地址</label>
+                                    <input id="cfg-plc-barcode-address"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="DB15.DBB2">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] text-ink-400 mb-1 block">条码长度</label>
+                                    <input id="cfg-plc-barcode-length" type="number" min="1" max="256" step="1"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="13">
+                                </div>
+                            </div>
+                            <label class="flex items-center gap-2 text-[10px] font-bold text-ink-500">
+                                <input id="cfg-plc-barcode-required" type="checkbox"
+                                    class="w-4 h-4 accent-celadon-500">
+                                条码为空时判 NG
+                            </label>
                             <p id="cfg-plc-address-help" class="text-[9px] text-ink-400 italic">
                                 三菱统一按 D 区保存；输入纯数字会自动规范成 D 区地址。
                             </p>

@@ -16,6 +16,9 @@ namespace ClearFrost.Core.Inspection
         public DateTimeOffset TriggerTime { get; init; } = DateTimeOffset.Now;
         public string TriggerSource { get; init; } = string.Empty;
         public int? TriggerSeq { get; init; }
+        public string ProductBarcode { get; set; } = string.Empty;
+        public bool BarcodeReadSucceeded { get; set; } = true;
+        public string BarcodeError { get; set; } = string.Empty;
         public int? ResultSeq { get; set; }
         public InspectionStage CurrentStage { get; set; } = InspectionStage.Unknown;
         public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;

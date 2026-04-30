@@ -417,6 +417,7 @@ function updatePlcAddressUi() {
     const protocolSelect = document.getElementById("cfg-plc-protocol");
     const triggerInput = document.getElementById("cfg-plc-trigger");
     const resultInput = document.getElementById("cfg-plc-result");
+    const barcodeInput = document.getElementById("cfg-plc-barcode-address");
     const helpEl = document.getElementById("cfg-plc-address-help");
     const siemensOptions = document.getElementById("cfg-plc-siemens-options");
     const protocol = protocolSelect?.value || "Mitsubishi_MC_ASCII";
@@ -425,6 +426,9 @@ function updatePlcAddressUi() {
 
     if (triggerInput) triggerInput.placeholder = hints.placeholderTrigger;
     if (resultInput) resultInput.placeholder = hints.placeholderResult;
+    if (barcodeInput) {
+        barcodeInput.placeholder = protocol === "Siemens_S7" ? "DB15.DBB2" : hints.placeholderTrigger;
+    }
     if (helpEl) helpEl.textContent = hints.helpText;
     if (siemensOptions) {
         siemensOptions.classList.toggle("hidden", protocol !== "Siemens_S7");
@@ -469,11 +473,28 @@ function validatePlcAddress(address, protocol) {
     return null;
 }
 
+function validatePlcByteAddress(address, protocol) {
+    const compact = getCompactPlcAddress(address);
+    if (!compact) {
+        return "PLC 字节地址不能为空";
+    }
+
+    if (protocol === "Siemens_S7") {
+        if (/^DB\d+\.(DBB)?\d+$/.test(compact)) return null;
+        return "西门子条码地址支持 DB15.DBB2 或 DB15.2";
+    }
+
+    return validatePlcAddress(address, protocol);
+}
+
 function validatePlcSettings() {
     const protocol = document.getElementById("cfg-plc-protocol")?.value || "";
     const driver = document.getElementById("cfg-plc-driver-provider")?.value || "";
     const triggerAddress = document.getElementById("cfg-plc-trigger")?.value || "";
     const resultAddress = document.getElementById("cfg-plc-result")?.value || "";
+    const barcodeEnabled = !!document.getElementById("cfg-plc-barcode-enabled")?.checked;
+    const barcodeAddress = document.getElementById("cfg-plc-barcode-address")?.value || "";
+    const barcodeLength = parseInt(document.getElementById("cfg-plc-barcode-length")?.value || "0", 10);
 
     if (driver === "McpX" && !protocol.startsWith("Mitsubishi")) {
         return "仅三菱协议支持 McpX 驱动库";
@@ -487,6 +508,17 @@ function validatePlcSettings() {
     const resultError = validatePlcAddress(resultAddress, protocol);
     if (resultError) {
         return `结果地址无效: ${resultError}`;
+    }
+
+    if (barcodeEnabled) {
+        const barcodeError = validatePlcByteAddress(barcodeAddress, protocol);
+        if (barcodeError) {
+            return `条码地址无效: ${barcodeError}`;
+        }
+
+        if (!Number.isFinite(barcodeLength) || barcodeLength < 1 || barcodeLength > 256) {
+            return "条码长度必须在 1 到 256 之间";
+        }
     }
 
     return null;
@@ -503,6 +535,10 @@ function populateSettings(data) {
         PlcPort: "cfg-plc-port",
         PlcTriggerAddress: "cfg-plc-trigger",
         PlcResultAddress: "cfg-plc-result",
+        EnablePlcBarcodeReading: "cfg-plc-barcode-enabled",
+        PlcBarcodeAddress: "cfg-plc-barcode-address",
+        PlcBarcodeLength: "cfg-plc-barcode-length",
+        PlcBarcodeRequired: "cfg-plc-barcode-required",
         PlcTriggerDelayMs: "cfg-plc-trigger-delay",
         PlcPollingIntervalMs: "cfg-plc-polling-interval",
         PlcOkValue: "cfg-plc-ok-value",
@@ -585,6 +621,10 @@ function saveSettings() {
         "cfg-plc-port": "PlcPort",
         "cfg-plc-trigger": "PlcTriggerAddress",
         "cfg-plc-result": "PlcResultAddress",
+        "cfg-plc-barcode-enabled": "EnablePlcBarcodeReading",
+        "cfg-plc-barcode-address": "PlcBarcodeAddress",
+        "cfg-plc-barcode-length": "PlcBarcodeLength",
+        "cfg-plc-barcode-required": "PlcBarcodeRequired",
         "cfg-plc-trigger-delay": "PlcTriggerDelayMs",
         "cfg-plc-polling-interval": "PlcPollingIntervalMs",
         "cfg-plc-ok-value": "PlcOkValue",
@@ -610,6 +650,7 @@ function saveSettings() {
         "PlcPort",
         "PlcTriggerDelayMs",
         "PlcPollingIntervalMs",
+        "PlcBarcodeLength",
         "PlcOkValue",
         "PlcNgValue",
         "PlcSiemensRack",
@@ -723,6 +764,25 @@ const PROJECT_PRESETS = {
         ExposureTime: 3500,
         Gain: 1.5,
     },
+    S7_barcode_aircon: {
+        name: "S7空调条码视觉检测",
+        PlcIp: "10.182.90.211",
+        PlcPort: 102,
+        PlcTriggerAddress: "DB1.555",
+        PlcResultAddress: "DB1.556",
+        PlcProtocol: "Siemens_S7",
+        PlcDriverProvider: "Hsl",
+        PlcSiemensCpuModel: "S1500",
+        EnablePlcBarcodeReading: true,
+        PlcBarcodeAddress: "DB15.DBB2",
+        PlcBarcodeLength: 13,
+        PlcBarcodeRequired: true,
+        CameraSerialNumber: "",
+        TargetLabel: "screw",
+        TargetCount: 4,
+        ExposureTime: 3500,
+        Gain: 1.5,
+    },
 };
 
 /**
@@ -744,6 +804,11 @@ function loadProjectPreset(presetId) {
     const plcResult = document.getElementById("cfg-plc-result");
     const plcProtocol = document.getElementById("cfg-plc-protocol");
     const plcDriverProvider = document.getElementById("cfg-plc-driver-provider");
+    const plcSiemensCpuModel = document.getElementById("cfg-plc-siemens-cpu-model");
+    const plcBarcodeEnabled = document.getElementById("cfg-plc-barcode-enabled");
+    const plcBarcodeAddress = document.getElementById("cfg-plc-barcode-address");
+    const plcBarcodeLength = document.getElementById("cfg-plc-barcode-length");
+    const plcBarcodeRequired = document.getElementById("cfg-plc-barcode-required");
     const plcTriggerDelay = document.getElementById("cfg-plc-trigger-delay");
     const plcPollingInterval = document.getElementById(
         "cfg-plc-polling-interval",
@@ -756,6 +821,16 @@ function loadProjectPreset(presetId) {
     if (plcProtocol) plcProtocol.value = preset.PlcProtocol;
     if (plcDriverProvider && preset.PlcDriverProvider)
         plcDriverProvider.value = preset.PlcDriverProvider;
+    if (plcSiemensCpuModel && preset.PlcSiemensCpuModel)
+        plcSiemensCpuModel.value = preset.PlcSiemensCpuModel;
+    if (plcBarcodeEnabled)
+        plcBarcodeEnabled.checked = !!preset.EnablePlcBarcodeReading;
+    if (plcBarcodeAddress)
+        plcBarcodeAddress.value = preset.PlcBarcodeAddress || "DB15.DBB2";
+    if (plcBarcodeLength)
+        plcBarcodeLength.value = preset.PlcBarcodeLength || 13;
+    if (plcBarcodeRequired)
+        plcBarcodeRequired.checked = preset.PlcBarcodeRequired !== false;
     if (plcTriggerDelay)
         plcTriggerDelay.value = preset.PlcTriggerDelayMs || 800;
     if (plcPollingInterval)

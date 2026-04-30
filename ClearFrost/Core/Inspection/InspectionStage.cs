@@ -12,6 +12,7 @@ namespace ClearFrost.Core.Inspection
     {
         Unknown,
         Triggered,
+        BarcodeRead,
         Capture,
         Inference,
         RoiFilter,

@@ -82,10 +82,17 @@ namespace ClearFrost
                     new PlcMonitoringOptions
                     {
                         ProtocolMode = _appConfig.PlcProtocolMode,
-                        TriggerSeqAddress = _appConfig.PlcTriggerSeqAddress
+                        TriggerSeqAddress = _appConfig.PlcTriggerSeqAddress,
+                        EnableBarcodeReading = _appConfig.EnablePlcBarcodeReading,
+                        BarcodeAddress = _appConfig.PlcBarcodeAddress,
+                        BarcodeLength = _appConfig.PlcBarcodeLength,
+                        BarcodeEncoding = _appConfig.PlcBarcodeEncoding,
+                        BarcodeRequired = _appConfig.PlcBarcodeRequired
                     });
                 await _uiController.LogToFrontend(
-                    $"✅ PLC连接成功，开始监听 {triggerAddress} ({_appConfig.PlcProtocolMode})", "success");
+                    $"✅ PLC连接成功，开始监听 {triggerAddress} ({_appConfig.PlcProtocolMode})" +
+                    (_appConfig.EnablePlcBarcodeReading ? $"，条码地址 {_appConfig.PlcBarcodeAddress}" : ""),
+                    "success");
                 WriteHealthSnapshotLog("PLC连接成功");
             }
             else

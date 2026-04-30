@@ -71,6 +71,7 @@ public class SqliteDatabaseServiceTests
             GetColumns(dbPath).Should().Contain(new[]
             {
                 "InspectionId",
+                "ProductBarcode",
                 "TraceStatus",
                 "ImagePath",
                 "ErrorStage",
@@ -107,6 +108,7 @@ public class SqliteDatabaseServiceTests
                 IsQualified = false,
                 InspectionId = "CF-20260429-153012000-MANUAL-000001",
                 TriggerSource = "手动",
+                ProductBarcode = "JC00075170666",
                 TraceStatus = TraceStatus.Partial,
                 ImagePath = @"C:\Trace\FAIL_CF-20260429-153012000-MANUAL-000001.jpg",
                 ErrorStage = "Capture",
@@ -130,6 +132,7 @@ public class SqliteDatabaseServiceTests
             records.Should().ContainSingle();
             DetectionRecord record = records[0];
             record.InspectionId.Should().Be("CF-20260429-153012000-MANUAL-000001");
+            record.ProductBarcode.Should().Be("JC00075170666");
             record.TraceStatus.Should().Be(TraceStatus.Partial);
             record.ErrorCode.Should().Be("CaptureFrameFailed");
             record.ImagePath.Should().Contain("FAIL_CF-20260429");

@@ -12,5 +12,10 @@ namespace ClearFrost.Hardware
     {
         public PlcProtocolMode ProtocolMode { get; init; } = PlcProtocolMode.Legacy;
         public string TriggerSeqAddress { get; init; } = string.Empty;
+        public bool EnableBarcodeReading { get; init; }
+        public string BarcodeAddress { get; init; } = string.Empty;
+        public int BarcodeLength { get; init; } = 13;
+        public string BarcodeEncoding { get; init; } = "ASCII";
+        public bool BarcodeRequired { get; init; } = true;
     }
 }

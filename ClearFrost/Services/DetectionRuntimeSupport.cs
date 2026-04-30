@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using ClearFrost.Config;
 using ClearFrost.Core.Inspection;
 using ClearFrost.Interfaces;
 using OpenCvSharp;
@@ -24,6 +25,49 @@ namespace ClearFrost.Services
     internal readonly record struct DetectionTriggerDecision(
         bool Accepted,
         DetectionDropReason? DropReason);
+
+    internal static class PlcBarcodeDetectionGate
+    {
+        public static bool ShouldBlockDetection(
+            AppConfig config,
+            InspectionContext context,
+            out string errorCode,
+            out string errorMessage)
+        {
+            errorCode = string.Empty;
+            errorMessage = string.Empty;
+
+            if (config == null || context == null)
+            {
+                return false;
+            }
+
+            bool isPlcTrigger = string.Equals(context.TriggerSource, "PLC", StringComparison.OrdinalIgnoreCase);
+            if (!config.EnablePlcBarcodeReading || !config.PlcBarcodeRequired || !isPlcTrigger)
+            {
+                return false;
+            }
+
+            if (!context.BarcodeReadSucceeded)
+            {
+                errorCode = "BarcodeReadFailed";
+                errorMessage = string.IsNullOrWhiteSpace(context.BarcodeError)
+                    ? "PLC 条码读取失败"
+                    : $"PLC 条码读取失败: {context.BarcodeError}";
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(context.ProductBarcode) ||
+                string.Equals(context.ProductBarcode.Trim(), "null", StringComparison.OrdinalIgnoreCase))
+            {
+                errorCode = "NoBarcode";
+                errorMessage = "PLC 条码为空";
+                return true;
+            }
+
+            return false;
+        }
+    }
 
     internal sealed class DetectionTriggerGate : IDisposable
     {
@@ -112,6 +156,7 @@ namespace ClearFrost.Services
         public string InspectionId { get; set; } = string.Empty;
         public string TriggerSource { get; init; } = string.Empty;
         public int? TriggerSeq { get; init; }
+        public string ProductBarcode { get; init; } = string.Empty;
         public int? ResultSeq { get; init; }
         public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;
         public string ImagePath { get; set; } = string.Empty;
@@ -149,6 +194,7 @@ namespace ClearFrost.Services
                 InspectionId = InspectionId,
                 TriggerSource = TriggerSource,
                 TriggerSeq = TriggerSeq,
+                ProductBarcode = ProductBarcode,
                 ResultSeq = ResultSeq,
                 TraceStatus = TraceStatus,
                 ImagePath = ImagePath,

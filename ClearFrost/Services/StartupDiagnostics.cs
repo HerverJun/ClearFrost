@@ -152,6 +152,15 @@ namespace ClearFrost.Services
                     PlcAddressNormalizer.NormalizeOrThrow(address, protocolType);
                 }
 
+                if (config.EnablePlcBarcodeReading)
+                {
+                    PlcAddressNormalizer.NormalizeByteAddressOrThrow(config.PlcBarcodeAddress, protocolType);
+                    if (config.PlcBarcodeLength <= 0)
+                    {
+                        throw new InvalidOperationException("PLC 条码读取长度必须大于 0");
+                    }
+                }
+
                 return Pass("PLC address config", "PLC addresses are valid.", config.PlcProtocolMode.ToString(), isBlocking: true);
             }
             catch (Exception ex)

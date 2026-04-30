@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Hardware;
@@ -189,6 +190,78 @@ public class PlcServiceRecoveryTests
         device.Writes.Should().Contain(("D555", (short)0));
     }
 
+    [Fact]
+    public async Task MonitoringLoop_启用条码读取时上下文携带条码()
+    {
+        var service = new PlcService();
+        using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        var device = new FakePlcDevice(
+            isConnected: true,
+            readResultFactory: address => (true, (short)(address == "D555" ? 1 : 0), string.Empty),
+            readBytesResultFactory: (address, length) =>
+                (true, Encoding.ASCII.GetBytes("JC00075170666"), string.Empty));
+        PlcTriggerContext? receivedContext = null;
+        bool legacyTriggered = false;
+        service.TriggerReceived += () => legacyTriggered = true;
+        service.TriggerContextReceived += context =>
+        {
+            receivedContext = context;
+            cancellationTokenSource.Cancel();
+        };
+
+        PlcTestReflectionHelper.SetPrivateField(service, "_plcDevice", device);
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastProtocolMode", PlcProtocolMode.Legacy);
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastBarcodeReadingEnabled", true);
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastBarcodeAddress", "DB15.DBB2");
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastBarcodeLength", 13);
+        PlcTestReflectionHelper.SetAutoProperty(service, "IsConnected", true);
+
+        await InvokeMonitoringLoopAsync(service, "D555", 50, 0, cancellationTokenSource.Token);
+
+        legacyTriggered.Should().BeFalse();
+        receivedContext.Should().NotBeNull();
+        receivedContext!.ProductBarcode.Should().Be("JC00075170666");
+        receivedContext.BarcodeReadSucceeded.Should().BeTrue();
+        receivedContext.BarcodeError.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0, 0, 0, 0 }, "")]
+    [InlineData(new byte[] { 78, 117, 108, 108, 0, 0 }, "")]
+    public async Task ReadAsciiStringAsync_空条码解码为空(byte[] bytes, string expected)
+    {
+        var service = new PlcService();
+        var device = new FakePlcDevice(
+            isConnected: true,
+            readBytesResultFactory: (address, length) => (true, bytes, string.Empty));
+
+        PlcTestReflectionHelper.SetPrivateField(service, "_plcDevice", device);
+        PlcTestReflectionHelper.SetAutoProperty(service, "IsConnected", true);
+
+        PlcStringReadResult result = await service.ReadAsciiStringAsync("DB15.DBB2", 13);
+
+        result.Success.Should().BeTrue();
+        result.Text.Should().Be(expected);
+        result.IsEmpty.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ReadAsciiStringAsync_读取失败返回错误()
+    {
+        var service = new PlcService();
+        var device = new FakePlcDevice(
+            isConnected: true,
+            readBytesResultFactory: (address, length) => (false, Array.Empty<byte>(), "read failed"));
+
+        PlcTestReflectionHelper.SetPrivateField(service, "_plcDevice", device);
+        PlcTestReflectionHelper.SetAutoProperty(service, "IsConnected", true);
+
+        PlcStringReadResult result = await service.ReadAsciiStringAsync("DB15.DBB2", 13);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("read failed");
+    }
+
     private static async Task InvokeMonitoringLoopAsync(
         PlcService service,
         string triggerAddress,
@@ -268,15 +341,18 @@ internal sealed class FakePlcDevice : IPlcDevice
 {
     private readonly Action? _onRead;
     private readonly Func<string, (bool Success, short Value, string Error)>? _readResultFactory;
+    private readonly Func<string, ushort, (bool Success, byte[] Bytes, string Error)>? _readBytesResultFactory;
 
     public FakePlcDevice(
         bool isConnected,
         Action? onRead = null,
-        Func<string, (bool Success, short Value, string Error)>? readResultFactory = null)
+        Func<string, (bool Success, short Value, string Error)>? readResultFactory = null,
+        Func<string, ushort, (bool Success, byte[] Bytes, string Error)>? readBytesResultFactory = null)
     {
         IsConnected = isConnected;
         _onRead = onRead;
         _readResultFactory = readResultFactory;
+        _readBytesResultFactory = readBytesResultFactory;
     }
 
     public bool DisconnectCalled { get; private set; }
@@ -313,6 +389,21 @@ internal sealed class FakePlcDevice : IPlcDevice
         }
 
         return Task.FromResult((result.Success, result.Value));
+    }
+
+    public Task<(bool Success, byte[] Bytes)> ReadBytesAsync(string address, ushort length)
+    {
+        _onRead?.Invoke();
+
+        var result = _readBytesResultFactory?.Invoke(address, length) ??
+            (true, Array.Empty<byte>(), string.Empty);
+        LastError = result.Error;
+        if (!result.Success)
+        {
+            IsConnected = false;
+        }
+
+        return Task.FromResult((result.Success, result.Bytes));
     }
 
     public Task<bool> WriteInt16Async(string address, short value)

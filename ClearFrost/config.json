@@ -12,6 +12,11 @@
     "PlcSiemensCpuModel": "S1200",
     "PlcSiemensRack": 0,
     "PlcSiemensSlot": 2,
+    "EnablePlcBarcodeReading": false,
+    "PlcBarcodeAddress": "DB15.DBB2",
+    "PlcBarcodeLength": 13,
+    "PlcBarcodeEncoding": "ASCII",
+    "PlcBarcodeRequired": true,
     "Cameras": [
         {
             "Id": "legacy_cam",
