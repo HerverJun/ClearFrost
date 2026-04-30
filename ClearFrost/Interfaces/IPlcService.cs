@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: IPlcService.cs
 // 描述:   PLC 通讯服务接口
 //
@@ -29,6 +29,11 @@ namespace ClearFrost.Interfaces
         /// 收到触发信号事件
         /// </summary>
         event Action? TriggerReceived;
+
+        /// <summary>
+        /// 收到带上下文的触发信号事件。
+        /// </summary>
+        event Action<PlcTriggerContext>? TriggerContextReceived;
 
         /// <summary>
         /// 错误发生事件
@@ -74,7 +79,11 @@ namespace ClearFrost.Interfaces
         /// <param name="triggerAddress">触发地址</param>
         /// <param name="pollingIntervalMs">轮询间隔 (毫秒)</param>
         /// <param name="triggerDelayMs">触发后延迟 (毫秒)</param>
-        void StartMonitoring(string triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800);
+        void StartMonitoring(
+            string triggerAddress,
+            int pollingIntervalMs = 500,
+            int triggerDelayMs = 800,
+            PlcMonitoringOptions? options = null);
 
         /// <summary>
         /// 停止触发信号监听

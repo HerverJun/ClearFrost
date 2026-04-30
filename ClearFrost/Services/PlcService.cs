@@ -37,6 +37,8 @@ namespace ClearFrost.Services
         private string _lastIp = "127.0.0.1";
         private int _lastPort = 0;
         private string _lastTriggerAddress = string.Empty;
+        private PlcProtocolMode _lastProtocolMode = PlcProtocolMode.Legacy;
+        private string _lastTriggerSeqAddress = string.Empty;
         private string _lastSiemensCpuModel = "S1200";
         private int _lastSiemensRack;
         private int _lastSiemensSlot = 2;
@@ -52,6 +54,7 @@ namespace ClearFrost.Services
 
         public event Action<bool>? ConnectionChanged;
         public event Action? TriggerReceived;
+        public event Action<PlcTriggerContext>? TriggerContextReceived;
         public event Action<string>? ErrorOccurred;
 
         #endregion
@@ -174,10 +177,15 @@ namespace ClearFrost.Services
 
         #region 监听功能
 
-        public void StartMonitoring(string triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800)
+        public void StartMonitoring(
+            string triggerAddress,
+            int pollingIntervalMs = 500,
+            int triggerDelayMs = 800,
+            PlcMonitoringOptions? options = null)
         {
             if (_monitoringTask != null && !_monitoringTask.IsCompleted) return;
 
+            options ??= new PlcMonitoringOptions();
             _lastTriggerAddress = triggerAddress ?? string.Empty;
             if (string.IsNullOrWhiteSpace(_lastTriggerAddress))
             {
@@ -188,6 +196,8 @@ namespace ClearFrost.Services
 
             _lastPollingIntervalMs = Math.Max(50, pollingIntervalMs);
             _lastTriggerDelayMs = Math.Max(0, triggerDelayMs);
+            _lastProtocolMode = options.ProtocolMode;
+            _lastTriggerSeqAddress = options.TriggerSeqAddress ?? string.Empty;
             Interlocked.Exchange(ref _lastAcceptedTriggerTicks, 0);
 
             _monitoringCts = new CancellationTokenSource();
@@ -198,7 +208,7 @@ namespace ClearFrost.Services
                 await MonitoringLoop(_lastTriggerAddress, _lastPollingIntervalMs, _lastTriggerDelayMs, token);
             }, token);
 
-            Debug.WriteLine($"[PlcService] 开始监听触发地址: {_lastTriggerAddress}, 轮询间隔: {_lastPollingIntervalMs}ms, 触发延迟: {_lastTriggerDelayMs}ms");
+            Debug.WriteLine($"[PlcService] 开始监听触发地址: {_lastTriggerAddress}, 轮询间隔: {_lastPollingIntervalMs}ms, 触发延迟: {_lastTriggerDelayMs}ms, 模式: {_lastProtocolMode}");
         }
 
         public void StopMonitoring()
@@ -294,6 +304,11 @@ namespace ClearFrost.Services
                     if (value == 1)
                     {
                         Debug.WriteLine($"[PlcService] 🎯 检测到触发信号! 地址:{address} 值:{value}");
+                        int? triggerSeq = null;
+                        if (_lastProtocolMode == PlcProtocolMode.HandshakeV1)
+                        {
+                            triggerSeq = await TryReadTriggerSeqAsync(plc);
+                        }
 
                         // 收到触发信号，复位
                         bool resetSuccess = await plc.WriteInt16Async(address, 0);
@@ -314,9 +329,25 @@ namespace ClearFrost.Services
                         await Task.Delay(triggerDelayMs, token);
 
                         // 触发事件通知
-                        Debug.WriteLine("[PlcService] 📤 触发 TriggerReceived 事件...");
-                        TriggerReceived?.Invoke();
-                        Debug.WriteLine("[PlcService] ✅ TriggerReceived 事件已发送");
+                        if (_lastProtocolMode == PlcProtocolMode.HandshakeV1)
+                        {
+                            var context = new PlcTriggerContext
+                            {
+                                TriggerSource = "PLC",
+                                TriggerSeq = triggerSeq,
+                                TriggerTime = DateTimeOffset.Now
+                            };
+
+                            Debug.WriteLine($"[PlcService] 📤 触发 TriggerContextReceived 事件: TriggerSeq={triggerSeq?.ToString() ?? "-"}");
+                            TriggerContextReceived?.Invoke(context);
+                            Debug.WriteLine("[PlcService] ✅ TriggerContextReceived 事件已发送");
+                        }
+                        else
+                        {
+                            Debug.WriteLine("[PlcService] 📤 触发 TriggerReceived 事件...");
+                            TriggerReceived?.Invoke();
+                            Debug.WriteLine("[PlcService] ✅ TriggerReceived 事件已发送");
+                        }
                     }
 
                     await Task.Delay(pollingIntervalMs, token);
@@ -514,6 +545,33 @@ namespace ClearFrost.Services
             finally
             {
                 _isConnecting = false;
+            }
+        }
+
+        private async Task<int?> TryReadTriggerSeqAsync(IPlcDevice plc)
+        {
+            if (string.IsNullOrWhiteSpace(_lastTriggerSeqAddress))
+            {
+                return null;
+            }
+
+            try
+            {
+                var (success, value) = await plc.ReadInt16Async(_lastTriggerSeqAddress);
+                if (!success)
+                {
+                    LastError = plc.LastError;
+                    ErrorOccurred?.Invoke($"读取 TriggerSeq 失败: {LastError}");
+                    return null;
+                }
+
+                return value;
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                ErrorOccurred?.Invoke($"读取 TriggerSeq 异常: {ex.Message}");
+                return null;
             }
         }
 

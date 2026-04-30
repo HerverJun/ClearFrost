@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -121,6 +122,73 @@ public class PlcServiceRecoveryTests
         service.LastError.Should().NotBeNullOrWhiteSpace();
     }
 
+    [Fact]
+    public async Task MonitoringLoop_Legacy模式仍触发旧事件()
+    {
+        var service = new PlcService();
+        using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        var device = new FakePlcDevice(
+            isConnected: true,
+            readResultFactory: address => (true, (short)(address == "D555" ? 1 : 0), string.Empty));
+        bool legacyTriggered = false;
+        bool contextTriggered = false;
+        service.TriggerReceived += () =>
+        {
+            legacyTriggered = true;
+            cancellationTokenSource.Cancel();
+        };
+        service.TriggerContextReceived += _ => contextTriggered = true;
+
+        PlcTestReflectionHelper.SetPrivateField(service, "_plcDevice", device);
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastProtocolMode", PlcProtocolMode.Legacy);
+        PlcTestReflectionHelper.SetAutoProperty(service, "IsConnected", true);
+
+        await InvokeMonitoringLoopAsync(service, "D555", 50, 0, cancellationTokenSource.Token);
+
+        legacyTriggered.Should().BeTrue();
+        contextTriggered.Should().BeFalse();
+        device.Writes.Should().Contain(("D555", (short)0));
+    }
+
+    [Fact]
+    public async Task MonitoringLoop_HandshakeV1读取TriggerSeq并触发上下文事件()
+    {
+        var service = new PlcService();
+        using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        var device = new FakePlcDevice(
+            isConnected: true,
+            readResultFactory: address =>
+            {
+                return address switch
+                {
+                    "D555" => (true, (short)1, string.Empty),
+                    "D557" => (true, (short)42, string.Empty),
+                    _ => (true, (short)0, string.Empty)
+                };
+            });
+        PlcTriggerContext? receivedContext = null;
+        bool legacyTriggered = false;
+        service.TriggerReceived += () => legacyTriggered = true;
+        service.TriggerContextReceived += context =>
+        {
+            receivedContext = context;
+            cancellationTokenSource.Cancel();
+        };
+
+        PlcTestReflectionHelper.SetPrivateField(service, "_plcDevice", device);
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastProtocolMode", PlcProtocolMode.HandshakeV1);
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastTriggerSeqAddress", "D557");
+        PlcTestReflectionHelper.SetAutoProperty(service, "IsConnected", true);
+
+        await InvokeMonitoringLoopAsync(service, "D555", 50, 0, cancellationTokenSource.Token);
+
+        legacyTriggered.Should().BeFalse();
+        receivedContext.Should().NotBeNull();
+        receivedContext!.TriggerSource.Should().Be("PLC");
+        receivedContext.TriggerSeq.Should().Be(42);
+        device.Writes.Should().Contain(("D555", (short)0));
+    }
+
     private static async Task InvokeMonitoringLoopAsync(
         PlcService service,
         string triggerAddress,
@@ -213,6 +281,8 @@ internal sealed class FakePlcDevice : IPlcDevice
 
     public bool DisconnectCalled { get; private set; }
 
+    public List<(string Address, short Value)> Writes { get; } = new List<(string Address, short Value)>();
+
     public string LastError { get; private set; } = string.Empty;
 
     public bool IsConnected { get; private set; }
@@ -247,6 +317,7 @@ internal sealed class FakePlcDevice : IPlcDevice
 
     public Task<bool> WriteInt16Async(string address, short value)
     {
+        Writes.Add((address, value));
         return Task.FromResult(true);
     }
 }

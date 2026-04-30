@@ -68,17 +68,30 @@ namespace ClearFrost
 
             if (success)
             {
+                if (!await EnsureStartupReadyForProductionAsync("PLC触发监听"))
+                {
+                    await _uiController.LogToFrontend("PLC已连接，但启动诊断未通过，未启动触发监听", "warning");
+                    return;
+                }
+
                 // 启动触发监控
                 _plcService.StartMonitoring(
                     triggerAddress,
                     _appConfig.PlcPollingIntervalMs,
-                    _appConfig.PlcTriggerDelayMs);
+                    _appConfig.PlcTriggerDelayMs,
+                    new PlcMonitoringOptions
+                    {
+                        ProtocolMode = _appConfig.PlcProtocolMode,
+                        TriggerSeqAddress = _appConfig.PlcTriggerSeqAddress
+                    });
                 await _uiController.LogToFrontend(
-                    $"✅ PLC连接成功，开始监听 {triggerAddress}", "success");
+                    $"✅ PLC连接成功，开始监听 {triggerAddress} ({_appConfig.PlcProtocolMode})", "success");
+                WriteHealthSnapshotLog("PLC连接成功");
             }
             else
             {
                 string err = _plcService.LastError ?? "未知错误";
+                RecordHealthError("PLC", $"PLC连接失败: {err}");
                 await _uiController.LogToFrontend(
                     $"❌ PLC连接失败: {err}（协议: {protocol}, 地址: {ip}:{port}）", "error");
             }
