@@ -313,6 +313,22 @@ namespace ClearFrost
 
         private async Task btnCapture_LogicAsync(string triggerSource = "手动", int? triggerSeq = null)
         {
+            if (!await EnsureStartupReadyForProductionAsync("检测"))
+            {
+                return;
+            }
+
+            if (!await EnsureCameraReadyForManualInspectionAsync(triggerSource))
+            {
+                return;
+            }
+
+            DetectionTriggerDecision decision = await TryStartDetectionCycleAsync(triggerSource, null);
+            if (!decision.Accepted)
+            {
+                return;
+            }
+
             DateTimeOffset triggerTime = DateTimeOffset.Now;
             string inspectionId = InspectionIdGenerator.Next(triggerSource, triggerTime);
             var context = new InspectionContext
@@ -326,23 +342,6 @@ namespace ClearFrost
             };
 
             DiagLog($"▶ [{triggerSource}] [{inspectionId}] btnCapture_LogicAsync 进入, 线程ID={Thread.CurrentThread.ManagedThreadId}");
-            await _uiController.SendInspectionUpdate(
-                context,
-                message: "检测已触发",
-                usedModelName: _detectionService.CurrentModelName,
-                barcodeEnabled: _appConfig.BarcodeEnabled);
-
-            if (!await EnsureStartupReadyForProductionAsync("检测", inspectionId))
-            {
-                return;
-            }
-
-            DetectionTriggerDecision decision = await TryStartDetectionCycleAsync(triggerSource, inspectionId);
-            if (!decision.Accepted)
-            {
-                return;
-            }
-
             DetectionCycleRequest request = new DetectionCycleRequest(triggerSource, inspectionId, triggerSeq, context);
             var totalSw = Stopwatch.StartNew();
             long captureMs = 0;
@@ -358,6 +357,12 @@ namespace ClearFrost
 
             try
             {
+                await _uiController.SendInspectionUpdate(
+                    context,
+                    message: "检测已触发",
+                    usedModelName: _detectionService.CurrentModelName,
+                    barcodeEnabled: _appConfig.BarcodeEnabled);
+
                 (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, finalQualified, finalResultCount, finalAttemptCount) =
                     await ExecuteDetectionCycleAsync(request, _appShutdownCts.Token);
             }
@@ -405,7 +410,7 @@ namespace ClearFrost
             }
         }
 
-        private async Task<DetectionTriggerDecision> TryStartDetectionCycleAsync(string triggerSource, string inspectionId)
+        private async Task<DetectionTriggerDecision> TryStartDetectionCycleAsync(string triggerSource, string? inspectionId)
         {
             DetectionTriggerDecision decision = await _detectionGate.TryEnterAsync(IsShutdownInProgress);
             if (decision.Accepted)
@@ -416,24 +421,98 @@ namespace ClearFrost
             DetectionDropReason reason = decision.DropReason ?? DetectionDropReason.Busy;
             DetectionDropSnapshot snapshot = _detectionGate.GetSnapshot();
             string summary = $"busy={snapshot.BusyCount}, debounce={snapshot.DebounceCount}, shutdown={snapshot.ShutdownCount}";
+            string idSuffix = string.IsNullOrWhiteSpace(inspectionId) ? string.Empty : $"({inspectionId})";
 
             switch (reason)
             {
                 case DetectionDropReason.Shutdown:
-                    DiagLog($"⚠ [{triggerSource}] [{inspectionId}] 软件正在退出，已忽略检测请求 | {summary}");
-                    await _uiController.LogToFrontend($"软件正在退出，已忽略检测请求({inspectionId})", "warning");
+                    DiagLog($"⚠ [{triggerSource}] [{inspectionId ?? "-"}] 软件正在退出，已忽略检测请求 | {summary}");
+                    await _uiController.LogToFrontend($"软件正在退出，已忽略检测请求{idSuffix}", "warning");
                     break;
                 case DetectionDropReason.Debounce:
-                    DiagLog($"⚠ [{triggerSource}] [{inspectionId}] 触发命中防抖窗口，已忽略 | {summary}");
-                    await _uiController.LogToFrontend($"检测触发过于频繁，已忽略本次请求({inspectionId})", "warning");
+                    DiagLog($"⚠ [{triggerSource}] [{inspectionId ?? "-"}] 触发命中防抖窗口，已忽略 | {summary}");
+                    await _uiController.LogToFrontend($"检测触发过于频繁，已忽略本次请求{idSuffix}", "warning");
                     break;
                 default:
-                    DiagLog($"⚠ [{triggerSource}] [{inspectionId}] 信号量已被占用，跳过 | {summary}");
-                    await _uiController.LogToFrontend($"检测正在进行中，请稍候...({inspectionId})", "warning");
+                    DiagLog($"⚠ [{triggerSource}] [{inspectionId ?? "-"}] 信号量已被占用，跳过 | {summary}");
+                    await _uiController.LogToFrontend($"检测正在进行中，请稍候...{idSuffix}", "warning");
                     break;
             }
 
             return decision;
+        }
+
+        private async Task<bool> EnsureCameraReadyForManualInspectionAsync(string triggerSource)
+        {
+            if (!IsManualTriggerSource(triggerSource))
+            {
+                return true;
+            }
+
+            if (IsCameraReadyForInspection(out string message))
+            {
+                return true;
+            }
+
+            RecordHealthError("Camera", $"手动检测已阻止: {message}");
+            await _uiController.UpdateConnection("cam", false);
+            await _uiController.SendUiCommand("toast", new
+            {
+                message,
+                type = "warning",
+                durationMs = 2600
+            });
+            await _uiController.LogToFrontend($"手动拍照已阻止: {message}", "warning");
+            await SendHealthSnapshotToFrontendAsync();
+            return false;
+        }
+
+        private bool IsCameraReadyForInspection(out string message)
+        {
+            if (_isCameraOpening)
+            {
+                message = "相机正在连接中，请稍候";
+                return false;
+            }
+
+            if (_cameraManager.ActiveCamera == null)
+            {
+                message = "未配置活动相机，请先在设置中配置相机";
+                return false;
+            }
+
+            if (!_cameraService.IsOpen)
+            {
+                message = "未连接相机，请先启动系统并确认相机连接成功";
+                return false;
+            }
+
+            bool isGrabbing;
+            try
+            {
+                isGrabbing = _cameraService.IsGrabbing;
+            }
+            catch (Exception ex)
+            {
+                message = $"相机状态读取失败: {ex.Message}";
+                return false;
+            }
+
+            if (!isGrabbing)
+            {
+                message = "相机未处于采集状态，请重新启动系统";
+                return false;
+            }
+
+            message = string.Empty;
+            return true;
+        }
+
+        private static bool IsManualTriggerSource(string triggerSource)
+        {
+            return string.IsNullOrWhiteSpace(triggerSource)
+                || triggerSource.Contains("手动", StringComparison.OrdinalIgnoreCase)
+                || triggerSource.Contains("MANUAL", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<(long CaptureMs, long InferenceMs, long RoiFilterMs, long PlcWriteMs, long RenderToUiMs, long SaveQueueMs, long DbWriteMs, bool FinalQualified, int FinalResultCount, int AttemptCount)> ExecuteDetectionCycleAsync(

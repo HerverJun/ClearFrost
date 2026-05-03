@@ -101,8 +101,7 @@
         setText("ctx-inference-ms", inspection.inferenceMs, "0");
         setText("ctx-plc-write-ms", inspection.plcWriteMs, "0");
         setText("camera-phase", inspection.currentStage, "IDLE");
-        const sn = inspection.productBarcode || inspection.inspectionId || "-";
-        setText("feed-sn", `SN: ${sn}`, "SN: -");
+        setText("feed-sn", getTraceIdentityLabel(inspection), "条码: -");
         setText("feed-inspection-id", inspection.inspectionId ? `ID ${inspection.inspectionId}` : "NO INSPECTION", "NO INSPECTION");
         setText(
             "feed-trigger-seq",
@@ -110,6 +109,15 @@
             "T- / R-",
         );
         renderBarcode(inspection);
+    }
+
+    function getTraceIdentityLabel(item) {
+        if (item?.productBarcode) return `SN: ${item.productBarcode}`;
+        if (item?.barcodeEnabled === true) {
+            return item?.barcodeReadSucceeded === false ? "条码未读取" : "等待条码";
+        }
+        if (item?.inspectionId) return `ID: ${item.inspectionId}`;
+        return "条码: -";
     }
 
     function renderCameraResult(state) {
@@ -150,7 +158,8 @@
             const isOk = item.isOk === true;
             const statusClass = isOk ? "ok" : item.isOk === false ? "ng" : "run";
             const statusText = isOk ? "OK" : item.isOk === false ? "NG" : "RUN";
-            const title = item.productBarcode || item.inspectionId || "-";
+            const identity = getTraceIdentityLabel(item);
+            const title = item.productBarcode || item.inspectionId || item.barcodeError || "-";
             const detail = [
                 item.triggerSource || "-",
                 item.triggerSeq !== undefined && item.triggerSeq !== null ? `T${item.triggerSeq}` : null,
@@ -164,7 +173,7 @@
                     <span class="cf-flow-time">${escapeHtml(item.time)}</span>
                     <span class="cf-flow-status">${statusText}</span>
                 </div>
-                <div class="cf-flow-sn" title="${escapeHtml(title)}">SN: ${escapeHtml(title)}</div>
+                <div class="cf-flow-sn" title="${escapeHtml(title)}">${escapeHtml(identity)}</div>
                 <div class="cf-flow-detail">${escapeHtml(detail || item.currentStage || "-")}</div>
             </div>`;
         }).join("");
@@ -173,7 +182,7 @@
     function renderRecentNg(state) {
         const inspection = state.inspection || {};
         if (inspection.isOk !== false) return;
-        setText("recent-ng-title", inspection.productBarcode || inspection.inspectionId || "NG 样本");
+        setText("recent-ng-title", getTraceIdentityLabel(inspection) || "NG 样本");
         setText("recent-ng-detail", `${inspection.errorCode || "NG"} / ${inspection.totalMs || 0}ms / ${inspection.usedModelName || "-"}`);
     }
 
@@ -361,6 +370,15 @@
         if (type === "cam") setText("header-camera-text", isConnected ? "CAM OPEN" : "CAM CLOSED");
         if (type === "plc") setText("header-plc-text", isConnected ? "PLC ONLINE" : "PLC OFFLINE");
 
+        if (type === "cam" && !isConnected && openCameraPending) {
+            openCameraPending = false;
+            setOpenCameraButtonBusy(false);
+            if (openCameraUnlockTimer) {
+                window.clearTimeout(openCameraUnlockTimer);
+                openCameraUnlockTimer = null;
+            }
+        }
+
         if (type === "cam" && isConnected && openCameraPending) {
             openCameraPending = false;
             setOpenCameraButtonBusy(false);
@@ -411,18 +429,20 @@
         setOpenCameraButtonBusy(true);
         if (openCameraUnlockTimer) window.clearTimeout(openCameraUnlockTimer);
         openCameraUnlockTimer = window.setTimeout(() => {
+            openCameraPending = false;
             setOpenCameraButtonBusy(false);
             openCameraUnlockTimer = null;
         }, 1500);
 
         window.sendCommand("open_camera");
         showToast("打开相机指令已发送", "info", 1200);
+        return true;
     }
 
     function startSystem() {
-        requestOpenCamera();
-        window.sendCommand("connect_plc");
-        showToast("启动系统指令已发送", "info", 1400);
+        if (requestOpenCamera()) {
+            showToast("启动系统指令已发送", "info", 1400);
+        }
     }
 
     function updatePreviewImage({ url, base64, frameId }) {

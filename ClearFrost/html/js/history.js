@@ -234,10 +234,10 @@
         }
 
         const baseUrl = `http://ng-images.local/Unqualified/${window.currentNGDate}/${window.currentNGHour}/`;
-        images.slice(0, 300).forEach((filename, index) => {
+        images.slice(0, 300).forEach((filename) => {
             const url = baseUrl + encodeURIComponent(filename);
             const card = document.createElement("div");
-            const serial = String(filename).replace(/\.[^.]+$/, "") || `A839-XYZ-${String(index + 1).padStart(3, "0")}`;
+            const traceName = String(filename).replace(/\.[^.]+$/, "") || "-";
             const date = window.currentNGDate || "-";
             const hour = window.currentNGHour ? `${window.currentNGHour}:00` : "--:--";
             card.className = "cf-trace-card";
@@ -247,7 +247,7 @@
                 </div>
                 <div class="cf-trace-card-body">
                     <div>
-                        <p>SN: ${escapeHtml(serial)}</p>
+                        <p>文件: ${escapeHtml(traceName)}</p>
                         <p>${escapeHtml(date)} ${escapeHtml(hour)}</p>
                     </div>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">

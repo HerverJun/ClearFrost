@@ -190,11 +190,19 @@ namespace ClearFrost
                 else if (!string.IsNullOrWhiteSpace(errorMessage))
                 {
                     await _uiController.LogToFrontend($"相机开启异常: {errorMessage}", "error");
+                    RecordHealthError("Camera", $"相机未连接: {errorMessage}");
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = $"未连接相机: {errorMessage}",
+                        type = "warning",
+                        durationMs = 3000
+                    });
                 }
 
                 if (!success)
                 {
                     await _uiController.UpdateConnection("cam", false);
+                    await SendHealthSnapshotToFrontendAsync();
                 }
             }
             catch (OperationCanceledException)
