@@ -38,6 +38,7 @@ namespace ClearFrost
                     SafeFireAndForget(_uiController.LogToFrontend(
                         connected ? $"PLC: 已连接 ({_plcService.ProtocolName})" : "PLC: 已断开",
                         connected ? "success" : "error"), "PLC状态日志");
+                    SafeFireAndForget(SendHealthSnapshotToFrontendAsync(), "刷新健康快照");
                 });
             };
             _plcService.TriggerReceived += () =>
@@ -66,6 +67,7 @@ namespace ClearFrost
             {
                 RecordHealthError("PLC", error);
                 SafeFireAndForget(_uiController.LogToFrontend($"PLC错误: {error}", "error"), "PLC错误日志");
+                SafeFireAndForget(SendHealthSnapshotToFrontendAsync(), "刷新健康快照");
             };
 
             // Camera 服务事件
@@ -73,6 +75,7 @@ namespace ClearFrost
             {
                 RecordHealthError("Camera", error);
                 SafeFireAndForget(_uiController.LogToFrontend($"相机错误: {error}", "error"), "相机错误日志");
+                SafeFireAndForget(SendHealthSnapshotToFrontendAsync(), "刷新健康快照");
             };
 
             // Detection 服务事件
@@ -156,6 +159,7 @@ namespace ClearFrost
             _uiController.OnOpenSettings += (s, e) => InvokeOnUIThread(() => btnSettings_Logic());
             _uiController.OnChangeModel += (s, modelName) => InvokeOnUIThread(() => ChangeModel_Logic(modelName));
             _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC手动连接");
+            _uiController.OnRequestHealthSnapshot += (s, e) => SafeFireAndForget(SendHealthSnapshotToFrontendAsync(), "前端刷新健康快照");
             _uiController.OnThresholdChanged += (s, val) =>
             {
                 _appConfig.IouThreshold = Math.Clamp(val / 100f, 0f, 1f);
@@ -556,9 +560,6 @@ namespace ClearFrost
                 {
                     await _uiController.LogToFrontend("? WebUI已就绪");
                     await _uiController.LogToFrontend("系统初始化完成");
-                    await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
-
-                    // 发送相机列表以消除前端“正在加载相机列表”的提示
                     var cameras = _appConfig.Cameras.Select(c => new
                     {
                         id = c.Id,
@@ -568,20 +569,22 @@ namespace ClearFrost
                         exposureTime = c.ExposureTime,
                         gain = c.Gain
                     }).ToList();
-                    await _uiController.SendCameraList(cameras, _cameraManager.ActiveCameraId ?? _appConfig.ActiveCameraId);
 
-                    // 初始化前端设置 (Sidebar Controls)
-                    await _uiController.InitSettings(_appConfig);
-
-                    // 发送已加载的统计数据到前端（修复重启后饼状图不更新的问题）
                     var currentStats = _statisticsService.Current;
-                    await _uiController.UpdateUI(currentStats.TotalCount, currentStats.QualifiedCount, currentStats.UnqualifiedCount);
+                    string[] modelNames = GetModelNames();
+                    await _uiController.SendBootstrapSnapshot(
+                        _appConfig,
+                        cameras,
+                        _cameraManager.ActiveCameraId ?? _appConfig.ActiveCameraId,
+                        modelNames,
+                        currentStats,
+                        _healthMonitor.GetSnapshot(),
+                        _appConfig.StoragePath);
+
                     if (currentStats.TotalCount > 0)
                     {
                         await _uiController.LogToFrontend($"已加载今日统计: 总计{currentStats.TotalCount}, 合格{currentStats.QualifiedCount}, 不合格{currentStats.UnqualifiedCount}");
                     }
-
-                    await InitModelList();
                 }
                 catch (Exception ex)
                 {
@@ -698,13 +701,14 @@ namespace ClearFrost
                 if (password == _appConfig.AdminPassword)
                 {
                     // 密码正确,关闭密码框并发送配置到前端打开设置界面
-                    await _uiController.ExecuteScriptAsync("closePasswordModal();");
+                    await _uiController.SendUiCommand("closePasswordModal");
                     await _uiController.SendCurrentConfig(_appConfig);
                 }
                 else
                 {
                     // 密码错误
-                    await _uiController.ExecuteScriptAsync("alert('密码错误'); closePasswordModal();");
+                    await _uiController.SendUiCommand("alert", new { message = "密码错误" });
+                    await _uiController.SendUiCommand("closePasswordModal");
                 }
             };
 
@@ -745,6 +749,11 @@ namespace ClearFrost
                         string plcSiemensCpuModel = _appConfig.PlcSiemensCpuModel;
                         int plcSiemensRack = _appConfig.PlcSiemensRack;
                         int plcSiemensSlot = _appConfig.PlcSiemensSlot;
+                        bool barcodeEnabled = _appConfig.BarcodeEnabled;
+                        string barcodeAddress = _appConfig.BarcodeAddress;
+                        int barcodeWordLength = _appConfig.BarcodeWordLength;
+                        string barcodeEncoding = _appConfig.BarcodeEncoding;
+                        bool barcodeRequired = _appConfig.BarcodeRequired;
 
                         if (root.TryGetProperty("PlcProtocol", out var ppr)) plcProtocol = ppr.GetString() ?? plcProtocol;
                         if (root.TryGetProperty("PlcDriverProvider", out var pdp)) plcDriverProvider = pdp.GetString() ?? plcDriverProvider;
@@ -770,6 +779,11 @@ namespace ClearFrost
                         if (root.TryGetProperty("PlcSiemensCpuModel", out var pscm)) plcSiemensCpuModel = pscm.GetString() ?? plcSiemensCpuModel;
                         if (root.TryGetProperty("PlcSiemensRack", out var psr)) plcSiemensRack = psr.TryGetInt32(out int psrVal) ? Math.Max(0, psrVal) : plcSiemensRack;
                         if (root.TryGetProperty("PlcSiemensSlot", out var pss)) plcSiemensSlot = pss.TryGetInt32(out int pssVal) ? Math.Max(0, pssVal) : plcSiemensSlot;
+                        if (root.TryGetProperty("BarcodeEnabled", out var be)) barcodeEnabled = be.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("BarcodeAddress", out var ba)) barcodeAddress = GetJsonStringValue(ba, barcodeAddress);
+                        if (root.TryGetProperty("BarcodeWordLength", out var bwl)) barcodeWordLength = bwl.TryGetInt32(out int bwlVal) ? Math.Clamp(bwlVal, 1, 64) : barcodeWordLength;
+                        if (root.TryGetProperty("BarcodeEncoding", out var benc)) barcodeEncoding = benc.GetString() ?? barcodeEncoding;
+                        if (root.TryGetProperty("BarcodeRequired", out var br)) barcodeRequired = br.ValueKind == JsonValueKind.True;
 
                         PlcProtocolType plcProtocolType = PlcFactory.ParseProtocol(plcProtocol);
                         bool isMitsubishiProtocol =
@@ -793,6 +807,7 @@ namespace ClearFrost
                         plcTraceSavedAddress = PlcAddressNormalizer.NormalizeOrThrow(plcTraceSavedAddress, plcProtocolType);
                         plcHeartbeatAddress = PlcAddressNormalizer.NormalizeOrThrow(plcHeartbeatAddress, plcProtocolType);
                         plcResetFaultAddress = PlcAddressNormalizer.NormalizeOrThrow(plcResetFaultAddress, plcProtocolType);
+                        barcodeAddress = PlcAddressNormalizer.NormalizeOrThrow(barcodeAddress, plcProtocolType);
 
                         _appConfig.PlcProtocol = plcProtocol;
                         _appConfig.PlcDriverProvider = plcDriverProvider;
@@ -818,6 +833,11 @@ namespace ClearFrost
                         _appConfig.PlcSiemensCpuModel = string.IsNullOrWhiteSpace(plcSiemensCpuModel) ? "S1200" : plcSiemensCpuModel.Trim().ToUpperInvariant();
                         _appConfig.PlcSiemensRack = plcSiemensRack;
                         _appConfig.PlcSiemensSlot = plcSiemensSlot;
+                        _appConfig.BarcodeEnabled = barcodeEnabled;
+                        _appConfig.BarcodeAddress = barcodeAddress;
+                        _appConfig.BarcodeWordLength = Math.Clamp(barcodeWordLength, 1, 64);
+                        _appConfig.BarcodeEncoding = string.IsNullOrWhiteSpace(barcodeEncoding) ? "ASCII" : barcodeEncoding.Trim().ToUpperInvariant();
+                        _appConfig.BarcodeRequired = barcodeRequired;
 #pragma warning disable CS0618
                         var activeCamBefore = _appConfig.ActiveCamera;
                         string previousCameraId = activeCamBefore?.Id ?? string.Empty;
@@ -879,6 +899,8 @@ namespace ClearFrost
                                 : _appConfig.RetryIntervalMs;
                         }
                         if (root.TryGetProperty("TaskType", out var taskType)) _appConfig.TaskType = taskType.TryGetInt32(out int taskTypeVal) ? taskTypeVal : _appConfig.TaskType;
+                        if (root.TryGetProperty("Confidence", out var conf) && conf.TryGetDouble(out double confVal)) _appConfig.Confidence = (float)Math.Clamp(confVal, 0d, 1d);
+                        if (root.TryGetProperty("IouThreshold", out var iou) && iou.TryGetDouble(out double iouVal)) _appConfig.IouThreshold = (float)Math.Clamp(iouVal, 0d, 1d);
                         if (root.TryGetProperty("EnableGpu", out var eg)) _appConfig.EnableGpu = eg.ValueKind == JsonValueKind.True;
                         if (root.TryGetProperty("IndustrialRenderMode", out var irm)) _appConfig.IndustrialRenderMode = irm.ValueKind == JsonValueKind.True;
                         if (root.TryGetProperty("UseFileBackedWebImageTransport", out var fileTransport)) _appConfig.UseFileBackedWebImageTransport = fileTransport.ValueKind == JsonValueKind.True;
@@ -904,14 +926,16 @@ namespace ClearFrost
                         // 尝试重新连接PLC (应用新IP/端口)
                         _ = ConnectPlcViaServiceAsync();
 
-                        await _uiController.ExecuteScriptAsync("closeSettingsModal();");
+                        await _uiController.SendUiCommand("closeSettingsModal");
                         await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
+                        await _uiController.InitSettings(_appConfig);
+                        await SendHealthSnapshotToFrontendAsync();
                         await _uiController.LogToFrontend("? 系统设置已更新", "success");
                     }
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.ExecuteScriptAsync($"alert('保存失败: {ex.Message.Replace("'", "\\'")}');");
+                    await _uiController.SendUiCommand("alert", new { message = $"保存失败: {ex.Message}" });
                 }
             };
 
@@ -979,14 +1003,26 @@ namespace ClearFrost
                 return;
             }
 
-            var files = Directory.GetFiles(模型路径, "*.onnx");
-            await _uiController.LogToFrontend($"找到 {files.Length} 个ONNX模型文件");
-
-            var names = files.Select(Path.GetFileName).Where(n => !string.IsNullOrEmpty(n)).ToArray();
+            var names = GetModelNames();
+            await _uiController.LogToFrontend($"找到 {names.Length} 个ONNX模型文件");
 
             // Push to Frontend (Requirement from Step 177/147)
             await _uiController.SendModelList(names!);
             await _uiController.LogToFrontend($"? 已通过 SendModelList 推送 {names.Length} 个模型");
+        }
+
+        private string[] GetModelNames()
+        {
+            if (!Directory.Exists(模型路径))
+            {
+                return Array.Empty<string>();
+            }
+
+            return Directory.GetFiles(模型路径, "*.onnx")
+                .Select(Path.GetFileName)
+                .Where(n => !string.IsNullOrEmpty(n))
+                .Cast<string>()
+                .ToArray();
         }
 
         private void InitDirectories()
@@ -1232,6 +1268,18 @@ namespace ClearFrost
 
             _cameraManager.ActiveCameraId = activeConfig.Id;
             _appConfig.ActiveCameraId = activeConfig.Id;
+        }
+
+        private async Task SendHealthSnapshotToFrontendAsync()
+        {
+            try
+            {
+                await _uiController.SendHealthSnapshot(_healthMonitor.GetSnapshot());
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[HealthMonitor] 推送健康快照失败: {ex.Message}");
+            }
         }
 
         private static string GetJsonStringValue(JsonElement value, string fallback)

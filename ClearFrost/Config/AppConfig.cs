@@ -64,6 +64,15 @@ namespace ClearFrost.Config
         [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
         public string PlcResetFaultAddress { get; set; } = "D566";
         /// <summary>
+        /// PLC 条码读取配置。默认关闭，保持 Legacy 现场行为不变。
+        /// </summary>
+        public bool BarcodeEnabled { get; set; } = false;
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string BarcodeAddress { get; set; } = "D570";
+        public int BarcodeWordLength { get; set; } = 16;
+        public string BarcodeEncoding { get; set; } = "ASCII";
+        public bool BarcodeRequired { get; set; } = false;
+        /// <summary>
         /// 西门子 CPU 型号: S1200, S1500, S300, S400
         /// </summary>
         public string PlcSiemensCpuModel { get; set; } = "S1200";
@@ -338,6 +347,12 @@ namespace ClearFrost.Config
             PlcTraceSavedAddress = NormalizePlcAddressOrDefault(protocolType, PlcTraceSavedAddress, 564);
             PlcHeartbeatAddress = NormalizePlcAddressOrDefault(protocolType, PlcHeartbeatAddress, 565);
             PlcResetFaultAddress = NormalizePlcAddressOrDefault(protocolType, PlcResetFaultAddress, 566);
+            BarcodeAddress = NormalizePlcAddressOrDefault(protocolType, BarcodeAddress, 570);
+            BarcodeWordLength = Math.Clamp(BarcodeWordLength, 1, 64);
+            if (string.IsNullOrWhiteSpace(BarcodeEncoding))
+            {
+                BarcodeEncoding = "ASCII";
+            }
 
             if (!IsMitsubishiProtocol(protocolType) &&
                 string.Equals(PlcDriverProvider, "McpX", StringComparison.OrdinalIgnoreCase))

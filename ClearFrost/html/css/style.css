@@ -652,3 +652,3078 @@ input[type="range"]::-webkit-slider-runnable-track {
         0 24px 48px -28px rgba(20, 30, 40, 0.34),
         inset 0 1px 0 rgba(255, 255, 255, 0.52) !important;
 }
+
+/* =========================================
+   ClearFrost V5 Industrial Console
+   ========================================= */
+
+.cf-console {
+    background: #eef2f5 !important;
+    color: #334155;
+    font-family: "Microsoft YaHei", "Noto Sans SC", sans-serif;
+}
+
+.cf-console .cf-top-hud {
+    background: rgba(255, 255, 255, 0.96) !important;
+    color: #0f172a !important;
+    border: 1px solid rgba(148, 163, 184, 0.38) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 12px 28px -24px rgba(15, 23, 42, 0.42) !important;
+}
+
+.cf-console .cf-top-hud h1 {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    text-shadow: none;
+}
+
+.cf-logo-mark {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    color: #0f766e;
+    background: linear-gradient(180deg, #f8feff 0%, #ecfeff 100%);
+    border: 1px solid #67e8f9;
+    box-shadow:
+        0 8px 18px -15px rgba(8, 145, 178, 0.62),
+        inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.cf-logo-snow {
+    width: 29px;
+    height: 29px;
+    display: block;
+    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.88));
+}
+
+.cf-icon-button,
+.cf-mini-button,
+.cf-panel-collapse {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    transition:
+        background-color 0.16s ease,
+        border-color 0.16s ease,
+        color 0.16s ease;
+}
+
+.cf-icon-button {
+    width: 36px;
+    height: 36px;
+    color: #0f172a !important;
+    background: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+    box-shadow:
+        0 1px 2px rgba(15, 23, 42, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.cf-icon-button:hover {
+    color: #0f766e !important;
+    background: #ecfeff !important;
+    border-color: #67e8f9 !important;
+    box-shadow:
+        0 8px 16px -12px rgba(8, 145, 178, 0.55),
+        inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.cf-mini-button:hover,
+.cf-panel-collapse:hover {
+    color: #0f766e !important;
+    background: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+}
+
+.cf-icon-button:focus-visible {
+    outline: 2px solid #0891b2;
+    outline-offset: 2px;
+}
+
+.cf-console .cf-top-hud .cf-icon-button {
+    color: #075985 !important;
+    background: #e0f2fe !important;
+    border-color: #38bdf8 !important;
+    box-shadow:
+        0 8px 18px -14px rgba(2, 132, 199, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+.cf-console .cf-top-hud .cf-icon-button svg {
+    stroke-width: 2.4;
+}
+
+.cf-console .cf-top-hud .cf-icon-button:hover {
+    color: #ffffff !important;
+    background: #0284c7 !important;
+    border-color: #0369a1 !important;
+}
+
+.cf-mini-button {
+    width: 30px;
+    height: 30px;
+    color: #64748b;
+    background: #ffffff;
+    border-color: #e2e8f0;
+}
+
+.cf-panel-collapse {
+    width: 28px;
+    height: 28px;
+    color: #64748b;
+}
+
+.cf-status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 86px;
+    max-width: 180px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    color: #334155;
+    font-size: 10px;
+    font-weight: 800;
+    font-family: Consolas, "JetBrains Mono", monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cf-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    display: inline-block;
+    flex: 0 0 auto;
+}
+
+.status-on {
+    background: #10b981 !important;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+}
+
+.status-off {
+    background: #cbd5e1 !important;
+    box-shadow: none;
+}
+
+.status-warning {
+    background: #f59e0b !important;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+}
+
+.status-error {
+    background: #dc2626 !important;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+}
+
+.cf-console-panel {
+    background: rgba(255, 255, 255, 0.97) !important;
+    border: 1px solid rgba(148, 163, 184, 0.34) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 18px 36px -32px rgba(15, 23, 42, 0.4) !important;
+}
+
+.cf-console .cf-ornate-shell::before,
+.cf-console .cf-ornate-modal::before,
+.cf-console .cf-ornate-card::before {
+    display: none !important;
+}
+
+.cf-console .cf-ornate-header {
+    background: #ffffff !important;
+    border-bottom-color: #e2e8f0 !important;
+    box-shadow: none !important;
+}
+
+.cf-console .cf-ornate-card,
+.cf-work-card {
+    position: relative;
+    border-radius: 8px !important;
+    border: 1px solid #e2e8f0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+}
+
+.cf-work-card {
+    padding: 14px;
+}
+
+.cf-kicker {
+    font-size: 9px;
+    line-height: 1;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
+.cf-panel-title {
+    font-size: 14px;
+    font-weight: 900;
+    color: #0f172a;
+}
+
+.cf-panel-header {
+    height: 62px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #ffffff;
+}
+
+.cf-state-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 56px;
+    max-width: 140px;
+    height: 24px;
+    padding: 0 9px;
+    border-radius: 999px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 10px;
+    font-weight: 900;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cf-barcode-value {
+    margin-top: 10px;
+    min-height: 40px;
+    font-family: Consolas, "JetBrains Mono", monospace;
+    font-size: 24px;
+    line-height: 1.18;
+    font-weight: 900;
+    color: #0f172a;
+    word-break: break-all;
+}
+
+.cf-card-note {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #64748b;
+}
+
+.barcode-state-disabled {
+    border-color: #e2e8f0 !important;
+}
+
+.barcode-state-waiting {
+    border-color: #bae6fd !important;
+}
+
+.barcode-state-success {
+    border-color: #99f6e4 !important;
+    background: #f0fdfa !important;
+}
+
+.barcode-state-failed {
+    border-color: #fecaca !important;
+    background: #fff1f2 !important;
+}
+
+.barcode-state-failed .cf-state-badge {
+    border-color: #fecaca;
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.barcode-state-success .cf-state-badge {
+    border-color: #99f6e4;
+    background: #ccfbf1;
+    color: #0f766e;
+}
+
+.cf-info-grid {
+    display: grid;
+    grid-template-columns: minmax(86px, auto) minmax(0, 1fr);
+    gap: 9px 10px;
+    align-items: baseline;
+    font-size: 11px;
+}
+
+.cf-info-grid span {
+    color: #64748b;
+}
+
+.cf-info-grid strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #0f172a;
+    font-family: Consolas, "JetBrains Mono", monospace;
+}
+
+.cf-metric-tile {
+    padding: 10px;
+    border-radius: 8px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+}
+
+.cf-metric-tile span {
+    display: block;
+    font-size: 9px;
+    font-weight: 900;
+    color: #64748b;
+    text-transform: uppercase;
+}
+
+.cf-metric-tile strong {
+    display: block;
+    margin-top: 4px;
+    font-family: Consolas, "JetBrains Mono", monospace;
+    font-size: 14px;
+    color: #0f172a;
+}
+
+.cf-camera-topbar {
+    min-height: 40px;
+}
+
+.cf-camera-resultbar {
+    min-height: 58px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: #ffffff;
+    border-top: 1px solid #e2e8f0;
+}
+
+.cf-result-pill,
+.cf-flow-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 32px;
+    border-radius: 6px;
+    font-family: Consolas, "JetBrains Mono", monospace;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.result-idle,
+.cf-flow-row .cf-flow-status {
+    color: #475569;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+}
+
+.result-ok,
+.cf-flow-row.ok .cf-flow-status {
+    color: #047857;
+    background: #d1fae5;
+    border: 1px solid #99f6e4;
+}
+
+.result-ng,
+.cf-flow-row.ng .cf-flow-status {
+    color: #b91c1c;
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+}
+
+.cf-output-cell {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px;
+    background: #f8fafc;
+    text-align: center;
+}
+
+.cf-output-cell span {
+    display: block;
+    font-size: 9px;
+    font-weight: 900;
+    color: #64748b;
+}
+
+.cf-output-cell strong {
+    display: block;
+    margin-top: 2px;
+    font-family: Consolas, "JetBrains Mono", monospace;
+    font-size: 18px;
+    color: #0f172a;
+}
+
+.cf-output-cell.ok strong {
+    color: #047857;
+}
+
+.cf-output-cell.ng strong {
+    color: #b91c1c;
+}
+
+.cf-health-grid {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 10px;
+    font-size: 10px;
+}
+
+.cf-health-grid span {
+    color: #64748b;
+    font-weight: 800;
+}
+
+.cf-health-grid strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #0f172a;
+    font-family: Consolas, "JetBrains Mono", monospace;
+}
+
+.cf-flow-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+}
+
+.cf-empty-state {
+    padding: 28px 10px;
+    color: #94a3b8;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.cf-text-button {
+    font-size: 10px;
+    font-weight: 900;
+    color: #0f766e;
+    border-radius: 7px;
+    padding: 6px 9px;
+    background: #f0fdfa;
+    border: 1px solid #ccfbf1;
+}
+
+.cf-float-drawer {
+    position: absolute;
+    top: 50%;
+    margin-top: -24px;
+    padding: 12px;
+    border-radius: 999px;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    color: #475569;
+    z-index: 30;
+    box-shadow: 0 14px 24px -18px rgba(15, 23, 42, 0.5);
+}
+
+.cf-settings-workspace {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 20px;
+}
+
+.cf-settings-nav {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cf-settings-tab {
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.cf-settings-tab.active {
+    color: #0f766e;
+    border-color: #99f6e4;
+    background: #f0fdfa;
+}
+
+.cf-settings-content {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+@media (max-width: 1440px) {
+    #left-panel {
+        width: 20rem !important;
+    }
+
+    #right-panel {
+        width: 21rem !important;
+    }
+}
+
+@media (max-width: 1180px) {
+    #app-main {
+        gap: 10px;
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    #left-panel,
+    #right-panel {
+        width: 18rem !important;
+    }
+
+    .cf-settings-workspace {
+        grid-template-columns: 1fr;
+    }
+
+    .cf-settings-nav {
+        position: static;
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+}
+
+/* Deep Learning Visual Upgrade (Stitch MCP reference) */
+.cf-stitch-upgrade {
+    --dl-bg: #081425;
+    --dl-bg-2: #0b1728;
+    --dl-surface: rgba(17, 28, 45, 0.9);
+    --dl-surface-2: rgba(21, 32, 49, 0.94);
+    --dl-surface-3: rgba(31, 42, 60, 0.92);
+    --dl-border: rgba(216, 227, 251, 0.12);
+    --dl-border-strong: rgba(173, 198, 255, 0.28);
+    --dl-text: #d8e3fb;
+    --dl-muted: #8c9bb3;
+    --dl-muted-2: #60718c;
+    --dl-primary: #3b82f6;
+    --dl-primary-2: #60a5fa;
+    --dl-primary-soft: rgba(59, 130, 246, 0.16);
+    --dl-success: #10b981;
+    --dl-warning: #f59e0b;
+    --dl-danger: #ef4444;
+    background:
+        linear-gradient(rgba(173, 198, 255, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(173, 198, 255, 0.04) 1px, transparent 1px),
+        linear-gradient(180deg, #081425 0%, #0b1728 100%) !important;
+    background-size: 40px 40px, 40px 40px, auto;
+    color: var(--dl-text) !important;
+    font-family: "Inter", "Segoe UI", "Microsoft YaHei", sans-serif !important;
+}
+
+.cf-stitch-upgrade *,
+.cf-stitch-upgrade *::before,
+.cf-stitch-upgrade *::after {
+    letter-spacing: 0 !important;
+}
+
+.cf-stitch-upgrade::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(180deg, rgba(96, 165, 250, 0.08) 0%, transparent 26%),
+        linear-gradient(90deg, rgba(16, 185, 129, 0.035), transparent 32%, rgba(59, 130, 246, 0.045));
+    opacity: 0.85;
+    z-index: 0;
+}
+
+.cf-stitch-upgrade .font-serif,
+.cf-stitch-upgrade h1,
+.cf-stitch-upgrade h2,
+.cf-stitch-upgrade h3 {
+    font-family: "Inter", "Segoe UI", "Microsoft YaHei", sans-serif !important;
+}
+
+.cf-stitch-upgrade #app-main {
+    padding: 92px 18px 92px !important;
+}
+
+.cf-stitch-upgrade .text-slate-950,
+.cf-stitch-upgrade .text-slate-900,
+.cf-stitch-upgrade .text-slate-800,
+.cf-stitch-upgrade .text-ink-800,
+.cf-stitch-upgrade .text-ink-700,
+.cf-stitch-upgrade .text-ink-600 {
+    color: var(--dl-text) !important;
+    -webkit-text-fill-color: currentColor !important;
+}
+
+.cf-stitch-upgrade .text-slate-700,
+.cf-stitch-upgrade .text-slate-600,
+.cf-stitch-upgrade .text-slate-500,
+.cf-stitch-upgrade .text-ink-500,
+.cf-stitch-upgrade .text-ink-400 {
+    color: var(--dl-muted) !important;
+}
+
+.cf-stitch-upgrade .text-slate-400,
+.cf-stitch-upgrade .text-slate-300 {
+    color: var(--dl-muted-2) !important;
+}
+
+.cf-stitch-upgrade .cf-top-hud {
+    height: 64px !important;
+    background: rgba(11, 23, 40, 0.88) !important;
+    border: 1px solid var(--dl-border) !important;
+    border-radius: 12px !important;
+    box-shadow:
+        0 24px 80px -46px rgba(0, 0, 0, 0.82),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+    backdrop-filter: blur(16px) saturate(1.25);
+}
+
+.cf-stitch-upgrade .cf-top-hud h1 {
+    color: #eff6ff !important;
+    -webkit-text-fill-color: #eff6ff !important;
+}
+
+.cf-stitch-upgrade .cf-logo-mark {
+    width: 38px;
+    height: 38px;
+    background:
+        linear-gradient(180deg, rgba(96, 165, 250, 0.26), rgba(59, 130, 246, 0.1)),
+        #0b1728;
+    border: 1px solid rgba(96, 165, 250, 0.72);
+    color: #bfdbfe;
+    box-shadow:
+        0 0 22px rgba(59, 130, 246, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.cf-stitch-upgrade .cf-logo-snow {
+    filter: drop-shadow(0 0 7px rgba(96, 165, 250, 0.55));
+}
+
+.cf-stitch-upgrade .cf-status-chip {
+    min-width: 96px;
+    height: 26px;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 0 10px;
+    color: #b9c7dd;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 8px;
+    font-family: Consolas, "JetBrains Mono", monospace;
+    font-size: 9px;
+    font-weight: 900;
+}
+
+.cf-stitch-upgrade .cf-status-dot {
+    width: 7px;
+    height: 7px;
+    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.08);
+}
+
+.cf-stitch-upgrade .status-on,
+.cf-stitch-upgrade .bg-emerald-500 {
+    background: var(--dl-success) !important;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12), 0 0 12px rgba(16, 185, 129, 0.44) !important;
+}
+
+.cf-stitch-upgrade .status-warning {
+    background: var(--dl-warning) !important;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14), 0 0 12px rgba(245, 158, 11, 0.38) !important;
+}
+
+.cf-stitch-upgrade .status-error {
+    background: var(--dl-danger) !important;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14), 0 0 12px rgba(239, 68, 68, 0.38) !important;
+}
+
+.cf-stitch-upgrade .status-off,
+.cf-stitch-upgrade .bg-slate-300 {
+    background: #334155 !important;
+    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.08) !important;
+}
+
+.cf-stitch-upgrade .cf-icon-button {
+    width: 36px;
+    height: 36px;
+    color: #cfe0ff !important;
+    background: rgba(59, 130, 246, 0.12) !important;
+    border: 1px solid rgba(96, 165, 250, 0.45) !important;
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.03),
+        0 12px 26px -20px rgba(59, 130, 246, 0.9) !important;
+}
+
+.cf-stitch-upgrade .cf-icon-button:hover {
+    color: #ffffff !important;
+    background: rgba(59, 130, 246, 0.34) !important;
+    border-color: rgba(173, 198, 255, 0.68) !important;
+    box-shadow: 0 0 24px rgba(59, 130, 246, 0.28) !important;
+}
+
+.cf-stitch-upgrade .glass-panel,
+.cf-stitch-upgrade .glass-panel-lite,
+.cf-stitch-upgrade .cf-console-panel,
+.cf-stitch-upgrade .cf-ornate-shell,
+.cf-stitch-upgrade .cf-ornate-card,
+.cf-stitch-upgrade .cf-ornate-modal {
+    background: var(--dl-surface) !important;
+    border: 1px solid var(--dl-border) !important;
+    color: var(--dl-text) !important;
+    box-shadow:
+        0 26px 70px -52px rgba(0, 0, 0, 0.9),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+    backdrop-filter: blur(14px) saturate(1.18);
+}
+
+.cf-stitch-upgrade .glass-panel-lite:hover {
+    background: rgba(21, 32, 49, 0.96) !important;
+    border-color: rgba(173, 198, 255, 0.2) !important;
+}
+
+.cf-stitch-upgrade .cf-ornate-header,
+.cf-stitch-upgrade .cf-panel-header {
+    background: rgba(17, 28, 45, 0.96) !important;
+    border-bottom: 1px solid var(--dl-border) !important;
+    box-shadow: none !important;
+}
+
+.cf-stitch-upgrade #left-panel,
+.cf-stitch-upgrade #right-panel,
+.cf-stitch-upgrade #camera-panel {
+    border-radius: 12px !important;
+    overflow: hidden;
+}
+
+.cf-stitch-upgrade #left-panel {
+    width: 21.5rem !important;
+}
+
+.cf-stitch-upgrade #right-panel {
+    width: 24rem !important;
+    gap: 12px !important;
+    border-left: 1px solid var(--dl-border) !important;
+}
+
+.cf-stitch-upgrade #camera-panel {
+    background: rgba(6, 14, 31, 0.92) !important;
+    border-color: rgba(173, 198, 255, 0.18) !important;
+}
+
+.cf-stitch-upgrade .cf-engine-summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 64px;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(96, 165, 250, 0.22);
+    background:
+        linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(16, 185, 129, 0.08)),
+        rgba(15, 23, 42, 0.56);
+}
+
+.cf-stitch-upgrade .cf-engine-mark {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    color: #dbeafe;
+    background: rgba(59, 130, 246, 0.2);
+    border: 1px solid rgba(96, 165, 250, 0.42);
+    font-family: Consolas, "JetBrains Mono", monospace;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.cf-stitch-upgrade .cf-engine-title {
+    color: #eff6ff;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.cf-stitch-upgrade .cf-engine-subtitle {
+    margin-top: 2px;
+    color: var(--dl-muted);
+    font-size: 10px;
+    font-family: Consolas, "JetBrains Mono", monospace;
+}
+
+.cf-stitch-upgrade .cf-engine-pulse {
+    width: 8px;
+    height: 8px;
+    margin-left: auto;
+    border-radius: 999px;
+    background: var(--dl-success);
+    box-shadow: 0 0 14px rgba(16, 185, 129, 0.6);
+}
+
+.cf-stitch-upgrade .cf-work-card {
+    background: rgba(15, 23, 42, 0.46) !important;
+    border: 1px solid rgba(216, 227, 251, 0.1) !important;
+    border-radius: 10px !important;
+}
+
+.cf-stitch-upgrade .cf-kicker {
+    color: #9eb4d2;
+    font-family: Consolas, "JetBrains Mono", monospace;
+}
+
+.cf-stitch-upgrade .cf-state-badge {
+    min-width: 64px;
+    height: 24px;
+    border-radius: 999px;
+    color: #cfe0ff;
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(96, 165, 250, 0.28);
+    font-family: Consolas, "JetBrains Mono", monospace;
+}
+
+.cf-stitch-upgrade .cf-barcode-value,
+.cf-stitch-upgrade .cf-info-grid strong,
+.cf-stitch-upgrade .cf-metric-tile strong,
+.cf-stitch-upgrade .cf-health-grid strong,
+.cf-stitch-upgrade .cf-output-cell strong {
+    color: #f8fbff !important;
+}
+
+.cf-stitch-upgrade .cf-card-note,
+.cf-stitch-upgrade .cf-info-grid span,
+.cf-stitch-upgrade .cf-metric-tile span,
+.cf-stitch-upgrade .cf-health-grid span,
+.cf-stitch-upgrade .cf-output-cell span {
+    color: var(--dl-muted) !important;
+}
+
+.cf-stitch-upgrade .cf-metric-tile,
+.cf-stitch-upgrade .cf-output-cell {
+    background: rgba(8, 20, 37, 0.7);
+    border: 1px solid rgba(216, 227, 251, 0.1);
+    border-radius: 8px;
+}
+
+.cf-stitch-upgrade .barcode-state-waiting {
+    border-color: rgba(96, 165, 250, 0.32) !important;
+}
+
+.cf-stitch-upgrade .barcode-state-success {
+    background: rgba(16, 185, 129, 0.1) !important;
+    border-color: rgba(16, 185, 129, 0.48) !important;
+}
+
+.cf-stitch-upgrade .barcode-state-success .cf-state-badge {
+    color: #bbf7d0;
+    background: rgba(16, 185, 129, 0.18);
+    border-color: rgba(16, 185, 129, 0.42);
+}
+
+.cf-stitch-upgrade .barcode-state-failed {
+    background: rgba(239, 68, 68, 0.1) !important;
+    border-color: rgba(239, 68, 68, 0.46) !important;
+}
+
+.cf-stitch-upgrade .barcode-state-failed .cf-state-badge {
+    color: #fecaca;
+    background: rgba(239, 68, 68, 0.18);
+    border-color: rgba(239, 68, 68, 0.42);
+}
+
+.cf-stitch-upgrade #camera-panel .cf-ornate-header,
+.cf-stitch-upgrade #camera-panel > .absolute:first-child {
+    height: 42px !important;
+    background: rgba(8, 20, 37, 0.86) !important;
+    border-bottom: 1px solid rgba(216, 227, 251, 0.12) !important;
+}
+
+.cf-stitch-upgrade #camera-container {
+    background:
+        linear-gradient(rgba(96, 165, 250, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(96, 165, 250, 0.04) 1px, transparent 1px),
+        #040e1f !important;
+    background-size: 34px 34px, 34px 34px, auto;
+}
+
+.cf-stitch-upgrade #camera-view {
+    background: #040e1f;
+    mix-blend-mode: normal !important;
+}
+
+.cf-stitch-upgrade #camera-view[src^="data:image/svg+xml"] {
+    opacity: 1;
+    filter: none;
+}
+
+.cf-stitch-upgrade .cf-feed-hud {
+    position: absolute;
+    top: 56px;
+    left: 18px;
+    right: 18px;
+    z-index: 24;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+}
+
+.cf-stitch-upgrade .cf-feed-hud span {
+    min-width: 0;
+    max-width: 32%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 5px 8px;
+    border-radius: 999px;
+    color: #cfe0ff;
+    background: rgba(4, 14, 31, 0.74);
+    border: 1px solid rgba(96, 165, 250, 0.22);
+    font-family: Consolas, "JetBrains Mono", monospace;
+    font-size: 10px;
+    font-weight: 900;
+}
+
+.cf-stitch-upgrade .cf-feed-reticle {
+    position: absolute;
+    z-index: 23;
+    top: 50%;
+    left: 50%;
+    width: min(64%, 620px);
+    aspect-ratio: 1.65;
+    transform: translate(-50%, -50%);
+    border: 1px dashed rgba(96, 165, 250, 0.72);
+    border-radius: 10px;
+    box-shadow:
+        0 0 0 1px rgba(4, 14, 31, 0.4),
+        0 0 22px rgba(59, 130, 246, 0.16);
+    pointer-events: none;
+}
+
+.cf-stitch-upgrade .cf-feed-reticle::before,
+.cf-stitch-upgrade .cf-feed-reticle::after {
+    content: "";
+    position: absolute;
+    background: rgba(96, 165, 250, 0.48);
+}
+
+.cf-stitch-upgrade .cf-feed-reticle::before {
+    left: 50%;
+    top: 18%;
+    bottom: 18%;
+    width: 1px;
+}
+
+.cf-stitch-upgrade .cf-feed-reticle::after {
+    top: 50%;
+    left: 18%;
+    right: 18%;
+    height: 1px;
+}
+
+.cf-stitch-upgrade .cf-camera-resultbar {
+    min-height: 62px;
+    background: rgba(8, 20, 37, 0.95) !important;
+    border-top: 1px solid rgba(216, 227, 251, 0.12) !important;
+}
+
+.cf-stitch-upgrade .cf-result-pill,
+.cf-stitch-upgrade .cf-flow-status {
+    border-radius: 7px;
+    font-family: Consolas, "JetBrains Mono", monospace;
+}
+
+.cf-stitch-upgrade .result-idle,
+.cf-stitch-upgrade .cf-flow-row .cf-flow-status {
+    color: #cbd5e1;
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.cf-stitch-upgrade .result-ok,
+.cf-stitch-upgrade .cf-flow-row.ok .cf-flow-status {
+    color: #bbf7d0;
+    background: rgba(16, 185, 129, 0.18);
+    border: 1px solid rgba(16, 185, 129, 0.44);
+}
+
+.cf-stitch-upgrade .result-ng,
+.cf-stitch-upgrade .cf-flow-row.ng .cf-flow-status {
+    color: #fecaca;
+    background: rgba(239, 68, 68, 0.18);
+    border: 1px solid rgba(239, 68, 68, 0.44);
+}
+
+.cf-stitch-upgrade #result-overlay {
+    border-radius: 10px !important;
+    font-family: Consolas, "JetBrains Mono", monospace !important;
+    box-shadow: 0 0 36px rgba(59, 130, 246, 0.28) !important;
+}
+
+.cf-stitch-upgrade .bg-bamboo-50,
+.cf-stitch-upgrade .bg-rouge-50,
+.cf-stitch-upgrade .bg-slate-50,
+.cf-stitch-upgrade .bg-porcelain-50,
+.cf-stitch-upgrade .bg-porcelain-100,
+.cf-stitch-upgrade .bg-white,
+.cf-stitch-upgrade .bg-white\/40,
+.cf-stitch-upgrade .bg-white\/50,
+.cf-stitch-upgrade .bg-white\/60,
+.cf-stitch-upgrade .bg-white\/75,
+.cf-stitch-upgrade .bg-porcelain-50\/40,
+.cf-stitch-upgrade .bg-porcelain-100\/30,
+.cf-stitch-upgrade .bg-porcelain-100\/50,
+.cf-stitch-upgrade .bg-porcelain-800\/10 {
+    background-color: rgba(15, 23, 42, 0.5) !important;
+}
+
+.cf-stitch-upgrade .border-white\/50,
+.cf-stitch-upgrade .border-white\/40,
+.cf-stitch-upgrade .border-white\/20,
+.cf-stitch-upgrade .border-slate-100,
+.cf-stitch-upgrade .border-slate-200,
+.cf-stitch-upgrade .border-bamboo-100,
+.cf-stitch-upgrade .border-rouge-100,
+.cf-stitch-upgrade .border-celadon-100,
+.cf-stitch-upgrade .border-celadon-200 {
+    border-color: rgba(216, 227, 251, 0.12) !important;
+}
+
+.cf-stitch-upgrade #right-panel > .glass-panel-lite,
+.cf-stitch-upgrade #right-panel .cf-ornate-card {
+    background: rgba(17, 28, 45, 0.88) !important;
+}
+
+.cf-stitch-upgrade #statsChart {
+    filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.12));
+}
+
+.cf-stitch-upgrade #val-total,
+.cf-stitch-upgrade #val-yield {
+    color: #f8fbff !important;
+}
+
+.cf-stitch-upgrade #val-ok,
+.cf-stitch-upgrade .text-bamboo-600 {
+    color: #34d399 !important;
+}
+
+.cf-stitch-upgrade #val-ng,
+.cf-stitch-upgrade .text-rouge-600 {
+    color: #f87171 !important;
+}
+
+.cf-stitch-upgrade .cf-flow-row {
+    background: rgba(8, 20, 37, 0.58);
+    border: 1px solid rgba(216, 227, 251, 0.1);
+    border-radius: 8px;
+}
+
+.cf-stitch-upgrade .cf-flow-row:hover {
+    border-color: rgba(96, 165, 250, 0.26);
+    background: rgba(21, 32, 49, 0.72);
+}
+
+.cf-stitch-upgrade .cf-empty-state {
+    color: var(--dl-muted);
+}
+
+.cf-stitch-upgrade #log-container p,
+.cf-stitch-upgrade #detection-log-container div {
+    color: #a8b8d0 !important;
+}
+
+.cf-stitch-upgrade .dock-industrial {
+    min-height: 62px;
+    background: rgba(11, 23, 40, 0.88) !important;
+    border: 1px solid rgba(216, 227, 251, 0.16) !important;
+    border-radius: 12px !important;
+}
+
+.cf-stitch-upgrade #bottom-dock button {
+    border-radius: 8px !important;
+}
+
+.cf-stitch-upgrade #bottom-dock button[data-cmd="manual_detect"],
+.cf-stitch-upgrade .btn-celadon {
+    color: #ffffff !important;
+    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%) !important;
+    border: 1px solid rgba(173, 198, 255, 0.46) !important;
+    box-shadow: 0 16px 36px -24px rgba(59, 130, 246, 0.95) !important;
+}
+
+.cf-stitch-upgrade #bottom-dock button[data-cmd="manual_release"] {
+    color: #fbbf24 !important;
+    background: rgba(245, 158, 11, 0.12) !important;
+    border: 1px solid rgba(245, 158, 11, 0.34) !important;
+}
+
+.cf-stitch-upgrade #bottom-dock button:not([data-cmd="manual_detect"]):not([data-cmd="manual_release"]) {
+    color: #cfe0ff !important;
+    background: rgba(15, 23, 42, 0.5) !important;
+    border: 1px solid rgba(216, 227, 251, 0.1) !important;
+}
+
+.cf-stitch-upgrade #bottom-dock button:hover {
+    transform: translateY(-1px);
+}
+
+.cf-stitch-upgrade .tech-input,
+.cf-stitch-upgrade input,
+.cf-stitch-upgrade select,
+.cf-stitch-upgrade textarea {
+    color: #e5eefc !important;
+    background: rgba(8, 20, 37, 0.78) !important;
+    border: 1px solid rgba(216, 227, 251, 0.14) !important;
+    box-shadow: none !important;
+}
+
+.cf-stitch-upgrade .tech-input:focus,
+.cf-stitch-upgrade input:focus,
+.cf-stitch-upgrade select:focus,
+.cf-stitch-upgrade textarea:focus {
+    border-color: rgba(96, 165, 250, 0.7) !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18) !important;
+    outline: none !important;
+}
+
+.cf-stitch-upgrade input[type="range"]::-webkit-slider-runnable-track {
+    background: rgba(96, 165, 250, 0.22) !important;
+}
+
+.cf-stitch-upgrade input[type="range"]::-webkit-slider-thumb {
+    background: #60a5fa !important;
+    border-color: #dbeafe !important;
+    box-shadow: 0 0 16px rgba(96, 165, 250, 0.45) !important;
+}
+
+.cf-stitch-upgrade #settings-modal {
+    background: rgba(2, 6, 23, 0.74) !important;
+}
+
+.cf-stitch-upgrade #settings-modal > .cf-ornate-modal {
+    border-radius: 12px !important;
+    background: rgba(11, 23, 40, 0.96) !important;
+}
+
+.cf-stitch-upgrade #settings-modal .cf-ornate-header {
+    height: 64px !important;
+    padding-inline: 24px !important;
+    background: rgba(17, 28, 45, 0.98) !important;
+}
+
+.cf-stitch-upgrade #settings-modal .scroller {
+    background: rgba(8, 20, 37, 0.72) !important;
+}
+
+.cf-stitch-upgrade #settings-modal .bg-gradient-to-r {
+    background:
+        linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(16, 185, 129, 0.08)) !important;
+    border-color: rgba(96, 165, 250, 0.26) !important;
+}
+
+.cf-stitch-upgrade .cf-settings-workspace {
+    grid-template-columns: 168px minmax(0, 1fr);
+}
+
+.cf-stitch-upgrade .cf-settings-nav {
+    gap: 8px;
+}
+
+.cf-stitch-upgrade .cf-settings-tab {
+    min-height: 38px;
+    color: #a8b8d0;
+    background: rgba(15, 23, 42, 0.56);
+    border: 1px solid rgba(216, 227, 251, 0.1);
+    border-radius: 8px;
+}
+
+.cf-stitch-upgrade .cf-settings-tab.active {
+    color: #dbeafe;
+    background: rgba(59, 130, 246, 0.18);
+    border-color: rgba(96, 165, 250, 0.5);
+    box-shadow: inset 3px 0 0 #3b82f6;
+}
+
+.cf-stitch-upgrade .cf-settings-content,
+.cf-stitch-upgrade #settings-modal .grid > div,
+.cf-stitch-upgrade #settings-vision-controls {
+    min-width: 0;
+}
+
+.cf-stitch-upgrade #settings-modal button:not(.cf-settings-tab):not([data-action="closeSettingsModal"]) {
+    border-radius: 8px !important;
+}
+
+.cf-stitch-upgrade #settings-modal button[data-cmd],
+.cf-stitch-upgrade #settings-modal button[data-action] {
+    color: #dbeafe !important;
+    background: rgba(59, 130, 246, 0.12) !important;
+    border-color: rgba(96, 165, 250, 0.26) !important;
+}
+
+.cf-stitch-upgrade #settings-modal button[data-action="closeSettingsModal"] {
+    color: #fca5a5 !important;
+}
+
+.cf-stitch-upgrade .scroller::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.6);
+}
+
+.cf-stitch-upgrade .scroller::-webkit-scrollbar-thumb {
+    background: rgba(96, 165, 250, 0.34);
+    border-color: rgba(8, 20, 37, 0.86);
+}
+
+.cf-stitch-upgrade .cf-toast {
+    color: #e5eefc;
+    background: rgba(17, 28, 45, 0.96);
+    border: 1px solid rgba(216, 227, 251, 0.16);
+    box-shadow: 0 22px 56px -38px rgba(0, 0, 0, 0.82);
+}
+
+@media (max-width: 1440px) {
+    .cf-stitch-upgrade #left-panel {
+        width: 20rem !important;
+    }
+
+    .cf-stitch-upgrade #right-panel {
+        width: 22rem !important;
+    }
+}
+
+@media (max-width: 1180px) {
+    .cf-stitch-upgrade #app-main {
+        padding-left: 10px !important;
+        padding-right: 10px !important;
+    }
+
+    .cf-stitch-upgrade .cf-feed-hud {
+        flex-wrap: wrap;
+    }
+
+    .cf-stitch-upgrade .cf-feed-hud span {
+        max-width: 48%;
+    }
+}
+
+/* Exact Stitch draft shell */
+.cf-stitch-page {
+    --stitch-bg: #faf9fa;
+    --stitch-surface: #faf9fa;
+    --stitch-surface-low: #f5f3f4;
+    --stitch-surface-card: #ffffff;
+    --stitch-side: #e2e8f0;
+    --stitch-side-soft: #f8fafc;
+    --stitch-text: #1b1c1d;
+    --stitch-muted: #64748b;
+    --stitch-primary: #094cb2;
+    --stitch-primary-container: #3366cc;
+    --stitch-primary-fixed: #d9e2ff;
+    --stitch-tertiary: #6d5e00;
+    --stitch-error: #ba1a1a;
+    --stitch-error-container: #ffdad6;
+    background: var(--stitch-bg) !important;
+    color: var(--stitch-text) !important;
+    font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif !important;
+}
+
+.cf-stitch-page::before {
+    display: none !important;
+}
+
+.cf-stitch-page .hidden {
+    display: none !important;
+}
+
+.stitch-topbar {
+    height: 72px;
+    flex: 0 0 72px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 32px;
+    background: rgba(241, 245, 249, 0.86);
+    border-bottom: 1px solid rgba(195, 198, 213, 0.45);
+    backdrop-filter: blur(14px);
+    z-index: 50;
+}
+
+.stitch-brand {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+}
+
+.stitch-snow-mark {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    flex: 0 0 auto;
+    background: #d9e2ff;
+    box-shadow: inset 0 0 0 1px rgba(9, 76, 178, 0.12);
+}
+
+.stitch-snow-mark svg {
+    width: 28px;
+    height: 28px;
+}
+
+.stitch-brand h1 {
+    margin: 0;
+    color: var(--stitch-primary);
+    font-family: "Noto Serif SC", "Microsoft YaHei", serif !important;
+    font-size: 24px;
+    line-height: 1;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.stitch-brand h1 span {
+    font-size: 24px;
+    font-family: inherit;
+}
+
+.stitch-nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.stitch-nav-actions button {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    color: #64748b;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    cursor: pointer;
+    transition: color 0.16s ease, background-color 0.16s ease, opacity 0.16s ease;
+}
+
+.stitch-nav-actions button:hover {
+    color: var(--stitch-primary);
+    background: rgba(9, 76, 178, 0.08);
+}
+
+.stitch-nav-actions svg {
+    width: 23px;
+    height: 23px;
+}
+
+.stitch-shell {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+}
+
+.stitch-left-panel {
+    width: 320px;
+    flex: 0 0 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 24px;
+    overflow-y: auto;
+    background: #e2e8f0;
+}
+
+.stitch-engine-block {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 32px;
+}
+
+.stitch-engine-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    color: #e7ebff;
+    background: var(--stitch-primary-container);
+    font-family: "Noto Serif SC", "Microsoft YaHei", serif;
+    font-weight: 800;
+}
+
+.stitch-engine-block h2 {
+    margin: 0 0 2px;
+    color: #1e40af;
+    font-family: "Noto Serif SC", "Microsoft YaHei", serif !important;
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.stitch-engine-block p {
+    margin: 0;
+    color: #434653;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.stitch-section {
+    margin-bottom: 32px;
+}
+
+.stitch-section h3,
+.stitch-log-panel > h3 {
+    margin: 0 0 16px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.stitch-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.stitch-stat-card,
+.stitch-model-card,
+.stitch-toggle-card,
+.cf-stitch-page .cf-flow-row {
+    border-radius: 8px;
+    background: var(--stitch-surface-card);
+    box-shadow: none;
+}
+
+.stitch-stat-card {
+    min-height: 96px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.stitch-stat-wide {
+    grid-column: 1 / -1;
+}
+
+.stitch-stat-card span,
+.stitch-okng-grid span,
+.stitch-model-card label,
+.stitch-toggle-card > span {
+    color: #434653;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.stitch-stat-card strong {
+    color: var(--stitch-primary);
+    font-family: "Noto Serif SC", "Microsoft YaHei", serif;
+    font-size: 28px;
+    line-height: 1;
+    font-weight: 800;
+}
+
+.stitch-stat-card:nth-child(2) strong,
+#stitch-pass-rate {
+    color: var(--stitch-tertiary);
+}
+
+.stitch-rate-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+}
+
+.stitch-progress {
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--stitch-surface-low);
+}
+
+.stitch-progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--stitch-primary);
+    transition: width 0.18s ease;
+}
+
+.stitch-okng-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.stitch-okng-grid div {
+    min-height: 58px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.stitch-okng-grid strong {
+    display: block;
+    margin-top: 4px;
+    color: var(--stitch-text);
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.stitch-okng-grid div:first-child strong {
+    color: var(--stitch-primary);
+}
+
+.stitch-okng-grid div:last-child strong {
+    color: var(--stitch-error);
+}
+
+.stitch-model-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.stitch-model-card {
+    padding: 16px;
+    border: 1px solid rgba(195, 198, 213, 0.3);
+}
+
+.stitch-model-card label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.stitch-model-card select {
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 8px;
+    color: var(--stitch-text);
+    background: var(--stitch-surface-low);
+    font-size: 14px;
+    outline: none;
+}
+
+.stitch-model-card select:focus {
+    box-shadow: 0 0 0 2px rgba(9, 76, 178, 0.28);
+}
+
+.stitch-toggle-card {
+    min-height: 58px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border: 1px solid rgba(195, 198, 213, 0.3);
+}
+
+.stitch-toggle-card em {
+    display: none;
+}
+
+.stitch-switch {
+    position: relative;
+    width: 42px;
+    height: 22px;
+    flex: 0 0 auto;
+    cursor: pointer;
+}
+
+.stitch-switch input {
+    position: absolute;
+    opacity: 0;
+    inset: 0;
+}
+
+.stitch-switch span {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 999px;
+    background: #d9e2ff;
+    transition: background-color 0.16s ease;
+}
+
+.stitch-switch span::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: #ffffff;
+    transition: transform 0.16s ease;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+}
+
+.stitch-switch input:checked + span {
+    background: var(--stitch-primary);
+}
+
+.stitch-switch input:checked + span::after {
+    transform: translateX(20px);
+}
+
+.stitch-camera-panel {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 24px;
+    background: var(--stitch-surface);
+}
+
+.stitch-video-shell {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 12px;
+    background: var(--stitch-surface-card);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.stitch-feed-info {
+    position: absolute;
+    z-index: 24;
+    top: 0;
+    left: 0;
+    right: 0;
+    min-height: 64px;
+    padding: 16px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0));
+    pointer-events: none;
+}
+
+.stitch-feed-chips {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+}
+
+.stitch-feed-chips span {
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 5px 12px;
+    border-radius: 8px;
+    color: #ffffff;
+    background: rgba(9, 76, 178, 0.2);
+    border: 1px solid rgba(9, 76, 178, 0.3);
+    backdrop-filter: blur(10px);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.stitch-feed-chips span + span {
+    background: rgba(250, 249, 250, 0.2);
+    border-color: rgba(250, 249, 250, 0.3);
+}
+
+.stitch-feed-info button {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 999px;
+    color: #ffffff;
+    background: rgba(250, 249, 250, 0.2);
+    backdrop-filter: blur(10px);
+    pointer-events: auto;
+}
+
+.stitch-feed-info button svg {
+    width: 18px;
+    height: 18px;
+}
+
+.stitch-video-feed {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    background: #0f172a;
+}
+
+.stitch-video-feed::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    background: rgba(15, 23, 42, 0.08);
+}
+
+.stitch-video-feed img,
+.stitch-video-feed canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.stitch-video-feed img {
+    object-fit: contain;
+    background: #0f172a;
+}
+
+.stitch-video-feed canvas {
+    z-index: 20;
+    cursor: crosshair;
+}
+
+.stitch-bounding-box {
+    position: absolute;
+    z-index: 16;
+    top: 30%;
+    left: 40%;
+    width: 192px;
+    height: 128px;
+    border: 2px dashed var(--stitch-primary);
+    border-radius: 4px;
+    background: rgba(9, 76, 178, 0.1);
+    pointer-events: none;
+}
+
+.stitch-result-overlay {
+    position: absolute;
+    z-index: 32;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 132px;
+    padding: 12px 24px;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 44px;
+    font-weight: 900;
+    letter-spacing: 0;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.3);
+    pointer-events: none;
+}
+
+.stitch-result-ok {
+    color: #00419d;
+    background: rgba(217, 226, 255, 0.95);
+    border: 2px solid #3366cc;
+}
+
+.stitch-result-ng {
+    color: #93000a;
+    background: rgba(255, 218, 214, 0.96);
+    border: 2px solid #ba1a1a;
+}
+
+.stitch-result-strip {
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--stitch-surface-card);
+    border-top: 1px solid rgba(195, 198, 213, 0.4);
+}
+
+.stitch-result-strip > div {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.stitch-result-strip strong {
+    color: var(--stitch-text);
+    font-size: 15px;
+}
+
+.stitch-result-strip p {
+    margin: 3px 0 0;
+    color: var(--stitch-muted);
+    font-size: 11px;
+}
+
+.stitch-result-strip p span {
+    margin: 0 8px;
+    color: #c3c6d5;
+}
+
+.stitch-result-strip > span:last-child {
+    color: #434653;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.cf-stitch-page .cf-result-pill,
+.cf-stitch-page .cf-flow-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.cf-stitch-page .cf-result-pill {
+    width: 52px;
+    height: 32px;
+}
+
+.cf-stitch-page .result-idle {
+    color: #434653;
+    background: #e3e2e3;
+}
+
+.cf-stitch-page .result-ok,
+.cf-stitch-page .cf-flow-row.ok .cf-flow-status {
+    color: #00419d;
+    background: #d9e2ff;
+}
+
+.cf-stitch-page .result-ng,
+.cf-stitch-page .cf-flow-row.ng .cf-flow-status {
+    color: #93000a;
+    background: #ffdad6;
+}
+
+.stitch-log-panel {
+    width: 384px;
+    flex: 0 0 384px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 24px;
+    background: var(--stitch-surface-low);
+    border-left: 1px solid #e3e2e3;
+}
+
+.stitch-log-panel > h3 {
+    color: var(--stitch-text);
+    font-family: "Noto Serif SC", "Microsoft YaHei", serif !important;
+    font-size: 18px;
+    font-weight: 700;
+    text-transform: none;
+    margin-bottom: 24px;
+}
+
+.stitch-log-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+
+.cf-stitch-page .cf-flow-row {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 98px;
+    padding: 16px 16px 16px 20px;
+    overflow: hidden;
+}
+
+.cf-stitch-page .cf-flow-rail {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: var(--stitch-primary);
+}
+
+.cf-stitch-page .cf-flow-row.ng .cf-flow-rail {
+    background: var(--stitch-error);
+}
+
+.cf-stitch-page .cf-flow-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.cf-stitch-page .cf-flow-time {
+    color: #434653;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.cf-stitch-page .cf-flow-status {
+    min-width: 34px;
+    height: 20px;
+    padding: 0 8px;
+}
+
+.cf-stitch-page .cf-flow-sn {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--stitch-text);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.cf-stitch-page .cf-flow-detail {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #434653;
+    font-size: 12px;
+}
+
+.cf-stitch-page .cf-empty-state {
+    display: grid;
+    place-items: center;
+    min-height: 140px;
+    color: #737784;
+    border-radius: 8px;
+    background: #ffffff;
+    font-size: 13px;
+}
+
+.stitch-action-stack {
+    margin-top: 24px;
+    padding-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    border-top: 1px solid rgba(195, 198, 213, 0.32);
+}
+
+.stitch-start-button,
+.stitch-action-grid button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 8px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.16s ease, background-color 0.16s ease;
+}
+
+.stitch-start-button {
+    width: 100%;
+    min-height: 48px;
+    color: #ffffff;
+    background: linear-gradient(90deg, #094cb2, #3366cc);
+    border: 0;
+    font-size: 14px;
+}
+
+.stitch-start-button:hover {
+    opacity: 0.9;
+}
+
+.stitch-action-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.stitch-action-grid button {
+    min-height: 42px;
+    color: #606569;
+    background: #dfe3e8;
+    border: 1px solid #c3c6d5;
+    font-size: 12px;
+}
+
+.stitch-action-grid button:hover {
+    background: #e3e2e3;
+}
+
+.stitch-start-button svg,
+.stitch-action-grid svg {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+}
+
+.cf-stitch-page .cf-toast {
+    color: var(--stitch-text);
+    background: #ffffff;
+    border: 1px solid rgba(195, 198, 213, 0.45);
+}
+
+@media (max-width: 1360px) {
+    .stitch-left-panel {
+        width: 300px;
+        flex-basis: 300px;
+        padding: 20px;
+    }
+
+    .stitch-log-panel {
+        width: 352px;
+        flex-basis: 352px;
+        padding: 20px;
+    }
+
+    .stitch-camera-panel {
+        padding: 20px;
+    }
+}
+
+/* Stitch modal surfaces */
+.cf-stitch-page #settings-modal,
+.cf-stitch-page #log-history-modal {
+    background: rgba(27, 28, 29, 0.46) !important;
+    backdrop-filter: blur(10px);
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal,
+.cf-stitch-page #log-history-modal > .cf-ornate-modal {
+    color: var(--stitch-text);
+    background: var(--stitch-bg) !important;
+    border: 1px solid rgba(195, 198, 213, 0.64);
+    border-radius: 12px !important;
+    box-shadow: 0 24px 70px rgba(27, 28, 29, 0.28);
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal {
+    width: min(1180px, calc(100vw - 40px));
+    max-height: calc(100vh - 48px);
+}
+
+.cf-stitch-page #log-history-modal > .cf-ornate-modal {
+    width: min(1080px, calc(100vw - 40px));
+}
+
+.cf-stitch-page #settings-modal .cf-ornate-modal::before,
+.cf-stitch-page #log-history-modal .cf-ornate-modal::before {
+    display: none;
+}
+
+.cf-stitch-page #settings-modal .cf-ornate-header,
+.cf-stitch-page #log-history-modal .cf-ornate-header {
+    min-height: 72px;
+    height: 72px;
+    padding: 0 28px !important;
+    background: rgba(255, 255, 255, 0.92) !important;
+    border-bottom: 1px solid rgba(195, 198, 213, 0.56) !important;
+}
+
+.cf-stitch-page #settings-modal .cf-ornate-header h3,
+.cf-stitch-page #log-history-modal .cf-ornate-header h3 {
+    color: var(--stitch-text) !important;
+    font-family: "Noto Serif", "Microsoft YaHei", serif;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal > .scroller {
+    padding: 0 !important;
+    background: var(--stitch-bg) !important;
+    display: flex;
+    flex-direction: column;
+    gap: 0 !important;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal > .scroller > div:first-child {
+    margin: 0 !important;
+    padding: 18px 28px !important;
+    background: #ffffff !important;
+    border: 0 !important;
+    border-bottom: 1px solid rgba(195, 198, 213, 0.48) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal > .scroller > div:first-child label {
+    color: var(--stitch-muted) !important;
+    letter-spacing: 0.08em;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal > .scroller > div:first-child p {
+    color: var(--stitch-muted) !important;
+    font-style: normal !important;
+}
+
+.cf-stitch-page #project-preset-select {
+    max-width: 520px;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-workspace {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 0;
+    margin: 0;
+    background: var(--stitch-bg);
+}
+
+.cf-stitch-page #settings-modal .cf-settings-nav {
+    padding: 24px;
+    background: var(--stitch-side);
+    border-right: 1px solid rgba(195, 198, 213, 0.68);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab {
+    width: 100%;
+    min-height: 42px;
+    justify-content: flex-start;
+    padding: 0 14px;
+    color: #434653;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab:hover {
+    color: var(--stitch-primary);
+    background: rgba(255, 255, 255, 0.52);
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab.active {
+    color: var(--stitch-primary);
+    background: #ffffff;
+    border-color: rgba(195, 198, 213, 0.72);
+    box-shadow: 0 10px 22px rgba(51, 102, 204, 0.08);
+}
+
+.cf-stitch-page #settings-modal .cf-settings-content {
+    min-width: 0;
+    padding: 28px;
+    overflow-y: auto;
+    background: var(--stitch-bg);
+}
+
+.cf-stitch-page #settings-modal .cf-settings-content > .grid {
+    display: block !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section] {
+    max-width: 780px;
+    padding: 24px;
+    background: #ffffff;
+    border: 1px solid rgba(195, 198, 213, 0.64);
+    border-radius: 12px;
+    box-shadow: none;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section] h3 {
+    color: var(--stitch-text) !important;
+    font-family: "Public Sans", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.cf-stitch-page #settings-modal label {
+    color: var(--stitch-muted) !important;
+    letter-spacing: 0.02em;
+}
+
+.cf-stitch-page #settings-modal .tech-input,
+.cf-stitch-page #settings-modal select,
+.cf-stitch-page #settings-modal textarea,
+.cf-stitch-page #settings-modal input:not([type="checkbox"]):not([type="range"]) {
+    min-height: 40px;
+    color: var(--stitch-text) !important;
+    background: var(--stitch-surface-low) !important;
+    border: 1px solid transparent !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+.cf-stitch-page #settings-modal .tech-input:focus,
+.cf-stitch-page #settings-modal select:focus,
+.cf-stitch-page #settings-modal textarea:focus,
+.cf-stitch-page #settings-modal input:not([type="checkbox"]):not([type="range"]):focus {
+    border-color: var(--stitch-primary) !important;
+    outline: 0;
+    box-shadow: 0 0 0 3px rgba(9, 76, 178, 0.12) !important;
+}
+
+.cf-stitch-page #settings-modal input[type="checkbox"] {
+    accent-color: var(--stitch-primary);
+}
+
+.cf-stitch-page #settings-modal input[type="range"] {
+    accent-color: var(--stitch-primary);
+}
+
+.cf-stitch-page #settings-modal button {
+    border-radius: 8px !important;
+}
+
+.cf-stitch-page #settings-modal button[data-action="saveSettings"] {
+    min-width: 140px;
+    min-height: 40px;
+    color: #ffffff !important;
+    background: linear-gradient(90deg, #094cb2, #3366cc) !important;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+.cf-stitch-page #settings-modal button[data-action="closeSettingsModal"] {
+    color: var(--stitch-muted) !important;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal > div:last-child {
+    height: 68px !important;
+    padding: 0 28px !important;
+    background: #ffffff !important;
+    border-top: 1px solid rgba(195, 198, 213, 0.56) !important;
+}
+
+.cf-stitch-page #log-history-modal .cf-ornate-header input[type="date"] {
+    min-height: 36px;
+    color: var(--stitch-text);
+    background: var(--stitch-surface-low);
+    border: 1px solid rgba(195, 198, 213, 0.64);
+    border-radius: 8px;
+}
+
+.cf-stitch-page #log-history-modal .cf-ornate-header button[data-cmd="get_detection_logs"] {
+    min-height: 36px;
+    color: var(--stitch-primary) !important;
+    background: var(--stitch-primary-fixed) !important;
+    border-radius: 8px !important;
+}
+
+.cf-stitch-page #log-history-modal > .cf-ornate-modal > .scroller {
+    padding: 24px !important;
+    background: var(--stitch-surface-low) !important;
+}
+
+.cf-stitch-page #log-history-modal .scroller > div {
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+.cf-stitch-page #log-history-modal table,
+.cf-stitch-page #log-history-modal thead,
+.cf-stitch-page #log-history-modal tbody,
+.cf-stitch-page #log-history-modal tr,
+.cf-stitch-page #log-history-modal td {
+    display: block;
+}
+
+.cf-stitch-page #log-history-modal table {
+    min-width: 0 !important;
+    width: 100%;
+}
+
+.cf-stitch-page #log-history-modal thead {
+    display: none;
+}
+
+.cf-stitch-page #log-history-table {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+}
+
+.cf-stitch-page #log-history-table tr {
+    position: relative;
+    min-height: 78px;
+    padding: 14px 16px 14px 18px;
+    overflow: hidden;
+    background: #ffffff;
+    border: 1px solid rgba(195, 198, 213, 0.54);
+    border-radius: 8px;
+}
+
+.cf-stitch-page #log-history-table tr::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: var(--stitch-primary);
+}
+
+.cf-stitch-page #log-history-table tr:has(.text-rouge-600)::before,
+.cf-stitch-page #log-history-table tr:has(.text-error)::before {
+    background: var(--stitch-error);
+}
+
+.cf-stitch-page #log-history-table tr:hover {
+    background: #ffffff !important;
+    border-color: rgba(9, 76, 178, 0.28);
+}
+
+.cf-stitch-page #log-history-table td {
+    padding: 0 !important;
+    border: 0 !important;
+}
+
+.cf-stitch-page #log-history-table td:nth-child(1) {
+    margin-bottom: 8px;
+    color: var(--stitch-muted) !important;
+    font-family: "Public Sans", "Microsoft YaHei", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.cf-stitch-page #log-history-table td:nth-child(2) {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+}
+
+.cf-stitch-page #log-history-table td:nth-child(2) span {
+    min-width: 34px;
+    height: 22px;
+    padding: 0 8px;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px !important;
+    color: var(--stitch-primary) !important;
+    background: var(--stitch-primary-fixed) !important;
+    border: 0 !important;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.cf-stitch-page #log-history-table tr:has(.text-rouge-600) td:nth-child(2) span,
+.cf-stitch-page #log-history-table tr:has(.text-error) td:nth-child(2) span {
+    color: #93000a !important;
+    background: var(--stitch-error-container) !important;
+}
+
+.cf-stitch-page #log-history-table td:nth-child(3) {
+    max-width: none !important;
+    padding-right: 72px !important;
+    color: #434653 !important;
+    font-size: 13px;
+    white-space: normal !important;
+}
+
+.cf-stitch-page #log-history-modal > .cf-ornate-modal > div:last-child {
+    height: 56px !important;
+    background: #ffffff !important;
+    border-top: 1px solid rgba(195, 198, 213, 0.56) !important;
+}
+
+.cf-stitch-page #log-history-modal [data-cmd="export_log_csv"] {
+    display: none !important;
+}
+
+@media (max-width: 980px) {
+    .cf-stitch-page #settings-modal .cf-settings-workspace {
+        grid-template-columns: 1fr;
+    }
+
+    .cf-stitch-page #settings-modal .cf-settings-nav {
+        flex-direction: row;
+        overflow-x: auto;
+        border-right: 0;
+        border-bottom: 1px solid rgba(195, 198, 213, 0.68);
+    }
+
+    .cf-stitch-page #settings-modal .cf-settings-tab {
+        width: auto;
+        flex: 0 0 auto;
+    }
+}
+
+/* Reference mockup replica: System Configuration and Record Trace */
+.cf-stitch-page #settings-modal,
+.cf-stitch-page #gallery-modal {
+    background: rgba(15, 23, 42, 0.34) !important;
+    backdrop-filter: blur(2px);
+}
+
+.cf-stitch-page #settings-modal {
+    padding: 22px !important;
+    align-items: flex-start !important;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal {
+    position: relative;
+    width: min(912px, calc(100vw - 32px));
+    height: min(598px, calc(100vh - 32px));
+    max-height: none !important;
+    overflow: hidden !important;
+    background: #ffffff !important;
+    border: 0 !important;
+    border-radius: 6px !important;
+    box-shadow: 0 26px 62px rgba(15, 23, 42, 0.16) !important;
+}
+
+.cf-stitch-page #settings-modal .cf-ornate-header {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    z-index: 5;
+    width: 28px;
+    height: 28px !important;
+    min-height: 28px;
+    padding: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+}
+
+.cf-stitch-page #settings-modal .cf-ornate-header h3 {
+    display: none;
+}
+
+.cf-stitch-page #settings-modal .cf-ornate-header button {
+    width: 28px;
+    height: 28px;
+    padding: 0 !important;
+    color: #64748b !important;
+    background: transparent !important;
+    border: 0 !important;
+    font-size: 18px !important;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal > .scroller {
+    height: calc(100% - 54px);
+    padding: 0 !important;
+    overflow: hidden !important;
+    display: grid;
+    grid-template-columns: 216px minmax(0, 1fr);
+    grid-template-rows: 1fr;
+    background: #ffffff !important;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-workspace {
+    display: contents !important;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-nav {
+    grid-column: 1;
+    grid-row: 1;
+    position: relative;
+    padding: 108px 12px 24px 16px !important;
+    background: #f4f7fa !important;
+    border-right: 1px solid #e5e7eb !important;
+    gap: 8px !important;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-nav::before {
+    content: "System Settings\A v2.4.0-archival";
+    position: absolute;
+    top: 31px;
+    left: 26px;
+    white-space: pre;
+    color: #020617;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 16px;
+    line-height: 1.55;
+    font-weight: 700;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-nav::after {
+    content: "";
+    position: absolute;
+    top: 64px;
+    left: 26px;
+    width: 64px;
+    height: 1px;
+    background: transparent;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab {
+    min-height: 34px !important;
+    padding: 0 12px !important;
+    justify-content: flex-start;
+    gap: 9px;
+    color: #334155 !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 4px !important;
+    box-shadow: none !important;
+    font-family: "Public Sans", "Microsoft YaHei", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em !important;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab::before {
+    width: 15px;
+    color: #64748b;
+    font-size: 13px;
+    letter-spacing: 0 !important;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="preset"]::before {
+    content: "⚙";
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="run"]::before {
+    content: "⚡";
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="vision"]::before {
+    content: "◉";
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="plc"]::before {
+    content: "↔";
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="camera"]::before {
+    content: "■";
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="storage"]::before {
+    content: "▣";
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="diagnostic"]::before {
+    content: "⌁";
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab.active {
+    color: #00419d !important;
+    background: #eaf0f8 !important;
+    border-left: 2px solid #0b5bd3 !important;
+    font-weight: 800;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-content {
+    grid-column: 2;
+    grid-row: 1;
+    padding: 28px 30px 28px !important;
+    overflow-y: auto;
+    background: #ffffff !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="preset"] {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+    margin: 0 !important;
+    padding: 32px 30px !important;
+    background: #ffffff !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section] {
+    max-width: none;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section] > h3 {
+    margin: 0 0 7px;
+    color: #020617 !important;
+    font-family: "Noto Serif SC", Georgia, "Microsoft YaHei", serif;
+    font-size: 24px;
+    line-height: 1.25;
+    font-weight: 700;
+    letter-spacing: 0 !important;
+    text-transform: none;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section] > h3::after {
+    display: block;
+    margin-top: 8px;
+    color: #475569;
+    font-family: "Inter", "Microsoft YaHei", sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="camera"] > h3::after {
+    content: "配置和管理系统连接的视觉设备。调整曝光、增益等底层参数以优化检测效果。";
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="plc"] > h3::after {
+    content: "配置主可编程逻辑控制器的连接参数。";
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="storage"] > label {
+    display: none !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="camera"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 248px;
+    gap: 18px;
+    align-items: start;
+    order: 1;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="camera"] > h3 {
+    grid-column: 1 / -1;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-fields,
+.cf-stitch-page #settings-modal .cf-camera-preview-card,
+.cf-stitch-page #settings-modal [data-settings-section="storage"],
+.cf-stitch-page #settings-modal [data-settings-section="plc"],
+.cf-stitch-page #settings-modal [data-settings-section="vision"],
+.cf-stitch-page #settings-modal [data-settings-section="run"],
+.cf-stitch-page #settings-modal [data-settings-section="diagnostic"] {
+    padding: 20px !important;
+    background: #fbfbfc !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 5px !important;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-fields {
+    grid-column: 1;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-preview-card {
+    grid-column: 2;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-preview-card h4 {
+    margin: 0 0 14px;
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-preview-box {
+    position: relative;
+    height: 264px;
+    display: grid;
+    place-items: center;
+    color: #475569;
+    background: #ddd;
+    border-radius: 3px;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-preview-box svg {
+    width: 32px;
+    height: 32px;
+    color: #8b95a1;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-preview-box span {
+    position: absolute;
+    top: 145px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 12px;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-preview-box button {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    min-height: 26px;
+    padding: 0 12px;
+    color: #ffffff !important;
+    background: #0b5bd3 !important;
+    border: 0 !important;
+    border-radius: 2px !important;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="storage"] {
+    margin-top: 18px;
+    order: 2;
+}
+
+.cf-stitch-page #settings-modal label {
+    margin-bottom: 8px !important;
+    color: #26364d !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+}
+
+.cf-stitch-page #settings-modal input:not([type="checkbox"]):not([type="range"]),
+.cf-stitch-page #settings-modal select,
+.cf-stitch-page #settings-modal .tech-input {
+    height: 33px !important;
+    min-height: 33px !important;
+    padding: 0 10px !important;
+    color: #020617 !important;
+    background: #ffffff !important;
+    border: 1px solid #c9d2e3 !important;
+    border-radius: 2px !important;
+    box-shadow: none !important;
+    font-family: "Inter", "Microsoft YaHei", sans-serif !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+}
+
+.cf-stitch-page #settings-modal input:focus,
+.cf-stitch-page #settings-modal select:focus {
+    border-color: #0b5bd3 !important;
+    box-shadow: 0 0 0 2px rgba(11, 91, 211, 0.12) !important;
+    outline: none;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="plc"] > .space-y-4 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="plc"] > .space-y-4 > :has(#cfg-plc-ip) {
+    grid-column: span 2;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="plc"] > .space-y-4 > :has(#cfg-plc-address-help),
+.cf-stitch-page #settings-modal [data-settings-section="plc"] > .space-y-4 > :has(#cfg-plc-handshake-options),
+.cf-stitch-page #settings-modal [data-settings-section="plc"] > .space-y-4 > :has(#cfg-barcode-enabled),
+.cf-stitch-page #settings-modal [data-settings-section="plc"] #cfg-plc-handshake-options,
+.cf-stitch-page #settings-modal [data-settings-section="plc"] #cfg-plc-siemens-options {
+    grid-column: 1 / -1;
+}
+
+.cf-stitch-page #settings-modal input[type="checkbox"] {
+    width: 34px !important;
+    height: 18px !important;
+    border-radius: 999px !important;
+    accent-color: #0b5bd3;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal > div:last-child {
+    height: 54px !important;
+    padding: 0 24px !important;
+    background: rgba(255, 255, 255, 0.94) !important;
+    border-top: 1px solid #e5e7eb !important;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal > div:last-child button {
+    height: 31px;
+    border-radius: 3px !important;
+    font-size: 12px;
+}
+
+.cf-stitch-page #settings-modal button[data-action="saveSettings"] {
+    min-width: 192px;
+    color: #ffffff !important;
+    background: #2f60c5 !important;
+    border: 0 !important;
+}
+
+.cf-stitch-page #gallery-modal {
+    padding: 0 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cf-stitch-page #gallery-modal.hidden {
+    display: none !important;
+}
+
+.cf-stitch-page #gallery-modal > .cf-ornate-modal {
+    position: relative !important;
+    inset: auto !important;
+    width: min(956px, calc(100vw - 30px)) !important;
+    height: min(760px, calc(100vh - 30px)) !important;
+    display: grid !important;
+    grid-template-columns: 212px minmax(0, 1fr);
+    grid-template-rows: 116px minmax(0, 1fr) 66px;
+    overflow: hidden;
+    background: #ffffff !important;
+    border: 0 !important;
+    border-radius: 20px !important;
+    box-shadow: 0 26px 70px rgba(15, 23, 42, 0.16) !important;
+}
+
+.cf-stitch-page #gallery-modal header {
+    grid-column: 2;
+    grid-row: 1;
+    height: auto !important;
+    display: grid !important;
+    grid-template-columns: 1fr;
+    align-items: flex-start !important;
+    padding: 28px 36px 18px !important;
+    background: #ffffff !important;
+    border: 0 !important;
+}
+
+.cf-stitch-page #gallery-modal header h3 {
+    color: #020617 !important;
+    font-family: "Noto Serif SC", Georgia, "Microsoft YaHei", serif;
+    font-size: 25px !important;
+    line-height: 1.2;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+}
+
+.cf-stitch-page #gallery-modal header h3 span {
+    display: block;
+    margin: 8px 0 0 !important;
+    color: #334155 !important;
+    font-family: "Inter", "Microsoft YaHei", sans-serif !important;
+    font-size: 12px !important;
+    font-style: normal !important;
+    font-weight: 400 !important;
+    text-transform: none !important;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-filters {
+    position: absolute;
+    top: 114px;
+    left: 248px;
+    right: 36px;
+    z-index: 3;
+    display: grid;
+    grid-template-columns: 1fr 144px 76px;
+    gap: 12px;
+    align-items: end;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-filters label {
+    position: absolute;
+    top: -18px;
+    color: #64748b;
+    font-size: 11px;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-filters label:nth-of-type(1) {
+    left: 0;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-filters label:nth-of-type(2) {
+    left: calc(100% - 232px);
+}
+
+.cf-stitch-page #gallery-modal #trace-date-slot {
+    grid-column: 1;
+}
+
+.cf-stitch-page #gallery-modal #gallery-date-picker,
+.cf-stitch-page #gallery-modal #trace-hour-select {
+    width: 100%;
+    height: 32px;
+    padding: 0 12px;
+    color: #0f172a;
+    background: #ffffff;
+    border: 1px solid #d7dce5;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.cf-stitch-page #gallery-modal #trace-hour-select {
+    grid-column: 2;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-filters button {
+    grid-column: 3;
+    height: 32px;
+    color: #ffffff;
+    background: #2f60c5;
+    border: 0;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.cf-stitch-page #gallery-modal #gallery-count,
+.cf-stitch-page #gallery-modal header .h-4,
+.cf-stitch-page #gallery-modal header > button {
+    display: none !important;
+}
+
+.cf-stitch-page #gallery-modal > .cf-ornate-modal > .flex.flex-1 {
+    display: contents !important;
+}
+
+.cf-stitch-page #gallery-modal .w-60 {
+    grid-column: 1;
+    grid-row: 1 / 4;
+    width: auto !important;
+    padding: 114px 14px 24px !important;
+    background: #ffffff !important;
+    border-right: 1px solid #f1f5f9 !important;
+}
+
+.cf-stitch-page #gallery-modal .w-60::before {
+    content: "SYSTEM\A CONFIGURATION\A Management Console";
+    position: absolute;
+    top: 22px;
+    left: 14px;
+    white-space: pre;
+    color: #020617;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 16px;
+    line-height: 1.25;
+    font-weight: 700;
+}
+
+.cf-stitch-page #gallery-modal .w-60::after {
+    content: "项目预设\A运行方案\A视觉模型\APLC 与条码\A相机\A存储与报表\A记录追溯";
+    position: absolute;
+    top: 114px;
+    left: 14px;
+    right: 12px;
+    white-space: pre;
+    color: #334155;
+    font-size: 12px;
+    line-height: 3.55;
+}
+
+.cf-stitch-page #gallery-modal .w-60 > * {
+    visibility: hidden;
+}
+
+.cf-stitch-page #gallery-modal .w-60 {
+    position: relative;
+    background:
+        linear-gradient(to bottom, transparent 0 388px, #e8e8eb 388px 424px, transparent 424px),
+        #ffffff !important;
+}
+
+.cf-stitch-page #gallery-modal #ng-image-grid {
+    grid-column: 2;
+    grid-row: 2;
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    align-content: start;
+    gap: 24px !important;
+    padding: 86px 36px 28px !important;
+    overflow-y: auto !important;
+    background: #f7f7f8 !important;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-card {
+    height: 256px;
+    overflow: hidden;
+    background: #ffffff;
+    border-radius: 5px;
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-thumb {
+    position: relative;
+    height: 156px;
+    overflow: hidden;
+    background: #cbd5e1;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-thumb span {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    padding: 3px 7px;
+    color: #8b0000;
+    background: #ffd6d6;
+    border-radius: 2px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-card-body {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 14px 6px;
+    color: #1f2937;
+    font-size: 12px;
+    line-height: 1.65;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-card-body svg {
+    width: 18px;
+    height: 18px;
+    margin-top: 4px;
+    color: #8a6a00;
+    flex: 0 0 auto;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-card button {
+    float: right;
+    margin: 16px 14px 0 0;
+    color: #0b5bd3;
+    background: transparent;
+    border: 0;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-empty {
+    grid-column: 1 / -1;
+    display: grid;
+    place-items: center;
+    min-height: 240px;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-footer {
+    grid-column: 2;
+    grid-row: 3;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 0 18px;
+    background: #ffffff;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-footer button {
+    height: 30px;
+    min-width: 58px;
+    padding: 0 17px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-footer button:first-child {
+    color: #0f172a;
+    background: #f1f5f9;
+    border: 0;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-footer button:last-child {
+    color: #ffffff;
+    background: #2f60c5;
+    border: 0;
+}

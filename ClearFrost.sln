@@ -5,13 +5,13 @@ VisualStudioVersion = 17.7.34031.279
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ClearFrost", "ClearFrost\ClearFrost.csproj", "{C729BCCE-1C7C-483A-80F7-4DAECA0B31BC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearFrost.Tests", "ClearFrost.Tests\ClearFrost.Tests.csproj", "{DE5DFDB5-CA5F-4F00-AC41-DEAD50B7D3E4}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ClearFrost.Tests", "ClearFrost.Tests\ClearFrost.Tests.csproj", "{DE5DFDB5-CA5F-4F00-AC41-DEAD50B7D3E4}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{07C2787E-EAC7-C090-1BA3-A61EC2A24D84}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearFrost.PlcProbe", "tools\ClearFrost.PlcProbe\ClearFrost.PlcProbe.csproj", "{93FB398E-44C8-43F4-A461-49E3C4951BCD}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ClearFrost.PlcProbe", "tools\ClearFrost.PlcProbe\ClearFrost.PlcProbe.csproj", "{93FB398E-44C8-43F4-A461-49E3C4951BCD}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearFrost.SimStress", "tools\ClearFrost.SimStress\ClearFrost.SimStress.csproj", "{66D56E57-D19F-4FF4-9F3B-53D94F7D726A}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ClearFrost.SimStress", "tools\ClearFrost.SimStress\ClearFrost.SimStress.csproj", "{66D56E57-D19F-4FF4-9F3B-53D94F7D726A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -305,6 +305,12 @@ namespace ClearFrost
             int? TriggerSeq,
             InspectionContext Context);
 
+        private readonly record struct BarcodeReadResult(
+            string? ProductBarcode,
+            bool? ReadSucceeded,
+            string? ErrorCode,
+            string? Message);
+
         private async Task btnCapture_LogicAsync(string triggerSource = "手动", int? triggerSeq = null)
         {
             DateTimeOffset triggerTime = DateTimeOffset.Now;
@@ -320,6 +326,11 @@ namespace ClearFrost
             };
 
             DiagLog($"▶ [{triggerSource}] [{inspectionId}] btnCapture_LogicAsync 进入, 线程ID={Thread.CurrentThread.ManagedThreadId}");
+            await _uiController.SendInspectionUpdate(
+                context,
+                message: "检测已触发",
+                usedModelName: _detectionService.CurrentModelName,
+                barcodeEnabled: _appConfig.BarcodeEnabled);
 
             if (!await EnsureStartupReadyForProductionAsync("检测", inspectionId))
             {
@@ -355,6 +366,14 @@ namespace ClearFrost
                 context.MarkFailed(InspectionStage.Unknown, "UnhandledDetectionException", ex.Message);
                 DiagLog($"❌ [{request.TriggerSource}] [{request.InspectionId}] 检测异常: {ex.Message}");
                 await _uiController.LogToFrontend($"检测异常({request.InspectionId}): {ex.Message}", "error");
+                await _uiController.SendInspectionUpdate(
+                    context,
+                    false,
+                    ex.Message,
+                    0,
+                    _detectionService.CurrentModelName,
+                    false,
+                    _appConfig.BarcodeEnabled);
             }
             finally
             {
@@ -362,6 +381,7 @@ namespace ClearFrost
                 context.TotalMs = totalSw.ElapsedMilliseconds;
                 await WriteHandshakeDetectionCompletedAsync(context, finalQualified);
                 _healthMonitor.RecordInspection(context);
+                await SendHealthSnapshotToFrontendAsync();
                 if (captureMs > 0 || inferenceMs > 0 || roiFilterMs > 0 || plcWriteMs > 0 || renderToUiMs > 0 || saveQueueMs > 0 || dbWriteMs > 0)
                 {
                     WritePerformanceProfileLog(
@@ -436,13 +456,103 @@ namespace ClearFrost
             int attemptCount = 0;
             ImageSavePayload? imagePayload = null;
             DetectionPersistencePayload? persistencePayload = null;
+            string? productBarcode = null;
+            bool? barcodeReadSucceeded = null;
+            string? barcodeError = null;
+            string? usedModelNameForUi = _detectionService.CurrentModelName;
+            bool wasFallbackForUi = false;
 
             Mat? frameToProcess = null;
 
-            var captureSw = Stopwatch.StartNew();
+            var captureSw = new Stopwatch();
             try
             {
+                await _uiController.SendInspectionUpdate(
+                    context,
+                    message: "检测流程启动",
+                    usedModelName: usedModelNameForUi,
+                    barcodeEnabled: _appConfig.BarcodeEnabled);
+
+                if (_appConfig.BarcodeEnabled)
+                {
+                    context.CurrentStage = InspectionStage.Barcode;
+                    await _uiController.SendInspectionUpdate(
+                        context,
+                        message: "读取 PLC 条码",
+                        usedModelName: usedModelNameForUi,
+                        barcodeEnabled: true);
+
+                    BarcodeReadResult barcode = await ReadBarcodeForInspectionAsync(context);
+                    productBarcode = barcode.ProductBarcode;
+                    barcodeReadSucceeded = barcode.ReadSucceeded;
+                    barcodeError = barcode.ErrorCode;
+                    if (barcodeReadSucceeded == true && string.IsNullOrWhiteSpace(productBarcode))
+                    {
+                        barcodeReadSucceeded = false;
+                        barcodeError = "NoBarcode";
+                    }
+
+                    bool barcodeFailed = barcodeReadSucceeded == false || string.IsNullOrWhiteSpace(productBarcode);
+                    string barcodeMessage = barcodeFailed
+                        ? (barcodeError == "NoBarcode" ? "PLC 条码为空" : barcode.Message ?? "PLC 条码读取失败")
+                        : "PLC 条码读取成功";
+                    await _uiController.SendInspectionUpdate(
+                        context,
+                        isOk: barcodeFailed && _appConfig.BarcodeRequired ? false : null,
+                        message: barcodeMessage,
+                        usedModelName: usedModelNameForUi,
+                        barcodeEnabled: true,
+                        productBarcode: productBarcode,
+                        barcodeReadSucceeded: barcodeReadSucceeded,
+                        barcodeError: barcodeError);
+
+                    if (_appConfig.BarcodeRequired && barcodeFailed)
+                    {
+                        string errorCode = barcodeError ?? "NoBarcode";
+                        string detail = errorCode == "NoBarcode"
+                            ? "PLC 条码为空，已按 NG 处理"
+                            : "PLC 条码读取失败，已按 NG 处理";
+                        context.MarkFailed(InspectionStage.Barcode, errorCode, detail);
+
+                        var plcSw = Stopwatch.StartNew();
+                        await WriteDetectionResultToPlc(false, context);
+                        plcSw.Stop();
+                        plcWriteMs = plcSw.ElapsedMilliseconds;
+                        context.PlcWriteMs = plcWriteMs;
+
+                        _statisticsService.RecordDetection(false);
+                        _storageService.WriteDetectionLog(
+                            $"InspectionId: {request.InspectionId}{Environment.NewLine}{detail}",
+                            false);
+
+                        context.TotalMs = plcWriteMs;
+                        var barcodeFailurePayload = BuildDetectionPersistencePayload(
+                            context,
+                            null,
+                            new List<YoloResult>(),
+                            0,
+                            false,
+                            JsonSerializer.Serialize(new { Error = detail, Stage = "Barcode", context.InspectionId, ProductBarcode = productBarcode ?? string.Empty }));
+                        dbWriteMs = await EnqueueDetectionRecordAsync(context, barcodeFailurePayload, imageQueued: false);
+                        context.CurrentStage = InspectionStage.Failed;
+                        await _uiController.SendInspectionUpdate(
+                            context,
+                            false,
+                            detail,
+                            0,
+                            usedModelNameForUi,
+                            wasFallbackForUi,
+                            true,
+                            productBarcode,
+                            barcodeReadSucceeded,
+                            barcodeError);
+
+                        return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, false, 0, Math.Max(1, attemptCount));
+                    }
+                }
+
                 context.CurrentStage = InspectionStage.Capture;
+                captureSw.Start();
                 int maxRetryCount = Math.Clamp(_appConfig.MaxRetryCount, 0, 5);
                 int totalAttempts = maxRetryCount + 1;
                 int retryDelayMs = Math.Max(0, _appConfig.RetryIntervalMs);
@@ -515,6 +625,18 @@ namespace ClearFrost
                     false,
                     JsonSerializer.Serialize(new { Error = detail, Stage = "Capture", context.InspectionId }));
                 dbWriteMs = await EnqueueDetectionRecordAsync(context, captureFailurePayload, imageQueued: false);
+                context.CurrentStage = InspectionStage.Failed;
+                await _uiController.SendInspectionUpdate(
+                    context,
+                    false,
+                    detail,
+                    0,
+                    usedModelNameForUi,
+                    wasFallbackForUi,
+                    _appConfig.BarcodeEnabled,
+                    productBarcode,
+                    barcodeReadSucceeded,
+                    barcodeError);
 
                 return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, finalQualified, finalResultCount, Math.Max(1, attemptCount));
             }
@@ -538,6 +660,10 @@ namespace ClearFrost
                     bool isQualified = result.IsQualified;
                     List<YoloResult> results = result.Results ?? new List<YoloResult>();
                     bool detectionFailed = result.HasError;
+                    usedModelNameForUi = string.IsNullOrWhiteSpace(result.UsedModelName)
+                        ? _detectionService.CurrentModelName
+                        : result.UsedModelName;
+                    wasFallbackForUi = result.WasFallback;
 
                     context.CurrentStage = InspectionStage.RoiFilter;
                     var roiSw = Stopwatch.StartNew();
@@ -589,7 +715,15 @@ namespace ClearFrost
                             _statisticsService.Current,
                             statusMessage,
                             isQualified && !detectionFailed ? "success" : "error",
-                            (_detectionService as DetectionService)?.GetLastMetrics());
+                            (_detectionService as DetectionService)?.GetLastMetrics(),
+                            context,
+                            finalResultCount,
+                            usedModelNameForUi,
+                            wasFallbackForUi,
+                            _appConfig.BarcodeEnabled,
+                            productBarcode,
+                            barcodeReadSucceeded,
+                            barcodeError);
                         renderSw.Stop();
                         renderToUiMs = renderSw.ElapsedMilliseconds;
                         context.RenderToUiMs = renderToUiMs;
@@ -647,6 +781,18 @@ namespace ClearFrost
                         false,
                         JsonSerializer.Serialize(new { Error = ex.Message, Stage = failedStage.ToString(), context.InspectionId }));
                     dbWriteMs = await EnqueueDetectionRecordAsync(context, errorPayload, errorImageQueued);
+                    context.CurrentStage = InspectionStage.Failed;
+                    await _uiController.SendInspectionUpdate(
+                        context,
+                        false,
+                        ex.Message,
+                        0,
+                        usedModelNameForUi,
+                        wasFallbackForUi,
+                        _appConfig.BarcodeEnabled,
+                        productBarcode,
+                        barcodeReadSucceeded,
+                        barcodeError);
 
                     return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, false, 0, Math.Max(1, attemptCount));
                 }
@@ -670,8 +816,51 @@ namespace ClearFrost
             }
 
             context.CurrentStage = InspectionStage.Completed;
+            await _uiController.SendInspectionUpdate(
+                context,
+                finalQualified,
+                null,
+                finalResultCount,
+                usedModelNameForUi,
+                wasFallbackForUi,
+                _appConfig.BarcodeEnabled,
+                productBarcode,
+                barcodeReadSucceeded,
+                barcodeError);
 
             return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, finalQualified, finalResultCount, Math.Max(1, attemptCount));
+        }
+
+        private async Task<BarcodeReadResult> ReadBarcodeForInspectionAsync(InspectionContext context)
+        {
+            try
+            {
+                var (success, value) = await _plcService.ReadStringAsync(
+                    _appConfig.BarcodeAddress,
+                    _appConfig.BarcodeWordLength,
+                    _appConfig.BarcodeEncoding);
+                string barcode = value?.Trim() ?? string.Empty;
+                if (!success)
+                {
+                    string message = string.IsNullOrWhiteSpace(_plcService.LastError)
+                        ? "PLC 条码读取失败"
+                        : _plcService.LastError!;
+                    RecordHealthError("PLC.Barcode", message, context.InspectionId);
+                    return new BarcodeReadResult(null, false, "BarcodeReadFailed", message);
+                }
+
+                if (string.IsNullOrWhiteSpace(barcode))
+                {
+                    return new BarcodeReadResult(string.Empty, false, "NoBarcode", "PLC 条码为空");
+                }
+
+                return new BarcodeReadResult(barcode, true, null, "PLC 条码读取成功");
+            }
+            catch (Exception ex)
+            {
+                RecordHealthError("PLC.Barcode", $"PLC 条码读取异常: {ex.Message}", context.InspectionId);
+                return new BarcodeReadResult(null, false, "BarcodeReadFailed", ex.Message);
+            }
         }
 
         private Mat? TryRenderDetectionMat(Mat sourceImage, List<YoloResult> results, string[] labels)
@@ -1116,6 +1305,11 @@ namespace ClearFrost
                 return 100;
             }
 
+            if (stage.Contains(nameof(InspectionStage.Barcode), StringComparison.OrdinalIgnoreCase))
+            {
+                return 150;
+            }
+
             if (stage.Contains(nameof(InspectionStage.Inference), StringComparison.OrdinalIgnoreCase))
             {
                 return 200;
@@ -1212,7 +1406,7 @@ namespace ClearFrost
         private void btnSettings_Logic()
         {
             // 打开设置对话框 (通过前端密码验证)
-            SafeFireAndForget(_uiController.ExecuteScriptAsync("showPasswordModal()"), "显示密码框");
+            SafeFireAndForget(_uiController.SendUiCommand("showPasswordModal"), "显示密码框");
         }
 
         #endregion

@@ -31,6 +31,11 @@ public class AppConfigTests
         config.PlcInspectionDoneAddress.Should().Be("D562");
         config.PlcTraceSavedAddress.Should().Be("D564");
         config.PlcSiemensCpuModel.Should().Be("S1200");
+        config.BarcodeEnabled.Should().BeFalse();
+        config.BarcodeAddress.Should().Be("D570");
+        config.BarcodeWordLength.Should().Be(16);
+        config.BarcodeEncoding.Should().Be("ASCII");
+        config.BarcodeRequired.Should().BeFalse();
         config.Confidence.Should().BeApproximately(0.5f, 0.001f);
         config.IouThreshold.Should().BeApproximately(0.3f, 0.001f);
         config.ModelPackageDirectory.Should().Be("models");
@@ -70,6 +75,8 @@ public class AppConfigTests
         config.PlcProtocolMode.Should().Be(PlcProtocolMode.Legacy);
         config.PlcTriggerSeqAddress.Should().Be("D557");
         config.PlcVisionBusyAddress.Should().Be("D561");
+        config.BarcodeAddress.Should().Be("D570");
+        config.BarcodeWordLength.Should().Be(16);
     }
 
     [Fact]

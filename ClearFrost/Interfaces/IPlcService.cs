@@ -110,6 +110,11 @@ namespace ClearFrost.Interfaces
         /// <param name="resultAddress">结果地址</param>
         Task<bool> WriteReleaseSignalAsync(string resultAddress);
 
+        /// <summary>
+        /// 从 PLC 连续字地址读取字符串，用于轻量条码追溯。
+        /// </summary>
+        Task<(bool Success, string Value)> ReadStringAsync(string startAddress, int wordLength, string encodingName);
+
         #endregion
     }
 }

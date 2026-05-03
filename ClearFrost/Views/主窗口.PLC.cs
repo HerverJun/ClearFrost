@@ -71,6 +71,7 @@ namespace ClearFrost
                 if (!await EnsureStartupReadyForProductionAsync("PLC触发监听"))
                 {
                     await _uiController.LogToFrontend("PLC已连接，但启动诊断未通过，未启动触发监听", "warning");
+                    await SendHealthSnapshotToFrontendAsync();
                     return;
                 }
 
@@ -87,6 +88,7 @@ namespace ClearFrost
                 await _uiController.LogToFrontend(
                     $"✅ PLC连接成功，开始监听 {triggerAddress} ({_appConfig.PlcProtocolMode})", "success");
                 WriteHealthSnapshotLog("PLC连接成功");
+                await SendHealthSnapshotToFrontendAsync();
             }
             else
             {
@@ -94,6 +96,7 @@ namespace ClearFrost
                 RecordHealthError("PLC", $"PLC连接失败: {err}");
                 await _uiController.LogToFrontend(
                     $"❌ PLC连接失败: {err}（协议: {protocol}, 地址: {ip}:{port}）", "error");
+                await SendHealthSnapshotToFrontendAsync();
             }
         }
 

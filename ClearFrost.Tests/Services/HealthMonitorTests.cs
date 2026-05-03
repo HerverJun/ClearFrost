@@ -101,6 +101,8 @@ public class HealthMonitorTests
         public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
         public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite) => Task.FromResult(true);
         public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
+        public Task<(bool Success, string Value)> ReadStringAsync(string startAddress, int wordLength, string encodingName)
+            => Task.FromResult((true, string.Empty));
         public void Dispose() { }
     }
 

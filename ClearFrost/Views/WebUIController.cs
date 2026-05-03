@@ -34,6 +34,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Threading;
 using OpenCvSharp;
+using ClearFrost.Core.Inspection;
 using ClearFrost.Interfaces;
 
 namespace ClearFrost
@@ -41,7 +42,7 @@ namespace ClearFrost
     /// <summary>
     /// Manages the WebView2 control and communication between C# and the Web frontend.
     /// </summary>
-    public class WebUIController : IDisposable
+    public partial class WebUIController : IDisposable
     {
         private const string PreviewHostName = "preview.local";
 
@@ -52,6 +53,7 @@ namespace ClearFrost
         private long _lastImagePushTick;
         private int _imagePushInProgress;
         private int _previewFrameToggle;
+        private long _previewFrameId;
         private string _webPreviewCachePath = string.Empty;
         private const int ImagePushMinIntervalMs = 50;
         private EventHandler<CoreWebView2WebMessageReceivedEventArgs>? _webMessageReceivedHandler;
@@ -73,6 +75,7 @@ namespace ClearFrost
         public event EventHandler? OnToggleMaximize;
         public event EventHandler? OnStartDrag;
         public event EventHandler? OnConnectPlc;
+        public event EventHandler? OnRequestHealthSnapshot;
         public event EventHandler<float[]>? OnUpdateROI;
         public event EventHandler<float>? OnSetConfidence;
         public event EventHandler<float>? OnSetIou;
@@ -266,19 +269,23 @@ namespace ClearFrost
         public async Task UpdateImage(string base64Image)
         {
             if (!IsWebViewReady(_webView)) return;
-
-            // Note: Sending very large strings via ExecuteScriptAsync can be performant enough for simple use cases,
-            // but for high FPS, PostWebMessageAsJson or shared buffer is better. 
-            // Stick to requested specific function updateImage(base64).
-            await ExecuteScriptOnUiThreadAsync($"updateImage('{base64Image}');redrawROI();");
+            PostMessage("previewFrame", new
+            {
+                base64 = base64Image,
+                frameId = Interlocked.Increment(ref _previewFrameId)
+            });
         }
 
-        public async Task UpdateImageUrl(string url)
+        public Task UpdateImageUrl(string url)
         {
-            if (!IsWebViewReady(_webView)) return;
+            if (!IsWebViewReady(_webView)) return Task.CompletedTask;
 
-            string safeUrl = url.Replace("'", "\\'");
-            await ExecuteScriptOnUiThreadAsync($"updateImageUrl('{safeUrl}')");
+            PostMessage("previewFrame", new
+            {
+                url = url,
+                frameId = Interlocked.Increment(ref _previewFrameId)
+            });
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -378,14 +385,10 @@ namespace ClearFrost
         /// <summary>
         /// Sends the model list to the frontend (Requirement from Step 177/147).
         /// </summary>
-        public async Task SendModelList(string[] models)
+        public Task SendModelList(string[] models)
         {
-            if (_webView?.CoreWebView2 == null) return;
-
-            string json = JsonSerializer.Serialize(models);
-
-            // Call the JS function as requested: initModelList(jsonList)
-            await ExecuteScriptOnUiThreadAsync($"initModelList({json})");
+            PostMessage("modelList", new { models = models });
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -421,19 +424,16 @@ namespace ClearFrost
         /// <summary>
         /// Sends current config to frontend to open settings modal
         /// </summary>
-        public async Task SendCurrentConfig(AppConfig config)
+        public Task SendCurrentConfig(AppConfig config)
         {
-            if (_webView?.CoreWebView2 == null) return;
-
-            string json = JsonSerializer.Serialize(config);
-            await ExecuteScriptOnUiThreadAsync($"openSettingsModal({json})");
+            PostMessage("configSnapshot", new { config = config, open = true });
+            return Task.CompletedTask;
         }
 
-        public async Task InitSettings(AppConfig config)
+        public Task InitSettings(AppConfig config)
         {
-            if (_webView?.CoreWebView2 == null) return;
-            string json = JsonSerializer.Serialize(config);
-            await ExecuteScriptOnUiThreadAsync($"initSettings({json})");
+            PostMessage("configSnapshot", new { config = config, open = false });
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -480,7 +480,13 @@ namespace ClearFrost
             WebView2? webView = _webView;
             if (!IsWebViewReady(webView)) return;
 
-            string json = JsonSerializer.Serialize(new { type = type, data = data });
+            string json = JsonSerializer.Serialize(new
+            {
+                type = type,
+                data = data,
+                requestId = (string?)null,
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            });
 
             void PostCoreMessage()
             {
@@ -641,6 +647,9 @@ namespace ClearFrost
                                 break;
                             case "connect_plc":
                                 OnConnectPlc?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "request_health_snapshot":
+                                OnRequestHealthSnapshot?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "set_confidence":
                                 if (root.TryGetProperty("value", out JsonElement confElement))
@@ -872,7 +881,15 @@ namespace ClearFrost
             StatisticsSnapshot? stats = null,
             string? logMessage = null,
             string logType = "normal",
-            object? metrics = null)
+            object? metrics = null,
+            InspectionContext? inspection = null,
+            int? actualCount = null,
+            string? usedModelName = null,
+            bool wasFallback = false,
+            bool barcodeEnabled = false,
+            string? productBarcode = null,
+            bool? barcodeReadSucceeded = null,
+            string? barcodeError = null)
         {
             if (_webView?.CoreWebView2 == null || image == null || image.Empty())
             {
@@ -895,15 +912,107 @@ namespace ClearFrost
                 log = string.IsNullOrWhiteSpace(logMessage)
                     ? null
                     : new { message = logMessage, type = logType },
-                metrics = metrics
+                metrics = metrics,
+                inspection = inspection == null
+                    ? null
+                    : BuildInspectionPayload(
+                        inspection,
+                        isOk,
+                        logMessage,
+                        actualCount,
+                        usedModelName,
+                        wasFallback,
+                        barcodeEnabled,
+                        productBarcode,
+                        barcodeReadSucceeded,
+                        barcodeError)
             });
         }
 
-        public async Task UpdateStoragePathInUI(string path)
+        public Task SendInspectionUpdate(
+            InspectionContext context,
+            bool? isOk = null,
+            string? message = null,
+            int? actualCount = null,
+            string? usedModelName = null,
+            bool wasFallback = false,
+            bool barcodeEnabled = false,
+            string? productBarcode = null,
+            bool? barcodeReadSucceeded = null,
+            string? barcodeError = null)
         {
-            if (_webView?.CoreWebView2 == null) return;
-            string safePath = path.Replace("\\", "\\\\").Replace("'", "\\'");
-            await ExecuteScriptOnUiThreadAsync($"updateStoragePath('{safePath}')");
+            if (context == null)
+            {
+                return Task.CompletedTask;
+            }
+
+            PostMessage("inspectionUpdate", BuildInspectionPayload(
+                context,
+                isOk,
+                message,
+                actualCount,
+                usedModelName,
+                wasFallback,
+                barcodeEnabled,
+                productBarcode,
+                barcodeReadSucceeded,
+                barcodeError));
+            return Task.CompletedTask;
+        }
+
+        public Task SendHealthSnapshot(object snapshot)
+        {
+            if (snapshot == null)
+            {
+                return Task.CompletedTask;
+            }
+
+            PostMessage("healthSnapshot", snapshot);
+            return Task.CompletedTask;
+        }
+
+        private static object BuildInspectionPayload(
+            InspectionContext context,
+            bool? isOk,
+            string? message,
+            int? actualCount,
+            string? usedModelName,
+            bool wasFallback,
+            bool barcodeEnabled,
+            string? productBarcode,
+            bool? barcodeReadSucceeded,
+            string? barcodeError)
+        {
+            return new
+            {
+                inspectionId = context.InspectionId,
+                triggerSource = context.TriggerSource,
+                triggerSeq = context.TriggerSeq,
+                resultSeq = context.ResultSeq,
+                productBarcode = productBarcode,
+                barcodeEnabled = barcodeEnabled,
+                barcodeReadSucceeded = barcodeReadSucceeded,
+                barcodeError = barcodeError,
+                traceStatus = context.TraceStatus.ToString(),
+                currentStage = context.CurrentStage.ToString(),
+                errorCode = context.ErrorCode,
+                errorMessage = context.ErrorMessage,
+                totalMs = context.TotalMs,
+                captureMs = context.CaptureMs,
+                inferenceMs = context.InferenceMs,
+                plcWriteMs = context.PlcWriteMs,
+                usedModelName = usedModelName,
+                wasFallback = wasFallback,
+                actualCount = actualCount,
+                isOk = isOk,
+                message = message
+            };
+        }
+
+        public Task UpdateStoragePathInUI(string path)
+        {
+            PostMessage("configSnapshot", new { storagePath = path });
+            return Task.CompletedTask;
         }
 
         private async Task SendNGDates()
@@ -918,12 +1027,11 @@ namespace ClearFrost
                         .Select(Path.GetFileName)
                         .OrderByDescending(d => d) // Newest first
                         .ToArray();
-                    string json = JsonSerializer.Serialize(dates);
-                    await ExecuteScriptOnUiThreadAsync($"updateNGDates({json})");
+                    PostMessage("historyDates", dates);
                 }
                 else
                 {
-                    await ExecuteScriptOnUiThreadAsync("updateNGDates([])");
+                    PostMessage("historyDates", Array.Empty<string>());
                 }
             }
             catch (Exception ex)
@@ -944,15 +1052,14 @@ namespace ClearFrost
                         .Select(Path.GetFileName)
                         .OrderByDescending(h => h)
                         .ToArray();
-                    string json = JsonSerializer.Serialize(hours);
-                    await ExecuteScriptOnUiThreadAsync($"updateNGHours({json})");
+                    PostMessage("historyHours", hours);
                 }
                 else
                 {
-                    await ExecuteScriptOnUiThreadAsync("updateNGHours([])");
+                    PostMessage("historyHours", Array.Empty<string>());
                 }
             }
-            catch { await ExecuteScriptOnUiThreadAsync("updateNGHours([])"); }
+            catch { PostMessage("historyHours", Array.Empty<string>()); }
         }
 
         private async Task SendNGImages(string date, string hour)
@@ -968,15 +1075,14 @@ namespace ClearFrost
                         .Select(Path.GetFileName)
                         .OrderByDescending(f => f)
                         .ToArray();
-                    string json = JsonSerializer.Serialize(images);
-                    await ExecuteScriptOnUiThreadAsync($"updateNGImages({json})");
+                    PostMessage("historyImages", images);
                 }
                 else
                 {
-                    await ExecuteScriptOnUiThreadAsync("updateNGImages([])");
+                    PostMessage("historyImages", Array.Empty<string>());
                 }
             }
-            catch { await ExecuteScriptOnUiThreadAsync("updateNGImages([])"); }
+            catch { PostMessage("historyImages", Array.Empty<string>()); }
         }
 
         /// <summary>
@@ -995,7 +1101,7 @@ namespace ClearFrost
                 string logsDir = Path.Combine(LogBasePath, "DetectionLogs");
                 if (!Directory.Exists(logsDir))
                 {
-                    await ExecuteScriptOnUiThreadAsync("updateDetectionLogTable([])");
+                    PostMessage("detectionLogTable", Array.Empty<object>());
                     return;
                 }
 
@@ -1069,13 +1175,12 @@ namespace ClearFrost
                     }
                 }
 
-                string json = JsonSerializer.Serialize(logEntries);
-                await ExecuteScriptOnUiThreadAsync($"updateDetectionLogTable({json})");
+                PostMessage("detectionLogTable", logEntries);
             }
             catch (Exception ex)
             {
                 await LogToFrontend($"读取检测日志失败: {ex.Message}", "error");
-                await ExecuteScriptOnUiThreadAsync("updateDetectionLogTable([])");
+                PostMessage("detectionLogTable", Array.Empty<object>());
             }
         }
 
@@ -1113,8 +1218,7 @@ namespace ClearFrost
                     });
                 }
 
-                string json = JsonSerializer.Serialize(allRecords);
-                await ExecuteScriptOnUiThreadAsync($"receiveStatisticsHistory({json})");
+                PostMessage("statisticsHistory", allRecords);
             }
             catch (Exception ex)
             {
@@ -1127,22 +1231,19 @@ namespace ClearFrost
         /// <summary>
         /// 发送相机列表到前端
         /// </summary>
-        public async Task SendCameraList(IEnumerable<object> cameras, string activeCameraId)
+        public Task SendCameraList(IEnumerable<object> cameras, string activeCameraId)
         {
-            if (_webView?.CoreWebView2 == null) return;
-            var data = new { cameras = cameras, activeId = activeCameraId };
-            string json = JsonSerializer.Serialize(data);
-            await ExecuteScriptOnUiThreadAsync($"receiveCameraList({json})");
+            PostMessage("cameraList", new { cameras = cameras, activeId = activeCameraId });
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// 发送超级搜索结果到前端（所有局域网相机）
         /// </summary>
-        public async Task SendDiscoveredCameras(IEnumerable<object> cameras)
+        public Task SendDiscoveredCameras(IEnumerable<object> cameras)
         {
-            if (_webView?.CoreWebView2 == null) return;
-            string json = JsonSerializer.Serialize(new { cameras = cameras });
-            await ExecuteScriptOnUiThreadAsync($"receiveSuperSearchResult({json})");
+            PostMessage("discoveredCameras", new { cameras = cameras });
+            return Task.CompletedTask;
         }
 
         public void Dispose()
@@ -1185,6 +1286,7 @@ namespace ClearFrost
                 OnToggleMaximize = null;
                 OnStartDrag = null;
                 OnConnectPlc = null;
+                OnRequestHealthSnapshot = null;
                 OnUpdateROI = null;
                 OnSetConfidence = null;
                 OnSetIou = null;

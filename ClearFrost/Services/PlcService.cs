@@ -11,6 +11,8 @@
 
 using System;
 using System.Diagnostics;
+using System.Globalization;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Interfaces;
@@ -453,6 +455,57 @@ namespace ClearFrost.Services
             }
         }
 
+        public async Task<(bool Success, string Value)> ReadStringAsync(string startAddress, int wordLength, string encodingName)
+        {
+            if (!IsConnected || _plcDevice == null || string.IsNullOrWhiteSpace(startAddress))
+            {
+                return (false, string.Empty);
+            }
+
+            int safeWordLength = Math.Clamp(wordLength, 1, 64);
+            var protocolType = PlcFactory.ParseProtocol(_lastProtocol);
+            byte[] bytes = new byte[safeWordLength * 2];
+
+            try
+            {
+                for (int index = 0; index < safeWordLength; index++)
+                {
+                    string address = OffsetWordAddress(startAddress, protocolType, index);
+                    var (success, wordValue) = await _plcDevice.ReadInt16Async(address);
+                    if (!success)
+                    {
+                        LastError = _plcDevice.LastError;
+                        ErrorOccurred?.Invoke($"读取条码失败: {LastError}");
+                        return (false, string.Empty);
+                    }
+
+                    ushort word = unchecked((ushort)wordValue);
+                    bytes[index * 2] = (byte)(word & 0xFF);
+                    bytes[index * 2 + 1] = (byte)((word >> 8) & 0xFF);
+                }
+
+                int byteCount = 0;
+                for (int index = 0; index < bytes.Length; index++)
+                {
+                    if (bytes[index] != 0)
+                    {
+                        bytes[byteCount++] = bytes[index];
+                    }
+                }
+
+                string decodedValue = ResolveTextEncoding(encodingName)
+                    .GetString(bytes, 0, byteCount)
+                    .Trim('\0', ' ', '\r', '\n', '\t');
+                return (true, decodedValue);
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                ErrorOccurred?.Invoke($"读取条码异常: {ex.Message}");
+                return (false, string.Empty);
+            }
+        }
+
         #endregion
 
         #region 辅助方法
@@ -593,6 +646,65 @@ namespace ClearFrost.Services
         private static string GetConnectivityProbeAddress(PlcProtocolType protocolType, string preferredAddress)
         {
             return PlcAddressNormalizer.GetProbeAddress(protocolType, preferredAddress);
+        }
+
+        private static string OffsetWordAddress(string startAddress, PlcProtocolType protocolType, int wordOffset)
+        {
+            if (wordOffset <= 0)
+            {
+                return startAddress;
+            }
+
+            string compact = (startAddress ?? string.Empty).Trim().Replace(" ", string.Empty).ToUpperInvariant();
+            if (protocolType == PlcProtocolType.Siemens_S7 && compact.StartsWith("DB", StringComparison.OrdinalIgnoreCase))
+            {
+                string[] parts = compact.Substring(2).Split('.');
+                if (parts.Length == 2 &&
+                    int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int dbNumber) &&
+                    int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int byteOffset))
+                {
+                    return $"DB{dbNumber}.{byteOffset + wordOffset * 2}";
+                }
+            }
+
+            if ((protocolType == PlcProtocolType.Mitsubishi_MC_ASCII ||
+                 protocolType == PlcProtocolType.Mitsubishi_MC_Binary ||
+                 protocolType == PlcProtocolType.Omron_Fins) &&
+                compact.StartsWith("D", StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(compact.Substring(1), NumberStyles.Integer, CultureInfo.InvariantCulture, out int dNumber))
+            {
+                return $"D{dNumber + wordOffset}";
+            }
+
+            if (int.TryParse(compact, NumberStyles.Integer, CultureInfo.InvariantCulture, out int number))
+            {
+                return (number + wordOffset).ToString(CultureInfo.InvariantCulture);
+            }
+
+            return startAddress ?? string.Empty;
+        }
+
+        private static Encoding ResolveTextEncoding(string? encodingName)
+        {
+            string normalized = (encodingName ?? "ASCII").Trim().ToUpperInvariant();
+            if (normalized is "UTF8" or "UTF-8")
+            {
+                return Encoding.UTF8;
+            }
+
+            if (normalized is "GBK" or "GB2312" or "936")
+            {
+                try
+                {
+                    return Encoding.GetEncoding(936);
+                }
+                catch
+                {
+                    return Encoding.UTF8;
+                }
+            }
+
+            return Encoding.ASCII;
         }
 
         #endregion
