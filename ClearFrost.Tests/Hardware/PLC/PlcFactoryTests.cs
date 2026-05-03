@@ -38,6 +38,20 @@ public class PlcFactoryTests
     }
 
     [Theory]
+    [InlineData(PlcProtocolType.Mitsubishi_MC_ASCII, typeof(HaoMitsubishiMcAsciiAdapter))]
+    [InlineData(PlcProtocolType.Mitsubishi_MC_Binary, typeof(HaoMitsubishiMcBinaryAdapter))]
+    [InlineData(PlcProtocolType.Modbus_TCP, typeof(HaoModbusTcpAdapter))]
+    [InlineData(PlcProtocolType.Siemens_S7, typeof(HaoSiemensS7Adapter))]
+    [InlineData(PlcProtocolType.Omron_Fins, typeof(HaoOmronFinsAdapter))]
+    public void Create_信息部特调版驱动_五种协议均创建成功(PlcProtocolType protocol, Type expectedType)
+    {
+        var device = PlcFactory.Create("HaoCommunication", protocol, "127.0.0.1", 1234);
+
+        device.Should().BeOfType(expectedType);
+        device.ProtocolName.Should().Contain("信息部特调版");
+    }
+
+    [Theory]
     [InlineData(PlcProtocolType.Modbus_TCP)]
     [InlineData(PlcProtocolType.Siemens_S7)]
     [InlineData(PlcProtocolType.Omron_Fins)]

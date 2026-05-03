@@ -352,7 +352,8 @@ Examples:
 
 Options:
   --config <path>              Defaults to ClearFrost/config.json.
-  --driver <Hsl|McpX>          Defaults to config value, then Hsl.
+  --driver <Hsl|HaoCommunication|McpX>
+                                Defaults to config value, then Hsl.
   --protocol <name>            Defaults to config value, then Mitsubishi_MC_ASCII.
   --ip <address>               PLC IP, defaults to config value.
   --port <number>              PLC port, defaults to config value.

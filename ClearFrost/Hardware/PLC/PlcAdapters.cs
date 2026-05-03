@@ -67,6 +67,24 @@ namespace ClearFrost.Hardware
                 };
             }
 
+            if (string.Equals(driverProvider, "HaoCommunication", StringComparison.OrdinalIgnoreCase))
+            {
+                return protocol switch
+                {
+                    PlcProtocolType.Mitsubishi_MC_ASCII => new HaoMitsubishiMcAsciiAdapter(ip, port),
+                    PlcProtocolType.Mitsubishi_MC_Binary => new HaoMitsubishiMcBinaryAdapter(ip, port),
+                    PlcProtocolType.Modbus_TCP => new HaoModbusTcpAdapter(ip, port),
+                    PlcProtocolType.Siemens_S7 => new HaoSiemensS7Adapter(
+                        ip,
+                        port,
+                        options.SiemensCpuModel,
+                        options.SiemensRack,
+                        options.SiemensSlot),
+                    PlcProtocolType.Omron_Fins => new HaoOmronFinsAdapter(ip, port),
+                    _ => throw new NotSupportedException($"不支持的协议类型: {protocol}")
+                };
+            }
+
             return protocol switch
             {
                 PlcProtocolType.Mitsubishi_MC_ASCII => new MitsubishiMcAsciiAdapter(ip, port),

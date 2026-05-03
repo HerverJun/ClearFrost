@@ -69,6 +69,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\HaoCommunication.dll">
+      <Link>HaoCommunication.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="html\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
