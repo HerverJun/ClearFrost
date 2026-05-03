@@ -2045,7 +2045,12 @@ input[type="range"]::-webkit-slider-runnable-track {
     gap: 0;
     padding: 24px;
     overflow-y: auto;
+    scrollbar-width: none;
     background: #e2e8f0;
+}
+
+.stitch-left-panel::-webkit-scrollbar {
+    display: none;
 }
 
 .stitch-engine-block {
@@ -2373,7 +2378,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     position: relative;
     flex: 1 1 auto;
     min-height: 0;
-    background: #0f172a;
+    background: #cbd5e1;
 }
 
 .stitch-video-feed::before {
@@ -2382,7 +2387,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     inset: 0;
     z-index: 3;
     pointer-events: none;
-    background: rgba(15, 23, 42, 0.08);
+    background: transparent;
 }
 
 .stitch-video-feed img,
@@ -2395,7 +2400,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .stitch-video-feed img {
     object-fit: contain;
-    background: #0f172a;
+    background: #cbd5e1;
 }
 
 .stitch-video-feed canvas {
@@ -2414,6 +2419,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     border-radius: 4px;
     background: rgba(9, 76, 178, 0.1);
     pointer-events: none;
+    display: none;
 }
 
 .stitch-result-overlay {
@@ -3074,19 +3080,19 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page #settings-modal {
-    padding: 22px !important;
+    padding: 32px !important;
     align-items: flex-start !important;
 }
 
 .cf-stitch-page #settings-modal > .cf-ornate-modal {
     position: relative;
-    width: min(912px, calc(100vw - 32px));
-    height: min(598px, calc(100vh - 32px));
+    width: min(1200px, calc(100vw - 48px));
+    height: min(820px, calc(100vh - 48px));
     max-height: none !important;
     overflow: hidden !important;
     background: #ffffff !important;
     border: 0 !important;
-    border-radius: 6px !important;
+    border-radius: 8px !important;
     box-shadow: 0 26px 62px rgba(15, 23, 42, 0.16) !important;
 }
 
@@ -3122,7 +3128,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     padding: 0 !important;
     overflow: hidden !important;
     display: grid;
-    grid-template-columns: 216px minmax(0, 1fr);
+    grid-template-columns: 240px minmax(0, 1fr);
     grid-template-rows: 1fr;
     background: #ffffff !important;
 }
@@ -3142,7 +3148,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page #settings-modal .cf-settings-nav::before {
-    content: "System Settings\A v2.4.0-archival";
+    content: "系统设置";
     position: absolute;
     top: 31px;
     left: 26px;
@@ -3187,32 +3193,16 @@ input[type="range"]::-webkit-slider-runnable-track {
     letter-spacing: 0 !important;
 }
 
-.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="preset"]::before {
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="project"]::before {
     content: "⚙";
-}
-
-.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="run"]::before {
-    content: "⚡";
-}
-
-.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="vision"]::before {
-    content: "◉";
 }
 
 .cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="plc"]::before {
     content: "↔";
 }
 
-.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="camera"]::before {
-    content: "■";
-}
-
-.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="storage"]::before {
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="storage-diagnostic"]::before {
     content: "▣";
-}
-
-.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="diagnostic"]::before {
-    content: "⌁";
 }
 
 .cf-stitch-page #settings-modal .cf-settings-tab.active {
@@ -3227,7 +3217,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     grid-row: 1;
     padding: 28px 30px 28px !important;
     overflow-y: auto;
-    background: #ffffff !important;
+    background: #f8fafc !important;
 }
 
 .cf-stitch-page #settings-modal [data-settings-section="preset"] {
@@ -3244,19 +3234,20 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .cf-stitch-page #settings-modal [data-settings-section] {
     max-width: none;
-    background: transparent;
-    border: 0;
-    border-radius: 0;
-    padding: 0;
+    background: #ffffff;
+    border: 1px solid rgba(195, 198, 213, 0.3);
+    border-radius: 8px;
+    padding: 20px;
     box-shadow: none;
+    margin-bottom: 16px;
 }
 
 .cf-stitch-page #settings-modal [data-settings-section] > h3 {
-    margin: 0 0 7px;
+    margin: 0 0 12px;
     color: #020617 !important;
     font-family: "Noto Serif SC", Georgia, "Microsoft YaHei", serif;
-    font-size: 24px;
-    line-height: 1.25;
+    font-size: 16px;
+    line-height: 1.4;
     font-weight: 700;
     letter-spacing: 0 !important;
     text-transform: none;

@@ -171,8 +171,8 @@
                 </div>
                 <div id="camera-container" class="stitch-video-feed">
                     <img id="camera-view"
-                        src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4MCIgaGVpZ2h0PSI3MjAiIHZpZXdCb3g9IjAgMCAxMjgwIDcyMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTI4MCIgaGVpZ2h0PSI3MjAiIGZpbGw9IiMwZjE3MmEiLz48ZyBvcGFjaXR5PSIwLjI0IiBzdHJva2U9IiMzMzQxNTUiIHN0cm9rZS13aWR0aD0iMSI+PHBhdGggZD0iTTAgNDBoMTI4ME0wIDgwaDEyODBNMCAxMjBoMTI4ME0wIDE2MGgxMjgwTTAgMjAwaDEyODBNMCAyNDBoMTI4ME0wIDI4MGgxMjgwTTAgMzIwaDEyODBNMCAzNjBoMTI4ME0wIDQwMGgxMjgwTTAgNDQwaDEyODBNMCA0ODBoMTI4ME0wIDUyMGgxMjgwTTAgNTYwaDEyODBNMCA2MDBoMTI4ME0wIDY0MGgxMjgwTTAgNjgwaDEyODBNNDAgMHY3MjBNODAgMHY3MjBNMTIwIDB2NzIwTTE2MCAwdjcyME0yMDAgMHY3MjBNMjQwIDB2NzIwTTI4MCAwdjcyME0zMjAgMHY3MjBNMzYwIDB2NzIwTTQwMCAwdjcyME00NDAgMHY3MjBNNDgwIDB2NzIwTTUyMCAwdjcyME01NjAgMHY3MjBNNjAwIDB2NzIwTTY0MCAwdjcyME02ODAgMHY3MjBNNzIwIDB2NzIwTTc2MCAwdjcyME04MDAgMHY3MjBNODQwIDB2NzIwTTg4MCAwdjcyME05MjAgMHY3MjBNOTYwIDB2NzIwTTEwMDAgMHY3MjBNMTA0MCAwdjcyME0xMDgwIDB2NzIwTTExMjAgMHY3MjBNMTE2MCAwdjcyME0xMjAwIDB2NzIwTTEyNDAgMHY3MjAiLz48L2c+PHRleHQgeD0iNjQwIiB5PSIzNjAiIGZvbnQtZmFtaWx5PSJJbnRlcixTZWdvZSBVSSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjI2IiBmaWxsPSIjOTRhM2I4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIj5XYWl0aW5nIGZvciB2aWRlbyBzdHJlYW0uLi48L3RleHQ+PC9zdmc+"
-                        alt="Camera">
+                        src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz48c3ZnIHdpZHRoPSIxMjgwIiBoZWlnaHQ9IjcyMCIgdmlld0JveD0iMCAwIDEyODAgNzIwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMjgwIiBoZWlnaHQ9IjcyMCIgZmlsbD0iI2NiZDVlMSIvPjx0ZXh0IHg9IjY0MCIgeT0iMzYwIiBmb250LWZhbWlseT0iSW50ZXIsU2Vnb2UgVUksTWljcm9zb2Z0IFlhSGVpLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMzIiIGZpbGw9IiM0NzU1NjkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPuetieW+heWbvuWDj+i+k+WFpTwvdGV4dD48L3N2Zz4="
+                        alt="相机画面">
                     <canvas id="roi-canvas"></canvas>
                     <div class="stitch-bounding-box" aria-hidden="true"></div>
                     <div id="result-overlay" class="hidden stitch-result-overlay">OK</div>
@@ -261,15 +261,13 @@
         <div class="glass-panel-lite cf-ornate-modal w-full max-w-7xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             <div
                 class="h-16 border-b border-celadon-100 flex justify-between items-center px-8 bg-porcelain-50/50 shrink-0 cf-ornate-header">
-                <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest">系统参数配置 <span
-                        class="text-xs font-sans font-normal text-ink-400 ml-2 italic">Configuration</span></h3>
+                <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest">系统参数配置</h3>
                 <button data-action="closeSettingsModal"
                     class="p-2 hover:bg-red-50 text-ink-400 hover:text-vermilion rounded-full transition-[background-color,color] text-xl">&times;</button>
             </div>
             <div class="flex-1 overflow-y-auto scroller p-8 space-y-8 bg-porcelain-100/30">
                 <!-- 项目快速切换 (仅填充现有字段，不锁定修改) -->
-                <div data-settings-section="preset"
-                    class="mb-2 p-4 bg-gradient-to-r from-celadon-50 to-porcelain-50 rounded-xl border border-celadon-200 shadow-sm">
+                <div data-settings-section="preset" class="hidden mb-2 p-4 bg-gradient-to-r from-celadon-50 to-porcelain-50 rounded-xl border border-celadon-200 shadow-sm">
                     <label
                         class="flex items-center gap-2 text-[10px] font-bold text-celadon-700 uppercase tracking-widest mb-3">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -293,27 +291,17 @@
 
                 <div class="cf-settings-workspace">
                     <div class="cf-settings-nav">
-                        <button type="button" class="cf-settings-tab" data-settings-tab="preset"
-                            data-action="activateSettingsTab" data-value="preset">PROJECT PRESETS</button>
-                        <button type="button" class="cf-settings-tab active" data-settings-tab="run"
-                            data-action="activateSettingsTab" data-value="run">RUNTIME STRATEGY</button>
-                        <button type="button" class="cf-settings-tab" data-settings-tab="vision"
-                            data-action="activateSettingsTab" data-value="vision">VISION MODELS</button>
+                        <button type="button" class="cf-settings-tab active" data-settings-tab="project"
+                            data-action="activateSettingsTab" data-value="project">项目设置</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="plc"
-                            data-action="activateSettingsTab" data-value="plc">PLC & BARCODE</button>
-                        <button type="button" class="cf-settings-tab" data-settings-tab="camera"
-                            data-action="activateSettingsTab" data-value="camera">CAMERAS</button>
-                        <button type="button" class="cf-settings-tab" data-settings-tab="storage"
-                            data-action="activateSettingsTab" data-value="storage">STORAGE & REPORTS</button>
-                        <button type="button" class="cf-settings-tab" data-settings-tab="diagnostic"
-                            data-action="activateSettingsTab" data-value="diagnostic">DIAGNOSTICS</button>
+                            data-action="activateSettingsTab" data-value="plc">PLC与条码</button>
+                        <button type="button" class="cf-settings-tab" data-settings-tab="storage-diagnostic"
+                            data-action="activateSettingsTab" data-value="storage-diagnostic">存储与诊断</button>
                     </div>
                     <div class="cf-settings-content">
 
                 <div class="space-y-2" data-settings-section="storage">
-                    <label class="text-[10px] font-bold text-ink-400 uppercase tracking-widest block">数据保存路径 /
-                        Storage
-                        Path</label>
+                    <label class="text-[10px] font-bold text-ink-400 uppercase tracking-widest block">数据保存路径</label>
                     <div class="flex gap-2">
                         <input id="cfg-storage-path" type="text" readonly
                             class="flex-1 tech-input px-4 py-2.5 rounded-xl text-xs font-bold" placeholder="未设置路径">
@@ -331,9 +319,9 @@
                             <label class="text-[10px] font-bold text-ink-400 mb-1 block">任务类型</label>
                             <select id="task-type-select" data-change-action="updateTaskType"
                                 class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
-                                <option value="0">目标检测 Detection</option>
-                                <option value="1">分类 Classification</option>
-                                <option value="2">分割 Segmentation</option>
+                                <option value="0">目标检测</option>
+                                <option value="1">分类</option>
+                                <option value="2">分割</option>
                             </select>
                         </div>
                         <div>
@@ -365,7 +353,7 @@
                         </div>
                     </div>
                     <p class="text-[10px] text-ink-400 leading-relaxed">
-                        主模型、子模型和自动切换开关保留在主界面左侧 Model Config 区域，现场操作员可直接调整。
+                        主模型、子模型和自动切换开关保留在主界面左侧模型配置区域，现场操作员可直接调整。
                     </p>
                 </div>
 
@@ -379,11 +367,11 @@
                                 <label class="text-[10px] font-bold text-ink-400 mb-1 block">物理协议类型</label>
                                 <select id="cfg-plc-protocol" data-change-action="updatePlcAddressUi"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
-                                    <option value="Mitsubishi_MC_ASCII">Mitsubishi MC (ASCII)</option>
-                                    <option value="Mitsubishi_MC_Binary">Mitsubishi MC (Binary)</option>
+                                    <option value="Mitsubishi_MC_ASCII">三菱 MC (ASCII)</option>
+                                    <option value="Mitsubishi_MC_Binary">三菱 MC (Binary)</option>
                                     <option value="Modbus_TCP">Modbus TCP</option>
-                                    <option value="Siemens_S7">Siemens S7</option>
-                                    <option value="Omron_Fins">Omron Fins TCP</option>
+                                    <option value="Siemens_S7">西门子 S7</option>
+                                    <option value="Omron_Fins">欧姆龙 FINS TCP</option>
                                 </select>
                             </div>
                             <div>
@@ -432,52 +420,52 @@
                             <div id="cfg-plc-handshake-options" class="space-y-3 hidden">
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
-                                        <label class="text-[10px] text-ink-400 mb-1 block">TriggerSeq 地址</label>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">触发序号地址</label>
                                         <input id="cfg-plc-trigger-seq"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D557">
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-ink-400 mb-1 block">ResultSeq 地址</label>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">结果序号地址</label>
                                         <input id="cfg-plc-result-seq"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D558">
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-ink-400 mb-1 block">VisionOnline</label>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">视觉在线</label>
                                         <input id="cfg-plc-vision-online"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D559">
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-ink-400 mb-1 block">VisionReady</label>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">视觉就绪</label>
                                         <input id="cfg-plc-vision-ready"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D560">
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-ink-400 mb-1 block">VisionBusy</label>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">视觉忙</label>
                                         <input id="cfg-plc-vision-busy"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D561">
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-ink-400 mb-1 block">InspectionDone</label>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">检测完成</label>
                                         <input id="cfg-plc-inspection-done"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D562">
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-ink-400 mb-1 block">ErrorCode</label>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">错误码</label>
                                         <input id="cfg-plc-error-code"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D563">
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-ink-400 mb-1 block">TraceSaved</label>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">追溯已保存</label>
                                         <input id="cfg-plc-trace-saved"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D564">
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-ink-400 mb-1 block">Heartbeat</label>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">心跳信号</label>
                                         <input id="cfg-plc-heartbeat"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D565">
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-ink-400 mb-1 block">ResetFault</label>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">故障复位</label>
                                         <input id="cfg-plc-reset-fault"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D566">
                                     </div>
@@ -514,7 +502,7 @@
                                     <label class="flex items-end gap-2 cursor-pointer pb-2">
                                         <input id="cfg-barcode-required" type="checkbox"
                                             class="accent-celadon-600 w-3.5 h-3.5 rounded">
-                                        <span class="text-[10px] font-bold text-ink-500">条码必填，空条码判 NG</span>
+                                        <span class="text-[10px] font-bold text-ink-500">条码必填，空条码判不合格</span>
                                     </label>
                                 </div>
                             </div>
@@ -531,40 +519,40 @@
                                 </div>
                                 <div id="cfg-plc-siemens-rack-slot" class="grid grid-cols-2 gap-3 hidden">
                                     <div>
-                                        <label class="text-[10px] text-ink-400 mb-1 block">Rack</label>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">机架号</label>
                                         <input id="cfg-plc-siemens-rack" type="number" min="0" step="1"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="0">
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-ink-400 mb-1 block">Slot</label>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">插槽号</label>
                                         <input id="cfg-plc-siemens-slot" type="number" min="0" step="1"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="2">
                                     </div>
                                 </div>
                                 <p class="text-[9px] text-ink-400 italic">
-                                    西门子现场需启用 PUT/GET communication，且联动 DB 关闭 optimized block access。
+                                    西门子现场需启用 PUT/GET 通信，且联动 DB 关闭优化块访问。
                                 </p>
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block text-[10px] text-ink-400 mb-1">触发延迟 (ms)</label>
+                                    <label class="block text-[10px] text-ink-400 mb-1">触发延迟 (毫秒)</label>
                                     <input id="cfg-plc-trigger-delay" type="number" min="0" step="50"
                                         class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="800">
                                 </div>
                                 <div>
-                                    <label class="block text-[10px] text-ink-400 mb-1">轮询间隔 (ms)</label>
+                                    <label class="block text-[10px] text-ink-400 mb-1">轮询间隔 (毫秒)</label>
                                     <input id="cfg-plc-polling-interval" type="number" min="50" step="50"
                                         class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="500">
                                 </div>
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block text-[10px] text-ink-400 mb-1">合格写入值 (OK)</label>
+                                    <label class="block text-[10px] text-ink-400 mb-1">合格写入值</label>
                                     <input id="cfg-plc-ok-value" type="number" min="0" max="32767" step="1"
                                         class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="1">
                                 </div>
                                 <div>
-                                    <label class="block text-[10px] text-ink-400 mb-1">不合格写入值 (NG)</label>
+                                    <label class="block text-[10px] text-ink-400 mb-1">不合格写入值</label>
                                     <input id="cfg-plc-ng-value" type="number" min="0" max="32767" step="1"
                                         class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="0">
                                 </div>
@@ -572,30 +560,29 @@
                         </div>
                     </div>
 
-                    <div class="space-y-4" data-settings-section="run">
+                    <div class="space-y-4 hidden" data-settings-section="run">
                         <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
                             检测逻辑配置
                         </h3>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">重拍次数 (Max Retries)</label>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">重拍次数</label>
                                 <input id="cfg-logic-retry-count" type="number" min="0" max="5"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="1">
                             </div>
                             <div>
-                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">重拍间隔 (Interval ms)</label>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">重拍间隔 (毫秒)</label>
                                 <input id="cfg-logic-retry-interval" type="number" step="100" min="0"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="2000">
                             </div>
                             <div>
-                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">检测目标标签 (Target
-                                    Label)</label>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">检测目标标签</label>
                                 <input id="cfg-logic-target-label" type="text"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold"
                                     placeholder="wrapper">
                             </div>
                             <div>
-                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">目标数量 (Target Count)</label>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">目标数量</label>
                                 <input id="cfg-logic-target-count" type="number" min="0"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="1">
                             </div>
@@ -603,7 +590,7 @@
                                 <label class="flex items-center gap-2 cursor-pointer">
                                     <input id="cfg-yolo-gpu" type="checkbox"
                                         class="accent-celadon-600 w-3.5 h-3.5 rounded">
-                                    <span class="text-[10px] font-bold text-ink-500">启用 GPU 加速 (CUDA)</span>
+                                    <span class="text-[10px] font-bold text-ink-500">启用 GPU 加速</span>
                                 </label>
                             </div>
                             <div class="col-span-2">
@@ -693,8 +680,7 @@
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">序列号 /
-                                    URI</label>
+                                <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">序列号或设备标识</label>
                                 <input id="cfg-cam-serial"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
                                     placeholder="例: EF59632AAK00074">
@@ -702,7 +688,7 @@
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">曝光
-                                        (μs)</label>
+                                        (微秒)</label>
                                     <input id="cfg-cam-exposure"
                                         class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
                                         placeholder="50000">
@@ -731,7 +717,7 @@
                     </div>
                 </div>
 
-                <div class="mt-8 pt-6 border-t border-slate-100" data-settings-section="diagnostic">
+                <div data-settings-section="diagnostic">
                     <button data-cmd="reset_statistics" data-confirm="确定要清除今日统计数据吗？此操作不可撤销！"
                         class="w-full py-3 bg-vermilion/5 text-vermilion font-black text-[10px] rounded-xl hover:bg-vermilion/10 transition-[background-color,border-color,color,box-shadow] uppercase tracking-widest border border-vermilion/10 flex items-center justify-center gap-2">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -739,7 +725,7 @@
                                 d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
                             </path>
                         </svg>
-                        重置生产报表 / Reset Stats
+                        重置生产报表
                     </button>
                 </div>
                     </div>
@@ -747,7 +733,7 @@
             </div>
             <div class="h-16 border-t border-slate-100 bg-white flex justify-end items-center px-8 gap-3 shrink-0">
                 <button data-action="closeSettingsModal"
-                    class="px-6 py-2 text-xs font-bold text-ink-400 hover:text-ink-600 transition-colors">取消设置</button>
+                    class="px-6 py-2 text-xs font-bold text-ink-400 hover:text-ink-600 transition-colors">取消</button>
                 <button data-action="saveSettings"
                     class="btn-celadon px-10 py-2 rounded-xl text-xs font-bold shadow-float">保存并部署</button>
             </div>
@@ -812,7 +798,7 @@
                 </svg>
             </div>
             <h3 class="text-sm font-bold text-ink-800 mb-1">权限验证</h3>
-            <p class="text-[11px] text-ink-400 mb-6 text-center italic">Admin Access Required</p>
+            <p class="text-[11px] text-ink-400 mb-6 text-center italic">需要管理员权限</p>
             <input type="password" id="admin-password"
                 class="w-full tech-input rounded-xl py-3 px-4 text-center text-lg tracking-[0.8em] mb-4 focus:ring-4 focus:ring-celadon-100"
                 autofocus data-key="Enter" data-key-action="verifyPassword">

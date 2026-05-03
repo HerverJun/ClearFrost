@@ -232,9 +232,15 @@
         });
         if (panels.length) return;
 
+        const sectionMapping = {
+            project: ["vision", "camera"],
+            "storage-diagnostic": ["storage", "diagnostic"],
+        };
+        const targetSections = sectionMapping[tabName] || [tabName];
+
         document.querySelectorAll("[data-settings-section]").forEach((section) => {
             const sectionName = section.dataset.settingsSection;
-            const isActive = sectionName === tabName || (tabName === "camera" && sectionName === "storage");
+            const isActive = targetSections.includes(sectionName);
             section.classList.toggle("hidden", !isActive);
         });
 
@@ -247,7 +253,7 @@
     function syncSettingsChrome() {
         if (!document.body.classList.contains("cf-stitch-page")) return;
         const title = document.querySelector("#settings-modal .cf-ornate-header h3");
-        if (title) title.textContent = "System Settings";
+        if (title) title.textContent = "系统参数配置";
     }
 
     function moveVisionControlsToSettings() {
@@ -489,7 +495,7 @@
         if (config) populateSettings(config);
         byId("settings-modal")?.classList.remove("hidden");
         syncSettingsChrome();
-        activateSettingsTab("camera");
+        activateSettingsTab("project");
         bridge.sendCommand("open_settings");
     }
 
@@ -497,7 +503,7 @@
         if (config) populateSettings(config);
         byId("settings-modal")?.classList.remove("hidden");
         syncSettingsChrome();
-        activateSettingsTab("camera");
+        activateSettingsTab("project");
     }
 
     function closeSettingsModal() {
