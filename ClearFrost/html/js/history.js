@@ -15,8 +15,6 @@
         if (!document.body.classList.contains("cf-stitch-page")) return;
         const title = document.querySelector("#log-history-modal .cf-ornate-header h3");
         if (title) title.textContent = "检测日志 (Detection Logs)";
-        const exportButton = document.querySelector('#log-history-modal [data-cmd="export_log_csv"]');
-        if (exportButton) exportButton.classList.add("hidden");
     }
 
     function openLogHistoryModal() {

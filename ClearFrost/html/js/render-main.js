@@ -17,14 +17,12 @@
     let resultOverlayTimer = null;
     let lastPreviewFrameId = 0;
     let lastStatsChartTick = 0;
-    let lastInferenceChartTick = 0;
     let openCameraCooldownUntil = 0;
     let openCameraUnlockTimer = null;
     let openCameraPending = false;
     let exitAppPending = false;
 
     window.statsChart = window.statsChart || null;
-    window.inferenceChart = window.inferenceChart || null;
 
     function el(id) {
         if (!id) return null;
@@ -102,16 +100,19 @@
         setText("ctx-plc-write-ms", inspection.plcWriteMs, "0");
         setText("camera-phase", inspection.currentStage, "IDLE");
         setText("feed-sn", getTraceIdentityLabel(inspection), "条码: -");
-        setText("feed-inspection-id", inspection.inspectionId ? `ID ${inspection.inspectionId}` : "NO INSPECTION", "NO INSPECTION");
+        const isStandaloneSource = !!inspection.sourceLabel && !inspection.inspectionId;
         setText(
             "feed-trigger-seq",
-            `T${inspection.triggerSeq ?? "-"} / R${inspection.resultSeq ?? "-"}`,
+            isStandaloneSource
+                ? "LOCAL"
+                : `T${inspection.triggerSeq ?? "-"} / R${inspection.resultSeq ?? "-"}`,
             "T- / R-",
         );
         renderBarcode(inspection);
     }
 
     function getTraceIdentityLabel(item) {
+        if (item?.sourceLabel) return item.sourceLabel;
         if (item?.productBarcode) return `SN: ${item.productBarcode}`;
         if (item?.barcodeEnabled === true) {
             return item?.barcodeReadSucceeded === false ? "条码未读取" : "等待条码";
@@ -159,9 +160,9 @@
             const statusClass = isOk ? "ok" : item.isOk === false ? "ng" : "run";
             const statusText = isOk ? "OK" : item.isOk === false ? "NG" : "RUN";
             const identity = getTraceIdentityLabel(item);
-            const title = item.productBarcode || item.inspectionId || item.barcodeError || "-";
+            const title = item.productBarcode || item.sourceLabel || item.inspectionId || item.barcodeError || "-";
             const detail = [
-                item.triggerSource || "-",
+                item.triggerSource || item.sourceLabel || "-",
                 item.triggerSeq !== undefined && item.triggerSeq !== null ? `T${item.triggerSeq}` : null,
                 item.resultSeq !== undefined && item.resultSeq !== null ? `R${item.resultSeq}` : null,
                 item.totalMs ? `${item.totalMs}ms` : null,
@@ -192,7 +193,8 @@
         setText("val-ok", stats.ok, "0");
         setText("val-ng", stats.ng, "0");
         const yieldRate = stats.total > 0 ? (stats.ok / stats.total * 100) : 0;
-        setText("val-yield", `${yieldRate.toFixed(1)}%`, "0.0%");
+        const defectRate = stats.total > 0 ? (stats.ng / stats.total * 100) : 0;
+        setText("val-defect-rate", `${defectRate.toFixed(1)}%`, "0.0%");
         setText("stitch-pass-rate", `${yieldRate.toFixed(1)}%`, "0.0%");
         const progress = el("yield-progress");
         if (progress) {
@@ -483,23 +485,6 @@
         const data = typeof metrics === "string" ? JSON.parse(metrics) : metrics;
         if (!data) return;
         window.CF_STATE.metrics = data;
-
-        const perfDiv = el("perf-metrics");
-        if (perfDiv?.classList.contains("hidden")) {
-            perfDiv.classList.remove("hidden");
-        }
-
-        const fps = Number(data.FPS || data.fps || 0);
-        const totalMs = Number(data.TotalMs || data.totalMs || 0);
-        setText("perf-fps", fps.toFixed(1), "0.0");
-        setText("perf-total", totalMs.toFixed(1), "0.0");
-
-        if (!window.inferenceChart?.data?.datasets?.[0] || Date.now() - lastInferenceChartTick < ChartUpdateIntervalMs) return;
-        const arr = window.inferenceChart.data.datasets[0].data;
-        if (arr.length >= 60) arr.shift();
-        arr.push(fps);
-        window.inferenceChart.update("none");
-        lastInferenceChartTick = Date.now();
     }
 
     function updateStatus(data) {
@@ -529,7 +514,7 @@
     }
 
     function updateCameraName(name) {
-        setText("camera-name-display", name || "未配置", "未配置");
+        window.CF_STATE.cameraName = name || "未配置";
     }
 
     function handleUiCommand(data) {
@@ -570,6 +555,12 @@
             ...(data.inspection || {}),
             isOk: data.isOk,
             message: data.log?.message,
+            totalMs: data.inspection?.totalMs ?? data.totalMs,
+            actualCount: data.inspection?.actualCount ?? data.actualCount,
+            usedModelName: data.inspection?.usedModelName ?? data.usedModelName,
+            wasFallback: data.inspection?.wasFallback ?? data.wasFallback,
+            sourceLabel: data.inspection?.sourceLabel ?? data.sourceLabel,
+            currentStage: data.inspection?.currentStage ?? "Completed",
         });
     }
 
@@ -581,41 +572,6 @@
     }
 
     function initCharts() {
-        const inferenceCanvas = el("inferenceChart");
-        if (inferenceCanvas && window.Chart && !window.inferenceChart) {
-            window.inferenceChart = new Chart(inferenceCanvas, {
-                type: "line",
-                data: {
-                    labels: Array(60).fill(""),
-                    datasets: [{
-                        label: "FPS",
-                        data: Array(60).fill(0),
-                borderColor: "#60a5fa",
-                backgroundColor: "rgba(59, 130, 246, 0.12)",
-                        borderWidth: 1,
-                        tension: 0.4,
-                        pointRadius: 0,
-                    }],
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        x: { display: false },
-                        y: {
-                            display: true,
-                            beginAtZero: true,
-                            suggestedMax: 30,
-                            grid: { color: "rgba(148, 163, 184, 0.14)" },
-                            ticks: { color: "#8c9bb3" },
-                        },
-                    },
-                },
-            });
-        }
-
         const statsCanvas = el("statsChart");
         if (statsCanvas && window.Chart && !window.statsChart) {
             window.statsChart = new Chart(statsCanvas, {

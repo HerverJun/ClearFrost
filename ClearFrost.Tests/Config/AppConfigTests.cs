@@ -23,7 +23,7 @@ public class AppConfigTests
         config.PlcResultAddress.Should().Be("D556");
         config.PlcOkValue.Should().Be(1);
         config.PlcNgValue.Should().Be(0);
-        config.PlcDriverProvider.Should().Be("Hsl");
+        config.PlcDriverProvider.Should().Be("HaoCommunication");
         config.PlcProtocolMode.Should().Be(PlcProtocolMode.Legacy);
         config.PlcTriggerSeqAddress.Should().Be("D557");
         config.PlcResultSeqAddress.Should().Be("D558");
@@ -173,7 +173,7 @@ public class AppConfigTests
         // Assert
         restored.Should().NotBeNull();
         restored!.PlcIp.Should().Be("10.0.0.1");
-        restored.PlcDriverProvider.Should().Be("Hsl");
+        restored.PlcDriverProvider.Should().Be("HaoCommunication");
         restored.PlcTriggerAddress.Should().Be("D555");
         restored.Confidence.Should().BeApproximately(0.75f, 0.001f);
         restored.TargetLabel.Should().Be("test_label");

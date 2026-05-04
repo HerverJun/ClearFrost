@@ -141,7 +141,7 @@
         const isMitsubishi = (protocolSelect.value || "").startsWith("Mitsubishi");
         const mcpxOption = driverSelect.querySelector('option[value="McpX"]');
         if (mcpxOption) mcpxOption.disabled = !isMitsubishi;
-        if (!isMitsubishi && driverSelect.value === "McpX") driverSelect.value = "Hsl";
+        if (!isMitsubishi && driverSelect.value === "McpX") driverSelect.value = "HaoCommunication";
         updateSiemensRackSlotVisibility();
     }
 
@@ -233,7 +233,8 @@
         if (panels.length) return;
 
         const sectionMapping = {
-            project: ["vision", "camera"],
+            vision: ["vision"],
+            camera: ["camera"],
             "storage-diagnostic": ["storage", "diagnostic"],
         };
         const targetSections = sectionMapping[tabName] || [tabName];
@@ -242,6 +243,11 @@
             const sectionName = section.dataset.settingsSection;
             const isActive = targetSections.includes(sectionName);
             section.classList.toggle("hidden", !isActive);
+            if (isActive) {
+                section.style.removeProperty("display");
+            } else {
+                section.style.setProperty("display", "none", "important");
+            }
         });
 
         const content = document.querySelector("#settings-modal .cf-settings-content");
@@ -363,6 +369,11 @@
             store.notify("inspection");
         }
         updatePlcAddressUi();
+        if (store.state.modelList?.length) {
+            selectModelOption(byId("model-select"), data.CurrentModelFileName);
+            selectModelOption(byId("auxiliary1-select"), data.Auxiliary1ModelPath);
+            selectModelOption(byId("auxiliary2-select"), data.Auxiliary2ModelPath);
+        }
     }
 
     function initSettings(config) {
@@ -452,11 +463,32 @@
         bridge.sendCommand("save_settings", data);
     }
 
-    function initModelList(files, notifyBackend = true) {
+    function selectModelOption(select, preferredValue, fallbackValue = "") {
+        if (!select) return;
+        const preferred = String(preferredValue || "").trim();
+        const fallback = String(fallbackValue || "").trim();
+        const options = Array.from(select.options);
+        if (preferred && options.some((option) => option.value === preferred)) {
+            select.value = preferred;
+            return;
+        }
+        if (fallback && options.some((option) => option.value === fallback)) {
+            select.value = fallback;
+            return;
+        }
+        select.selectedIndex = options.length ? 0 : -1;
+    }
+
+    function initModelList(files, notifyBackend = false) {
         const models = Array.isArray(files) ? files : (files?.models || files?.Models || []);
         store.state.modelList = models;
         const select = byId("model-select");
         if (!select) return;
+
+        const settings = store.state.settings || {};
+        const previousPrimary = select.value;
+        const previousAux1 = byId("auxiliary1-select")?.value || "";
+        const previousAux2 = byId("auxiliary2-select")?.value || "";
 
         select.innerHTML = "";
         if (!models.length) {
@@ -473,6 +505,7 @@
             option.text = fileName;
             select.add(option);
         });
+        selectModelOption(select, settings.CurrentModelFileName, previousPrimary);
 
         ["auxiliary1-select", "auxiliary2-select"].forEach((id) => {
             const auxSelect = byId(id);
@@ -486,7 +519,8 @@
             });
         });
 
-        select.selectedIndex = 0;
+        selectModelOption(byId("auxiliary1-select"), settings.Auxiliary1ModelPath, previousAux1);
+        selectModelOption(byId("auxiliary2-select"), settings.Auxiliary2ModelPath, previousAux2);
         if (notifyBackend) bridge.sendCommand("change_model", select.value);
         window.addLog?.(`成功加载 ${models.length} 个模型`, "info");
     }
@@ -495,7 +529,7 @@
         if (config) populateSettings(config);
         byId("settings-modal")?.classList.remove("hidden");
         syncSettingsChrome();
-        activateSettingsTab("project");
+        activateSettingsTab("vision");
         bridge.sendCommand("open_settings");
     }
 
@@ -503,7 +537,7 @@
         if (config) populateSettings(config);
         byId("settings-modal")?.classList.remove("hidden");
         syncSettingsChrome();
-        activateSettingsTab("project");
+        activateSettingsTab("vision");
     }
 
     function closeSettingsModal() {
@@ -590,7 +624,7 @@
         if (data?.config || data?.Config) populateSettings(data.config || data.Config);
         if (data?.storagePath || data?.StoragePath) updateStoragePath(data.storagePath || data.StoragePath);
         const models = data?.models || data?.Models;
-        if (Array.isArray(models)) initModelList(models, true);
+        if (Array.isArray(models)) initModelList(models, false);
         const cameras = data?.cameras || data?.Cameras;
         if (Array.isArray(cameras) && typeof window.receiveCameraList === "function") {
             window.receiveCameraList({ cameras, activeId: data.activeCameraId || data.ActiveCameraId || "" });
@@ -625,5 +659,5 @@
 
     bridge.registerMessageHandler("bootstrapSnapshot", handleBootstrapSnapshot);
     bridge.registerMessageHandler("configSnapshot", handleConfigSnapshot);
-    bridge.registerMessageHandler("modelList", (data) => initModelList(data?.models || data?.Models || data || [], true));
+    bridge.registerMessageHandler("modelList", (data) => initModelList(data?.models || data?.Models || data || [], false));
 })();

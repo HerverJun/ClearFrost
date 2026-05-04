@@ -37,7 +37,7 @@ namespace ClearFrost.Config
         /// <summary>
         /// PLC驱动库: Hsl, HaoCommunication, McpX (McpX 仅支持三菱)
         /// </summary>
-        public string PlcDriverProvider { get; set; } = "Hsl";
+        public string PlcDriverProvider { get; set; } = "HaoCommunication";
         /// <summary>
         /// PLC 业务协议模式。默认 Legacy，保持旧现场行为不变。
         /// </summary>
@@ -357,7 +357,7 @@ namespace ClearFrost.Config
             if (!IsMitsubishiProtocol(protocolType) &&
                 string.Equals(PlcDriverProvider, "McpX", StringComparison.OrdinalIgnoreCase))
             {
-                PlcDriverProvider = "Hsl";
+                PlcDriverProvider = "HaoCommunication";
             }
 
             if (string.IsNullOrWhiteSpace(PlcSiemensCpuModel))

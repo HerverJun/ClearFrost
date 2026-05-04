@@ -67,6 +67,7 @@
         return {
             inspectionId: pickValue(data, "inspectionId", "InspectionId"),
             triggerSource: pickValue(data, "triggerSource", "TriggerSource"),
+            sourceLabel: pickValue(data, "sourceLabel", "SourceLabel"),
             triggerSeq: pickValue(data, "triggerSeq", "TriggerSeq"),
             resultSeq: pickValue(data, "resultSeq", "ResultSeq"),
             productBarcode: pickValue(data, "productBarcode", "ProductBarcode"),
@@ -129,9 +130,9 @@
             Object.entries(incoming).filter(([, value]) => value !== undefined),
         );
         const previous = state.inspection || {};
-        const base = cleanIncoming.inspectionId && cleanIncoming.inspectionId !== previous.inspectionId
-            ? {}
-            : previous;
+        const isNewInspection = cleanIncoming.inspectionId && cleanIncoming.inspectionId !== previous.inspectionId;
+        const isStandaloneSource = cleanIncoming.sourceLabel && !cleanIncoming.inspectionId;
+        const base = isNewInspection || isStandaloneSource ? {} : previous;
 
         state.inspection = { ...base, ...cleanIncoming };
 

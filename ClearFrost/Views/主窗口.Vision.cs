@@ -205,7 +205,12 @@ namespace ClearFrost
                             _statisticsService.Current,
                             statusMessage,
                             isQualified && !detectionFailed ? "success" : "error",
-                            (_detectionService as DetectionService)?.GetLastMetrics());
+                            (_detectionService as DetectionService)?.GetLastMetrics(),
+                            actualCount: results.Count,
+                            usedModelName: result.UsedModelName ?? _detectionService.CurrentModelName,
+                            wasFallback: result.WasFallback,
+                            totalMs: sw.ElapsedMilliseconds,
+                            sourceLabel: "本地推理");
                     }
                 }
             }
@@ -799,6 +804,8 @@ namespace ClearFrost
                             finalResultCount,
                             usedModelNameForUi,
                             wasFallbackForUi,
+                            context.TotalMs,
+                            null,
                             _appConfig.BarcodeEnabled,
                             productBarcode,
                             barcodeReadSucceeded,

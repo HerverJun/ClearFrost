@@ -66,6 +66,7 @@ namespace ClearFrost
         public event EventHandler? OnManualDetect;
         public event EventHandler? OnManualRelease;
         public event EventHandler? OnOpenSettings;
+        public event EventHandler? OnGetModelList;
         public event EventHandler<string>? OnChangeModel;
         public event EventHandler<int>? OnThresholdChanged;
         public event EventHandler? OnAppReady;
@@ -600,6 +601,9 @@ namespace ClearFrost
                                     OnChangeModel?.Invoke(this, modelElement.GetString() ?? "");
                                 }
                                 break;
+                            case "get_model_list":
+                                OnGetModelList?.Invoke(this, EventArgs.Empty);
+                                break;
                             case "app_ready":
                                 OnAppReady?.Invoke(this, EventArgs.Empty);
                                 // Debug log
@@ -680,6 +684,7 @@ namespace ClearFrost
                                     {
                                         0 => "分类 (Classify)",
                                         1 => "目标检测 (Detect)",
+                                        2 => "分割检测 (Segment Detect Only)",
                                         3 => "实例分割 (Segment)",
                                         5 => "姿态估计 (Pose)",
                                         6 => "旋转框检测 (OBB)",
@@ -886,6 +891,8 @@ namespace ClearFrost
             int? actualCount = null,
             string? usedModelName = null,
             bool wasFallback = false,
+            long? totalMs = null,
+            string? sourceLabel = null,
             bool barcodeEnabled = false,
             string? productBarcode = null,
             bool? barcodeReadSucceeded = null,
@@ -913,6 +920,11 @@ namespace ClearFrost
                     ? null
                     : new { message = logMessage, type = logType },
                 metrics = metrics,
+                totalMs = totalMs,
+                actualCount = actualCount,
+                usedModelName = usedModelName,
+                wasFallback = wasFallback,
+                sourceLabel = sourceLabel,
                 inspection = inspection == null
                     ? null
                     : BuildInspectionPayload(
@@ -1277,6 +1289,7 @@ namespace ClearFrost
                 OnManualDetect = null;
                 OnManualRelease = null;
                 OnOpenSettings = null;
+                OnGetModelList = null;
                 OnChangeModel = null;
                 OnThresholdChanged = null;
                 OnAppReady = null;

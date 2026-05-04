@@ -8,7 +8,7 @@
     "PlcOkValue": 1,
     "PlcNgValue": 0,
     "PlcProtocol": "Mitsubishi_MC_ASCII",
-    "PlcDriverProvider": "Hsl",
+    "PlcDriverProvider": "HaoCommunication",
     "PlcSiemensCpuModel": "S1200",
     "PlcSiemensRack": 0,
     "PlcSiemensSlot": 2,

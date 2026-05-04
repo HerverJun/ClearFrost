@@ -43,24 +43,6 @@
         }
     }
 
-    function toggleDock() {
-        const dock = document.getElementById("bottom-dock");
-        const arrow = document.getElementById("dock-arrow");
-        const trigger = document.getElementById("dock-trigger-container");
-        if (!dock) return;
-        const isOpen = dock.classList.contains("dock-open");
-
-        dock.classList.toggle("dock-open", !isOpen);
-        dock.classList.toggle("dock-closed", isOpen);
-        arrow?.classList.toggle("rotate-180", !isOpen);
-        if (trigger) {
-            trigger.classList.toggle("opacity-0", !isOpen);
-            trigger.classList.toggle("pointer-events-none", !isOpen);
-            trigger.classList.toggle("opacity-100", isOpen);
-            trigger.classList.toggle("pointer-events-auto", isOpen);
-        }
-    }
-
     function parseDatasetValue(rawValue) {
         if (rawValue === undefined) return undefined;
         try {
@@ -156,22 +138,12 @@
         });
     }
 
-    function disableUnimplementedActions() {
-        document.querySelectorAll('[data-cmd="export_log_csv"], [onclick*="export_log_csv"]').forEach((button) => {
-            button.disabled = true;
-            button.classList.add("opacity-40", "cursor-not-allowed");
-            button.title = "CSV 导出将在后续版本开放";
-            button.onclick = null;
-        });
-    }
-
     document.addEventListener("mouseup", () => {
         windowDragging = false;
     });
 
     document.addEventListener("DOMContentLoaded", () => {
         setupDelegatedActions();
-        disableUnimplementedActions();
         window.moveVisionControlsToSettings?.();
         window.initRoiInteractions?.();
         window.updatePlcAddressUi?.();
@@ -184,7 +156,6 @@
 
     Object.assign(window, {
         startDrag,
-        toggleDock,
         toggleDrawer,
     });
 })();

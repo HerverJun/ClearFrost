@@ -621,18 +621,6 @@ input[type="range"]::-webkit-slider-runnable-track {
     background: linear-gradient(180deg, rgba(252, 248, 240, 0.98) 0%, rgba(250, 247, 240, 0.94) 100%) !important;
 }
 
-#bottom-dock .w-px {
-    background: rgba(74, 85, 94, 0.16) !important;
-}
-
-#bottom-dock .btn-press,
-#bottom-dock #btn-open-camera,
-#bottom-dock button[onclick="clearRoi()"] {
-    box-shadow:
-        0 10px 18px -16px rgba(20, 30, 40, 0.26),
-        inset 0 1px 0 rgba(255, 255, 255, 0.24);
-}
-
 #settings-modal .tech-input,
 #log-history-modal .tech-input {
     background: rgba(255, 251, 246, 0.96);
@@ -1713,7 +1701,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-upgrade #val-total,
-.cf-stitch-upgrade #val-yield {
+.cf-stitch-upgrade #val-defect-rate {
     color: #f8fbff !important;
 }
 
@@ -1754,32 +1742,11 @@ input[type="range"]::-webkit-slider-runnable-track {
     border-radius: 12px !important;
 }
 
-.cf-stitch-upgrade #bottom-dock button {
-    border-radius: 8px !important;
-}
-
-.cf-stitch-upgrade #bottom-dock button[data-cmd="manual_detect"],
 .cf-stitch-upgrade .btn-celadon {
     color: #ffffff !important;
     background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%) !important;
     border: 1px solid rgba(173, 198, 255, 0.46) !important;
     box-shadow: 0 16px 36px -24px rgba(59, 130, 246, 0.95) !important;
-}
-
-.cf-stitch-upgrade #bottom-dock button[data-cmd="manual_release"] {
-    color: #fbbf24 !important;
-    background: rgba(245, 158, 11, 0.12) !important;
-    border: 1px solid rgba(245, 158, 11, 0.34) !important;
-}
-
-.cf-stitch-upgrade #bottom-dock button:not([data-cmd="manual_detect"]):not([data-cmd="manual_release"]) {
-    color: #cfe0ff !important;
-    background: rgba(15, 23, 42, 0.5) !important;
-    border: 1px solid rgba(216, 227, 251, 0.1) !important;
-}
-
-.cf-stitch-upgrade #bottom-dock button:hover {
-    transform: translateY(-1px);
 }
 
 .cf-stitch-upgrade .tech-input,
@@ -1950,6 +1917,10 @@ input[type="range"]::-webkit-slider-runnable-track {
     display: none !important;
 }
 
+.cf-stitch-page #settings-modal [data-settings-section].hidden {
+    display: none !important;
+}
+
 .stitch-topbar {
     height: 72px;
     flex: 0 0 72px;
@@ -2053,40 +2024,6 @@ input[type="range"]::-webkit-slider-runnable-track {
     display: none;
 }
 
-.stitch-engine-block {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 32px;
-}
-
-.stitch-engine-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
-    display: grid;
-    place-items: center;
-    color: #e7ebff;
-    background: var(--stitch-primary-container);
-    font-family: "Noto Serif SC", "Microsoft YaHei", serif;
-    font-weight: 800;
-}
-
-.stitch-engine-block h2 {
-    margin: 0 0 2px;
-    color: #1e40af;
-    font-family: "Noto Serif SC", "Microsoft YaHei", serif !important;
-    font-size: 18px;
-    font-weight: 800;
-}
-
-.stitch-engine-block p {
-    margin: 0;
-    color: #434653;
-    font-size: 12px;
-    font-weight: 600;
-}
-
 .stitch-section {
     margin-bottom: 32px;
 }
@@ -2146,6 +2083,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .stitch-stat-card:nth-child(2) strong,
+#val-defect-rate,
 #stitch-pass-rate {
     color: var(--stitch-tertiary);
 }
@@ -2657,7 +2595,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .stitch-action-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
 }
 
@@ -2838,7 +2776,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     background: var(--stitch-bg);
 }
 
-.cf-stitch-page #settings-modal .cf-settings-content > .grid {
+.cf-stitch-page #settings-modal .cf-settings-content > .grid:not([data-settings-section]) {
     display: block !important;
 }
 
@@ -3050,10 +2988,6 @@ input[type="range"]::-webkit-slider-runnable-track {
     border-top: 1px solid rgba(195, 198, 213, 0.56) !important;
 }
 
-.cf-stitch-page #log-history-modal [data-cmd="export_log_csv"] {
-    display: none !important;
-}
-
 @media (max-width: 980px) {
     .cf-stitch-page #settings-modal .cf-settings-workspace {
         grid-template-columns: 1fr;
@@ -3069,6 +3003,12 @@ input[type="range"]::-webkit-slider-runnable-track {
     .cf-stitch-page #settings-modal .cf-settings-tab {
         width: auto;
         flex: 0 0 auto;
+    }
+
+    .cf-stitch-page #settings-modal .cf-plc-grid-3,
+    .cf-stitch-page #settings-modal .cf-plc-grid-4,
+    .cf-stitch-page #settings-modal .cf-plc-grid-5 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
@@ -3193,8 +3133,12 @@ input[type="range"]::-webkit-slider-runnable-track {
     letter-spacing: 0 !important;
 }
 
-.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="project"]::before {
-    content: "⚙";
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="vision"]::before {
+    content: "◉";
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="camera"]::before {
+    content: "◎";
 }
 
 .cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="plc"]::before {
@@ -3274,8 +3218,8 @@ input[type="range"]::-webkit-slider-runnable-track {
     display: none !important;
 }
 
-.cf-stitch-page #settings-modal [data-settings-section="camera"] {
-    display: grid;
+.cf-stitch-page #settings-modal [data-settings-section="camera"]:not(.hidden) {
+    display: grid !important;
     grid-template-columns: minmax(0, 1fr) 248px;
     gap: 18px;
     align-items: start;
@@ -3389,22 +3333,106 @@ input[type="range"]::-webkit-slider-runnable-track {
     outline: none;
 }
 
-.cf-stitch-page #settings-modal [data-settings-section="plc"] > .space-y-4 {
+.cf-stitch-page #settings-modal .cf-plc-layout {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 18px;
+    grid-template-columns: 1fr;
+    gap: 14px;
 }
 
-.cf-stitch-page #settings-modal [data-settings-section="plc"] > .space-y-4 > :has(#cfg-plc-ip) {
+.cf-stitch-page #settings-modal .cf-plc-group {
+    padding: 16px 18px 18px;
+    background: #fbfbfc;
+    border: 1px solid #e5e7eb;
+    border-radius: 5px;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-group-title {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #edf0f4;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-group-title span {
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-group-title em {
+    color: #64748b;
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 500;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-grid {
+    display: grid;
+    gap: 14px 16px;
+    align-items: start;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cf-stitch-page #settings-modal .cf-plc-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cf-stitch-page #settings-modal .cf-plc-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.cf-stitch-page #settings-modal .cf-plc-grid-5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.cf-stitch-page #settings-modal .cf-plc-span-2 {
     grid-column: span 2;
 }
 
-.cf-stitch-page #settings-modal [data-settings-section="plc"] > .space-y-4 > :has(#cfg-plc-address-help),
-.cf-stitch-page #settings-modal [data-settings-section="plc"] > .space-y-4 > :has(#cfg-plc-handshake-options),
-.cf-stitch-page #settings-modal [data-settings-section="plc"] > .space-y-4 > :has(#cfg-barcode-enabled),
-.cf-stitch-page #settings-modal [data-settings-section="plc"] #cfg-plc-handshake-options,
-.cf-stitch-page #settings-modal [data-settings-section="plc"] #cfg-plc-siemens-options {
+.cf-stitch-page #settings-modal .cf-plc-help {
     grid-column: 1 / -1;
+    margin: -4px 0 0;
+    padding: 8px 10px;
+    background: #f4f7fb;
+    border-left: 2px solid #9db7e5;
+    border-radius: 3px;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-subgrid {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed #d7dde7;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-inline-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-toggle {
+    min-height: 33px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    color: #26364d !important;
+    background: #ffffff;
+    border: 1px solid #dfe5ef;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-grid-4 > .cf-plc-toggle:first-child {
+    margin-top: 21px;
 }
 
 .cf-stitch-page #settings-modal input[type="checkbox"] {
