@@ -149,7 +149,6 @@
         window.updatePlcAddressUi?.();
         window.updatePlcProtocolModeUi?.();
         window.renderRecentInspections?.();
-        window.CF_RENDER?.initCharts?.();
         window.CF_RENDER?.renderAll?.();
         setTimeout(() => window.sendCommand("app_ready"), 500);
     });

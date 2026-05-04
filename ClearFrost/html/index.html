@@ -11,7 +11,6 @@
     <!-- Tailwind Config (Define Config BEFORE Library for Robustness) -->
     <script src="js/tailwind-config.js"></script>
     <script src="tailwind.min.js"></script>
-    <script src="chart.min.js"></script>
     <link rel="stylesheet" href="css/style.css">
 </head>
 
@@ -128,24 +127,6 @@
                 </div>
             </section>
 
-            <div class="hidden" aria-hidden="true">
-                <section id="cf-barcode-card" class="barcode-state-waiting">
-                    <span id="cf-barcode-status">等待触发</span>
-                    <span id="cf-barcode-value">-</span>
-                    <span id="cf-barcode-error">-</span>
-                </section>
-                <span id="ctx-inspection-id">-</span>
-                <span id="ctx-trigger-source">-</span>
-                <span id="ctx-trigger-seq">-</span>
-                <span id="ctx-result-seq">-</span>
-                <span id="ctx-trace-status">Unknown</span>
-                <span id="ctx-current-stage">Idle</span>
-                <span id="ctx-error-code">-</span>
-                <span id="ctx-total-ms">0</span>
-                <span id="ctx-capture-ms">0</span>
-                <span id="ctx-inference-ms">0</span>
-                <span id="ctx-plc-write-ms">0</span>
-            </div>
         </aside>
 
         <main id="camera-panel" class="stitch-camera-panel">
@@ -192,7 +173,6 @@
         <aside id="right-panel" class="stitch-log-panel">
             <h3>检测日志 (Detection Logs)</h3>
             <div id="inspection-flow-list" class="stitch-log-list scroller"></div>
-            <div id="detection-log-container" class="hidden"></div>
             <div class="stitch-action-stack">
                 <button id="btn-open-camera" data-action="startSystem" class="stitch-start-button">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -226,30 +206,6 @@
                         强制放行
                     </button>
                 </div>
-            </div>
-            <div class="hidden" aria-hidden="true">
-                <span id="health-overall-dot" class="cf-status-dot status-off"></span>
-                <span id="health-overall-text">HEALTH</span>
-                <span id="header-status-cam" class="cf-status-dot status-off"></span>
-                <span id="header-camera-text">CAMERA</span>
-                <span id="header-status-plc" class="cf-status-dot status-off"></span>
-                <span id="header-plc-text">PLC</span>
-                <span id="header-status-model" class="cf-status-dot status-off"></span>
-                <span id="header-model-text">MODEL</span>
-                <span id="header-status-storage" class="cf-status-dot status-off"></span>
-                <span id="header-storage-text">STORAGE</span>
-                <span id="header-status-trigger" class="cf-status-dot status-off"></span>
-                <span id="health-camera">-</span>
-                <span id="health-plc">-</span>
-                <span id="health-model">-</span>
-                <span id="health-storage">-</span>
-                <span id="health-database">-</span>
-                <span id="health-queue">-</span>
-                <span id="health-error">无最近错误</span>
-                <span id="recent-ng-title">暂无 NG 记录</span>
-                <span id="recent-ng-detail">最近不合格样本会显示在这里</span>
-                <div id="log-container"></div>
-                <canvas id="statsChart"></canvas>
             </div>
         </aside>
     </div>
@@ -1014,16 +970,7 @@
 
 
     <!-- Core Application Scripts -->
-    <script src="js/bridge.js"></script>
-    <script src="js/state.js"></script>
-    <script src="js/render-main.js"></script>
-    <script src="js/settings.js"></script>
-    <script src="js/camera.js"></script>
-    <script src="js/history.js"></script>
-    <script src="js/roi.js"></script>
-    <script src="js/boot.js"></script>
-    <script src="js/app.js"></script>
-    <script src="js/ui.js"></script>
+    <script src="js/bundle.js"></script>
 
 </body>
 

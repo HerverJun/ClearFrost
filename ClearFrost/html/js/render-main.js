@@ -4,25 +4,33 @@
 (function () {
     "use strict";
 
-    const { pickValue, escapeHtml, normalizeHealthLevel } = window.CF_UTILS;
+    const { escapeHtml } = window.CF_UTILS;
     const store = window.CF_STORE;
     const domCache = new Map();
+    const recentInspectionRows = new Map();
     const logBuffer = [];
     const detectionLogBuffer = [];
     const MaxLogEntries = 50;
     const LogFlushIntervalMs = 300;
-    const ChartUpdateIntervalMs = 250;
     let logFlushTimer = null;
     let detectionLogFlushTimer = null;
     let resultOverlayTimer = null;
     let lastPreviewFrameId = 0;
-    let lastStatsChartTick = 0;
     let openCameraCooldownUntil = 0;
     let openCameraUnlockTimer = null;
     let openCameraPending = false;
     let exitAppPending = false;
+    const FullRenderReasons = new Set(["bootstrap", "state"]);
+    const KnownRenderReasons = new Set(["inspection", "stats", "health", "bootstrap", "state"]);
 
-    window.statsChart = window.statsChart || null;
+    function shouldRenderFull(reasons) {
+        if (!Array.isArray(reasons) || reasons.length === 0) return true;
+        return reasons.some((reason) => FullRenderReasons.has(reason) || !KnownRenderReasons.has(reason));
+    }
+
+    function hasRenderReason(reasons, reason) {
+        return shouldRenderFull(reasons) || reasons.includes(reason);
+    }
 
     function el(id) {
         if (!id) return null;
@@ -53,51 +61,8 @@
         dot.classList.add(state);
     }
 
-    function getBarcodeState(inspection) {
-        if (inspection.barcodeEnabled === false) return "disabled";
-        const barcode = inspection.productBarcode;
-        const succeeded = inspection.barcodeReadSucceeded;
-        const error = inspection.barcodeError || inspection.errorCode;
-        if (succeeded === false || error === "BarcodeReadFailed" || error === "NoBarcode") return "failed";
-        if (barcode) return "success";
-        if (succeeded === null || succeeded === undefined) return "waiting";
-        return "disabled";
-    }
-
-    function renderBarcode(inspection) {
-        const card = el("cf-barcode-card");
-        if (!card) return;
-        const state = getBarcodeState(inspection);
-        if (card.dataset.cfState !== state) {
-            card.dataset.cfState = state;
-            card.classList.remove("barcode-state-disabled", "barcode-state-waiting", "barcode-state-success", "barcode-state-failed");
-            card.classList.add(`barcode-state-${state}`);
-        }
-
-        const labels = {
-            disabled: "未启用",
-            waiting: "等待触发",
-            success: "读取成功",
-            failed: "读取失败",
-        };
-        setText("cf-barcode-status", labels[state], "等待触发");
-        setText("cf-barcode-value", inspection.productBarcode, "-");
-        setText("cf-barcode-error", inspection.barcodeError || (state === "waiting" ? "条码来自 PLC，上电后等待首件触发" : ""), "");
-    }
-
     function renderInspectionContext(state) {
         const inspection = state.inspection || {};
-        setText("ctx-inspection-id", inspection.inspectionId);
-        setText("ctx-trigger-source", inspection.triggerSource);
-        setText("ctx-trigger-seq", inspection.triggerSeq);
-        setText("ctx-result-seq", inspection.resultSeq);
-        setText("ctx-trace-status", inspection.traceStatus, "Unknown");
-        setText("ctx-current-stage", inspection.currentStage, "Idle");
-        setText("ctx-error-code", inspection.errorCode);
-        setText("ctx-total-ms", inspection.totalMs, "0");
-        setText("ctx-capture-ms", inspection.captureMs, "0");
-        setText("ctx-inference-ms", inspection.inferenceMs, "0");
-        setText("ctx-plc-write-ms", inspection.plcWriteMs, "0");
         setText("camera-phase", inspection.currentStage, "IDLE");
         setText("feed-sn", getTraceIdentityLabel(inspection), "条码: -");
         const isStandaloneSource = !!inspection.sourceLabel && !inspection.inspectionId;
@@ -108,7 +73,6 @@
                 : `T${inspection.triggerSeq ?? "-"} / R${inspection.resultSeq ?? "-"}`,
             "T- / R-",
         );
-        renderBarcode(inspection);
     }
 
     function getTraceIdentityLabel(item) {
@@ -160,12 +124,21 @@
         if (!container) return;
         const list = state.recentInspections || [];
         if (!list.length) {
-            const empty = '<div class="cf-empty-state">等待第一条检测流水...</div>';
-            if (container.innerHTML !== empty) container.innerHTML = empty;
+            if (container.dataset.cfEmpty !== "true") {
+                container.textContent = "";
+                recentInspectionRows.clear();
+                const empty = document.createElement("div");
+                empty.className = "cf-empty-state";
+                empty.textContent = "等待第一条检测流水...";
+                container.appendChild(empty);
+                container.dataset.cfEmpty = "true";
+            }
             return;
         }
 
-        container.innerHTML = list.map((item) => {
+        container.dataset.cfEmpty = "false";
+        const usedNodes = new Set();
+        list.forEach((item, index) => {
             const isOk = item.isOk === true;
             const statusClass = isOk ? "ok" : item.isOk === false ? "ng" : "run";
             const statusText = isOk ? "OK" : item.isOk === false ? "NG" : "RUN";
@@ -176,24 +149,80 @@
                 detectionSummary,
                 item.totalMs ? `${item.totalMs}ms` : null,
             ].filter(Boolean).join(" / ");
+            const key = item._renderKey || item.inspectionId || `${item.time}:${title}:${index}`;
+            const signature = [
+                statusClass,
+                statusText,
+                item.time || "",
+                identity || "",
+                title || "",
+                detail || item.currentStage || "-",
+            ].join("\u001f");
 
-            return `<div class="cf-flow-row ${statusClass}">
-                <span class="cf-flow-rail"></span>
-                <div class="cf-flow-head">
-                    <span class="cf-flow-time">${escapeHtml(item.time)}</span>
-                    <span class="cf-flow-status">${statusText}</span>
-                </div>
-                <div class="cf-flow-sn" title="${escapeHtml(title)}">${escapeHtml(identity)}</div>
-                <div class="cf-flow-detail" title="${escapeHtml(detail)}">${escapeHtml(detail || item.currentStage || "-")}</div>
-            </div>`;
-        }).join("");
+            let row = recentInspectionRows.get(String(key));
+            if (!row) {
+                row = createInspectionRow();
+                recentInspectionRows.set(String(key), row);
+            }
+            usedNodes.add(row);
+
+            if (row.dataset.cfSignature !== signature) {
+                row.dataset.cfSignature = signature;
+                row.className = `cf-flow-row ${statusClass}`;
+                row.querySelector(".cf-flow-time").textContent = item.time || "";
+                row.querySelector(".cf-flow-status").textContent = statusText;
+                const sn = row.querySelector(".cf-flow-sn");
+                sn.textContent = identity || "";
+                sn.title = title || "";
+                const detailNode = row.querySelector(".cf-flow-detail");
+                detailNode.textContent = detail || item.currentStage || "-";
+                detailNode.title = detail || "";
+            }
+            row.dataset.cfKey = String(key);
+
+            const current = container.children[index];
+            if (current !== row) {
+                container.insertBefore(row, current || null);
+            }
+        });
+
+        Array.from(container.children).forEach((child) => {
+            if (!usedNodes.has(child)) {
+                if (child.dataset.cfKey) recentInspectionRows.delete(child.dataset.cfKey);
+                child.remove();
+            }
+        });
     }
 
-    function renderRecentNg(state) {
-        const inspection = state.inspection || {};
-        if (inspection.isOk !== false) return;
-        setText("recent-ng-title", getTraceIdentityLabel(inspection) || "NG 样本");
-        setText("recent-ng-detail", `${inspection.errorCode || "NG"} / ${inspection.totalMs || 0}ms / ${inspection.usedModelName || "-"}`);
+    function createInspectionRow() {
+        const row = document.createElement("div");
+        row.className = "cf-flow-row run";
+
+        const rail = document.createElement("span");
+        rail.className = "cf-flow-rail";
+        row.appendChild(rail);
+
+        const head = document.createElement("div");
+        head.className = "cf-flow-head";
+
+        const time = document.createElement("span");
+        time.className = "cf-flow-time";
+        head.appendChild(time);
+
+        const status = document.createElement("span");
+        status.className = "cf-flow-status";
+        head.appendChild(status);
+        row.appendChild(head);
+
+        const sn = document.createElement("div");
+        sn.className = "cf-flow-sn";
+        row.appendChild(sn);
+
+        const detail = document.createElement("div");
+        detail.className = "cf-flow-detail";
+        row.appendChild(detail);
+
+        return row;
     }
 
     function renderStats(state) {
@@ -211,60 +240,31 @@
             if (progress.style.width !== width) progress.style.width = width;
         }
 
-        if (window.statsChart?.data?.datasets?.[0]) {
-            const now = Date.now();
-            if (now - lastStatsChartTick >= ChartUpdateIntervalMs) {
-                window.statsChart.data.datasets[0].data = [stats.ok || 0, stats.ng || 0];
-                window.statsChart.update("none");
-                lastStatsChartTick = now;
-            }
+    }
+
+    function renderHealthSnapshot() {}
+
+    function renderAll(state, reasons = []) {
+        if (hasRenderReason(reasons, "inspection")) {
+            renderInspectionContext(state);
+            renderCameraResult(state);
+            renderRecentInspections(state);
+        }
+        if (hasRenderReason(reasons, "stats")) {
+            renderStats(state);
+        }
+        if (hasRenderReason(reasons, "health")) {
+            renderHealthSnapshot(state);
         }
     }
 
-    function renderHealthSnapshot(state) {
-        const snapshot = state.health;
-        if (!snapshot) return;
-        const level = normalizeHealthLevel(pickValue(snapshot, "healthLevel", "HealthLevel"));
-        const camera = pickValue(snapshot, "cameraStatus", "CameraStatus");
-        const plc = pickValue(snapshot, "plcStatus", "PlcStatus");
-        const model = pickValue(snapshot, "modelStatus", "ModelStatus");
-        const storage = pickValue(snapshot, "storageStatus", "StorageStatus");
-        const database = pickValue(snapshot, "databaseStatus", "DatabaseStatus");
-        const imageQueue = pickValue(snapshot, "imageQueueLength", "ImageQueueLength") || 0;
-        const recordQueue = pickValue(snapshot, "recordQueueLength", "RecordQueueLength") || 0;
-        const errors = pickValue(snapshot, "recentErrors", "RecentErrors") || [];
-        const recentError = errors.length ? errors[errors.length - 1] : null;
-
-        setText("health-overall-text", level.toUpperCase(), "HEALTH");
-        setDotState("health-overall-dot", level === "Critical" ? "status-error" : level === "Warning" ? "status-warning" : "status-on");
-        setText("health-camera", camera);
-        setText("health-plc", plc);
-        setText("health-model", model);
-        setText("health-storage", storage);
-        setText("health-database", database);
-        setText("health-queue", `${imageQueue}/${recordQueue}`);
-        setText("health-error", recentError ? `${recentError.Source || recentError.source || "Error"}: ${recentError.Message || recentError.message || ""}` : "无最近错误");
-
-        setText("header-camera-text", camera ? `CAM ${camera}` : "CAMERA", "CAMERA");
-        setText("header-plc-text", plc ? `PLC ${plc}` : "PLC", "PLC");
-        setText("header-model-text", model ? `MODEL ${model}` : "MODEL", "MODEL");
-        setText("header-storage-text", storage ? `STORE ${storage}` : "STORAGE", "STORAGE");
-        setDotState("header-status-model", model && !String(model).includes("NotLoaded") ? "status-on" : "status-off");
-        setDotState("header-status-storage", storage && !String(storage).includes("Error") ? "status-on" : "status-error");
-    }
-
-    function renderAll(state) {
-        renderInspectionContext(state);
-        renderCameraResult(state);
-        renderRecentInspections(state);
-        renderRecentNg(state);
-        renderStats(state);
-        renderHealthSnapshot(state);
-    }
-
     function flushBufferedLogs(buffer, containerId, classFactory, formatter) {
+        if (buffer.length === 0) return;
         const container = el(containerId);
-        if (!container || buffer.length === 0) return;
+        if (!container) {
+            buffer.length = 0;
+            return;
+        }
 
         const fragment = document.createDocumentFragment();
         for (let index = buffer.length - 1; index >= 0; index--) {
@@ -284,6 +284,7 @@
     }
 
     function addLog(msg, type = "info") {
+        if (!el("log-container")) return;
         logBuffer.push({ msg, type, time: new Date().toLocaleTimeString() });
         if (!logFlushTimer) {
             logFlushTimer = window.setTimeout(() => {
@@ -300,6 +301,7 @@
     }
 
     function addDetectionLog(msg, type = "normal") {
+        if (!el("detection-log-container")) return;
         detectionLogBuffer.push({ msg, type, time: new Date().toLocaleTimeString() });
         if (!detectionLogFlushTimer) {
             detectionLogFlushTimer = window.setTimeout(() => {
@@ -376,11 +378,6 @@
     }
 
     function updateConnection(type, isConnected) {
-        const dotId = type === "cam" ? "header-status-cam" : "header-status-plc";
-        setDotState(dotId, isConnected ? "status-on" : "status-off");
-        if (type === "cam") setText("header-camera-text", isConnected ? "CAM OPEN" : "CAM CLOSED");
-        if (type === "plc") setText("header-plc-text", isConnected ? "PLC ONLINE" : "PLC OFFLINE");
-
         if (type === "cam" && !isConnected && openCameraPending) {
             openCameraPending = false;
             setOpenCameraButtonBusy(false);
@@ -514,12 +511,6 @@
     }
 
     function flashPlcTrigger() {
-        const trigger = el("header-status-trigger");
-        if (!trigger) return;
-        trigger.classList.remove("status-trigger-flash");
-        void trigger.offsetWidth;
-        trigger.classList.add("status-trigger-flash");
-        trigger.addEventListener("animationend", () => trigger.classList.remove("status-trigger-flash"), { once: true });
     }
 
     function updateCameraName(name) {
@@ -580,30 +571,7 @@
         addDetectionLog(`${result.IsPass ? "通过" : "未通过"} - ${result.Message} (${result.ProcessingTimeMs.toFixed(1)}ms)`);
     }
 
-    function initCharts() {
-        const statsCanvas = el("statsChart");
-        if (statsCanvas && window.Chart && !window.statsChart) {
-            window.statsChart = new Chart(statsCanvas, {
-                type: "doughnut",
-                data: {
-                    labels: ["OK", "NG"],
-                    datasets: [{
-                        data: [0, 0],
-                        backgroundColor: ["#10b981", "#ef4444"],
-                        borderColor: ["rgba(16, 185, 129, 0.75)", "rgba(239, 68, 68, 0.75)"],
-                        borderWidth: 1,
-                    }],
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: false,
-                    cutout: "70%",
-                    plugins: { legend: { display: false } },
-                },
-            });
-        }
-    }
+    function initCharts() {}
 
     store.subscribe(renderAll);
 

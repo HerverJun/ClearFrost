@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <!-- 修复1: 移除了嵌套的PropertyGroup -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -59,6 +59,10 @@
     <ItemGroup>
       <Reference Remove="@(Reference)" Condition="'%(Reference.FileName)' == 'Microsoft.Web.WebView2.Wpf'" />
     </ItemGroup>
+  </Target>
+
+  <Target Name="BundleWebUiScripts" BeforeTargets="BeforeBuild">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;$files = @('html\js\bridge.js','html\js\state.js','html\js\render-main.js','html\js\settings.js','html\js\camera.js','html\js\history.js','html\js\roi.js','html\js\boot.js','html\js\app.js','html\js\ui.js'); $encoding = New-Object System.Text.UTF8Encoding($true); $content = [string]::Join([Environment]::NewLine, ($files | ForEach-Object { [System.IO.File]::ReadAllText((Join-Path '$(MSBuildProjectDirectory)' $_)) })); [System.IO.File]::WriteAllText((Join-Path '$(MSBuildProjectDirectory)' 'html\js\bundle.js'), $content, $encoding)&quot;" />
   </Target>
 
   <!-- 本地华睿 MVSDK_Net DLL 引用 (官方托管 SDK，包含 MyCamera 类) -->

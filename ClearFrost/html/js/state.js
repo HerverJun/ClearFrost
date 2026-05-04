@@ -111,12 +111,14 @@
 
     function rememberInspection(inspection) {
         if (!inspection.inspectionId && inspection.isOk === undefined) return;
+        const list = state.recentInspections;
+        const existingIndex = inspection.inspectionId ? list.findIndex((x) => x.inspectionId === inspection.inspectionId) : -1;
+        const existing = existingIndex >= 0 ? list[existingIndex] : null;
         const item = {
+            _renderKey: existing?._renderKey || (inspection.inspectionId ? `id:${inspection.inspectionId}` : `local:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`),
             time: new Date().toLocaleTimeString(),
             ...inspection,
         };
-        const list = state.recentInspections;
-        const existingIndex = item.inspectionId ? list.findIndex((x) => x.inspectionId === item.inspectionId) : -1;
         if (existingIndex >= 0) {
             list.splice(existingIndex, 1);
         }
