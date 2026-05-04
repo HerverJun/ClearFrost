@@ -3434,11 +3434,19 @@ input[type="range"]::-webkit-slider-runnable-track {
     border: 0 !important;
 }
 
+/* Record trace workspace */
+.cf-stitch-page .stitch-nav-actions button[data-action="openGalleryModal"] svg {
+    width: 21px;
+    height: 21px;
+}
+
 .cf-stitch-page #gallery-modal {
     padding: 0 !important;
-    display: flex;
+    display: flex !important;
     align-items: center;
     justify-content: center;
+    background: rgba(15, 23, 42, 0.50) !important;
+    backdrop-filter: blur(6px);
 }
 
 .cf-stitch-page #gallery-modal.hidden {
@@ -3448,188 +3456,282 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page #gallery-modal > .cf-ornate-modal {
     position: relative !important;
     inset: auto !important;
-    width: min(956px, calc(100vw - 30px)) !important;
-    height: min(760px, calc(100vh - 30px)) !important;
+    width: min(1180px, calc(100vw - 48px)) !important;
+    height: min(760px, calc(100vh - 48px)) !important;
     display: grid !important;
-    grid-template-columns: 212px minmax(0, 1fr);
-    grid-template-rows: 116px minmax(0, 1fr) 66px;
+    grid-template-columns: 248px minmax(0, 1fr);
+    grid-template-rows: 126px minmax(0, 1fr);
     overflow: hidden;
-    background: #ffffff !important;
-    border: 0 !important;
-    border-radius: 20px !important;
-    box-shadow: 0 26px 70px rgba(15, 23, 42, 0.16) !important;
+    background: #f6f9fd !important;
+    border: 1px solid rgba(203, 213, 225, 0.92) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 28px 80px rgba(15, 23, 42, 0.22) !important;
 }
 
 .cf-stitch-page #gallery-modal header {
     grid-column: 2;
     grid-row: 1;
+    min-width: 0;
     height: auto !important;
-    display: grid !important;
-    grid-template-columns: 1fr;
+    display: flex !important;
     align-items: flex-start !important;
-    padding: 28px 36px 18px !important;
-    background: #ffffff !important;
-    border: 0 !important;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 26px 30px 18px !important;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
+    border-bottom: 1px solid #e3e9f2 !important;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-title-block {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(240px, 1fr) auto auto;
+    gap: 16px;
+    align-items: end;
+    width: 100%;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-kicker {
+    grid-column: 1;
+    margin-bottom: 6px;
+    color: #2563eb;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
 }
 
 .cf-stitch-page #gallery-modal header h3 {
-    color: #020617 !important;
+    grid-column: 1;
+    margin: 0 !important;
+    color: #0f172a !important;
     font-family: "Noto Serif SC", Georgia, "Microsoft YaHei", serif;
-    font-size: 25px !important;
-    line-height: 1.2;
+    font-size: 24px !important;
+    line-height: 1.15;
     letter-spacing: 0 !important;
     text-transform: none !important;
 }
 
 .cf-stitch-page #gallery-modal header h3 span {
     display: block;
-    margin: 8px 0 0 !important;
-    color: #334155 !important;
+    margin: 7px 0 0 !important;
+    color: #64748b !important;
     font-family: "Inter", "Microsoft YaHei", sans-serif !important;
     font-size: 12px !important;
     font-style: normal !important;
-    font-weight: 400 !important;
+    font-weight: 500 !important;
     text-transform: none !important;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-filters {
-    position: absolute;
-    top: 114px;
-    left: 248px;
-    right: 36px;
-    z-index: 3;
+    position: static !important;
+    grid-column: 2;
     display: grid;
-    grid-template-columns: 1fr 144px 76px;
-    gap: 12px;
+    grid-template-columns: 170px 142px 74px;
+    gap: 10px;
     align-items: end;
+    min-width: 0;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-filters label {
-    position: absolute;
-    top: -18px;
-    color: #64748b;
+    position: static !important;
+    grid-row: 1;
+    color: #475569;
     font-size: 11px;
+    font-weight: 700;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-filters label:nth-of-type(1) {
-    left: 0;
+    grid-column: 1;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-filters label:nth-of-type(2) {
-    left: calc(100% - 232px);
+    grid-column: 2;
 }
 
 .cf-stitch-page #gallery-modal #trace-date-slot {
     grid-column: 1;
+    grid-row: 2;
+}
+
+.cf-stitch-page #gallery-modal #trace-hour-select {
+    grid-column: 2;
+    grid-row: 2;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-filters button {
+    grid-column: 3;
+    grid-row: 2;
+    height: 34px;
+    color: #ffffff;
+    background: #1d5fcc;
+    border: 0;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 800;
+    box-shadow: 0 8px 18px rgba(29, 95, 204, 0.18);
 }
 
 .cf-stitch-page #gallery-modal #gallery-date-picker,
 .cf-stitch-page #gallery-modal #trace-hour-select {
     width: 100%;
-    height: 32px;
-    padding: 0 12px;
+    height: 34px;
+    padding: 0 11px;
     color: #0f172a;
     background: #ffffff;
-    border: 1px solid #d7dce5;
-    border-radius: 3px;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
     font-size: 12px;
+    font-weight: 600;
 }
 
-.cf-stitch-page #gallery-modal #trace-hour-select {
-    grid-column: 2;
+.cf-stitch-page #gallery-modal #gallery-date-picker:focus,
+.cf-stitch-page #gallery-modal #trace-hour-select:focus {
+    border-color: #1d5fcc;
+    box-shadow: 0 0 0 3px rgba(29, 95, 204, 0.12);
+    outline: none;
 }
 
-.cf-stitch-page #gallery-modal .cf-trace-filters button {
+.cf-stitch-page #gallery-modal #gallery-count {
     grid-column: 3;
-    height: 32px;
-    color: #ffffff;
-    background: #2f60c5;
-    border: 0;
-    border-radius: 3px;
-    font-size: 12px;
-    font-weight: 700;
+    grid-row: 1 / 3;
+    align-self: center;
+    display: inline-flex !important;
+    min-width: 76px;
+    justify-content: center;
+    color: #0f4fb0 !important;
+    background: #eaf2ff !important;
+    border: 1px solid #cfe0ff;
+    border-radius: 999px;
 }
 
-.cf-stitch-page #gallery-modal #gallery-count,
-.cf-stitch-page #gallery-modal header .h-4,
-.cf-stitch-page #gallery-modal header > button {
+.cf-stitch-page #gallery-modal header .h-4 {
     display: none !important;
 }
 
+.cf-stitch-page #gallery-modal header > button {
+    display: grid !important;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    color: #64748b !important;
+    background: #eef3f9;
+    border-radius: 7px !important;
+    font-size: 22px !important;
+    line-height: 1;
+}
+
 .cf-stitch-page #gallery-modal > .cf-ornate-modal > .flex.flex-1 {
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
     display: contents !important;
 }
 
 .cf-stitch-page #gallery-modal .w-60 {
     grid-column: 1;
-    grid-row: 1 / 4;
+    grid-row: 1 / -1;
+    position: relative;
     width: auto !important;
-    padding: 114px 14px 24px !important;
-    background: #ffffff !important;
-    border-right: 1px solid #f1f5f9 !important;
+    display: flex !important;
+    flex-direction: column;
+    gap: 0;
+    padding: 0 !important;
+    background: linear-gradient(180deg, #edf4fb 0%, #e6eef8 100%) !important;
+    border-right: 1px solid #d8e2ef !important;
 }
 
-.cf-stitch-page #gallery-modal .w-60::before {
-    content: "SYSTEM\A CONFIGURATION\A Management Console";
-    position: absolute;
-    top: 22px;
-    left: 14px;
-    white-space: pre;
-    color: #020617;
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: 16px;
-    line-height: 1.25;
-    font-weight: 700;
-}
-
+.cf-stitch-page #gallery-modal .w-60::before,
 .cf-stitch-page #gallery-modal .w-60::after {
-    content: "项目预设\A运行方案\A视觉模型\APLC 与条码\A相机\A存储与报表\A记录追溯";
-    position: absolute;
-    top: 114px;
-    left: 14px;
-    right: 12px;
-    white-space: pre;
-    color: #334155;
-    font-size: 12px;
-    line-height: 3.55;
+    content: none !important;
 }
 
 .cf-stitch-page #gallery-modal .w-60 > * {
-    visibility: hidden;
+    visibility: visible !important;
 }
 
-.cf-stitch-page #gallery-modal .w-60 {
-    position: relative;
-    background:
-        linear-gradient(to bottom, transparent 0 388px, #e8e8eb 388px 424px, transparent 424px),
-        #ffffff !important;
+.cf-stitch-page #gallery-modal .cf-trace-sidebar-head {
+    padding: 28px 22px 20px;
+    border-bottom: 1px solid rgba(203, 213, 225, 0.72);
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-sidebar-head span {
+    display: block;
+    color: #2563eb;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-sidebar-head strong {
+    display: block;
+    margin-top: 8px;
+    color: #0f172a;
+    font-size: 18px;
+    line-height: 1.2;
+}
+
+.cf-stitch-page #gallery-modal .w-60 > .p-5 {
+    display: none !important;
+}
+
+.cf-stitch-page #gallery-modal #ng-date-list,
+.cf-stitch-page #gallery-modal #ng-hour-list {
+    min-height: 0;
+    padding: 14px !important;
+    background: transparent !important;
+}
+
+.cf-stitch-page #gallery-modal #ng-date-list {
+    flex: 0 0 42%;
+    border-bottom: 1px solid rgba(203, 213, 225, 0.72);
+}
+
+.cf-stitch-page #gallery-modal #ng-hour-list {
+    flex: 1 1 auto;
+    border-top: 0 !important;
+}
+
+.cf-stitch-page #gallery-modal #ng-date-list > div,
+.cf-stitch-page #gallery-modal #ng-hour-list > div {
+    border-radius: 6px !important;
+    box-shadow: none !important;
 }
 
 .cf-stitch-page #gallery-modal #ng-image-grid {
     grid-column: 2;
     grid-row: 2;
     display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)) !important;
     align-content: start;
-    gap: 24px !important;
-    padding: 86px 36px 28px !important;
+    gap: 16px !important;
+    padding: 24px 30px 30px !important;
     overflow-y: auto !important;
-    background: #f7f7f8 !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(246, 249, 253, 0.78)),
+        #f6f9fd !important;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card {
-    height: 256px;
+    height: 236px;
     overflow: hidden;
     background: #ffffff;
-    border-radius: 5px;
-    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+    border: 1px solid #dde6f1;
+    border-radius: 8px;
+    box-shadow: 0 12px 26px rgba(15, 23, 42, 0.07);
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-card:hover {
+    transform: translateY(-2px);
+    border-color: #a9c4ea;
+    box-shadow: 0 18px 34px rgba(15, 23, 42, 0.12);
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-thumb {
     position: relative;
-    height: 156px;
+    height: 144px;
     overflow: hidden;
-    background: #cbd5e1;
+    background: #d6e0eb;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-thumb img {
@@ -3642,79 +3744,109 @@ input[type="range"]::-webkit-slider-runnable-track {
     position: absolute;
     top: 10px;
     left: 10px;
-    padding: 3px 7px;
-    color: #8b0000;
-    background: #ffd6d6;
-    border-radius: 2px;
-    font-size: 11px;
-    font-weight: 700;
+    padding: 3px 8px;
+    color: #b91c1c;
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card-body {
     display: flex;
     justify-content: space-between;
-    gap: 12px;
-    padding: 13px 14px 6px;
-    color: #1f2937;
-    font-size: 12px;
-    line-height: 1.65;
+    gap: 10px;
+    padding: 12px 13px 4px;
+    color: #334155;
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-card-body p {
+    margin: 0;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-card-body p:first-child {
+    max-width: 132px;
+    overflow: hidden;
+    color: #0f172a;
+    font-weight: 800;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card-body svg {
     width: 18px;
     height: 18px;
-    margin-top: 4px;
-    color: #8a6a00;
+    margin-top: 2px;
+    color: #dc2626;
     flex: 0 0 auto;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card button {
-    float: right;
-    margin: 16px 14px 0 0;
-    color: #0b5bd3;
+    float: none;
+    margin: 6px 13px 0 auto;
+    display: block;
+    color: #1d5fcc;
     background: transparent;
     border: 0;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 11px;
+    font-weight: 800;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-empty {
     grid-column: 1 / -1;
     display: grid;
     place-items: center;
-    min-height: 240px;
+    min-height: 340px;
     color: #64748b;
     font-size: 13px;
+    font-weight: 600;
 }
 
-.cf-stitch-page #gallery-modal .cf-trace-footer {
-    grid-column: 2;
-    grid-row: 3;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 12px;
-    padding: 0 18px;
-    background: #ffffff;
-}
+@media (max-width: 980px) {
+    .cf-stitch-page #gallery-modal > .cf-ornate-modal {
+        width: calc(100vw - 20px) !important;
+        height: calc(100vh - 20px) !important;
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 140px minmax(0, 1fr);
+    }
 
-.cf-stitch-page #gallery-modal .cf-trace-footer button {
-    height: 30px;
-    min-width: 58px;
-    padding: 0 17px;
-    border-radius: 3px;
-    font-size: 12px;
-    font-weight: 700;
-}
+    .cf-stitch-page #gallery-modal header {
+        grid-column: 1;
+        grid-row: 1;
+    }
 
-.cf-stitch-page #gallery-modal .cf-trace-footer button:first-child {
-    color: #0f172a;
-    background: #f1f5f9;
-    border: 0;
-}
+    .cf-stitch-page #gallery-modal .cf-trace-title-block {
+        grid-template-columns: 1fr;
+    }
 
-.cf-stitch-page #gallery-modal .cf-trace-footer button:last-child {
-    color: #ffffff;
-    background: #2f60c5;
-    border: 0;
+    .cf-stitch-page #gallery-modal .cf-trace-filters,
+    .cf-stitch-page #gallery-modal #gallery-count {
+        grid-column: 1;
+    }
+
+    .cf-stitch-page #gallery-modal .w-60 {
+        grid-column: 1;
+        grid-row: 2;
+        flex-direction: row;
+        overflow: hidden;
+    }
+
+    .cf-stitch-page #gallery-modal .cf-trace-sidebar-head {
+        display: none;
+    }
+
+    .cf-stitch-page #gallery-modal #ng-date-list,
+    .cf-stitch-page #gallery-modal #ng-hour-list {
+        flex: 1 1 0;
+        border: 0 !important;
+        overflow-y: auto;
+    }
+
+    .cf-stitch-page #gallery-modal #ng-image-grid {
+        grid-column: 1;
+        grid-row: 3;
+    }
 }

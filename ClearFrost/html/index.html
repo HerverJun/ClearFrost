@@ -34,7 +34,7 @@
             <h1>清霜 <span>ClearForst</span></h1>
         </div>
         <nav class="stitch-nav-actions" aria-label="操作">
-            <button data-action="showPasswordModal" title="系统设置" aria-label="系统设置">
+            <button data-action="openSettingsModal" title="系统设置" aria-label="系统设置">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M10.3 4.3c.4-1.7 2.9-1.7 3.4 0a1.7 1.7 0 0 0 2.5 1.1c1.5-.9 3.3.8 2.4 2.4a1.7 1.7 0 0 0 1.1 2.5c1.7.4 1.7 2.9 0 3.4a1.7 1.7 0 0 0-1.1 2.5c.9 1.5-.8 3.3-2.4 2.4a1.7 1.7 0 0 0-2.5 1.1c-.4 1.7-2.9 1.7-3.4 0a1.7 1.7 0 0 0-2.5-1.1c-1.5.9-3.3-.8-2.4-2.4a1.7 1.7 0 0 0-1.1-2.5c-1.7-.4-1.7-2.9 0-3.4a1.7 1.7 0 0 0 1.1-2.5c-.9-1.5.8-3.3 2.4-2.4a1.7 1.7 0 0 0 2.5-1.1Z" />
@@ -44,13 +44,15 @@
             <button data-cmd="request_health_snapshot" title="刷新健康状态" aria-label="刷新健康状态">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 1 1-6 0" />
+                        d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4m-4 5a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4" />
                 </svg>
             </button>
             <button data-action="openGalleryModal" title="记录追溯" aria-label="记录追溯">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M5.1 19a7 7 0 1 1 13.8 0M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+                        d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11Z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="m5.5 16 4.2-4.2a1.5 1.5 0 0 1 2.1 0l2 2 1.1-1.1a1.5 1.5 0 0 1 2.1 0l1.5 1.5M15.5 8.5h.01" />
                 </svg>
             </button>
         </nav>
@@ -816,9 +818,10 @@
         <div
             class="absolute inset-y-0 right-0 w-[80%] bg-white/95 shadow-2xl flex flex-col border-l border-slate-200 cf-ornate-modal">
             <header class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0 cf-ornate-header">
-                <div class="flex items-center gap-4">
+                <div class="cf-trace-title-block">
+                    <div class="cf-trace-kicker">TRACE ARCHIVE</div>
                     <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest capitalize">记录追溯 <span
-                            class="text-[10px] font-sans font-normal text-ink-400 ml-2 uppercase italic tracking-normal">查看并管理历史检测异常（NG）图片记录</span></h3>
+                            class="text-[10px] font-sans font-normal text-ink-400 ml-2 uppercase italic tracking-normal">查看历史检测异常（NG）图片记录</span></h3>
                     <div class="cf-trace-filters">
                         <label>日期选择</label>
                         <div id="trace-date-slot"></div>
@@ -830,8 +833,7 @@
                     </div>
                     <div class="h-4 w-px bg-slate-200"></div>
                     <span id="gallery-count"
-                        class="text-xs font-mono text-celadon-600 font-bold bg-celadon-50 px-2 py-0.5 rounded">Samples:
-                        0</span>
+                        class="text-xs font-mono text-celadon-600 font-bold bg-celadon-50 px-2 py-0.5 rounded">0 张</span>
                 </div>
                 <button data-action="closeGalleryModal"
                     class="p-2 hover:bg-slate-100 rounded-full transition-[background-color,color] text-2xl">&times;</button>
@@ -839,6 +841,10 @@
 
             <div class="flex flex-1 overflow-hidden">
                 <div class="w-60 border-r border-slate-100 flex flex-col bg-slate-50/50 shrink-0">
+                    <div class="cf-trace-sidebar-head">
+                        <span>异常目录</span>
+                        <strong>NG Archive</strong>
+                    </div>
                     <div class="p-5 border-b border-slate-100 bg-white">
                         <label
                             class="text-[9px] font-bold text-ink-400 uppercase tracking-widest block mb-1.5">日期检索</label>
@@ -864,10 +870,6 @@
                         <span class="text-sm font-serif italic">选择左侧目录开始追溯...</span>
                     </div>
                 </div>
-            </div>
-            <div class="cf-trace-footer">
-                <button type="button" data-action="closeGalleryModal">取消</button>
-                <button type="button" data-action="closeGalleryModal">保存并部署</button>
             </div>
         </div>
 

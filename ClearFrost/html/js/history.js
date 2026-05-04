@@ -40,6 +40,8 @@
     function openGalleryModal() {
         byId("gallery-modal")?.classList.remove("hidden");
         syncTraceControls();
+        const badge = byId("gallery-count");
+        if (badge) badge.textContent = "0 张";
         bridge.sendCommand("get_ng_dates");
     }
 
@@ -159,12 +161,15 @@
                 });
                 div.className = "p-2.5 bg-celadon-50 text-celadon-700 cursor-pointer rounded-xl text-[11px] font-black transition-[background-color,border-color,color,box-shadow] shadow-sm border border-celadon-200 mb-1";
                 window.currentNGDate = date;
+                window.currentNGHour = "";
                 if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
                 if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
                 bridge.sendCommand("get_ng_hours", date);
             };
             list.appendChild(div);
         });
+
+        list.firstElementChild?.click?.();
     }
 
     function updateNGHours(data) {
@@ -207,6 +212,10 @@
             };
             list.appendChild(div);
         });
+
+        if (!window.currentNGHour) {
+            list.firstElementChild?.click?.();
+        }
     }
 
     function selectTraceHour(hour) {
@@ -225,6 +234,8 @@
     function updateNGImages(data) {
         const images = Array.isArray(data) ? data : (data?.images || data?.Images || []);
         const grid = byId("ng-image-grid");
+        const badge = byId("gallery-count");
+        if (badge) badge.textContent = `${images.length} 张`;
         if (!grid) return;
         grid.innerHTML = "";
 

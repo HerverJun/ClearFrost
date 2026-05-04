@@ -1275,6 +1275,12 @@ namespace ClearFrost
             try
             {
                 await _uiController.SendHealthSnapshot(_healthMonitor.GetSnapshot());
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "健康状态已刷新",
+                    type = "success",
+                    durationMs = 1200
+                });
             }
             catch (Exception ex)
             {

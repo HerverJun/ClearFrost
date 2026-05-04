@@ -1484,8 +1484,8 @@ namespace ClearFrost
 
         private void btnSettings_Logic()
         {
-            // 打开设置对话框 (通过前端密码验证)
-            SafeFireAndForget(_uiController.SendUiCommand("showPasswordModal"), "显示密码框");
+            // 打开设置对话框
+            SafeFireAndForget(_uiController.SendCurrentConfig(_appConfig), "打开设置");
         }
 
         #endregion
