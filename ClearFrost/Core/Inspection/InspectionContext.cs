@@ -27,6 +27,9 @@ namespace ClearFrost.Core.Inspection
         public long SaveImageMs { get; set; }
         public long SaveRecordMs { get; set; }
         public long TotalMs { get; set; }
+        public string? ProductBarcode { get; set; }
+        public bool? BarcodeReadSucceeded { get; set; }
+        public string? BarcodeError { get; set; }
         public string? ImagePath { get; set; }
         public string? RenderedImagePath { get; set; }
         public string? ErrorStage { get; set; }

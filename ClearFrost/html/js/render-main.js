@@ -112,13 +112,23 @@
     }
 
     function getTraceIdentityLabel(item) {
-        if (item?.sourceLabel) return item.sourceLabel;
         if (item?.productBarcode) return `SN: ${item.productBarcode}`;
+        if (item?.sourceLabel) return item.sourceLabel;
         if (item?.barcodeEnabled === true) {
             return item?.barcodeReadSucceeded === false ? "条码未读取" : "等待条码";
         }
         if (item?.inspectionId) return `ID: ${item.inspectionId}`;
         return "条码: -";
+    }
+
+    function getDetectionSummary(item) {
+        const message = item?.message || item?.errorMessage || "";
+        const parts = String(message).split("|").map((part) => part.trim()).filter(Boolean);
+        const objectPart = parts.find((part) => /^Found\s+\d+\s*:/i.test(part) || part.includes("未检测到目标"));
+        if (objectPart) return objectPart;
+        if (item?.barcodeError) return item.barcodeError;
+        if (item?.actualCount !== undefined && item?.actualCount !== null) return `检出 ${item.actualCount}`;
+        return item?.currentStage || "-";
     }
 
     function renderCameraResult(state) {
@@ -161,10 +171,9 @@
             const statusText = isOk ? "OK" : item.isOk === false ? "NG" : "RUN";
             const identity = getTraceIdentityLabel(item);
             const title = item.productBarcode || item.sourceLabel || item.inspectionId || item.barcodeError || "-";
+            const detectionSummary = getDetectionSummary(item);
             const detail = [
-                item.triggerSource || item.sourceLabel || "-",
-                item.triggerSeq !== undefined && item.triggerSeq !== null ? `T${item.triggerSeq}` : null,
-                item.resultSeq !== undefined && item.resultSeq !== null ? `R${item.resultSeq}` : null,
+                detectionSummary,
                 item.totalMs ? `${item.totalMs}ms` : null,
             ].filter(Boolean).join(" / ");
 
@@ -175,7 +184,7 @@
                     <span class="cf-flow-status">${statusText}</span>
                 </div>
                 <div class="cf-flow-sn" title="${escapeHtml(title)}">${escapeHtml(identity)}</div>
-                <div class="cf-flow-detail">${escapeHtml(detail || item.currentStage || "-")}</div>
+                <div class="cf-flow-detail" title="${escapeHtml(detail)}">${escapeHtml(detail || item.currentStage || "-")}</div>
             </div>`;
         }).join("");
     }

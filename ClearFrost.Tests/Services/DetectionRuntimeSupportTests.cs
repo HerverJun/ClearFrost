@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Threading.Tasks;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
@@ -64,6 +65,24 @@ namespace ClearFrost.Tests.Services
         }
 
         [Fact]
+        public void BuildTraceImageFileName_包含安全化条码()
+        {
+            MethodInfo? method = typeof(global::ClearFrost.主窗口).GetMethod(
+                "BuildTraceImageFileName",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            method.Should().NotBeNull();
+            string fileName = (string)method!.Invoke(
+                null,
+                new object?[] { false, "CF-20260504-123456-MANUAL-000001", "SN:ABC/001" })!;
+
+            fileName.Should().StartWith("FAIL_SN-");
+            fileName.Should().Contain("SN_ABC_001");
+            fileName.Should().Contain("CF-20260504-123456-MANUAL-000001");
+            fileName.Should().EndWith(".jpg");
+        }
+
+        [Fact]
         public async Task DetectionRecordQueue_StopAsync会排空已入队记录()
         {
             var database = new RecordingDatabaseService();
@@ -74,7 +93,9 @@ namespace ClearFrost.Tests.Services
                 Timestamp = DateTime.Now,
                 IsQualified = true,
                 ModelName = "model-a",
-                ActualCount = 1
+                ActualCount = 1,
+                ProductBarcode = "SN-QUEUE-001",
+                BarcodeReadSucceeded = true
             }).Should().BeTrue();
 
             queue.Enqueue(new DetectionPersistencePayload
@@ -89,6 +110,8 @@ namespace ClearFrost.Tests.Services
 
             database.SavedRecords.Should().HaveCount(2);
             database.SavedRecords[0].ModelName.Should().Be("model-a");
+            database.SavedRecords[0].ProductBarcode.Should().Be("SN-QUEUE-001");
+            database.SavedRecords[0].BarcodeReadSucceeded.Should().BeTrue();
             database.SavedRecords[1].ModelName.Should().Be("model-b");
         }
 

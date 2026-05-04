@@ -2390,8 +2390,8 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .stitch-result-strip {
+    display: none;
     min-height: 64px;
-    display: flex;
     align-items: center;
     gap: 12px;
     padding: 10px 14px;
@@ -2483,18 +2483,24 @@ input[type="range"]::-webkit-slider-runnable-track {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 8px;
     overflow-y: auto;
     padding-right: 8px;
 }
 
 .cf-stitch-page .cf-flow-row {
     position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 98px;
-    padding: 16px 16px 16px 20px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+        "identity status"
+        "detail detail"
+        "time time";
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 4px;
+    min-height: 78px;
+    padding: 11px 12px 10px 18px;
     overflow: hidden;
 }
 
@@ -2512,41 +2518,52 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page .cf-flow-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
+    display: contents;
 }
 
 .cf-stitch-page .cf-flow-time {
+    grid-area: time;
+    justify-self: end;
+    min-width: 0;
     color: #434653;
-    font-size: 12px;
+    font-size: 11px;
+    line-height: 1.15;
     font-weight: 600;
+    white-space: nowrap;
 }
 
 .cf-stitch-page .cf-flow-status {
+    grid-area: status;
+    justify-self: end;
     min-width: 34px;
-    height: 20px;
-    padding: 0 8px;
+    height: 18px;
+    padding: 0 7px;
+    line-height: 18px;
 }
 
 .cf-stitch-page .cf-flow-sn {
+    grid-area: identity;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--stitch-text);
-    font-size: 14px;
+    font-size: 13px;
+    line-height: 1.25;
     font-weight: 700;
 }
 
 .cf-stitch-page .cf-flow-detail {
+    grid-area: detail;
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
     color: #434653;
     font-size: 12px;
+    line-height: 1.28;
 }
 
 .cf-stitch-page .cf-empty-state {
@@ -3036,6 +3053,17 @@ input[type="range"]::-webkit-slider-runnable-track {
     box-shadow: 0 26px 62px rgba(15, 23, 42, 0.16) !important;
 }
 
+.cf-stitch-page #settings-modal > .cf-ornate-modal::after {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 240px;
+    background: #eef3f8;
+    border-right: 1px solid #dde5ef;
+    pointer-events: none;
+    z-index: 0;
+}
+
 .cf-stitch-page #settings-modal .cf-ornate-header {
     position: absolute;
     top: 18px;
@@ -3081,79 +3109,83 @@ input[type="range"]::-webkit-slider-runnable-track {
     grid-column: 1;
     grid-row: 1;
     position: relative;
-    padding: 108px 12px 24px 16px !important;
-    background: #f4f7fa !important;
-    border-right: 1px solid #e5e7eb !important;
-    gap: 8px !important;
+    z-index: 1;
+    padding: 110px 14px 24px 18px !important;
+    background: #eef3f8 !important;
+    border-right: 1px solid #dde5ef !important;
+    gap: 10px !important;
 }
 
 .cf-stitch-page #settings-modal .cf-settings-nav::before {
     content: "系统设置";
     position: absolute;
-    top: 31px;
-    left: 26px;
+    top: 32px;
+    left: 30px;
     white-space: pre;
-    color: #020617;
+    color: #101828;
     font-family: Georgia, "Times New Roman", serif;
-    font-size: 16px;
-    line-height: 1.55;
+    font-size: 19px;
+    line-height: 1.45;
     font-weight: 700;
 }
 
 .cf-stitch-page #settings-modal .cf-settings-nav::after {
     content: "";
     position: absolute;
-    top: 64px;
-    left: 26px;
-    width: 64px;
+    top: 72px;
+    left: 30px;
+    width: 92px;
     height: 1px;
-    background: transparent;
+    background: #d2dce8;
 }
 
 .cf-stitch-page #settings-modal .cf-settings-tab {
-    min-height: 34px !important;
-    padding: 0 12px !important;
+    min-height: 44px !important;
+    padding: 0 14px !important;
     justify-content: flex-start;
-    gap: 9px;
-    color: #334155 !important;
+    gap: 10px;
+    color: #2f3b4f !important;
     background: transparent !important;
     border: 0 !important;
-    border-radius: 4px !important;
+    border-radius: 8px !important;
     box-shadow: none !important;
     font-family: "Public Sans", "Microsoft YaHei", sans-serif;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em !important;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0 !important;
 }
 
 .cf-stitch-page #settings-modal .cf-settings-tab::before {
-    width: 15px;
-    color: #64748b;
-    font-size: 13px;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: #94a3b8;
+    color: transparent;
+    font-size: 0;
     letter-spacing: 0 !important;
 }
 
 .cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="vision"]::before {
-    content: "◉";
+    content: "";
 }
 
 .cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="camera"]::before {
-    content: "◎";
+    content: "";
 }
 
 .cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="plc"]::before {
-    content: "↔";
-}
-
-.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="storage-diagnostic"]::before {
-    content: "▣";
+    content: "";
 }
 
 .cf-stitch-page #settings-modal .cf-settings-tab.active {
     color: #00419d !important;
-    background: #eaf0f8 !important;
-    border-left: 2px solid #0b5bd3 !important;
+    background: #dfeaf8 !important;
+    border-left: 3px solid #0b5bd3 !important;
     font-weight: 800;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab.active::before {
+    background: #0b5bd3;
 }
 
 .cf-stitch-page #settings-modal .cf-settings-content {

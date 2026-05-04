@@ -113,6 +113,9 @@ namespace ClearFrost.Services
         public string TriggerSource { get; init; } = string.Empty;
         public int? TriggerSeq { get; init; }
         public int? ResultSeq { get; init; }
+        public string ProductBarcode { get; init; } = string.Empty;
+        public bool? BarcodeReadSucceeded { get; init; }
+        public string BarcodeError { get; init; } = string.Empty;
         public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;
         public string ImagePath { get; set; } = string.Empty;
         public string RenderedImagePath { get; set; } = string.Empty;
@@ -150,6 +153,9 @@ namespace ClearFrost.Services
                 TriggerSource = TriggerSource,
                 TriggerSeq = TriggerSeq,
                 ResultSeq = ResultSeq,
+                ProductBarcode = ProductBarcode,
+                BarcodeReadSucceeded = BarcodeReadSucceeded,
+                BarcodeError = BarcodeError,
                 TraceStatus = TraceStatus,
                 ImagePath = ImagePath,
                 RenderedImagePath = RenderedImagePath,

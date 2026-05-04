@@ -241,6 +241,9 @@ namespace ClearFrost.Services
                     TriggerSource TEXT,
                     TriggerSeq INTEGER,
                     ResultSeq INTEGER,
+                    ProductBarcode TEXT,
+                    BarcodeReadSucceeded INTEGER,
+                    BarcodeError TEXT,
                     TraceStatus TEXT,
                     ImagePath TEXT,
                     RenderedImagePath TEXT,
@@ -283,6 +286,9 @@ namespace ClearFrost.Services
             AddColumnIfMissing(connection, existingColumns, "TriggerSource", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "TriggerSeq", "INTEGER");
             AddColumnIfMissing(connection, existingColumns, "ResultSeq", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "ProductBarcode", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "BarcodeReadSucceeded", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "BarcodeError", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "TraceStatus", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "ImagePath", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "RenderedImagePath", "TEXT");
@@ -304,7 +310,10 @@ namespace ClearFrost.Services
             AddColumnIfMissing(connection, existingColumns, "UsedModelName", "TEXT");
 
             using var indexCommand = connection.CreateCommand();
-            indexCommand.CommandText = "CREATE INDEX IF NOT EXISTS idx_inspection_id ON DetectionRecords(InspectionId);";
+            indexCommand.CommandText = @"
+                CREATE INDEX IF NOT EXISTS idx_inspection_id ON DetectionRecords(InspectionId);
+                CREATE INDEX IF NOT EXISTS idx_product_barcode ON DetectionRecords(ProductBarcode);
+            ";
             indexCommand.ExecuteNonQuery();
         }
 
@@ -391,6 +400,9 @@ namespace ClearFrost.Services
                         TriggerSource,
                         TriggerSeq,
                         ResultSeq,
+                        ProductBarcode,
+                        BarcodeReadSucceeded,
+                        BarcodeError,
                         TraceStatus,
                         ImagePath,
                         RenderedImagePath,
@@ -426,6 +438,9 @@ namespace ClearFrost.Services
                         @TriggerSource,
                         @TriggerSeq,
                         @ResultSeq,
+                        @ProductBarcode,
+                        @BarcodeReadSucceeded,
+                        @BarcodeError,
                         @TraceStatus,
                         @ImagePath,
                         @RenderedImagePath,
@@ -462,6 +477,13 @@ namespace ClearFrost.Services
                 command.Parameters.AddWithValue("@TriggerSource", record.TriggerSource ?? "");
                 command.Parameters.AddWithValue("@TriggerSeq", (object?)record.TriggerSeq ?? DBNull.Value);
                 command.Parameters.AddWithValue("@ResultSeq", (object?)record.ResultSeq ?? DBNull.Value);
+                command.Parameters.AddWithValue("@ProductBarcode", record.ProductBarcode ?? "");
+                command.Parameters.AddWithValue(
+                    "@BarcodeReadSucceeded",
+                    record.BarcodeReadSucceeded.HasValue
+                        ? (object)(record.BarcodeReadSucceeded.Value ? 1 : 0)
+                        : DBNull.Value);
+                command.Parameters.AddWithValue("@BarcodeError", record.BarcodeError ?? "");
                 command.Parameters.AddWithValue("@TraceStatus", record.TraceStatus.ToString());
                 command.Parameters.AddWithValue("@ImagePath", record.ImagePath ?? "");
                 command.Parameters.AddWithValue("@RenderedImagePath", record.RenderedImagePath ?? "");
@@ -542,6 +564,9 @@ namespace ClearFrost.Services
                         TriggerSource = GetStringOrDefault(reader, "TriggerSource"),
                         TriggerSeq = GetNullableInt32(reader, "TriggerSeq"),
                         ResultSeq = GetNullableInt32(reader, "ResultSeq"),
+                        ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
+                        BarcodeReadSucceeded = GetNullableBool(reader, "BarcodeReadSucceeded"),
+                        BarcodeError = GetStringOrDefault(reader, "BarcodeError"),
                         TraceStatus = ParseTraceStatus(GetStringOrDefault(reader, "TraceStatus")),
                         ImagePath = GetStringOrDefault(reader, "ImagePath"),
                         RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
@@ -595,6 +620,12 @@ namespace ClearFrost.Services
         {
             int ordinal = GetOrdinalOrMinusOne(reader, columnName);
             return ordinal < 0 || reader.IsDBNull(ordinal) ? null : reader.GetInt32(ordinal);
+        }
+
+        private static bool? GetNullableBool(SqliteDataReader reader, string columnName)
+        {
+            int ordinal = GetOrdinalOrMinusOne(reader, columnName);
+            return ordinal < 0 || reader.IsDBNull(ordinal) ? null : reader.GetInt32(ordinal) != 0;
         }
 
         private static long GetInt64OrDefault(SqliteDataReader reader, string columnName)

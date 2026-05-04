@@ -17,6 +17,9 @@ namespace ClearFrost.Interfaces
         public string TriggerSource { get; set; } = "";
         public int? TriggerSeq { get; set; }
         public int? ResultSeq { get; set; }
+        public string ProductBarcode { get; set; } = "";
+        public bool? BarcodeReadSucceeded { get; set; }
+        public string BarcodeError { get; set; } = "";
         public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;
         public string ImagePath { get; set; } = "";
         public string RenderedImagePath { get; set; } = "";

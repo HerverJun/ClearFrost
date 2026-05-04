@@ -79,7 +79,10 @@ public class SqliteDatabaseServiceTests
                 "TotalMs",
                 "CaptureMs",
                 "PlcWriteMs",
-                "UsedModelName"
+                "UsedModelName",
+                "ProductBarcode",
+                "BarcodeReadSucceeded",
+                "BarcodeError"
             });
 
             CountRows(dbPath).Should().Be(1);
@@ -108,6 +111,9 @@ public class SqliteDatabaseServiceTests
                 InspectionId = "CF-20260429-153012000-MANUAL-000001",
                 TriggerSource = "手动",
                 TraceStatus = TraceStatus.Partial,
+                ProductBarcode = "SN-20260504-0001",
+                BarcodeReadSucceeded = true,
+                BarcodeError = "",
                 ImagePath = @"C:\Trace\FAIL_CF-20260429-153012000-MANUAL-000001.jpg",
                 ErrorStage = "Capture",
                 ErrorCode = "CaptureFrameFailed",
@@ -131,6 +137,9 @@ public class SqliteDatabaseServiceTests
             DetectionRecord record = records[0];
             record.InspectionId.Should().Be("CF-20260429-153012000-MANUAL-000001");
             record.TraceStatus.Should().Be(TraceStatus.Partial);
+            record.ProductBarcode.Should().Be("SN-20260504-0001");
+            record.BarcodeReadSucceeded.Should().BeTrue();
+            record.BarcodeError.Should().BeEmpty();
             record.ErrorCode.Should().Be("CaptureFrameFailed");
             record.ImagePath.Should().Contain("FAIL_CF-20260429");
             record.CaptureMs.Should().Be(12);

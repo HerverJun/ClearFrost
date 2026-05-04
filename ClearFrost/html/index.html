@@ -298,20 +298,8 @@
                             data-action="activateSettingsTab" data-value="camera">相机参数配置</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="plc"
                             data-action="activateSettingsTab" data-value="plc">PLC与条码</button>
-                        <button type="button" class="cf-settings-tab" data-settings-tab="storage-diagnostic"
-                            data-action="activateSettingsTab" data-value="storage-diagnostic">存储与诊断</button>
                     </div>
                     <div class="cf-settings-content">
-
-                <div class="space-y-2 hidden" data-settings-section="storage">
-                    <label class="text-[10px] font-bold text-ink-400 uppercase tracking-widest block">数据保存路径</label>
-                    <div class="flex gap-2">
-                        <input id="cfg-storage-path" type="text" readonly
-                            class="flex-1 tech-input px-4 py-2.5 rounded-xl text-xs font-bold" placeholder="未设置路径">
-                        <button data-cmd="select_storage_folder"
-                            class="px-6 text-xs font-bold bg-white border border-slate-200 text-ink-600 hover:border-celadon-400 rounded-xl transition-[background-color,border-color,color,box-shadow] shadow-sm">浏览</button>
-                    </div>
-                </div>
 
                 <div id="settings-vision-controls" class="space-y-4" data-settings-section="vision">
                     <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
@@ -732,18 +720,32 @@
                             </button>
                         </div>
                     </div>
-                </div>
-
-                <div class="hidden" data-settings-section="diagnostic">
-                    <button data-cmd="reset_statistics" data-confirm="确定要清除今日统计数据吗？此操作不可撤销！"
-                        class="w-full py-3 bg-vermilion/5 text-vermilion font-black text-[10px] rounded-xl hover:bg-vermilion/10 transition-[background-color,border-color,color,box-shadow] uppercase tracking-widest border border-vermilion/10 flex items-center justify-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
-                            </path>
-                        </svg>
-                        重置生产报表
-                    </button>
+                    <div class="space-y-3 col-span-2 pt-4 border-t border-celadon-100/60">
+                        <h4 class="text-[10px] font-bold text-ink-400 uppercase tracking-widest">存储与诊断</h4>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">数据保存路径</label>
+                                <div class="flex gap-2">
+                                    <input id="cfg-storage-path" type="text" readonly
+                                        class="flex-1 tech-input px-4 py-2.5 rounded-xl text-xs font-bold" placeholder="未设置路径">
+                                    <button data-cmd="select_storage_folder"
+                                        class="px-6 text-xs font-bold bg-white border border-slate-200 text-ink-600 hover:border-celadon-400 rounded-xl transition-[background-color,border-color,color,box-shadow] shadow-sm">浏览</button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">生产报表</label>
+                                <button data-cmd="reset_statistics" data-confirm="确定要清除今日统计数据吗？此操作不可撤销！"
+                                    class="w-full py-3 bg-vermilion/5 text-vermilion font-black text-[10px] rounded-xl hover:bg-vermilion/10 transition-[background-color,border-color,color,box-shadow] uppercase tracking-widest border border-vermilion/10 flex items-center justify-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
+                                        </path>
+                                    </svg>
+                                    重置生产报表
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                     </div>
                 </div>

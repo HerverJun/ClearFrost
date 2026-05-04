@@ -53,7 +53,7 @@ namespace ClearFrost
             Controls.Add(webView21);
             Margin = new Padding(6, 5, 6, 5);
             Name = "主窗口";
-            Text = "清霜";
+            Text = "清霜V5 Preview";
             Load += 主窗口_Load;
             ((System.ComponentModel.ISupportInitialize)webView21).EndInit();
             ResumeLayout(false);

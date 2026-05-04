@@ -4,7 +4,7 @@
 (function () {
     "use strict";
 
-    const MaxRecentInspections = 10;
+    const MaxRecentInspections = 15;
     const subscribers = new Set();
     const pendingReasons = new Set();
     let renderScheduled = false;

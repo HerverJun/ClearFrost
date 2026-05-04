@@ -576,6 +576,10 @@ namespace ClearFrost
                         barcodeError = "NoBarcode";
                     }
 
+                    context.ProductBarcode = productBarcode;
+                    context.BarcodeReadSucceeded = barcodeReadSucceeded;
+                    context.BarcodeError = barcodeError;
+
                     bool barcodeFailed = barcodeReadSucceeded == false || string.IsNullOrWhiteSpace(productBarcode);
                     string barcodeMessage = barcodeFailed
                         ? (barcodeError == "NoBarcode" ? "PLC 条码为空" : barcode.Message ?? "PLC 条码读取失败")
@@ -999,7 +1003,7 @@ namespace ClearFrost
                 string safeInspectionId = string.IsNullOrWhiteSpace(context.InspectionId)
                     ? InspectionIdGenerator.Next(context.TriggerSource)
                     : context.InspectionId;
-                string fileName = $"{(isQualified ? "PASS" : "FAIL")}_{safeInspectionId}.jpg";
+                string fileName = BuildTraceImageFileName(isQualified, safeInspectionId, context.ProductBarcode);
                 string filePath = Path.Combine(directory, fileName);
                 context.ImagePath = filePath;
 
@@ -1032,6 +1036,49 @@ namespace ClearFrost
 
                 return null;
             }
+        }
+
+        private static string BuildTraceImageFileName(bool isQualified, string inspectionId, string? productBarcode)
+        {
+            string resultPrefix = isQualified ? "PASS" : "FAIL";
+            string safeInspectionId = SanitizeTraceFileNamePart(inspectionId, maxLength: 96);
+            string safeBarcode = SanitizeTraceFileNamePart(productBarcode, maxLength: 80);
+
+            if (string.IsNullOrWhiteSpace(safeBarcode))
+            {
+                return $"{resultPrefix}_{safeInspectionId}.jpg";
+            }
+
+            return $"{resultPrefix}_SN-{safeBarcode}_{safeInspectionId}.jpg";
+        }
+
+        private static string SanitizeTraceFileNamePart(string? value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            var invalidChars = Path.GetInvalidFileNameChars().ToHashSet();
+            var builder = new StringBuilder(value.Length);
+            foreach (char ch in value.Trim())
+            {
+                if (invalidChars.Contains(ch) || char.IsControl(ch))
+                {
+                    builder.Append('_');
+                    continue;
+                }
+
+                builder.Append(ch);
+            }
+
+            string safe = builder.ToString().Trim(' ', '.', '_');
+            if (safe.Length > maxLength)
+            {
+                safe = safe.Substring(0, maxLength).Trim(' ', '.', '_');
+            }
+
+            return safe;
         }
 
         private async Task<string> SaveDetectionImage(Mat image, List<YoloResult> results, bool isQualified, string[]? usedLabels = null, Mat? renderedImage = null)
@@ -1194,6 +1241,9 @@ namespace ClearFrost
                 TriggerSource = context.TriggerSource,
                 TriggerSeq = context.TriggerSeq,
                 ResultSeq = context.ResultSeq,
+                ProductBarcode = context.ProductBarcode ?? string.Empty,
+                BarcodeReadSucceeded = context.BarcodeReadSucceeded,
+                BarcodeError = context.BarcodeError ?? string.Empty,
                 TraceStatus = context.TraceStatus,
                 ImagePath = context.ImagePath ?? string.Empty,
                 RenderedImagePath = context.RenderedImagePath ?? string.Empty,

@@ -235,7 +235,6 @@
         const sectionMapping = {
             vision: ["vision"],
             camera: ["camera"],
-            "storage-diagnostic": ["storage", "diagnostic"],
         };
         const targetSections = sectionMapping[tabName] || [tabName];
 

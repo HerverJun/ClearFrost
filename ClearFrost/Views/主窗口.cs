@@ -51,7 +51,7 @@ namespace ClearFrost
             // 使用系统原生标题栏，启动时保持最大化
             this.FormBorderStyle = FormBorderStyle.Sizable;
             this.WindowState = FormWindowState.Maximized;
-            this.Text = "清霜 ClearFrost V4 预览版";
+            this.Text = "清霜V5 Preview";
 
             // 初始化 WebUI 控制器
             _uiController = _appRuntime.WebUIController;
