@@ -5,7 +5,6 @@
 using Microsoft.ML.OnnxRuntime.Tensors;
 using OpenCvSharp;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -45,21 +44,25 @@ namespace ClearFrost.Yolo
 
         private List<YoloResult> FilterConfidence_Yolo8_11_Segment(Tensor<float> data, float confidence)
         {
-            bool isMidSize = data.Dimensions[1] < data.Dimensions[2] ? true : false;
+            bool isMidSize = data.Dimensions[1] < data.Dimensions[2];
+            int dim1 = data.Dimensions[1];
+            int dim2 = data.Dimensions[2];
             if (isMidSize)
             {
-                ConcurrentBag<YoloResult> resultBag = new ConcurrentBag<YoloResult>();
-                Parallel.For(0, data.Dimensions[2], i =>
+                List<YoloResult> resultList = new List<YoloResult>();
+                ReadOnlySpan<float> dataSpan = GetTensorSpan(data);
+                for (int i = 0; i < dim2; i++)
                 {
                     float tempConfidence = 0f;
                     int index = -1;
-                    for (int j = 0; j < data.Dimensions[1] - 4 - _segWidth; j++)
+                    for (int j = 0; j < dim1 - 4 - _segWidth; j++)
                     {
-                        if (data[0, j + 4, i] >= confidence)
+                        float conf = dataSpan[(j + 4) * dim2 + i];
+                        if (conf >= confidence)
                         {
-                            if (tempConfidence < data[0, j + 4, i])
+                            if (tempConfidence < conf)
                             {
-                                tempConfidence = data[0, j + 4, i];
+                                tempConfidence = conf;
                                 index = j;
                             }
                         }
@@ -70,15 +73,15 @@ namespace ClearFrost.Yolo
                         Mat mask = new Mat(1, DEFAULT_MASK_CHANNELS, MatType.CV_32F);
                         for (int ii = 0; ii < _segWidth; ii++)
                         {
-                            int pos = data.Dimensions[1] - _segWidth + ii;
-                            mask.At<float>(0, ii) = data[0, pos, i];
+                            int pos = dim1 - _segWidth + ii;
+                            mask.At<float>(0, ii) = dataSpan[pos * dim2 + i];
                         }
                         temp.MaskData = mask;
-                        temp.SetDetectionData(data[0, 0, i], data[0, 1, i], data[0, 2, i], data[0, 3, i], tempConfidence, index);
-                        resultBag.Add(temp);
+                        temp.SetDetectionData(dataSpan[i], dataSpan[dim2 + i], dataSpan[2 * dim2 + i], dataSpan[3 * dim2 + i], tempConfidence, index);
+                        resultList.Add(temp);
                     }
-                });
-                return resultBag.ToList<YoloResult>();
+                }
+                return resultList;
             }
             else
             {
@@ -130,22 +133,23 @@ namespace ClearFrost.Yolo
 
             if (isMidSize)
             {
-                ConcurrentBag<YoloResult> resultBag = new ConcurrentBag<YoloResult>();
-                Parallel.For(0, dim2, i =>
+                List<YoloResult> resultList = new List<YoloResult>();
+                ReadOnlySpan<float> dataSpan = GetTensorSpan(data);
+                for (int i = 0; i < dim2; i++)
                 {
                     float maxScore = 0f;
                     int maxClassIndex = -1;
 
                     if (hasObjectness)
                     {
-                        if (data[0, 4, i] < confidence) return;
+                        if (dataSpan[4 * dim2 + i] < confidence) continue;
                     }
 
                     int loopStart = hasObjectness ? 5 : boxOffset;
 
                     for (int k = loopStart; k < dim1 - extraDecrement; k++)
                     {
-                        float score = data[0, k, i];
+                        float score = dataSpan[k * dim2 + i];
                         if (score >= confidence)
                         {
                             if (score > maxScore)
@@ -159,16 +163,16 @@ namespace ClearFrost.Yolo
                     if (maxClassIndex != -1)
                     {
                         YoloResult temp = new YoloResult();
-                        temp.CenterX = data[0, 0, i];
-                        temp.CenterY = data[0, 1, i];
-                        temp.Width = data[0, 2, i];
-                        temp.Height = data[0, 3, i];
+                        temp.CenterX = dataSpan[i];
+                        temp.CenterY = dataSpan[dim2 + i];
+                        temp.Width = dataSpan[2 * dim2 + i];
+                        temp.Height = dataSpan[3 * dim2 + i];
                         temp.Confidence = maxScore;
                         temp.ClassId = maxClassIndex;
-                        resultBag.Add(temp);
+                        resultList.Add(temp);
                     }
-                });
-                return resultBag.ToList();
+                }
+                return resultList;
             }
             else
             {
@@ -259,21 +263,25 @@ namespace ClearFrost.Yolo
 
         private List<YoloResult> FilterConfidence_Yolo5_Segment(Tensor<float> data, float confidence)
         {
-            bool isMidSize = data.Dimensions[1] < data.Dimensions[2] ? true : false;
+            bool isMidSize = data.Dimensions[1] < data.Dimensions[2];
+            int dim1 = data.Dimensions[1];
+            int dim2 = data.Dimensions[2];
             if (isMidSize)
             {
-                ConcurrentBag<YoloResult> resultBag = new ConcurrentBag<YoloResult>();
-                Parallel.For(0, data.Dimensions[2], i =>
+                List<YoloResult> resultList = new List<YoloResult>();
+                ReadOnlySpan<float> dataSpan = GetTensorSpan(data);
+                for (int i = 0; i < dim2; i++)
                 {
                     float tempConfidence = 0f;
                     int index = -1;
-                    if (data[0, 4, i] >= confidence)
+                    if (dataSpan[4 * dim2 + i] >= confidence)
                     {
-                        for (int j = 0; j < data.Dimensions[1] - 5 - _segWidth; j++)
+                        for (int j = 0; j < dim1 - 5 - _segWidth; j++)
                         {
-                            if (tempConfidence < data[0, j + 5, i])
+                            float conf = dataSpan[(j + 5) * dim2 + i];
+                            if (tempConfidence < conf)
                             {
-                                tempConfidence = data[0, j + 5, i];
+                                tempConfidence = conf;
                                 index = j;
                             }
                         }
@@ -283,16 +291,16 @@ namespace ClearFrost.Yolo
                             Mat mask = new Mat(1, DEFAULT_MASK_CHANNELS, MatType.CV_32F);
                             for (int ii = 0; ii < _segWidth; ii++)
                             {
-                                int pos = data.Dimensions[1] - _segWidth + ii;
-                                mask.At<float>(0, ii) = data[0, pos, i];
+                                int pos = dim1 - _segWidth + ii;
+                                mask.At<float>(0, ii) = dataSpan[pos * dim2 + i];
                             }
                             temp.MaskData = mask;
-                            temp.SetDetectionData(data[0, 0, i], data[0, 1, i], data[0, 2, i], data[0, 3, i], tempConfidence, index);
-                            resultBag.Add(temp);
+                            temp.SetDetectionData(dataSpan[i], dataSpan[dim2 + i], dataSpan[2 * dim2 + i], dataSpan[3 * dim2 + i], tempConfidence, index);
+                            resultList.Add(temp);
                         }
                     }
-                });
-                return resultBag.ToList<YoloResult>();
+                }
+                return resultList;
             }
             else
             {
@@ -361,21 +369,25 @@ namespace ClearFrost.Yolo
 
         private List<YoloResult> FilterConfidence_Pose(Tensor<float> data, float confidence)
         {
-            bool isMidSize = data.Dimensions[1] < data.Dimensions[2] ? true : false;
+            bool isMidSize = data.Dimensions[1] < data.Dimensions[2];
+            int dim1 = data.Dimensions[1];
+            int dim2 = data.Dimensions[2];
             if (isMidSize)
             {
-                ConcurrentBag<YoloResult> resultBag = new ConcurrentBag<YoloResult>();
-                Parallel.For(0, data.Dimensions[2], i =>
+                List<YoloResult> resultList = new List<YoloResult>();
+                ReadOnlySpan<float> dataSpan = GetTensorSpan(data);
+                for (int i = 0; i < dim2; i++)
                 {
                     float tempConfidence = 0f;
                     int index = -1;
-                    for (int j = 0; j < data.Dimensions[1] - 4 - _segWidth - _poseWidth; j++)
+                    for (int j = 0; j < dim1 - 4 - _segWidth - _poseWidth; j++)
                     {
-                        if (data[0, j + 4, i] >= confidence)
+                        float conf = dataSpan[(j + 4) * dim2 + i];
+                        if (conf >= confidence)
                         {
-                            if (tempConfidence < data[0, j + 4, i])
+                            if (tempConfidence < conf)
                             {
-                                tempConfidence = data[0, j + 4, i];
+                                tempConfidence = conf;
                                 index = j;
                             }
                         }
@@ -383,23 +395,23 @@ namespace ClearFrost.Yolo
                     if (index != -1)
                     {
                         YoloResult temp = new YoloResult();
-                        temp.SetDetectionData(data[0, 0, i], data[0, 1, i], data[0, 2, i], data[0, 3, i], tempConfidence, index);
+                        temp.SetDetectionData(dataSpan[i], dataSpan[dim2 + i], dataSpan[2 * dim2 + i], dataSpan[3 * dim2 + i], tempConfidence, index);
                         int poseIndex = 0;
                         PosePoint[] keyPoints = new PosePoint[_poseWidth / 3];
                         for (int ii = 0; ii < _poseWidth; ii += 3)
                         {
                             PosePoint p1 = new PosePoint();
-                            p1.X = data[0, 5 + ii, i];
-                            p1.Y = data[0, 6 + ii, i];
-                            p1.Score = data[0, 7 + ii, i];
+                            p1.X = dataSpan[(5 + ii) * dim2 + i];
+                            p1.Y = dataSpan[(6 + ii) * dim2 + i];
+                            p1.Score = dataSpan[(7 + ii) * dim2 + i];
                             keyPoints[poseIndex] = p1;
                             poseIndex++;
                         }
                         temp.KeyPoints = keyPoints;
-                        resultBag.Add(temp);
+                        resultList.Add(temp);
                     }
-                });
-                return resultBag.ToList<YoloResult>();
+                }
+                return resultList;
             }
             else
             {
@@ -448,22 +460,25 @@ namespace ClearFrost.Yolo
 
         private List<YoloResult> FilterConfidence_Obb(Tensor<float> data, float confidence)
         {
-            bool isMidSize = data.Dimensions[1] < data.Dimensions[2] ? true : false;
+            bool isMidSize = data.Dimensions[1] < data.Dimensions[2];
+            int dim1 = data.Dimensions[1];
+            int dim2 = data.Dimensions[2];
             if (isMidSize)
             {
-                ConcurrentBag<YoloResult> resultBag = new ConcurrentBag<YoloResult>();
-                int outputSize = data.Dimensions[1];
-                Parallel.For(0, data.Dimensions[2], i =>
+                List<YoloResult> resultList = new List<YoloResult>();
+                ReadOnlySpan<float> dataSpan = GetTensorSpan(data);
+                for (int i = 0; i < dim2; i++)
                 {
                     float tempConfidence = 0f;
                     int index = -1;
-                    for (int j = 0; j < data.Dimensions[1] - 5; j++)
+                    for (int j = 0; j < dim1 - 5; j++)
                     {
-                        if (data[0, j + 4, i] >= confidence)
+                        float conf = dataSpan[(j + 4) * dim2 + i];
+                        if (conf >= confidence)
                         {
-                            if (tempConfidence < data[0, j + 4, i])
+                            if (tempConfidence < conf)
                             {
-                                tempConfidence = data[0, j + 4, i];
+                                tempConfidence = conf;
                                 index = j;
                             }
                         }
@@ -471,11 +486,11 @@ namespace ClearFrost.Yolo
                     if (index != -1)
                     {
                         YoloResult temp = new YoloResult();
-                        temp.SetObbData(data[0, 0, i], data[0, 1, i], data[0, 2, i], data[0, 3, i], tempConfidence, index, data[0, outputSize - 1, i]);
-                        resultBag.Add(temp);
+                        temp.SetObbData(dataSpan[i], dataSpan[dim2 + i], dataSpan[2 * dim2 + i], dataSpan[3 * dim2 + i], tempConfidence, index, dataSpan[(dim1 - 1) * dim2 + i]);
+                        resultList.Add(temp);
                     }
-                });
-                return resultBag.ToList<YoloResult>();
+                }
+                return resultList;
             }
             else
             {
