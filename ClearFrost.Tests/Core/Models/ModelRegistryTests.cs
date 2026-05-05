@@ -152,7 +152,7 @@ public class ModelRegistryTests
     }
 
     [Fact]
-    public void Resolve_同名模型存在歧义时不返回错误元数据()
+    public void Resolve_同名模型存在歧义时优先返回Package条目()
     {
         string tempDir = CreateTempDirectory();
         try
@@ -176,7 +176,9 @@ public class ModelRegistryTests
                 Warmup = (_, _) => true
             });
 
-            registry.Resolve("model.onnx").Should().BeNull();
+            ModelRegistryEntry? resolved = registry.Resolve("model.onnx");
+            resolved.Should().NotBeNull();
+            resolved!.IsPackage.Should().BeTrue();
             registry.Resolve("pkg-a").Should().NotBeNull();
             registry.Resolve(modelB).Should().NotBeNull();
             registry.Resolve(modelB)!.ModelId.Should().Be("pkg-b");

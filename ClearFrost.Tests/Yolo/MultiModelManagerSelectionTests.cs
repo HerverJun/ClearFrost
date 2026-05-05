@@ -1,5 +1,6 @@
 using ClearFrost.Yolo;
 using FluentAssertions;
+using OpenCvSharp;
 
 namespace ClearFrost.Tests.Yolo;
 
@@ -48,10 +49,68 @@ public class MultiModelManagerSelectionTests
         MultiModelManager.CountTargetLabelHits(results, labels, "screw").Should().Be(1);
     }
 
+    [Fact]
+    public void InferenceWithFallback_NoHitResetsLastUsedModel()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string modelPath = CopySampleOnnx(tempDir, "primary.onnx");
+            using var manager = new MultiModelManager(useGpu: false);
+            manager.LoadPrimaryModel(modelPath);
+
+            SetLastUsedModel(manager, ModelRole.Auxiliary2);
+
+            using var image = new Mat(64, 64, MatType.CV_8UC3, Scalar.All(0));
+            var result = manager.InferenceWithFallback(image, confidence: 1f, targetLabel: "screw", targetCount: 1);
+
+            result.Results.Should().BeEmpty();
+            manager.LastUsedModel.Should().Be(ModelRole.None);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static YoloResult Detection(int classId)
     {
         var result = new YoloResult();
         result.SetDetectionData(10, 10, 5, 5, 0.9f, classId);
         return result;
+    }
+
+    private static string CopySampleOnnx(string targetDirectory, string fileName)
+    {
+        string source = Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "ONNX"), "*.onnx")
+            .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+            .First();
+        string target = Path.Combine(targetDirectory, fileName);
+        File.Copy(source, target, true);
+        return target;
+    }
+
+    private static string CreateTempDirectory()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(MultiModelManagerSelectionTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static void DeleteDirectory(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, true);
+        }
+    }
+
+    private static void SetLastUsedModel(MultiModelManager manager, ModelRole role)
+    {
+        var property = typeof(MultiModelManager).GetProperty("LastUsedModel");
+        property.Should().NotBeNull();
+        var backingField = typeof(MultiModelManager).GetField("<LastUsedModel>k__BackingField", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        backingField.Should().NotBeNull();
+        backingField!.SetValue(manager, role);
     }
 }

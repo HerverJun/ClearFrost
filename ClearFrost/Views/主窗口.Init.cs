@@ -636,19 +636,37 @@ namespace ClearFrost
                     }
                     else
                     {
+                        if (IsSameModelFile(modelName, _appConfig.CurrentModelFileName))
+                        {
+                            await _uiController.LogToFrontend("辅助模型1不能与主模型相同", "warning");
+                            return;
+                        }
+                        if (IsSameModelFile(modelName, _appConfig.Auxiliary2ModelPath))
+                        {
+                            await _uiController.LogToFrontend("辅助模型1不能与辅助模型2相同", "warning");
+                            return;
+                        }
+
                         string modelPath = Path.Combine(模型路径, modelName);
                         if (File.Exists(modelPath))
                         {
-                            await _detectionService.LoadAuxiliary1ModelAsync(modelPath);
-                            _appConfig.Auxiliary1ModelPath = modelName;
-                            await _uiController.LogToFrontend($"? 辅助模型1已加载: {modelName}");
+                            bool ok = await _detectionService.LoadAuxiliary1ModelAsync(modelPath);
+                            if (ok)
+                            {
+                                _appConfig.Auxiliary1ModelPath = modelName;
+                                _appConfig.Save();
+                                await _uiController.LogToFrontend($"? 辅助模型1已加载: {modelName}");
+                            }
+                            else
+                            {
+                                await _uiController.LogToFrontend($"辅助模型1加载失败，未保存配置: {modelName}", "error");
+                            }
                         }
                         else
                         {
                             await _uiController.LogToFrontend($"辅助模型1文件不存在: {modelName}", "error");
                         }
                     }
-                    _appConfig.Save();
                 }
                 catch (Exception ex)
                 {
@@ -668,19 +686,37 @@ namespace ClearFrost
                     }
                     else
                     {
+                        if (IsSameModelFile(modelName, _appConfig.CurrentModelFileName))
+                        {
+                            await _uiController.LogToFrontend("辅助模型2不能与主模型相同", "warning");
+                            return;
+                        }
+                        if (IsSameModelFile(modelName, _appConfig.Auxiliary1ModelPath))
+                        {
+                            await _uiController.LogToFrontend("辅助模型2不能与辅助模型1相同", "warning");
+                            return;
+                        }
+
                         string modelPath = Path.Combine(模型路径, modelName);
                         if (File.Exists(modelPath))
                         {
-                            await _detectionService.LoadAuxiliary2ModelAsync(modelPath);
-                            _appConfig.Auxiliary2ModelPath = modelName;
-                            await _uiController.LogToFrontend($"? 辅助模型2已加载: {modelName}");
+                            bool ok = await _detectionService.LoadAuxiliary2ModelAsync(modelPath);
+                            if (ok)
+                            {
+                                _appConfig.Auxiliary2ModelPath = modelName;
+                                _appConfig.Save();
+                                await _uiController.LogToFrontend($"? 辅助模型2已加载: {modelName}");
+                            }
+                            else
+                            {
+                                await _uiController.LogToFrontend($"辅助模型2加载失败，未保存配置: {modelName}", "error");
+                            }
                         }
                         else
                         {
                             await _uiController.LogToFrontend($"辅助模型2文件不存在: {modelName}", "error");
                         }
                     }
-                    _appConfig.Save();
                 }
                 catch (Exception ex)
                 {
@@ -991,6 +1027,22 @@ namespace ClearFrost
 
             // 启动后台清理
             StartCleanupTask();
+        }
+
+        /// <summary>
+        /// 比较两个模型文件名是否指向同一文件（忽略 .onnx 后缀与大小写）。
+        /// 用于防止辅助模型与主模型/另一辅助模型设置重复。
+        /// </summary>
+        private static bool IsSameModelFile(string? a, string? b)
+        {
+            if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+            {
+                return false;
+            }
+
+            string nameA = Path.GetFileNameWithoutExtension(a.Trim());
+            string nameB = Path.GetFileNameWithoutExtension(b.Trim());
+            return string.Equals(nameA, nameB, StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task InitModelList()

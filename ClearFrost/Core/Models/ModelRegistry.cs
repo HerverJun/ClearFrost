@@ -66,7 +66,19 @@ namespace ClearFrost.Core.Models
                 .Select(g => g.First())
                 .ToList();
 
-            return candidates.Count == 1 ? candidates[0] : null;
+            if (candidates.Count == 0)
+            {
+                return null;
+            }
+
+            if (candidates.Count == 1)
+            {
+                return candidates[0];
+            }
+
+            // 多匹配时优先返回 package 条目（包含 manifest/Hash/Version），保持追溯字段完整。
+            ModelRegistryEntry? packageMatch = candidates.FirstOrDefault(e => e.IsPackage);
+            return packageMatch ?? candidates[0];
         }
 
         private void ScanPackages(ModelRegistryScanOptions options)

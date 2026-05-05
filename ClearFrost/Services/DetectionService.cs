@@ -80,6 +80,11 @@ namespace ClearFrost.Services
         /// <returns>如果是加载成功返回 true，否则返回 false</returns>
         public async Task<bool> LoadModelAsync(string modelPath, bool useGpu)
         {
+            bool rebuildManager = false;
+            bool committedTempManager = false;
+            MultiModelManager? replacementManager = null;
+            MultiModelManager? previousManager = null;
+
             try
             {
                 if (!File.Exists(modelPath))
@@ -88,23 +93,64 @@ namespace ClearFrost.Services
                     return false;
                 }
 
-                // 初始化多模型管理器（如果尚未初始化）
-                if (_modelManager == null)
+                rebuildManager = _modelManager != null && _modelManager.UseGpu != useGpu;
+                string preservedAux1Path = string.Empty;
+                string preservedAux2Path = string.Empty;
+                bool preservedFallback = false;
+
+                if (rebuildManager)
+                {
+                    previousManager = _modelManager ?? throw new InvalidOperationException("多模型管理器初始化失败");
+                    preservedAux1Path = previousManager.Auxiliary1ModelPath ?? string.Empty;
+                    preservedAux2Path = previousManager.Auxiliary2ModelPath ?? string.Empty;
+                    preservedFallback = previousManager.EnableFallback;
+                    replacementManager = new MultiModelManager(useGpu)
+                    {
+                        EnableFallback = preservedFallback
+                    };
+                    Debug.WriteLine($"[DetectionService] GPU 设置变化为 {useGpu}，准备重建多模型管理器");
+                }
+                else if (_modelManager == null)
                 {
                     _modelManager = new MultiModelManager(useGpu);
                 }
 
-                // 使用多模型管理器加载主模型
-                await Task.Run(() => _modelManager.LoadPrimaryModel(modelPath));
+                MultiModelManager manager = replacementManager ?? _modelManager
+                    ?? throw new InvalidOperationException("多模型管理器初始化失败");
 
-                if (!_modelManager.IsPrimaryLoaded)
+                // 使用多模型管理器加载主模型
+                await Task.Run(() => manager.LoadPrimaryModel(modelPath));
+
+                if (!manager.IsPrimaryLoaded)
                 {
+                    if (rebuildManager)
+                    {
+                        return false;
+                    }
+
                     // 如果多模型管理器加载失败，回退到单模型模式
                     await Task.Run(() =>
                     {
                         _yolo?.Dispose(); // 显式释放旧资源
                         _yolo = new YoloDetector(modelPath, 0, 0, useGpu);
                     });
+                }
+                else if (rebuildManager)
+                {
+                    // 主模型加载成功且本次发生过 GPU 重建，按新 GPU 设置恢复辅助槽。
+                    if (!string.IsNullOrEmpty(preservedAux1Path) && File.Exists(preservedAux1Path))
+                    {
+                        await TryLoadAuxiliaryModelAsync(manager, preservedAux1Path, 1);
+                    }
+                    if (!string.IsNullOrEmpty(preservedAux2Path) && File.Exists(preservedAux2Path))
+                    {
+                        await TryLoadAuxiliaryModelAsync(manager, preservedAux2Path, 2);
+                    }
+
+                    _modelManager = manager;
+                    committedTempManager = true;
+                    previousManager?.Dispose();
+                    previousManager = null;
                 }
 
                 string modelName = Path.GetFileNameWithoutExtension(modelPath);
@@ -122,6 +168,13 @@ namespace ClearFrost.Services
             {
                 ErrorOccurred?.Invoke($"加载模型失败: {ex.Message}");
                 return false;
+            }
+            finally
+            {
+                if (rebuildManager && !committedTempManager)
+                {
+                    replacementManager?.Dispose();
+                }
             }
         }
 
@@ -507,17 +560,13 @@ namespace ClearFrost.Services
             if (_modelManager == null || string.IsNullOrEmpty(modelPath))
                 return false;
 
-            try
+            bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, modelPath, 1);
+            if (ok)
             {
-                await Task.Run(() => _modelManager.LoadAuxiliary1Model(modelPath));
                 Debug.WriteLine($"[DetectionService] 辅助模型1已加载: {Path.GetFileName(modelPath)}");
-                return true;
             }
-            catch (Exception ex)
-            {
-                ErrorOccurred?.Invoke($"加载辅助模型1失败: {ex.Message}");
-                return false;
-            }
+
+            return ok;
         }
 
         public async Task<bool> LoadAuxiliary2ModelAsync(string modelPath)
@@ -525,17 +574,13 @@ namespace ClearFrost.Services
             if (_modelManager == null || string.IsNullOrEmpty(modelPath))
                 return false;
 
-            try
+            bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, modelPath, 2);
+            if (ok)
             {
-                await Task.Run(() => _modelManager.LoadAuxiliary2Model(modelPath));
                 Debug.WriteLine($"[DetectionService] 辅助模型2已加载: {Path.GetFileName(modelPath)}");
-                return true;
             }
-            catch (Exception ex)
-            {
-                ErrorOccurred?.Invoke($"加载辅助模型2失败: {ex.Message}");
-                return false;
-            }
+
+            return ok;
         }
 
         public void UnloadAuxiliary1Model()
@@ -556,6 +601,40 @@ namespace ClearFrost.Services
         public object? GetLastMetrics()
         {
             return _modelManager?.GetPrimaryLastMetrics() ?? _yolo?.LastMetrics;
+        }
+
+        #endregion
+
+        #region 私有方法
+
+        private async Task<bool> TryLoadAuxiliaryModelAsync(MultiModelManager manager, string modelPath, int modelIndex)
+        {
+            if (string.IsNullOrEmpty(modelPath))
+            {
+                return false;
+            }
+
+            try
+            {
+                await Task.Run(() =>
+                {
+                    if (modelIndex == 1)
+                    {
+                        manager.LoadAuxiliary1Model(modelPath);
+                    }
+                    else
+                    {
+                        manager.LoadAuxiliary2Model(modelPath);
+                    }
+                });
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ErrorOccurred?.Invoke($"加载辅助模型{modelIndex}失败: {ex.Message}");
+                return false;
+            }
         }
 
         #endregion

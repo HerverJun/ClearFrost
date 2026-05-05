@@ -1761,8 +1761,40 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .stitch-action-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
+}
+
+.stitch-left-actions {
+    margin-top: auto;
+    padding-top: 16px;
+}
+
+.stitch-left-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 42px;
+    color: #606569;
+    background: #dfe3e8;
+    border: 1px solid #c3c6d5;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.16s ease, background-color 0.16s ease;
+}
+
+.stitch-left-actions button:hover {
+    background: #e3e2e3;
+}
+
+.stitch-left-actions svg {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
 }
 
 .stitch-action-grid button {

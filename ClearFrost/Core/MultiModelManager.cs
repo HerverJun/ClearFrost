@@ -157,7 +157,7 @@ namespace ClearFrost.Yolo
             }
         }
 
-        /// 
+        ///
         public bool EnableFallback
         {
             get
@@ -186,6 +186,11 @@ namespace ClearFrost.Yolo
                 }
             }
         }
+
+        /// <summary>
+        /// 当前 manager 创建时锁定的 GPU 启用状态。修改此值需重建 manager。
+        /// </summary>
+        public bool UseGpu => _useGpu;
 
         /// 
         public int PrimaryHitCount { get; private set; }
@@ -552,6 +557,7 @@ namespace ClearFrost.Yolo
             lock (_lock)
             {
                 TotalInferenceCount++;
+                LastUsedModel = ModelRole.None;
                 primaryModel = _primaryModel;
                 auxiliary1Model = _auxiliary1Model;
                 auxiliary2Model = _auxiliary2Model;
@@ -686,17 +692,14 @@ namespace ClearFrost.Yolo
                     CaptureBestResult(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true);
                     bool aux2Hit = IsTargetSatisfied(aux2Results, aux2Labels, targetLabel, targetCount);
 
-                    lock (_lock)
-                    {
-                        if (aux2Hit)
-                        {
-                            Auxiliary2HitCount++;
-                        }
-                        LastUsedModel = ModelRole.Auxiliary2;
-                    }
-
                     if (aux2Hit)
                     {
+                        lock (_lock)
+                        {
+                            Auxiliary2HitCount++;
+                            LastUsedModel = ModelRole.Auxiliary2;
+                        }
+
                         result.Results = aux2Results;
                         result.UsedModel = ModelRole.Auxiliary2;
                         result.UsedModelName = System.IO.Path.GetFileName(auxiliary2ModelPath);
@@ -835,6 +838,7 @@ namespace ClearFrost.Yolo
             lock (_lock)
             {
                 TotalInferenceCount++;
+                LastUsedModel = ModelRole.None;
                 primaryModel = _primaryModel;
                 auxiliary1Model = _auxiliary1Model;
                 auxiliary2Model = _auxiliary2Model;
@@ -965,17 +969,14 @@ namespace ClearFrost.Yolo
                     CaptureBestResult(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true);
                     bool aux2Hit = IsTargetSatisfied(aux2Results, aux2Labels, targetLabel, targetCount);
 
-                    lock (_lock)
-                    {
-                        if (aux2Hit)
-                        {
-                            Auxiliary2HitCount++;
-                        }
-                        LastUsedModel = ModelRole.Auxiliary2;
-                    }
-
                     if (aux2Hit)
                     {
+                        lock (_lock)
+                        {
+                            Auxiliary2HitCount++;
+                            LastUsedModel = ModelRole.Auxiliary2;
+                        }
+
                         result.Results = aux2Results;
                         result.UsedModel = ModelRole.Auxiliary2;
                         result.UsedModelName = System.IO.Path.GetFileName(auxiliary2ModelPath);

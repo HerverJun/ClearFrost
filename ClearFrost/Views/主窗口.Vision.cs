@@ -58,7 +58,12 @@ namespace ClearFrost
                 if (string.IsNullOrWhiteSpace(模型名))
                 {
                     var files = Directory.GetFiles(模型路径, "*.onnx");
-                    if (files.Length > 0) 模型名 = Path.GetFileName(files[0]);
+                    if (files.Length > 0)
+                    {
+                        // 按文件名升序确定首选模型，避免依赖文件系统返回顺序。
+                        Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+                        模型名 = Path.GetFileName(files[0]);
+                    }
                 }
             }
 
