@@ -73,7 +73,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\HaoCommunication.dll">
+    <None Include="..\依赖\HaoCommunication.dll">
       <Link>HaoCommunication.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -96,14 +96,14 @@
 
   <!-- x64 相机 SDK 依赖 DLL 自动复制 -->
   <ItemGroup>
-    <None Include="..\x64依赖包\**\*.*">
+    <None Include="..\依赖\x64依赖包\**\*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
 
   <!-- 海康威视 SDK 依赖 DLL 自动复制 -->
   <ItemGroup>
-    <None Include="..\海康依赖包\**\*.*">
+    <None Include="..\依赖\海康依赖包\**\*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
     </None>

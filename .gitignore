@@ -55,16 +55,17 @@ TestResults/
 ClearFrost/ONNX/
 
 # Third-party Dependencies (第三方依赖库)
-# x64依赖包/ (Keep SDKs)
-# 海康依赖包/ (Keep SDKs)
+# 依赖/x64依赖包/ (Keep SDKs)
+# 依赖/海康依赖包/ (Keep SDKs)
 ClearFrost/DLL/
 packages/
 
 # Allow DLLs inside SDK folders
-!x64依赖包/
-!x64依赖包/*.dll
-!海康依赖包/
-!海康依赖包/*.dll
+!依赖/
+!依赖/x64依赖包/
+!依赖/x64依赖包/*.dll
+!依赖/海康依赖包/
+!依赖/海康依赖包/*.dll
 
 # Archives / Backups / Published Files
 *.zip
@@ -151,7 +152,7 @@ msbuild.log
 
 # 工具脚本（按需保留）
 count_lines*.ps1
-package_dependencies.ps1
+脚本/package_dependencies.ps1
 share_code*.ps1
 check_env.bat
 一键打包分享.bat
@@ -176,10 +177,10 @@ ClearFrostV4Preview/
 ClearFrostV3*/
 
 # 依赖包解压目录（保留 zip 即可）
-格力视觉检测平台相关依赖/
+依赖/格力视觉检测平台相关依赖/
 
 # 文档图片（可选）
-docs/image/
+文档/开发文档/image/
 
 # Local .NET CLI caches created in the workspace
 .dotnet_cli/

@@ -114,7 +114,7 @@ dotnet run --project ClearFrost/ClearFrost.csproj
 |----------|------|----------|
 | `DLL/*.dll` | 工业通讯库 (HslCommunication) | 从厂商官网下载 |
 | `ONNX/*.onnx` | YOLO 模型文件 | 自行训练或下载预训练模型 |
-| `x64依赖包/` | 相机 SDK 依赖 | 从华睿/海康官网下载 |
+| `依赖/x64依赖包/` | 相机 SDK 依赖 | 从华睿/海康官网下载 |
 
 详细配置步骤请参考下方「依赖配置」章节。
 

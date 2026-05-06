@@ -322,6 +322,6 @@ ClearFrost/
 
 1. **x64 平台**: 项目强制使用 x64 平台，不要修改为 AnyCPU
 2. **不安全代码**: 允许使用 unsafe 代码块 (`<AllowUnsafeBlocks>True</AllowUnsafeBlocks>`)
-3. **本地 DLL**: MVSDK_Net.dll 等本地依赖放在 `DLL/` 和 `x64依赖包/` 目录
+3. **本地 DLL**: MVSDK_Net.dll 等本地依赖放在 `ClearFrost/DLL/` 和 `依赖/` 目录
 4. **模型文件**: ONNX 模型文件不提交到 Git (已在 .gitignore 中排除)
 5. **中文编码**: 源代码文件使用 UTF-8 BOM 编码以支持中文注释
