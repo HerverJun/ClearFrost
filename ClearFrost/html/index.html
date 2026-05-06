@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
@@ -225,29 +225,6 @@
                     class="p-2 hover:bg-red-50 text-ink-400 hover:text-vermilion rounded-full transition-[background-color,color] text-xl">&times;</button>
             </div>
             <div class="flex-1 overflow-y-auto scroller p-8 space-y-8 bg-porcelain-100/30">
-                <!-- 项目快速切换 (仅填充现有字段，不锁定修改) -->
-                <div data-settings-section="preset" class="hidden mb-2 p-4 bg-gradient-to-r from-celadon-50 to-porcelain-50 rounded-xl border border-celadon-200 shadow-sm">
-                    <label
-                        class="flex items-center gap-2 text-[10px] font-bold text-celadon-700 uppercase tracking-widest mb-3">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
-                        </svg>
-                        快速切换项目预设
-                    </label>
-                    <select id="project-preset-select" data-change-action="loadProjectPreset"
-                        class="w-full tech-input px-4 py-3 rounded-xl text-sm font-bold cursor-pointer border-2 border-celadon-200 focus:border-celadon-500 transition-[background-color,border-color,box-shadow,color]">
-                        <option value="">-- 选择预设项目（可选）--</option>
-                        <option value="N5_remote">N5遥控器漏装视觉检测</option>
-                        <option value="N5_screw">N5螺钉视觉检测</option>
-                        <option value="N6_remote">N6遥控器漏装视觉检测</option>
-                        <option value="N6_screw">N6螺钉视觉检测</option>
-                        <option value="W5_screw">W5螺钉视觉检测</option>
-                        <option value="W6_screw">W6螺钉视觉检测</option>
-                    </select>
-                    <p class="text-[9px] text-ink-400 mt-2 italic">选择后自动填充下方配置项，填充后仍可手动修改各参数</p>
-                </div>
-
                 <div class="cf-settings-workspace">
                     <div class="cf-settings-nav">
                         <button type="button" class="cf-settings-tab active" data-settings-tab="vision"
@@ -258,6 +235,48 @@
                             data-action="activateSettingsTab" data-value="plc">PLC与条码</button>
                     </div>
                     <div class="cf-settings-content">
+                        <!-- 项目快速切换 (仅填充现有字段，不锁定修改) -->
+                        <div class="mb-2 p-4 bg-gradient-to-r from-celadon-50 to-porcelain-50 rounded-xl border border-celadon-200 shadow-sm">
+                            <label
+                                class="flex items-center gap-2 text-[10px] font-bold text-celadon-700 uppercase tracking-widest mb-3">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                                </svg>
+                                快速切换项目预设
+                            </label>
+                            <select id="project-preset-select" data-change-action="loadProjectPreset"
+                                class="w-full tech-input px-4 py-3 rounded-xl text-sm font-bold cursor-pointer border-2 border-celadon-200 focus:border-celadon-500 transition-[background-color,border-color,box-shadow,color]">
+                                <option value="">-- 选择预设项目（可选）--</option>
+                                <option value="N5_remote">N5遥控器漏装视觉检测</option>
+                                <option value="N5_screw">N5螺钉视觉检测</option>
+                                <option value="N6_remote">N6遥控器漏装视觉检测</option>
+                                <option value="N6_screw">N6螺钉视觉检测</option>
+                                <option value="W5_screw">W5螺钉视觉检测</option>
+                                <option value="W6_screw">W6螺钉视觉检测</option>
+                            </select>
+                            <p class="text-[9px] text-ink-400 mt-2 italic">选择后自动填充下方配置项，填充后仍可手动修改各参数</p>
+                        </div>
+
+                        <!-- 数据集自动收集 -->
+                        <div class="mb-2 p-4 bg-gradient-to-r from-blue-50 to-porcelain-50 rounded-xl border border-blue-200 shadow-sm">
+                            <label class="flex items-center gap-2 text-[10px] font-bold text-blue-700 uppercase tracking-widest mb-3">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-8-4-4m0 0L8 8m4-4v12"></path>
+                                </svg>
+                                数据集自动收集
+                            </label>
+                            <p class="text-[10px] text-ink-400 mb-3 leading-relaxed">
+                                自动从历史 15 天的检测记录中收集 100 张图片（70% NG + 30% OK），
+                                按天和小时均匀平摊、同一机型去重，保存到 <code class="text-blue-600 bg-blue-100/50 px-1 rounded">DatasetCollections</code> 文件夹。
+                            </p>
+                            <button id="btn-collect-dataset" type="button" data-action="collectDataset"
+                                class="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 text-[10px] font-bold rounded-lg transition-[background-color] disabled:opacity-50 disabled:cursor-not-allowed">
+                                一键收集训练数据集
+                            </button>
+                            <div id="dataset-collect-result" class="mt-2 text-[10px] hidden"></div>
+                        </div>
 
                 <div id="settings-vision-controls" class="space-y-4" data-settings-section="vision">
                     <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">

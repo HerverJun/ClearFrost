@@ -157,6 +157,7 @@ namespace ClearFrost
             _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(btnCapture_LogicAsync(), "手动检测"));
             _uiController.OnManualRelease += (s, e) => SafeFireAndForget(fx_btn_LogicAsync(), "手动放行"); // Async void handler
             _uiController.OnOpenSettings += (s, e) => InvokeOnUIThread(() => btnSettings_Logic());
+            _uiController.OnCollectDataset += (s, e) => SafeFireAndForget(CollectDatasetAsync(), "数据集收集");
             _uiController.OnGetModelList += (s, e) => SafeFireAndForget(InitModelList(), "刷新模型列表");
             _uiController.OnChangeModel += (s, modelName) => InvokeOnUIThread(() => ChangeModel_Logic(modelName));
             _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC手动连接");
@@ -1419,6 +1420,55 @@ namespace ClearFrost
             catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
             {
                 Debug.WriteLine($"[UI] Invoke skipped: {ex.Message}");
+            }
+        }
+
+        #endregion
+
+        #region 数据集自动收集
+
+        private async Task CollectDatasetAsync()
+        {
+            try
+            {
+                var service = new ClearFrost.Services.DatasetCollectionService(
+                    ClearFrost.Helpers.RuntimePaths.DatabasePath,
+                    _appConfig.StoragePath);
+
+                var progress = new Progress<string>(msg =>
+                {
+                    _ = _uiController.LogToFrontend($"[数据集] {msg}", "info");
+                });
+
+                var result = await service.CollectAsync(progress: progress);
+
+                await _uiController.SendDatasetCollectResult(new
+                {
+                    success = result.Success,
+                    totalCopied = result.FailCopied + result.PassCopied,
+                    failCopied = result.FailCopied,
+                    passCopied = result.PassCopied,
+                    outputDirectory = result.OutputDirectory,
+                    message = result.Message
+                });
+
+                if (result.Success)
+                {
+                    await _uiController.LogToFrontend($"数据集收集完成: {result.OutputDirectory}", "success");
+                }
+                else
+                {
+                    await _uiController.LogToFrontend($"数据集收集失败: {result.Message}", "error");
+                }
+            }
+            catch (Exception ex)
+            {
+                await _uiController.SendDatasetCollectResult(new
+                {
+                    success = false,
+                    message = ex.Message
+                });
+                await _uiController.LogToFrontend($"数据集收集异常: {ex.Message}", "error");
             }
         }
 

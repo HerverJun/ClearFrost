@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node -e \"const svg = '<?xml version=\\\\\"1.0\\\\\" encoding=\\\\\"UTF-8\\\\\"?><svg width=\\\\\"1280\\\\\" height=\\\\\"720\\\\\" viewBox=\\\\\"0 0 1280 720\\\\\" xmlns=\\\\\"http://www.w3.org/2000/svg\\\\\"><rect width=\\\\\"1280\\\\\" height=\\\\\"720\\\\\" fill=\\\\\"#cbd5e1\\\\\"/><text x=\\\\\"640\\\\\" y=\\\\\"360\\\\\" font-family=\\\\\"Inter,Segoe UI,Microsoft YaHei,sans-serif\\\\\" font-size=\\\\\"32\\\\\" fill=\\\\\"#475569\\\\\" text-anchor=\\\\\"middle\\\\\" dominant-baseline=\\\\\"middle\\\\\">等待图像输入</text></svg>'; console.log\\(Buffer.from\\(svg, 'utf8'\\).toString\\('base64'\\)\\)\")"
+      "Bash(node -e \"const svg = '<?xml version=\\\\\"1.0\\\\\" encoding=\\\\\"UTF-8\\\\\"?><svg width=\\\\\"1280\\\\\" height=\\\\\"720\\\\\" viewBox=\\\\\"0 0 1280 720\\\\\" xmlns=\\\\\"http://www.w3.org/2000/svg\\\\\"><rect width=\\\\\"1280\\\\\" height=\\\\\"720\\\\\" fill=\\\\\"#cbd5e1\\\\\"/><text x=\\\\\"640\\\\\" y=\\\\\"360\\\\\" font-family=\\\\\"Inter,Segoe UI,Microsoft YaHei,sans-serif\\\\\" font-size=\\\\\"32\\\\\" fill=\\\\\"#475569\\\\\" text-anchor=\\\\\"middle\\\\\" dominant-baseline=\\\\\"middle\\\\\">等待图像输入</text></svg>'; console.log\\(Buffer.from\\(svg, 'utf8'\\).toString\\('base64'\\)\\)\")",
+      "Bash(dotnet test *)",
+      "Bash(dotnet build *)"
     ]
   }
 }

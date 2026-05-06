@@ -1,4 +1,4 @@
-﻿using ClearFrost.Config;
+using ClearFrost.Config;
 using ClearFrost.Models;
 // ============================================================================
 // 文件名: WebUIController.cs
@@ -87,6 +87,7 @@ namespace ClearFrost
         public event EventHandler? OnGetStatisticsHistory;
         public event EventHandler? OnClearStatisticsHistory;
         public event EventHandler? OnResetStatistics;
+        public event EventHandler? OnCollectDataset;
 
         // ================== 多相机事件 ==================
         public event EventHandler? OnGetCameraList;
@@ -197,7 +198,7 @@ namespace ClearFrost
                         _webView.CoreWebView2.NavigationCompleted -= _navigationCompletedHandler;
                     }
 
-                    _webView.CoreWebView2.Navigate("https://app.local/index.html");
+                    _webView.CoreWebView2.Navigate($"https://app.local/index.html?v={DateTime.Now.Ticks}");
                 }
 
                 // Warn/Notify user if in Dev Mode
@@ -751,6 +752,9 @@ namespace ClearFrost
                             case "reset_statistics":
                                 OnResetStatistics?.Invoke(this, EventArgs.Empty);
                                 break;
+                            case "collect_dataset":
+                                OnCollectDataset?.Invoke(this, EventArgs.Empty);
+                                break;
 
                             // ================== 多相机命令 ==================
                             case "get_camera_list":
@@ -980,6 +984,15 @@ namespace ClearFrost
             }
 
             PostMessage("healthSnapshot", snapshot);
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// 发送数据集收集结果到前端
+        /// </summary>
+        public Task SendDatasetCollectResult(object result)
+        {
+            PostMessage("datasetCollectResult", result);
             return Task.CompletedTask;
         }
 
@@ -1310,6 +1323,7 @@ namespace ClearFrost
                 OnGetStatisticsHistory = null;
                 OnClearStatisticsHistory = null;
                 OnResetStatistics = null;
+                OnCollectDataset = null;
                 OnGetCameraList = null;
                 OnSwitchCamera = null;
                 OnAddCamera = null;

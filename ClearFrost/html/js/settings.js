@@ -43,6 +43,36 @@
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            PlcDriverProvider: "HaoCommunication",
+            PlcProtocolMode: "Legacy",
+            PlcTriggerDelayMs: 800,
+            PlcPollingIntervalMs: 500,
+            PlcOkValue: 1,
+            PlcNgValue: 0,
+            PlcTriggerSeqAddress: "D557",
+            PlcResultSeqAddress: "D558",
+            PlcVisionOnlineAddress: "D559",
+            PlcVisionReadyAddress: "D560",
+            PlcVisionBusyAddress: "D561",
+            PlcInspectionDoneAddress: "D562",
+            PlcErrorCodeAddress: "D563",
+            PlcTraceSavedAddress: "D564",
+            PlcHeartbeatAddress: "D565",
+            PlcResetFaultAddress: "D566",
+            BarcodeEnabled: false,
+            BarcodeAddress: "D570",
+            BarcodeWordLength: 16,
+            BarcodeEncoding: "ASCII",
+            BarcodeRequired: false,
+            PlcSiemensCpuModel: "S1200",
+            PlcSiemensRack: 0,
+            PlcSiemensSlot: 2,
+            EnableGpu: false,
+            IndustrialRenderMode: true,
+            MaxRetryCount: 1,
+            RetryIntervalMs: 2000,
+            StoragePath: "C:\\GreeVisionData",
+            CameraManufacturer: "Huaray",
         },
         N5_screw: {
             name: "N5螺钉视觉检测",
@@ -56,6 +86,36 @@
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            PlcDriverProvider: "HaoCommunication",
+            PlcProtocolMode: "Legacy",
+            PlcTriggerDelayMs: 800,
+            PlcPollingIntervalMs: 500,
+            PlcOkValue: 1,
+            PlcNgValue: 0,
+            PlcTriggerSeqAddress: "D557",
+            PlcResultSeqAddress: "D558",
+            PlcVisionOnlineAddress: "D559",
+            PlcVisionReadyAddress: "D560",
+            PlcVisionBusyAddress: "D561",
+            PlcInspectionDoneAddress: "D562",
+            PlcErrorCodeAddress: "D563",
+            PlcTraceSavedAddress: "D564",
+            PlcHeartbeatAddress: "D565",
+            PlcResetFaultAddress: "D566",
+            BarcodeEnabled: false,
+            BarcodeAddress: "D570",
+            BarcodeWordLength: 16,
+            BarcodeEncoding: "ASCII",
+            BarcodeRequired: false,
+            PlcSiemensCpuModel: "S1200",
+            PlcSiemensRack: 0,
+            PlcSiemensSlot: 2,
+            EnableGpu: false,
+            IndustrialRenderMode: true,
+            MaxRetryCount: 1,
+            RetryIntervalMs: 2000,
+            StoragePath: "C:\\GreeVisionData",
+            CameraManufacturer: "Huaray",
         },
         N6_remote: {
             name: "N6遥控器漏装视觉检测",
@@ -69,6 +129,36 @@
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            PlcDriverProvider: "HaoCommunication",
+            PlcProtocolMode: "Legacy",
+            PlcTriggerDelayMs: 800,
+            PlcPollingIntervalMs: 500,
+            PlcOkValue: 1,
+            PlcNgValue: 0,
+            PlcTriggerSeqAddress: "D557",
+            PlcResultSeqAddress: "D558",
+            PlcVisionOnlineAddress: "D559",
+            PlcVisionReadyAddress: "D560",
+            PlcVisionBusyAddress: "D561",
+            PlcInspectionDoneAddress: "D562",
+            PlcErrorCodeAddress: "D563",
+            PlcTraceSavedAddress: "D564",
+            PlcHeartbeatAddress: "D565",
+            PlcResetFaultAddress: "D566",
+            BarcodeEnabled: false,
+            BarcodeAddress: "D570",
+            BarcodeWordLength: 16,
+            BarcodeEncoding: "ASCII",
+            BarcodeRequired: false,
+            PlcSiemensCpuModel: "S1200",
+            PlcSiemensRack: 0,
+            PlcSiemensSlot: 2,
+            EnableGpu: false,
+            IndustrialRenderMode: true,
+            MaxRetryCount: 1,
+            RetryIntervalMs: 2000,
+            StoragePath: "C:\\GreeVisionData",
+            CameraManufacturer: "Huaray",
         },
         N6_screw: {
             name: "N6螺钉视觉检测",
@@ -82,6 +172,36 @@
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            PlcDriverProvider: "HaoCommunication",
+            PlcProtocolMode: "Legacy",
+            PlcTriggerDelayMs: 800,
+            PlcPollingIntervalMs: 500,
+            PlcOkValue: 1,
+            PlcNgValue: 0,
+            PlcTriggerSeqAddress: "D557",
+            PlcResultSeqAddress: "D558",
+            PlcVisionOnlineAddress: "D559",
+            PlcVisionReadyAddress: "D560",
+            PlcVisionBusyAddress: "D561",
+            PlcInspectionDoneAddress: "D562",
+            PlcErrorCodeAddress: "D563",
+            PlcTraceSavedAddress: "D564",
+            PlcHeartbeatAddress: "D565",
+            PlcResetFaultAddress: "D566",
+            BarcodeEnabled: false,
+            BarcodeAddress: "D570",
+            BarcodeWordLength: 16,
+            BarcodeEncoding: "ASCII",
+            BarcodeRequired: false,
+            PlcSiemensCpuModel: "S1200",
+            PlcSiemensRack: 0,
+            PlcSiemensSlot: 2,
+            EnableGpu: false,
+            IndustrialRenderMode: true,
+            MaxRetryCount: 1,
+            RetryIntervalMs: 2000,
+            StoragePath: "C:\\GreeVisionData",
+            CameraManufacturer: "Huaray",
         },
         W5_screw: {
             name: "W5螺钉视觉检测",
@@ -89,12 +209,42 @@
             PlcPort: 4999,
             PlcTriggerAddress: "D555",
             PlcResultAddress: "D556",
-            CameraSerialNumber: "EF59632AAK00074",
-            PlcProtocol: "Mitsubishi_MC_Binary",
+            CameraSerialNumber: "EF59632AAK00291",
+            PlcProtocol: "Mitsubishi_MC_ASCII",
             TargetLabel: "screw",
             TargetCount: 4,
-            ExposureTime: 3500,
-            Gain: 1.5,
+            ExposureTime: 50000,
+            Gain: 1.1,
+            PlcDriverProvider: "HaoCommunication",
+            PlcProtocolMode: "Legacy",
+            PlcTriggerDelayMs: 800,
+            PlcPollingIntervalMs: 500,
+            PlcOkValue: 1,
+            PlcNgValue: 0,
+            PlcTriggerSeqAddress: "D557",
+            PlcResultSeqAddress: "D558",
+            PlcVisionOnlineAddress: "D559",
+            PlcVisionReadyAddress: "D560",
+            PlcVisionBusyAddress: "D561",
+            PlcInspectionDoneAddress: "D562",
+            PlcErrorCodeAddress: "D563",
+            PlcTraceSavedAddress: "D564",
+            PlcHeartbeatAddress: "D565",
+            PlcResetFaultAddress: "D566",
+            BarcodeEnabled: false,
+            BarcodeAddress: "D570",
+            BarcodeWordLength: 16,
+            BarcodeEncoding: "ASCII",
+            BarcodeRequired: false,
+            PlcSiemensCpuModel: "S1200",
+            PlcSiemensRack: 0,
+            PlcSiemensSlot: 2,
+            EnableGpu: false,
+            IndustrialRenderMode: true,
+            MaxRetryCount: 1,
+            RetryIntervalMs: 2000,
+            StoragePath: "C:\\GreeVisionData",
+            CameraManufacturer: "Huaray",
         },
         W6_screw: {
             name: "W6螺钉视觉检测",
@@ -108,6 +258,36 @@
             TargetCount: 4,
             ExposureTime: 3500,
             Gain: 1.5,
+            PlcDriverProvider: "HaoCommunication",
+            PlcProtocolMode: "Legacy",
+            PlcTriggerDelayMs: 800,
+            PlcPollingIntervalMs: 500,
+            PlcOkValue: 1,
+            PlcNgValue: 0,
+            PlcTriggerSeqAddress: "D557",
+            PlcResultSeqAddress: "D558",
+            PlcVisionOnlineAddress: "D559",
+            PlcVisionReadyAddress: "D560",
+            PlcVisionBusyAddress: "D561",
+            PlcInspectionDoneAddress: "D562",
+            PlcErrorCodeAddress: "D563",
+            PlcTraceSavedAddress: "D564",
+            PlcHeartbeatAddress: "D565",
+            PlcResetFaultAddress: "D566",
+            BarcodeEnabled: false,
+            BarcodeAddress: "D570",
+            BarcodeWordLength: 16,
+            BarcodeEncoding: "ASCII",
+            BarcodeRequired: false,
+            PlcSiemensCpuModel: "S1200",
+            PlcSiemensRack: 0,
+            PlcSiemensSlot: 2,
+            EnableGpu: false,
+            IndustrialRenderMode: true,
+            MaxRetryCount: 1,
+            RetryIntervalMs: 2000,
+            StoragePath: "C:\\GreeVisionData",
+            CameraManufacturer: "Huaray",
         },
     };
 
@@ -567,27 +747,64 @@
             return;
         }
 
-        const assignments = {
+        const textAssignments = {
             "cfg-plc-ip": preset.PlcIp,
             "cfg-plc-port": preset.PlcPort,
             "cfg-plc-trigger": preset.PlcTriggerAddress,
             "cfg-plc-result": preset.PlcResultAddress,
             "cfg-plc-protocol": preset.PlcProtocol,
-            "cfg-plc-trigger-delay": preset.PlcTriggerDelayMs || 800,
-            "cfg-plc-polling-interval": preset.PlcPollingIntervalMs || 500,
+            "cfg-plc-trigger-delay": preset.PlcTriggerDelayMs ?? 800,
+            "cfg-plc-polling-interval": preset.PlcPollingIntervalMs ?? 500,
+            "cfg-plc-ok-value": preset.PlcOkValue ?? 1,
+            "cfg-plc-ng-value": preset.PlcNgValue ?? 0,
+            "cfg-plc-driver-provider": preset.PlcDriverProvider ?? "HaoCommunication",
+            "cfg-plc-protocol-mode": preset.PlcProtocolMode ?? "Legacy",
+            "cfg-plc-trigger-seq": preset.PlcTriggerSeqAddress ?? "D557",
+            "cfg-plc-result-seq": preset.PlcResultSeqAddress ?? "D558",
+            "cfg-plc-vision-online": preset.PlcVisionOnlineAddress ?? "D559",
+            "cfg-plc-vision-ready": preset.PlcVisionReadyAddress ?? "D560",
+            "cfg-plc-vision-busy": preset.PlcVisionBusyAddress ?? "D561",
+            "cfg-plc-inspection-done": preset.PlcInspectionDoneAddress ?? "D562",
+            "cfg-plc-error-code": preset.PlcErrorCodeAddress ?? "D563",
+            "cfg-plc-trace-saved": preset.PlcTraceSavedAddress ?? "D564",
+            "cfg-plc-heartbeat": preset.PlcHeartbeatAddress ?? "D565",
+            "cfg-plc-reset-fault": preset.PlcResetFaultAddress ?? "D566",
+            "cfg-plc-siemens-cpu-model": preset.PlcSiemensCpuModel ?? "S1200",
+            "cfg-plc-siemens-rack": preset.PlcSiemensRack ?? 0,
+            "cfg-plc-siemens-slot": preset.PlcSiemensSlot ?? 2,
+            "cfg-barcode-address": preset.BarcodeAddress ?? "D570",
+            "cfg-barcode-word-length": preset.BarcodeWordLength ?? 16,
+            "cfg-barcode-encoding": preset.BarcodeEncoding ?? "ASCII",
             "cfg-cam-name": preset.name,
             "cfg-cam-serial": preset.CameraSerialNumber,
-            "cfg-cam-manufacturer": "Huaray",
+            "cfg-cam-manufacturer": preset.CameraManufacturer ?? "Huaray",
             "cfg-cam-exposure": preset.ExposureTime,
-            "cfg-cam-gain": preset.Gain || 1.1,
+            "cfg-cam-gain": preset.Gain ?? 1.1,
             "cfg-logic-target-label": preset.TargetLabel,
             "cfg-logic-target-count": preset.TargetCount,
+            "cfg-logic-retry-count": preset.MaxRetryCount ?? 1,
+            "cfg-logic-retry-interval": preset.RetryIntervalMs ?? 2000,
+            "cfg-storage-path": preset.StoragePath ?? "C:\\GreeVisionData",
         };
-        Object.entries(assignments).forEach(([id, value]) => {
+        Object.entries(textAssignments).forEach(([id, value]) => {
             const input = byId(id);
             if (input) input.value = value;
         });
+
+        const checkboxAssignments = {
+            "cfg-barcode-enabled": preset.BarcodeEnabled ?? false,
+            "cfg-barcode-required": preset.BarcodeRequired ?? false,
+            "cfg-yolo-gpu": preset.EnableGpu ?? false,
+            "cfg-industrial-render-mode": preset.IndustrialRenderMode ?? true,
+        };
+        Object.entries(checkboxAssignments).forEach(([id, value]) => {
+            const cb = byId(id);
+            if (cb) cb.checked = value;
+        });
+
         updatePlcAddressUi();
+        updatePlcProtocolModeUi();
+        updateSiemensRackSlotVisibility();
         window.addLog?.(`已加载预设: ${preset.name}`, "success");
     }
 
@@ -630,6 +847,36 @@
         }
     }
 
+    function collectDataset() {
+        const btn = byId("btn-collect-dataset");
+        const resultDiv = byId("dataset-collect-result");
+        if (!btn) return;
+
+        btn.disabled = true;
+        btn.textContent = "收集中，请稍候...";
+        resultDiv.classList.add("hidden");
+
+        bridge.sendCommand("collect_dataset");
+    }
+
+    function handleDatasetCollectResult(data) {
+        const btn = byId("btn-collect-dataset");
+        const resultDiv = byId("dataset-collect-result");
+        if (!btn || !resultDiv) return;
+
+        btn.disabled = false;
+        btn.textContent = "一键收集训练数据集";
+
+        if (data?.success) {
+            resultDiv.className = "mt-2 text-[10px] text-green-600";
+            resultDiv.textContent = `✅ 收集完成！共 ${data.totalCopied} 张（NG ${data.failCopied} / OK ${data.passCopied}），已保存至：${data.outputDirectory}`;
+        } else {
+            resultDiv.className = "mt-2 text-[10px] text-red-500";
+            resultDiv.textContent = `❌ 收集失败：${data?.message || "未知错误"}`;
+        }
+        resultDiv.classList.remove("hidden");
+    }
+
     Object.assign(window, {
         activateSettingsTab,
         applyMultiModelUiState,
@@ -654,9 +901,12 @@
         updateStoragePath,
         updateTaskType,
         verifyPassword,
+        collectDataset,
+        handleDatasetCollectResult,
     });
 
     bridge.registerMessageHandler("bootstrapSnapshot", handleBootstrapSnapshot);
     bridge.registerMessageHandler("configSnapshot", handleConfigSnapshot);
     bridge.registerMessageHandler("modelList", (data) => initModelList(data?.models || data?.Models || data || [], false));
+    bridge.registerMessageHandler("datasetCollectResult", handleDatasetCollectResult);
 })();
