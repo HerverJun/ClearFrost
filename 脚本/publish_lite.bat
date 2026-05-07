@@ -1,6 +1,13 @@
 @echo off
-setlocal EnableExtensions
 chcp 65001 >nul 2>&1
+setlocal EnableExtensions
+
+REM 切换到项目根目录（脚本所在目录的父目录）
+cd /d "%~dp0.." || (
+    echo Failed to locate project root.
+    pause
+    exit /b 1
+)
 echo ========================================
 echo   ClearFrost Lite Publish
 echo   Framework-dependent Win-x64 package
