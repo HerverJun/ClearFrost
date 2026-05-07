@@ -463,36 +463,15 @@ namespace ClearFrost.Services
             }
 
             int safeWordLength = Math.Clamp(wordLength, 1, 64);
-            var protocolType = PlcFactory.ParseProtocol(_lastProtocol);
-            byte[] bytes = new byte[safeWordLength * 2];
 
             try
             {
-                for (int index = 0; index < safeWordLength; index++)
+                var (success, bytes) = await _plcDevice.ReadBytesAsync(startAddress, (ushort)(safeWordLength * 2));
+                if (!success)
                 {
-                    string address = OffsetWordAddress(startAddress, protocolType, index);
-                    var (success, wordValue) = await _plcDevice.ReadInt16Async(address);
-                    if (!success)
-                    {
-                        LastError = _plcDevice.LastError;
-                        ErrorOccurred?.Invoke($"读取条码失败: {LastError}");
-                        return (false, string.Empty);
-                    }
-
-                    ushort word = unchecked((ushort)wordValue);
-                    if (protocolType == PlcProtocolType.Siemens_S7)
-                    {
-                        // 西门子 S7：HslCommunication.ReadInt16 按大端解析，
-                        // 高位字节对应 PLC 低地址字节，无需额外交换。
-                        bytes[index * 2] = (byte)((word >> 8) & 0xFF);
-                        bytes[index * 2 + 1] = (byte)(word & 0xFF);
-                    }
-                    else
-                    {
-                        // 三菱 / 欧姆龙 / Modbus：保持原有交换逻辑（兼容性）。
-                        bytes[index * 2] = (byte)(word & 0xFF);
-                        bytes[index * 2 + 1] = (byte)((word >> 8) & 0xFF);
-                    }
+                    LastError = _plcDevice.LastError;
+                    ErrorOccurred?.Invoke($"读取条码失败: {LastError}");
+                    return (false, string.Empty);
                 }
 
                 int byteCount = 0;

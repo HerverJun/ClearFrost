@@ -195,6 +195,27 @@ namespace ClearFrost.Hardware
             }
         }
 
+        public async Task<(bool Success, byte[] Value)> ReadBytesAsync(string address, ushort length)
+        {
+            try
+            {
+                var result = await Task.Run(() => _plc.Read(address, length));
+                if (!result.IsSuccess)
+                {
+                    LastError = result.Message;
+                    _isConnected = false;
+                    return (false, Array.Empty<byte>());
+                }
+                return (true, result.Content);
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                _isConnected = false;
+                return (false, Array.Empty<byte>());
+            }
+        }
+
         public async Task<bool> WriteInt16Async(string address, short value)
         {
             try
@@ -284,6 +305,27 @@ namespace ClearFrost.Hardware
                 LastError = ex.Message;
                 _isConnected = false;
                 return (false, 0);
+            }
+        }
+
+        public async Task<(bool Success, byte[] Value)> ReadBytesAsync(string address, ushort length)
+        {
+            try
+            {
+                var result = await Task.Run(() => _plc.Read(address, length));
+                if (!result.IsSuccess)
+                {
+                    LastError = result.Message;
+                    _isConnected = false;
+                    return (false, Array.Empty<byte>());
+                }
+                return (true, result.Content);
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                _isConnected = false;
+                return (false, Array.Empty<byte>());
             }
         }
 
@@ -379,6 +421,27 @@ namespace ClearFrost.Hardware
                 LastError = ex.Message;
                 _isConnected = false;
                 return (false, 0);
+            }
+        }
+
+        public async Task<(bool Success, byte[] Value)> ReadBytesAsync(string address, ushort length)
+        {
+            try
+            {
+                var result = await Task.Run(() => _plc.Read(address, length));
+                if (!result.IsSuccess)
+                {
+                    LastError = result.Message;
+                    _isConnected = false;
+                    return (false, Array.Empty<byte>());
+                }
+                return (true, result.Content);
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                _isConnected = false;
+                return (false, Array.Empty<byte>());
             }
         }
 
@@ -491,6 +554,27 @@ namespace ClearFrost.Hardware
             }
         }
 
+        public async Task<(bool Success, byte[] Value)> ReadBytesAsync(string address, ushort length)
+        {
+            try
+            {
+                var result = await Task.Run(() => _plc.Read(address, length));
+                if (!result.IsSuccess)
+                {
+                    LastError = result.Message;
+                    _isConnected = false;
+                    return (false, Array.Empty<byte>());
+                }
+                return (true, result.Content);
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                _isConnected = false;
+                return (false, Array.Empty<byte>());
+            }
+        }
+
         public async Task<bool> WriteInt16Async(string address, short value)
         {
             try
@@ -584,6 +668,27 @@ namespace ClearFrost.Hardware
                 LastError = ex.Message;
                 _isConnected = false;
                 return (false, 0);
+            }
+        }
+
+        public async Task<(bool Success, byte[] Value)> ReadBytesAsync(string address, ushort length)
+        {
+            try
+            {
+                var result = await Task.Run(() => _plc.Read(address, length));
+                if (!result.IsSuccess)
+                {
+                    LastError = result.Message;
+                    _isConnected = false;
+                    return (false, Array.Empty<byte>());
+                }
+                return (true, result.Content);
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                _isConnected = false;
+                return (false, Array.Empty<byte>());
             }
         }
 

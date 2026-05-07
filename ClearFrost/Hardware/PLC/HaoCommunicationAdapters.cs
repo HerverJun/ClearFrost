@@ -173,6 +173,35 @@ namespace ClearFrost.Hardware
             }
         }
 
+        public async Task<(bool Success, byte[] Value)> ReadBytesAsync(string address, ushort length)
+        {
+            try
+            {
+                object plc = GetConnectedPlc();
+                object result = await Task.Run(() => InvokeMethod(
+                    plc,
+                    "Read",
+                    new[] { typeof(string), typeof(ushort) },
+                    new object?[] { address, length }));
+
+                if (!ReadBoolProperty(result, "IsSuccess"))
+                {
+                    LastError = ReadStringProperty(result, "Message");
+                    _isConnected = false;
+                    return (false, Array.Empty<byte>());
+                }
+
+                byte[] value = (byte[])(ReadProperty(result, "Content") ?? Array.Empty<byte>());
+                return (true, value);
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                _isConnected = false;
+                return (false, Array.Empty<byte>());
+            }
+        }
+
         public async Task<bool> WriteInt16Async(string address, short value)
         {
             try

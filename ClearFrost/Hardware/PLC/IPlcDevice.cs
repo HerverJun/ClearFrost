@@ -28,6 +28,11 @@ namespace ClearFrost.Hardware
         /// <summary>
         /// 
         /// </summary>
+        Task<(bool Success, byte[] Value)> ReadBytesAsync(string address, ushort length);
+
+        /// <summary>
+        /// 
+        /// </summary>
         /// 
         /// 
         /// 

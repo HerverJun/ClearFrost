@@ -315,6 +315,12 @@ internal sealed class FakePlcDevice : IPlcDevice
         return Task.FromResult((result.Success, result.Value));
     }
 
+    public Task<(bool Success, byte[] Value)> ReadBytesAsync(string address, ushort length)
+    {
+        _onRead?.Invoke();
+        return Task.FromResult((true, Array.Empty<byte>()));
+    }
+
     public Task<bool> WriteInt16Async(string address, short value)
     {
         Writes.Add((address, value));

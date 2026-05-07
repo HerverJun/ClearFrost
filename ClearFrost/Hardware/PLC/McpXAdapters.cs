@@ -95,6 +95,29 @@ namespace ClearFrost.Hardware
             }
         }
 
+        public async Task<(bool Success, byte[] Value)> ReadBytesAsync(string address, ushort length)
+        {
+            try
+            {
+                if (_plc == null)
+                {
+                    LastError = "PLC 未连接";
+                    _isConnected = false;
+                    return (false, Array.Empty<byte>());
+                }
+
+                var (prefix, numericAddress) = ParseAddress(address);
+                byte[] value = await _plc.BatchReadAsync<byte>(prefix, numericAddress, length);
+                return (true, value);
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                _isConnected = false;
+                return (false, Array.Empty<byte>());
+            }
+        }
+
         public async Task<bool> WriteInt16Async(string address, short value)
         {
             try
