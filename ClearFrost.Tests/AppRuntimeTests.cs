@@ -207,6 +207,8 @@ namespace ClearFrost.Tests
             public void WriteStartupLog(string action, string? serialNumber = null) { }
             public void WriteErrorLog(string message) { }
             public void CleanOldData(int retainDays) { }
+            public double GetDiskFreeSpaceGb() => 100.0;
+            public double PerformEmergencyCleanup() => 100.0;
             public void EnsureDirectoriesExist() { }
             public void Dispose() => _order.Add("storage-dispose");
         }

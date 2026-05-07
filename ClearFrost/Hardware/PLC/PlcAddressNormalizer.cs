@@ -11,6 +11,7 @@ namespace ClearFrost.Hardware
         private static readonly Regex DigitsRegex = new Regex(@"^\d+$", RegexOptions.Compiled);
         private static readonly Regex MitsubishiRegex = new Regex(@"^D(\d+)$", RegexOptions.Compiled);
         private static readonly Regex SiemensDbWordRegex = new Regex(@"^DB(\d+)\.(\d+)$", RegexOptions.Compiled);
+        private static readonly Regex SiemensMiqRegex = new Regex(@"^[MIQ](\d+)$", RegexOptions.Compiled);
 
         public static string NormalizeOrThrow(string? rawAddress, PlcProtocolType protocolType)
         {
@@ -86,7 +87,7 @@ namespace ClearFrost.Hardware
             }
 
             string compact = Compact(preferredAddress).ToUpperInvariant();
-            if (protocolType == PlcProtocolType.Siemens_S7 && SiemensDbWordRegex.IsMatch(compact))
+            if (protocolType == PlcProtocolType.Siemens_S7 && (SiemensDbWordRegex.IsMatch(compact) || SiemensMiqRegex.IsMatch(compact)))
             {
                 return compact;
             }
@@ -127,24 +128,32 @@ namespace ClearFrost.Hardware
         {
             string upper = compact.ToUpperInvariant();
             Match match = SiemensDbWordRegex.Match(upper);
-            if (!match.Success)
+            if (match.Success)
             {
-                return Fail("西门子首版仅支持 DB 字地址，例如 DB100.0", out normalized, out error);
+                if (!int.TryParse(match.Groups[1].Value, out int dbNumber) || dbNumber < 0)
+                {
+                    return Fail("西门子 DB 块号无效", out normalized, out error);
+                }
+
+                if (!int.TryParse(match.Groups[2].Value, out int byteOffset) || byteOffset < 0)
+                {
+                    return Fail("西门子字节偏移无效", out normalized, out error);
+                }
+
+                normalized = $"DB{dbNumber}.{byteOffset}";
+                error = null;
+                return true;
             }
 
-            if (!int.TryParse(match.Groups[1].Value, out int dbNumber) || dbNumber < 0)
+            match = SiemensMiqRegex.Match(upper);
+            if (match.Success)
             {
-                return Fail("西门子 DB 块号无效", out normalized, out error);
+                normalized = upper;
+                error = null;
+                return true;
             }
 
-            if (!int.TryParse(match.Groups[2].Value, out int byteOffset) || byteOffset < 0)
-            {
-                return Fail("西门子字节偏移无效", out normalized, out error);
-            }
-
-            normalized = $"DB{dbNumber}.{byteOffset}";
-            error = null;
-            return true;
+            return Fail("西门子首版仅支持 DB / M / I / Q 地址，例如 DB100.0、M0", out normalized, out error);
         }
 
         private static bool TryNormalizeModbus(string compact, out string normalized, out string? error)

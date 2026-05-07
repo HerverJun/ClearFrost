@@ -27,9 +27,20 @@ public class PlcAddressNormalizerTests
     }
 
     [Theory]
+    [InlineData(PlcProtocolType.Siemens_S7, "M0", "M0")]
+    [InlineData(PlcProtocolType.Siemens_S7, "m100", "M100")]
+    [InlineData(PlcProtocolType.Siemens_S7, "I0", "I0")]
+    [InlineData(PlcProtocolType.Siemens_S7, "Q0", "Q0")]
+    public void Normalize_西门子MIQ地址返回规范化结果(PlcProtocolType protocolType, string rawAddress, string expected)
+    {
+        var normalized = PlcAddressNormalizer.NormalizeOrThrow(rawAddress, protocolType);
+
+        normalized.Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("555")]
     [InlineData("D555")]
-    [InlineData("M100")]
     [InlineData("DB10.0.1")]
     public void Normalize_Siemens非法地址抛异常(string rawAddress)
     {

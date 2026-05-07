@@ -480,8 +480,19 @@ namespace ClearFrost.Services
                     }
 
                     ushort word = unchecked((ushort)wordValue);
-                    bytes[index * 2] = (byte)(word & 0xFF);
-                    bytes[index * 2 + 1] = (byte)((word >> 8) & 0xFF);
+                    if (protocolType == PlcProtocolType.Siemens_S7)
+                    {
+                        // 西门子 S7：HslCommunication.ReadInt16 按大端解析，
+                        // 高位字节对应 PLC 低地址字节，无需额外交换。
+                        bytes[index * 2] = (byte)((word >> 8) & 0xFF);
+                        bytes[index * 2 + 1] = (byte)(word & 0xFF);
+                    }
+                    else
+                    {
+                        // 三菱 / 欧姆龙 / Modbus：保持原有交换逻辑（兼容性）。
+                        bytes[index * 2] = (byte)(word & 0xFF);
+                        bytes[index * 2 + 1] = (byte)((word >> 8) & 0xFF);
+                    }
                 }
 
                 int byteCount = 0;
@@ -656,14 +667,23 @@ namespace ClearFrost.Services
             }
 
             string compact = (startAddress ?? string.Empty).Trim().Replace(" ", string.Empty).ToUpperInvariant();
-            if (protocolType == PlcProtocolType.Siemens_S7 && compact.StartsWith("DB", StringComparison.OrdinalIgnoreCase))
+            if (protocolType == PlcProtocolType.Siemens_S7)
             {
-                string[] parts = compact.Substring(2).Split('.');
-                if (parts.Length == 2 &&
-                    int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int dbNumber) &&
-                    int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int byteOffset))
+                if (compact.StartsWith("DB", StringComparison.OrdinalIgnoreCase))
                 {
-                    return $"DB{dbNumber}.{byteOffset + wordOffset * 2}";
+                    string[] parts = compact.Substring(2).Split('.');
+                    if (parts.Length == 2 &&
+                        int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int dbNumber) &&
+                        int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int byteOffset))
+                    {
+                        return $"DB{dbNumber}.{byteOffset + wordOffset * 2}";
+                    }
+                }
+
+                if ((compact.StartsWith("M") || compact.StartsWith("I") || compact.StartsWith("Q")) &&
+                    int.TryParse(compact.Substring(1), NumberStyles.Integer, CultureInfo.InvariantCulture, out int miqOffset))
+                {
+                    return $"{compact[0]}{miqOffset + wordOffset * 2}";
                 }
             }
 
