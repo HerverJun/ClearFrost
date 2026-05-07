@@ -9,11 +9,13 @@
 // ============================================================================
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using ClearFrost.Interfaces;
@@ -220,6 +222,182 @@ namespace ClearFrost.Services
             {
                 WriteErrorLog($"CleanOldData Error: {ex.Message}");
             }
+        }
+
+        public double GetDiskFreeSpaceGb()
+        {
+            try
+            {
+                string root = Path.GetPathRoot(Path.GetFullPath(_baseStoragePath)) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(root))
+                {
+                    return 0;
+                }
+
+                var drive = new DriveInfo(root);
+                return Math.Round(drive.AvailableFreeSpace / 1024d / 1024d / 1024d, 2);
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        public double PerformEmergencyCleanup()
+        {
+            double freeBefore = GetDiskFreeSpaceGb();
+            Debug.WriteLine($"[StorageService] 紧急清理触发，当前剩余空间: {freeBefore} GB");
+            const double thresholdGb = 1.0;
+            DateTime today = DateTime.Now.Date;
+            int checkInterval = 3; // 每删3个目录/文件才检查一次磁盘空间，减少IO
+
+            try
+            {
+                // ========== 第1波：检测图片（Qualified + Unqualified）==========
+                var imageDirs = new List<(DateTime date, string path)>();
+                string[] types = { "Qualified", "Unqualified" };
+
+                foreach (var type in types)
+                {
+                    string typePath = Path.Combine(ImageBasePath, type);
+                    if (!Directory.Exists(typePath)) continue;
+
+                    foreach (var dir in Directory.GetDirectories(typePath))
+                    {
+                        string dirName = Path.GetFileName(dir);
+                        bool isLegacy = DateTime.TryParseExact(
+                            dirName, "yyyyMMdd", null, DateTimeStyles.None, out DateTime fdLegacy);
+                        bool isNew = DateTime.TryParseExact(
+                            dirName, "yyyy年MM月dd日", null, DateTimeStyles.None, out DateTime fdNew);
+
+                        DateTime? folderDate = isNew ? fdNew : (isLegacy ? fdLegacy : null);
+                        if (folderDate.HasValue && folderDate.Value < today)
+                        {
+                            imageDirs.Add((folderDate.Value, dir));
+                        }
+                    }
+                }
+
+                imageDirs.Sort((a, b) => a.date.CompareTo(b.date));
+
+                int deletedCount = 0;
+                for (int i = 0; i < imageDirs.Count; i++)
+                {
+                    if (imageDirs[i].date >= today) continue;
+
+                    try
+                    {
+                        Directory.Delete(imageDirs[i].path, true);
+                        deletedCount++;
+                    }
+                    catch
+                    {
+                        // 静默跳过删除失败的目录，不记录日志以减少IO
+                    }
+
+                    if (deletedCount % checkInterval == 0 && GetDiskFreeSpaceGb() >= thresholdGb)
+                        break;
+                }
+
+                // ========== 第2波：检测日志 ==========
+                string detectionLogPath = Path.Combine(LogBasePath, "DetectionLogs");
+                if (Directory.Exists(detectionLogPath) && GetDiskFreeSpaceGb() < thresholdGb)
+                {
+                    var logDirs = new List<(DateTime date, string path)>();
+
+                    foreach (var dir in Directory.GetDirectories(detectionLogPath))
+                    {
+                        string dirName = Path.GetFileName(dir);
+                        bool isLegacy = DateTime.TryParseExact(
+                            dirName, "yyyyMMdd", null, DateTimeStyles.None, out DateTime fdLegacy);
+                        bool isNew = DateTime.TryParseExact(
+                            dirName, "yyyy年MM月dd日", null, DateTimeStyles.None, out DateTime fdNew);
+
+                        DateTime? folderDate = isNew ? fdNew : (isLegacy ? fdLegacy : null);
+                        if (folderDate.HasValue && folderDate.Value < today)
+                        {
+                            logDirs.Add((folderDate.Value, dir));
+                        }
+                    }
+
+                    logDirs.Sort((a, b) => a.date.CompareTo(b.date));
+                    deletedCount = 0;
+
+                    for (int i = 0; i < logDirs.Count; i++)
+                    {
+                        if (logDirs[i].date >= today) continue;
+
+                        try
+                        {
+                            Directory.Delete(logDirs[i].path, true);
+                            deletedCount++;
+                        }
+                        catch
+                        {
+                            // 静默跳过
+                        }
+
+                        if (deletedCount % checkInterval == 0 && GetDiskFreeSpaceGb() >= thresholdGb)
+                            break;
+                    }
+                }
+
+                // ========== 第3波：错误日志 ==========
+                if (Directory.Exists(LogBasePath) && GetDiskFreeSpaceGb() < thresholdGb)
+                {
+                    var errorLogs = new List<(DateTime date, string path)>();
+
+                    foreach (var file in Directory.GetFiles(LogBasePath, "ErrorLog_*.txt"))
+                    {
+                        string fileName = Path.GetFileNameWithoutExtension(file); // ErrorLog_yyyyMMdd
+                        if (fileName.Length < 9) continue;
+
+                        string datePart = fileName.Substring(9); // yyyyMMdd
+                        if (DateTime.TryParseExact(
+                            datePart, "yyyyMMdd", null, DateTimeStyles.None, out DateTime fd) && fd < today)
+                        {
+                            errorLogs.Add((fd, file));
+                        }
+                    }
+
+                    errorLogs.Sort((a, b) => a.date.CompareTo(b.date));
+                    deletedCount = 0;
+
+                    for (int i = 0; i < errorLogs.Count; i++)
+                    {
+                        if (errorLogs[i].date >= today) continue;
+
+                        try
+                        {
+                            File.Delete(errorLogs[i].path);
+                            deletedCount++;
+                        }
+                        catch
+                        {
+                            // 静默跳过
+                        }
+
+                        if (deletedCount % checkInterval == 0 && GetDiskFreeSpaceGb() >= thresholdGb)
+                            break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteErrorLog($"[EmergencyCleanup] 紧急清理异常: {ex.Message}");
+            }
+
+            double freeAfter = GetDiskFreeSpaceGb();
+            if (freeAfter < 1.0)
+            {
+                WriteErrorLog($"[EmergencyCleanup] 警告：紧急清理后磁盘空间仍不足 1GB（当前 {freeAfter} GB），已无更多旧数据可删");
+            }
+            else if (freeAfter > freeBefore)
+            {
+                WriteErrorLog($"[EmergencyCleanup] 紧急清理完成，磁盘空间已恢复至 {freeAfter} GB");
+            }
+
+            return freeAfter;
         }
 
         public void EnsureDirectoriesExist()

@@ -1028,6 +1028,7 @@ namespace ClearFrost
 
             // 启动后台清理
             StartCleanupTask();
+            StartEmergencyCleanupMonitor();
         }
 
         /// <summary>
@@ -1094,6 +1095,42 @@ namespace ClearFrost
                 {
                     _storageService?.CleanOldData(30);
                     await Task.Delay(TimeSpan.FromHours(24));
+                }
+            });
+        }
+
+        private void StartEmergencyCleanupMonitor()
+        {
+            Task.Run(async () =>
+            {
+                DateTime lastCleanupTime = DateTime.MinValue;
+                TimeSpan cooldown = TimeSpan.FromHours(2);
+                TimeSpan checkInterval = TimeSpan.FromHours(1);
+                const double thresholdGb = 1.0;
+
+                while (!停止)
+                {
+                    await Task.Delay(checkInterval);
+
+                    try
+                    {
+                        double freeGb = _storageService?.GetDiskFreeSpaceGb() ?? 999;
+                        if (freeGb < thresholdGb && DateTime.Now - lastCleanupTime > cooldown)
+                        {
+                            double afterGb = _storageService?.PerformEmergencyCleanup() ?? freeGb;
+                            lastCleanupTime = DateTime.Now;
+
+                            if (afterGb < thresholdGb)
+                            {
+                                SafeFireAndForget(_uiController.LogToFrontend(
+                                    $"磁盘空间严重不足：紧急清理后仍仅剩 {afterGb:F2} GB，请立即人工处理", "error"), "紧急清理告警");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[EmergencyCleanupMonitor] 异常: {ex.Message}");
+                    }
                 }
             });
         }

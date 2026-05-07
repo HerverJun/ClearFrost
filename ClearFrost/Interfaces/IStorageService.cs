@@ -81,6 +81,17 @@ namespace ClearFrost.Interfaces
         void CleanOldData(int retainDays);
 
         /// <summary>
+        /// 获取存储磁盘剩余空间（GB）
+        /// </summary>
+        double GetDiskFreeSpaceGb();
+
+        /// <summary>
+        /// 执行紧急清理，按优先级删除最旧的数据直到磁盘空间恢复或无可删数据
+        /// </summary>
+        /// <returns>清理后的剩余空间（GB）</returns>
+        double PerformEmergencyCleanup();
+
+        /// <summary>
         /// 确保目录存在
         /// </summary>
         void EnsureDirectoriesExist();
