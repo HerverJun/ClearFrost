@@ -56,6 +56,33 @@ public class SqliteDatabaseServiceTests
     }
 
     [Fact]
+    public void LegacyMigration_保留旧库图片路径并兼容缺列()
+    {
+        string tempDir = CreateTempDirectory();
+
+        try
+        {
+            string runtimeDbPath = Path.Combine(tempDir, "runtime", "detection.db");
+            string legacyDbPath = Path.Combine(tempDir, "legacy", "detection.db");
+            CreateDatabaseWithImagePathRow(
+                legacyDbPath,
+                "2026-05-04 14:24:41.681",
+                @"C:\GreeVisionData\Images\Unqualified\2026年05月04日\14\FAIL_CF-20260504-142441681.jpg",
+                @"C:\GreeVisionData\Images\Unqualified\2026年05月04日\14\RENDER_FAIL_CF-20260504-142441681.jpg");
+
+            InvokeMigration(new[] { legacyDbPath }, runtimeDbPath);
+
+            GetImagePaths(runtimeDbPath).Should().ContainSingle().Which.Should().Be((
+                @"C:\GreeVisionData\Images\Unqualified\2026年05月04日\14\FAIL_CF-20260504-142441681.jpg",
+                @"C:\GreeVisionData\Images\Unqualified\2026年05月04日\14\RENDER_FAIL_CF-20260504-142441681.jpg"));
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task InitializeAsync_旧表只追加追溯列()
     {
         string tempDir = CreateTempDirectory();
@@ -86,6 +113,47 @@ public class SqliteDatabaseServiceTests
             });
 
             CountRows(dbPath).Should().Be(1);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task InitializeAsync_极旧表缺少检测列_补齐后仍可保存()
+    {
+        string tempDir = CreateTempDirectory();
+
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "runtime", "detection.db");
+            CreateMinimalDatabaseWithRows(dbPath, "2026-04-08 10:00:00");
+
+            using var service = new SqliteDatabaseService(dbPath);
+            await service.InitializeAsync();
+
+            await service.SaveDetectionRecordAsync(new DetectionRecord
+            {
+                Timestamp = new DateTime(2026, 5, 4, 14, 24, 41),
+                IsQualified = false,
+                InspectionId = "CF-20260504-142441681-TEST-000001",
+                ImagePath = @"C:\GreeVisionData\Images\Unqualified\2026年05月04日\14\FAIL_CF-20260504-142441681.jpg",
+                TargetLabel = "screw",
+                ExpectedCount = 4,
+                ActualCount = 0,
+                InferenceMs = 18,
+                ModelName = "model-new",
+                CameraId = "cam-01",
+                ResultJson = "{}"
+            });
+
+            List<DetectionRecord> records = await service.GetRecordsAsync(limit: 10);
+
+            records.Should().HaveCount(2);
+            records[0].InspectionId.Should().Be("CF-20260504-142441681-TEST-000001");
+            records[0].TargetLabel.Should().Be("screw");
+            records[0].ImagePath.Should().Contain("FAIL_CF-20260504");
         }
         finally
         {
@@ -150,6 +218,41 @@ public class SqliteDatabaseServiceTests
         finally
         {
             DeleteDirectory(tempDir);
+        }
+    }
+
+    private static void CreateMinimalDatabaseWithRows(string dbPath, params string[] timestamps)
+    {
+        string directory = Path.GetDirectoryName(dbPath) ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = @"
+                CREATE TABLE IF NOT EXISTS DetectionRecords (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Timestamp TEXT NOT NULL,
+                    IsQualified INTEGER NOT NULL
+                );
+            ";
+            command.ExecuteNonQuery();
+        }
+
+        foreach (string timestamp in timestamps)
+        {
+            using var insertCommand = connection.CreateCommand();
+            insertCommand.CommandText = @"
+                INSERT INTO DetectionRecords (Timestamp, IsQualified)
+                VALUES ($timestamp, 1);
+            ";
+            insertCommand.Parameters.AddWithValue("$timestamp", timestamp);
+            insertCommand.ExecuteNonQuery();
         }
     }
 
@@ -227,6 +330,58 @@ public class SqliteDatabaseServiceTests
         }
     }
 
+    private static void CreateDatabaseWithImagePathRow(
+        string dbPath,
+        string timestamp,
+        string imagePath,
+        string renderedImagePath)
+    {
+        string directory = Path.GetDirectoryName(dbPath) ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = @"
+                CREATE TABLE IF NOT EXISTS DetectionRecords (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Timestamp TEXT NOT NULL,
+                    IsQualified INTEGER NOT NULL,
+                    ImagePath TEXT,
+                    RenderedImagePath TEXT
+                );
+            ";
+            command.ExecuteNonQuery();
+        }
+
+        using var insertCommand = connection.CreateCommand();
+        insertCommand.CommandText = @"
+            INSERT INTO DetectionRecords
+            (
+                Timestamp,
+                IsQualified,
+                ImagePath,
+                RenderedImagePath
+            )
+            VALUES
+            (
+                $timestamp,
+                0,
+                $imagePath,
+                $renderedImagePath
+            );
+        ";
+        insertCommand.Parameters.AddWithValue("$timestamp", timestamp);
+        insertCommand.Parameters.AddWithValue("$imagePath", imagePath);
+        insertCommand.Parameters.AddWithValue("$renderedImagePath", renderedImagePath);
+        insertCommand.ExecuteNonQuery();
+    }
+
     private static int CountRows(string dbPath)
     {
         using var connection = new SqliteConnection($"Data Source={dbPath}");
@@ -253,6 +408,24 @@ public class SqliteDatabaseServiceTests
         }
 
         return columns;
+    }
+
+    private static List<(string ImagePath, string RenderedImagePath)> GetImagePaths(string dbPath)
+    {
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT ImagePath, RenderedImagePath FROM DetectionRecords ORDER BY Timestamp;";
+        using var reader = command.ExecuteReader();
+
+        var paths = new List<(string ImagePath, string RenderedImagePath)>();
+        while (reader.Read())
+        {
+            paths.Add((reader.GetString(0), reader.GetString(1)));
+        }
+
+        return paths;
     }
 
     private static string CreateTempDirectory()

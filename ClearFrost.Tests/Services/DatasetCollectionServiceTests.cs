@@ -40,6 +40,32 @@ public class DatasetCollectionServiceTests
     }
 
     [Fact]
+    public async Task CollectAsync_无数据库记录但目录有图片_直接扫描收集()
+    {
+        string tempDir = CreateTempDirectory();
+        string dbPath = CreateEmptyDatabase(tempDir);
+        string storagePath = CreateTempDirectory();
+        DateTime timestamp = DateTime.Now.Date.AddHours(15).AddMinutes(10).AddSeconds(11);
+        string imageDir = Path.Combine(
+            storagePath,
+            "Images",
+            "Unqualified",
+            timestamp.ToString("yyyy年MM月dd日"),
+            timestamp.ToString("HH"));
+        Directory.CreateDirectory(imageDir);
+        File.WriteAllBytes(
+            Path.Combine(imageDir, $"FAIL_{timestamp:HHmmss}123.png"),
+            new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+        var service = new DatasetCollectionService(dbPath, storagePath);
+
+        var result = await service.CollectAsync(maxDays: 15, totalCount: 1, failRatio: 1.0);
+
+        result.Success.Should().BeTrue();
+        result.FailCopied.Should().Be(1);
+        Directory.GetFiles(Path.Combine(result.OutputDirectory, "Fail")).Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task CollectAsync_有足够记录_正确收集并复制()
     {
         string tempDir = CreateTempDirectory();

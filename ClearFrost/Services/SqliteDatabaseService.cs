@@ -17,6 +17,44 @@ namespace ClearFrost.Services
     public class SqliteDatabaseService : IDatabaseService
     {
         private const int BusyTimeoutMs = 5000;
+        private static readonly string[] DetectionRecordColumns =
+        {
+            "Timestamp",
+            "IsQualified",
+            "InspectionId",
+            "TriggerSource",
+            "TriggerSeq",
+            "ResultSeq",
+            "ProductBarcode",
+            "BarcodeReadSucceeded",
+            "BarcodeError",
+            "TraceStatus",
+            "ImagePath",
+            "RenderedImagePath",
+            "ErrorStage",
+            "ErrorCode",
+            "ErrorMessage",
+            "TotalMs",
+            "CaptureMs",
+            "RoiMs",
+            "PlcWriteMs",
+            "SaveImageMs",
+            "SaveRecordMs",
+            "RecipeId",
+            "RecipeVersion",
+            "ModelId",
+            "ModelVersion",
+            "ModelHash",
+            "WasFallback",
+            "UsedModelName",
+            "TargetLabel",
+            "ExpectedCount",
+            "ActualCount",
+            "InferenceMs",
+            "ModelName",
+            "CameraId",
+            "ResultJson"
+        };
 
         private readonly string _connectionString;
         private readonly string _dbPath;
@@ -29,13 +67,13 @@ namespace ClearFrost.Services
             if (string.IsNullOrEmpty(dbPath))
             {
                 _dbPath = RuntimePaths.DatabasePath;
-                TryMigrateLegacyDatabases(
-                    new[]
-                    {
-                        RuntimePaths.LegacySharedDatabasePath,
-                        RuntimePaths.LegacyDatabasePath
-                    },
-                    _dbPath);
+                var migrationSources = new List<string>
+                {
+                    RuntimePaths.LegacySharedDatabasePath,
+                    RuntimePaths.LegacyDatabasePath
+                };
+                migrationSources.AddRange(GetSiblingRuntimeDatabasePaths(_dbPath));
+                TryMigrateLegacyDatabases(migrationSources, _dbPath);
             }
             else
             {
@@ -107,42 +145,29 @@ namespace ClearFrost.Services
                     return false;
                 }
 
+                HashSet<string> sourceColumns = GetDetectionRecordColumns(destinationConnection, alias);
+                if (!sourceColumns.Contains("Timestamp") || !sourceColumns.Contains("IsQualified"))
+                {
+                    return false;
+                }
+
+                string insertColumns = string.Join(", ", DetectionRecordColumns.Select(QuoteIdentifier));
+                string sourceSelectColumns = string.Join(
+                    ", ",
+                    DetectionRecordColumns.Select(column =>
+                        sourceColumns.Contains(column) ? QuoteIdentifier(column) : GetMigrationDefaultSql(column)));
+                string destinationSelectColumns = string.Join(", ", DetectionRecordColumns.Select(QuoteIdentifier));
+
                 using var importCommand = destinationConnection.CreateCommand();
                 importCommand.CommandText = $@"
                     INSERT INTO DetectionRecords
-                    (
-                        Timestamp,
-                        IsQualified,
-                        TargetLabel,
-                        ExpectedCount,
-                        ActualCount,
-                        InferenceMs,
-                        ModelName,
-                        CameraId,
-                        ResultJson
-                    )
+                    ({insertColumns})
                     SELECT
-                        Timestamp,
-                        IsQualified,
-                        TargetLabel,
-                        ExpectedCount,
-                        ActualCount,
-                        InferenceMs,
-                        ModelName,
-                        CameraId,
-                        ResultJson
+                        {sourceSelectColumns}
                     FROM {alias}.DetectionRecords
                     EXCEPT
                     SELECT
-                        Timestamp,
-                        IsQualified,
-                        TargetLabel,
-                        ExpectedCount,
-                        ActualCount,
-                        InferenceMs,
-                        ModelName,
-                        CameraId,
-                        ResultJson
+                        {destinationSelectColumns}
                     FROM DetectionRecords;
                 ";
 
@@ -180,6 +205,32 @@ namespace ClearFrost.Services
             ";
 
             return command.ExecuteScalar() != null;
+        }
+
+        private static IEnumerable<string> GetSiblingRuntimeDatabasePaths(string runtimeDbPath)
+        {
+            string runtimeFullPath = Path.GetFullPath(runtimeDbPath);
+            string? dataDirectory = Path.GetDirectoryName(runtimeFullPath);
+            string? runtimeDirectory = string.IsNullOrWhiteSpace(dataDirectory)
+                ? null
+                : Directory.GetParent(dataDirectory)?.FullName;
+            string? appDataRoot = string.IsNullOrWhiteSpace(runtimeDirectory)
+                ? null
+                : Directory.GetParent(runtimeDirectory)?.FullName;
+
+            if (string.IsNullOrWhiteSpace(appDataRoot) || !Directory.Exists(appDataRoot))
+            {
+                yield break;
+            }
+
+            foreach (string scopeDirectory in Directory.GetDirectories(appDataRoot))
+            {
+                string candidate = Path.Combine(scopeDirectory, "Data", "detection.db");
+                if (!PathsEqual(candidate, runtimeFullPath) && File.Exists(candidate))
+                {
+                    yield return candidate;
+                }
+            }
         }
 
         private static SqliteConnection OpenDatabase(string dbPath)
@@ -308,6 +359,13 @@ namespace ClearFrost.Services
             AddColumnIfMissing(connection, existingColumns, "ModelHash", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "WasFallback", "INTEGER");
             AddColumnIfMissing(connection, existingColumns, "UsedModelName", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "TargetLabel", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "ExpectedCount", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "ActualCount", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "InferenceMs", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "ModelName", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "CameraId", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "ResultJson", "TEXT");
 
             using var indexCommand = connection.CreateCommand();
             indexCommand.CommandText = @"
@@ -329,6 +387,34 @@ namespace ClearFrost.Services
             }
 
             return columns;
+        }
+
+        private static HashSet<string> GetDetectionRecordColumns(SqliteConnection connection, string databaseAlias)
+        {
+            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using var command = connection.CreateCommand();
+            command.CommandText = $"PRAGMA {databaseAlias}.table_info(DetectionRecords);";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                columns.Add(reader.GetString(1));
+            }
+
+            return columns;
+        }
+
+        private static string QuoteIdentifier(string identifier)
+        {
+            return $"[{identifier}]";
+        }
+
+        private static string GetMigrationDefaultSql(string columnName)
+        {
+            return columnName switch
+            {
+                "IsQualified" => "0",
+                _ => "NULL"
+            };
         }
 
         private static void AddColumnIfMissing(

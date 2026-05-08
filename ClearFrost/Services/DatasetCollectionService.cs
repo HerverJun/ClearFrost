@@ -50,30 +50,39 @@ namespace ClearFrost.Services
             progress?.Report("正在读取检测记录...");
 
             var allRecords = await QueryRecordsAsync(maxDays, cancellationToken);
+            List<DetectionRecordLite> validRecords;
 
             if (allRecords.Count == 0)
             {
-                return DatasetCollectionResult.Failed("指定时间范围内未找到任何检测记录。");
-            }
-
-            // 过滤出磁盘上实际存在的图片（优先 RenderedImagePath，其次 ImagePath）
-            var validRecords = allRecords
-                .Select(r => ResolveImagePath(r))
-                .Where(r => !string.IsNullOrWhiteSpace(r.EffectiveImagePath) && File.Exists(r.EffectiveImagePath))
-                .ToList();
-
-            // 若数据库路径全部失效，尝试根据 Timestamp 在标准目录中自动查找
-            if (validRecords.Count == 0)
-            {
-                progress?.Report("数据库中图片路径为空，尝试根据时间戳自动匹配...");
-                validRecords = TryResolvePathsFromStandardDirectories(allRecords);
-            }
-
-            // 若仍无有效记录，回退到直接扫描图片文件夹
-            if (validRecords.Count == 0)
-            {
-                progress?.Report("检测记录中无有效图片路径，尝试直接扫描图片目录...");
+                progress?.Report("指定时间范围内未找到检测记录，尝试直接扫描图片目录...");
                 validRecords = ScanImageFilesFromDisk(maxDays, cancellationToken);
+
+                if (validRecords.Count == 0)
+                {
+                    return DatasetCollectionResult.Failed("指定时间范围内未找到任何检测记录或图片文件。");
+                }
+            }
+            else
+            {
+                // 过滤出磁盘上实际存在的图片（优先 RenderedImagePath，其次 ImagePath）
+                validRecords = allRecords
+                    .Select(r => ResolveImagePath(r))
+                    .Where(r => !string.IsNullOrWhiteSpace(r.EffectiveImagePath) && File.Exists(r.EffectiveImagePath))
+                    .ToList();
+
+                // 若数据库路径全部失效，尝试根据 Timestamp 在标准目录中自动查找
+                if (validRecords.Count == 0)
+                {
+                    progress?.Report("数据库中图片路径为空，尝试根据时间戳自动匹配...");
+                    validRecords = TryResolvePathsFromStandardDirectories(allRecords);
+                }
+
+                // 若仍无有效记录，回退到直接扫描图片文件夹
+                if (validRecords.Count == 0)
+                {
+                    progress?.Report("检测记录中无有效图片路径，尝试直接扫描图片目录...");
+                    validRecords = ScanImageFilesFromDisk(maxDays, cancellationToken);
+                }
             }
 
             if (validRecords.Count == 0)
@@ -390,7 +399,7 @@ namespace ClearFrost.Services
                 if (!Directory.Exists(searchDir))
                     continue;
 
-                string[] files = Directory.GetFiles(searchDir, "*.jpg", SearchOption.TopDirectoryOnly);
+                string[] files = EnumerateImageFiles(searchDir).ToArray();
                 string? matched = null;
 
                 // 优先按 InspectionId 匹配
@@ -483,7 +492,7 @@ namespace ClearFrost.Services
                         if (!int.TryParse(hourName, out int hour))
                             continue;
 
-                        foreach (string file in Directory.GetFiles(hourDir, "*.jpg", SearchOption.TopDirectoryOnly))
+                        foreach (string file in EnumerateImageFiles(hourDir))
                         {
                             cancellationToken.ThrowIfCancellationRequested();
                             var fileTime = ExtractTimeFromFileName(file);
@@ -517,6 +526,19 @@ namespace ClearFrost.Services
         {
             var rng = new Random();
             return source.OrderBy(_ => rng.Next());
+        }
+
+        private static IEnumerable<string> EnumerateImageFiles(string directory)
+        {
+            if (!Directory.Exists(directory))
+            {
+                return Enumerable.Empty<string>();
+            }
+
+            string[] extensions = { ".jpg", ".jpeg", ".png", ".bmp" };
+            return Directory
+                .EnumerateFiles(directory, "*.*", SearchOption.TopDirectoryOnly)
+                .Where(file => extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase));
         }
     }
 
