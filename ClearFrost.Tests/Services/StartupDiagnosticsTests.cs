@@ -65,6 +65,65 @@ public class StartupDiagnosticsTests
         }
     }
 
+    [Fact]
+    public void Run_条码启用时会校验条码地址()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                BarcodeEnabled = true,
+                BarcodeAddress = "bad-address"
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "PLC address config" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_条码未启用时不因条码地址阻塞启动()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                BarcodeEnabled = false,
+                BarcodeAddress = "bad-address"
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "PLC address config" &&
+                i.Status == StartupDiagnosticStatus.Pass);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(StartupDiagnosticsTests), Guid.NewGuid().ToString("N"));

@@ -10,8 +10,10 @@ namespace ClearFrost.Hardware
     {
         private static readonly Regex DigitsRegex = new Regex(@"^\d+$", RegexOptions.Compiled);
         private static readonly Regex MitsubishiRegex = new Regex(@"^D(\d+)$", RegexOptions.Compiled);
-        private static readonly Regex SiemensDbWordRegex = new Regex(@"^DB(\d+)\.(\d+)$", RegexOptions.Compiled);
-        private static readonly Regex SiemensMiqRegex = new Regex(@"^[MIQ](\d+)$", RegexOptions.Compiled);
+        private static readonly Regex SiemensDbByteRegex = new Regex(@"^DB(\d+)\.(\d+)$", RegexOptions.Compiled);
+        private static readonly Regex SiemensDbTypedByteRegex = new Regex(@"^DB(\d+)\.DB[BWD](\d+)$", RegexOptions.Compiled);
+        private static readonly Regex SiemensWordAreaRegex = new Regex(@"^(M|I|Q|AI|AQ)(\d+)$", RegexOptions.Compiled);
+        private static readonly Regex SiemensBitAddressRegex = new Regex(@"^(?:[MIQ]\d+\.\d+|DB\d+\.(?:\d+|DBX\d+)\.\d+)$", RegexOptions.Compiled);
 
         public static string NormalizeOrThrow(string? rawAddress, PlcProtocolType protocolType)
         {
@@ -87,9 +89,14 @@ namespace ClearFrost.Hardware
             }
 
             string compact = Compact(preferredAddress).ToUpperInvariant();
-            if (protocolType == PlcProtocolType.Siemens_S7 && (SiemensDbWordRegex.IsMatch(compact) || SiemensMiqRegex.IsMatch(compact)))
+            if (protocolType == PlcProtocolType.Siemens_S7 &&
+                (SiemensDbByteRegex.IsMatch(compact) ||
+                 SiemensDbTypedByteRegex.IsMatch(compact) ||
+                 SiemensWordAreaRegex.IsMatch(compact)))
             {
-                return compact;
+                return TryNormalizeSiemens(compact, out string siemensNormalized, out _)
+                    ? siemensNormalized
+                    : compact;
             }
 
             return protocolType switch
@@ -127,33 +134,55 @@ namespace ClearFrost.Hardware
         private static bool TryNormalizeSiemens(string compact, out string normalized, out string? error)
         {
             string upper = compact.ToUpperInvariant();
-            Match match = SiemensDbWordRegex.Match(upper);
+            if (SiemensBitAddressRegex.IsMatch(upper))
+            {
+                return Fail(
+                    "西门子当前信号读写使用 Int16/字节地址，不支持位地址；请使用 DB100.0、DB100.DBW0、M0、I0 或 Q0",
+                    out normalized,
+                    out error);
+            }
+
+            Match match = SiemensDbByteRegex.Match(upper);
             if (match.Success)
             {
-                if (!int.TryParse(match.Groups[1].Value, out int dbNumber) || dbNumber < 0)
-                {
-                    return Fail("西门子 DB 块号无效", out normalized, out error);
-                }
+                return TryNormalizeSiemensDbByteMatch(match, out normalized, out error);
+            }
 
-                if (!int.TryParse(match.Groups[2].Value, out int byteOffset) || byteOffset < 0)
-                {
-                    return Fail("西门子字节偏移无效", out normalized, out error);
-                }
+            match = SiemensDbTypedByteRegex.Match(upper);
+            if (match.Success)
+            {
+                return TryNormalizeSiemensDbByteMatch(match, out normalized, out error);
+            }
 
-                normalized = $"DB{dbNumber}.{byteOffset}";
+            match = SiemensWordAreaRegex.Match(upper);
+            if (match.Success)
+            {
+                normalized = $"{match.Groups[1].Value}{match.Groups[2].Value}";
                 error = null;
                 return true;
             }
 
-            match = SiemensMiqRegex.Match(upper);
-            if (match.Success)
+            return Fail(
+                "西门子地址仅支持 DB / M / I / Q 字节地址，例如 DB100.0、DB100.DBW0、M0、I0、Q0",
+                out normalized,
+                out error);
+        }
+
+        private static bool TryNormalizeSiemensDbByteMatch(Match match, out string normalized, out string? error)
+        {
+            if (!int.TryParse(match.Groups[1].Value, out int dbNumber) || dbNumber < 1)
             {
-                normalized = upper;
-                error = null;
-                return true;
+                return Fail("西门子 DB 块号必须大于等于 1", out normalized, out error);
             }
 
-            return Fail("西门子首版仅支持 DB / M / I / Q 地址，例如 DB100.0、M0", out normalized, out error);
+            if (!int.TryParse(match.Groups[2].Value, out int byteOffset) || byteOffset < 0)
+            {
+                return Fail("西门子 DB 字节偏移无效", out normalized, out error);
+            }
+
+            normalized = $"DB{dbNumber}.{byteOffset}";
+            error = null;
+            return true;
         }
 
         private static bool TryNormalizeModbus(string compact, out string normalized, out string? error)
@@ -191,7 +220,7 @@ namespace ClearFrost.Hardware
 
         private static string Compact(string? rawAddress)
         {
-            return (rawAddress ?? string.Empty).Trim().Replace(" ", string.Empty);
+            return Regex.Replace((rawAddress ?? string.Empty).Trim(), @"\s+", string.Empty);
         }
 
         private static bool Fail(string message, out string normalized, out string? error)

@@ -147,6 +147,11 @@ namespace ClearFrost.Services
                     });
                 }
 
+                if (config.BarcodeEnabled)
+                {
+                    addresses.Add(config.BarcodeAddress);
+                }
+
                 foreach (string address in addresses)
                 {
                     PlcAddressNormalizer.NormalizeOrThrow(address, protocolType);

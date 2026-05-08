@@ -279,6 +279,9 @@ public class AppConfigTests
         config.Should().NotBeNull();
         config!.PlcTriggerAddress.Should().Be("DB1.555");
         config.PlcResultAddress.Should().Be("DB1.556");
+        config.PlcTriggerSeqAddress.Should().Be("DB1.557");
+        config.PlcResultSeqAddress.Should().Be("DB1.558");
+        config.BarcodeAddress.Should().Be("DB1.570");
     }
 
     [Fact]

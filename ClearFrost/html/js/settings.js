@@ -17,8 +17,8 @@
             placeholder: "例如 D100",
         },
         Siemens_S7: {
-            help: "西门子 S7：DB 地址使用 DB1.0 格式；M/I/Q 可用 M0 / I0 / Q0。",
-            placeholder: "例如 DB1.0",
+            help: "西门子 S7：当前信号读写使用字/字节地址，支持 DB1.0、DB1.DBW0、M0、I0、Q0；位地址请勿用于这里。",
+            placeholder: "例如 DB1.0 或 DB1.DBW0",
         },
         Modbus_TCP: {
             help: "Modbus TCP：使用 0-based 寄存器地址，例如 40001 或 0。",
@@ -349,10 +349,15 @@
         const compact = getCompactPlcAddress(address);
         if (!compact) return "地址不能为空";
         if (protocol === "Siemens_S7") {
-            if (/^(M|I|Q)\d+(\.\d+)?$/.test(compact)) return null;
-            const match = compact.match(/^DB(\d+)\.(\d+)$/);
+            if (/^(M|I|Q|AI|AQ)\d+$/.test(compact)) return null;
+            if (/^(?:[MIQ]\d+\.\d+|DB\d+\.(?:\d+|DBX\d+)\.\d+)$/.test(compact)) {
+                return "当前信号读写使用字/字节地址，不支持 M0.0 或 DB1.0.0 这类位地址";
+            }
+            let match = compact.match(/^DB(\d+)\.(\d+)$/);
             if (match && Number(match[1]) >= 1 && Number(match[2]) >= 0) return null;
-            return "西门子地址需为 DB1.0、M0、I0 或 Q0 格式";
+            match = compact.match(/^DB(\d+)\.DB[BWD](\d+)$/);
+            if (match && Number(match[1]) >= 1 && Number(match[2]) >= 0) return null;
+            return "西门子地址需为 DB1.0、DB1.DBW0、M0、I0 或 Q0 格式";
         }
         if (protocol === "Modbus_TCP") {
             return /^\d+$/.test(compact) ? null : "Modbus 地址需为数字";
