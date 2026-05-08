@@ -24,10 +24,17 @@ namespace ClearFrost.Helpers
 
         public static string ConfigPath => Path.Combine(ConfigDirectory, "config.json");
 
+        public static string ProjectPresetsPath => Path.Combine(ConfigDirectory, "project-presets.json");
+
         public static string BundledConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+
+        public static string BundledProjectPresetsPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "project-presets.json");
 
         public static string LegacySharedConfigPath =>
             Path.Combine(GetLegacySharedRootCandidate(), "Config", "config.json");
+
+        public static string LegacySharedProjectPresetsPath =>
+            Path.Combine(GetLegacySharedRootCandidate(), "Config", "project-presets.json");
 
         public static string StartupLogPath => Path.Combine(LogsDirectory, "startup.log");
 

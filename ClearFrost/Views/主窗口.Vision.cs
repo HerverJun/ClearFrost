@@ -1547,6 +1547,7 @@ namespace ClearFrost
         private void btnSettings_Logic()
         {
             // 打开设置对话框
+            SafeFireAndForget(_uiController.SendProjectPresets(ProjectPresetStore.Load()), "加载项目预设");
             SafeFireAndForget(_uiController.SendCurrentConfig(_appConfig), "打开设置");
         }
 

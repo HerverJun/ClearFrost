@@ -582,6 +582,7 @@ namespace ClearFrost
                         currentStats,
                         _healthMonitor.GetSnapshot(),
                         _appConfig.StoragePath);
+                    await _uiController.SendProjectPresets(ProjectPresetStore.Load());
 
                     if (currentStats.TotalCount > 0)
                     {
@@ -740,6 +741,7 @@ namespace ClearFrost
                 {
                     // 密码正确,关闭密码框并发送配置到前端打开设置界面
                     await _uiController.SendUiCommand("closePasswordModal");
+                    await _uiController.SendProjectPresets(ProjectPresetStore.Load());
                     await _uiController.SendCurrentConfig(_appConfig);
                 }
                 else
@@ -747,6 +749,47 @@ namespace ClearFrost
                     // 密码错误
                     await _uiController.SendUiCommand("alert", new { message = "密码错误" });
                     await _uiController.SendUiCommand("closePasswordModal");
+                }
+            };
+
+            // 订阅项目预设维护事件
+            _uiController.OnGetProjectPresets += async (sender, e) =>
+            {
+                try
+                {
+                    await _uiController.SendProjectPresets(ProjectPresetStore.Load());
+                }
+                catch (Exception ex)
+                {
+                    await _uiController.LogToFrontend($"加载项目预设失败: {ex.Message}", "error");
+                }
+            };
+
+            _uiController.OnSaveProjectPreset += async (sender, payloadJson) =>
+            {
+                try
+                {
+                    var snapshot = ProjectPresetStore.SavePreset(payloadJson);
+                    await _uiController.SendProjectPresets(snapshot);
+                    await _uiController.LogToFrontend($"项目预设已保存: {snapshot.Path}", "success");
+                }
+                catch (Exception ex)
+                {
+                    await _uiController.SendUiCommand("alert", new { message = $"保存项目预设失败: {ex.Message}" });
+                }
+            };
+
+            _uiController.OnDeleteProjectPreset += async (sender, presetId) =>
+            {
+                try
+                {
+                    var snapshot = ProjectPresetStore.DeletePreset(presetId);
+                    await _uiController.SendProjectPresets(snapshot);
+                    await _uiController.LogToFrontend("项目预设已删除", "success");
+                }
+                catch (Exception ex)
+                {
+                    await _uiController.SendUiCommand("alert", new { message = $"删除项目预设失败: {ex.Message}" });
                 }
             };
 
@@ -1512,5 +1555,3 @@ namespace ClearFrost
         #endregion
     }
 }
-
-

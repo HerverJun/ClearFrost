@@ -83,6 +83,9 @@ namespace ClearFrost
         public event EventHandler<int>? OnSetTaskType;  // YOLO任务类型设置事件
         public event EventHandler<string>? OnVerifyPassword;
         public event EventHandler<string>? OnSaveSettings;
+        public event EventHandler<string>? OnSaveProjectPreset;
+        public event EventHandler<string>? OnDeleteProjectPreset;
+        public event EventHandler? OnGetProjectPresets;
         public event EventHandler? OnSelectStorageFolder;
         public event EventHandler? OnGetStatisticsHistory;
         public event EventHandler? OnClearStatisticsHistory;
@@ -595,6 +598,21 @@ namespace ClearFrost
                                 break;
                             case "open_settings":
                                 OnOpenSettings?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "get_project_presets":
+                                OnGetProjectPresets?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "save_project_preset":
+                                if (root.TryGetProperty("value", out JsonElement presetSaveElement))
+                                {
+                                    OnSaveProjectPreset?.Invoke(this, presetSaveElement.GetRawText());
+                                }
+                                break;
+                            case "delete_project_preset":
+                                if (root.TryGetProperty("value", out JsonElement presetDeleteElement))
+                                {
+                                    OnDeleteProjectPreset?.Invoke(this, presetDeleteElement.GetString() ?? string.Empty);
+                                }
                                 break;
                             case "change_model":
                                 if (root.TryGetProperty("value", out JsonElement modelElement))
@@ -1319,6 +1337,9 @@ namespace ClearFrost
                 OnSetTaskType = null;
                 OnVerifyPassword = null;
                 OnSaveSettings = null;
+                OnSaveProjectPreset = null;
+                OnDeleteProjectPreset = null;
+                OnGetProjectPresets = null;
                 OnSelectStorageFolder = null;
                 OnGetStatisticsHistory = null;
                 OnClearStatisticsHistory = null;
@@ -1339,7 +1360,4 @@ namespace ClearFrost
         }
     }
 }
-
-
-
 

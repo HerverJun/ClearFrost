@@ -30,7 +30,7 @@
         },
     };
 
-    const PROJECT_PRESETS = {
+    let PROJECT_PRESETS = {
         N5_remote: {
             name: "N5遥控器漏装视觉检测",
             PlcIp: "10.182.82.19",
@@ -290,6 +290,8 @@
             CameraManufacturer: "Huaray",
         },
     };
+
+    let pendingProjectPresetId = "";
 
     function byId(id) {
         return document.getElementById(id);
@@ -565,13 +567,149 @@
         if (input) input.value = path || "";
     }
 
-    function saveSettings() {
+    function getPresetDisplayName(presetId, preset) {
+        return String(preset?.name || preset?.Name || preset?.CameraName || presetId || "").trim();
+    }
+
+    function getProjectPresetNameInput() {
+        return byId("project-preset-name");
+    }
+
+    function updateProjectPresetSelect(selectedId = "") {
+        const select = byId("project-preset-select");
+        if (!select) return;
+
+        const currentValue = selectedId || select.value || "";
+        select.innerHTML = "";
+
+        const emptyOption = document.createElement("option");
+        emptyOption.value = "";
+        emptyOption.text = "-- 选择预设项目（可选）--";
+        select.add(emptyOption);
+
+        Object.entries(PROJECT_PRESETS)
+            .sort((left, right) => getPresetDisplayName(left[0], left[1]).localeCompare(getPresetDisplayName(right[0], right[1]), "zh-CN"))
+            .forEach(([presetId, preset]) => {
+                const option = document.createElement("option");
+                option.value = presetId;
+                option.text = getPresetDisplayName(presetId, preset);
+                select.add(option);
+            });
+
+        if (currentValue && PROJECT_PRESETS[currentValue]) {
+            select.value = currentValue;
+        }
+    }
+
+    function syncProjectPresetName() {
+        const select = byId("project-preset-select");
+        const input = getProjectPresetNameInput();
+        if (!select || !input) return;
+
+        const preset = PROJECT_PRESETS[select.value];
+        input.value = preset ? getPresetDisplayName(select.value, preset) : "";
+    }
+
+    function handleProjectPresets(data) {
+        const presets = data?.presets || data?.Presets || data || {};
+        PROJECT_PRESETS = presets && typeof presets === "object" && !Array.isArray(presets) ? presets : {};
+        const selectedId = pendingProjectPresetId;
+        pendingProjectPresetId = "";
+        updateProjectPresetSelect(selectedId);
+        syncProjectPresetName();
+
+        const pathLabel = byId("project-preset-path");
+        const path = data?.path || data?.Path || "";
+        if (pathLabel) pathLabel.textContent = path ? `预设文件: ${path}` : "";
+    }
+
+    function makeProjectPresetId(name) {
+        const base = String(name || "")
+            .trim()
+            .replace(/\s+/g, "_")
+            .replace(/[^\w\u4e00-\u9fa5-]+/g, "_")
+            .replace(/_+/g, "_")
+            .replace(/^_+|_+$/g, "")
+            .slice(0, 48);
+        return `${base || "preset"}_${Date.now().toString(36)}`;
+    }
+
+    function findProjectPresetIdByName(name) {
+        const normalized = String(name || "").trim();
+        return Object.entries(PROJECT_PRESETS).find(([, preset]) => getPresetDisplayName("", preset) === normalized)?.[0] || "";
+    }
+
+    function saveProjectPresetAsNew() {
+        const input = getProjectPresetNameInput();
+        const name = (input?.value || prompt("请输入新预设名称") || "").trim();
+        if (!name) {
+            alert("请输入预设名称");
+            return;
+        }
+
         const plcError = validatePlcSettings();
         if (plcError) {
             alert(plcError);
             return;
         }
 
+        let presetId = findProjectPresetIdByName(name);
+        if (presetId && !confirm(`已存在同名预设“${name}”，是否覆盖？`)) {
+            return;
+        }
+
+        if (!presetId) presetId = makeProjectPresetId(name);
+        const preset = collectSettingsData();
+        preset.name = name;
+        pendingProjectPresetId = presetId;
+        bridge.sendCommand("save_project_preset", { id: presetId, name, preset });
+    }
+
+    function updateSelectedProjectPreset() {
+        const select = byId("project-preset-select");
+        const presetId = select?.value || "";
+        if (!presetId || !PROJECT_PRESETS[presetId]) {
+            alert("请先选择要更新的预设");
+            return;
+        }
+
+        const input = getProjectPresetNameInput();
+        const name = (input?.value || getPresetDisplayName(presetId, PROJECT_PRESETS[presetId])).trim();
+        if (!name) {
+            alert("请输入预设名称");
+            return;
+        }
+
+        const plcError = validatePlcSettings();
+        if (plcError) {
+            alert(plcError);
+            return;
+        }
+
+        const preset = collectSettingsData();
+        preset.name = name;
+        pendingProjectPresetId = presetId;
+        bridge.sendCommand("save_project_preset", { id: presetId, name, preset });
+    }
+
+    function deleteSelectedProjectPreset() {
+        const select = byId("project-preset-select");
+        const presetId = select?.value || "";
+        if (!presetId || !PROJECT_PRESETS[presetId]) {
+            alert("请先选择要删除的预设");
+            return;
+        }
+
+        const name = getPresetDisplayName(presetId, PROJECT_PRESETS[presetId]);
+        if (!confirm(`确认删除预设“${name}”？`)) return;
+
+        bridge.sendCommand("delete_project_preset", presetId);
+        pendingProjectPresetId = "";
+        if (getProjectPresetNameInput()) getProjectPresetNameInput().value = "";
+        updateProjectPresetSelect("");
+    }
+
+    function collectSettingsData() {
         const fieldMapping = {
             "cfg-storage-path": "StoragePath",
             "cfg-plc-protocol": "PlcProtocol",
@@ -639,6 +777,17 @@
         if (byId("conf-slider")) data.Confidence = Math.max(0, Math.min(1, parseFloat(byId("conf-slider").value) / 100));
         if (byId("iou-slider")) data.IouThreshold = Math.max(0, Math.min(1, parseFloat(byId("iou-slider").value) / 100));
 
+        return data;
+    }
+
+    function saveSettings() {
+        const plcError = validatePlcSettings();
+        if (plcError) {
+            alert(plcError);
+            return;
+        }
+
+        const data = collectSettingsData();
         bridge.sendCommand("save_settings", data);
     }
 
@@ -709,6 +858,7 @@
         byId("settings-modal")?.classList.remove("hidden");
         syncSettingsChrome();
         activateSettingsTab("vision");
+        bridge.sendCommand("get_project_presets");
         bridge.sendCommand("open_settings");
     }
 
@@ -741,6 +891,11 @@
     }
 
     function loadProjectPreset(presetId) {
+        if (!presetId) {
+            syncProjectPresetName();
+            return;
+        }
+
         const preset = PROJECT_PRESETS[presetId];
         if (!preset) {
             window.addLog?.(`未找到预设配置: ${presetId}`, "error");
@@ -775,11 +930,11 @@
             "cfg-barcode-address": preset.BarcodeAddress ?? "D570",
             "cfg-barcode-word-length": preset.BarcodeWordLength ?? 16,
             "cfg-barcode-encoding": preset.BarcodeEncoding ?? "ASCII",
-            "cfg-cam-name": preset.name,
+            "cfg-cam-name": getPresetDisplayName(presetId, preset),
             "cfg-cam-serial": preset.CameraSerialNumber,
             "cfg-cam-manufacturer": preset.CameraManufacturer ?? "Huaray",
             "cfg-cam-exposure": preset.ExposureTime,
-            "cfg-cam-gain": preset.Gain ?? 1.1,
+            "cfg-cam-gain": preset.GainRaw ?? preset.Gain ?? 1.1,
             "cfg-logic-target-label": preset.TargetLabel,
             "cfg-logic-target-count": preset.TargetCount,
             "cfg-logic-retry-count": preset.MaxRetryCount ?? 1,
@@ -805,7 +960,8 @@
         updatePlcAddressUi();
         updatePlcProtocolModeUi();
         updateSiemensRackSlotVisibility();
-        window.addLog?.(`已加载预设: ${preset.name}`, "success");
+        syncProjectPresetName();
+        window.addLog?.(`已加载预设: ${getPresetDisplayName(presetId, preset)}`, "success");
     }
 
     function openPasswordModal() {
@@ -882,6 +1038,8 @@
         applyMultiModelUiState,
         closePasswordModal,
         closeSettingsModal,
+        deleteSelectedProjectPreset,
+        handleProjectPresets,
         initModelList,
         initSettings,
         loadProjectPreset,
@@ -890,9 +1048,12 @@
         openSettingsModal,
         populateSettings,
         saveSettings,
+        saveProjectPresetAsNew,
         showPasswordModal: openPasswordModal,
         syncDriverProviderOptions,
+        syncProjectPresetName,
         toggleMultiModel,
+        updateSelectedProjectPreset,
         updateConfidence,
         updateIou,
         updatePlcAddressUi,
@@ -908,5 +1069,6 @@
     bridge.registerMessageHandler("bootstrapSnapshot", handleBootstrapSnapshot);
     bridge.registerMessageHandler("configSnapshot", handleConfigSnapshot);
     bridge.registerMessageHandler("modelList", (data) => initModelList(data?.models || data?.Models || data || [], false));
+    bridge.registerMessageHandler("projectPresets", handleProjectPresets);
     bridge.registerMessageHandler("datasetCollectResult", handleDatasetCollectResult);
 })();

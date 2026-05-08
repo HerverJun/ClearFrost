@@ -18,6 +18,16 @@ namespace ClearFrost
             return Task.CompletedTask;
         }
 
+        public Task SendProjectPresets(ProjectPresetStore.Snapshot snapshot)
+        {
+            PostMessage("projectPresets", new
+            {
+                presets = snapshot.Presets,
+                path = snapshot.Path
+            });
+            return Task.CompletedTask;
+        }
+
         public Task SendBootstrapSnapshot(
             AppConfig config,
             IEnumerable<object> cameras,

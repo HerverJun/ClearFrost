@@ -255,6 +255,23 @@
                                 <option value="W5_screw">W5螺钉视觉检测</option>
                                 <option value="W6_screw">W6螺钉视觉检测</option>
                             </select>
+                            <div class="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] gap-2">
+                                <input id="project-preset-name" type="text" class="tech-input px-3 py-2 rounded-lg text-xs"
+                                    placeholder="预设名称">
+                                <button type="button" data-action="saveProjectPresetAsNew"
+                                    class="px-3 py-2 bg-celadon-600 text-white hover:bg-celadon-700 text-[10px] font-bold rounded-lg transition-[background-color]">
+                                    保存为新预设
+                                </button>
+                                <button type="button" data-action="updateSelectedProjectPreset"
+                                    class="px-3 py-2 bg-ink-700 text-white hover:bg-ink-800 text-[10px] font-bold rounded-lg transition-[background-color]">
+                                    更新当前预设
+                                </button>
+                                <button type="button" data-action="deleteSelectedProjectPreset"
+                                    class="px-3 py-2 bg-red-600 text-white hover:bg-red-700 text-[10px] font-bold rounded-lg transition-[background-color]">
+                                    删除
+                                </button>
+                            </div>
+                            <p id="project-preset-path" class="text-[9px] text-ink-400 mt-2 truncate"></p>
                             <p class="text-[9px] text-ink-400 mt-2 italic">选择后自动填充下方配置项，填充后仍可手动修改各参数</p>
                         </div>
 
