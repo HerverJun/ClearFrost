@@ -124,6 +124,69 @@ public class StartupDiagnosticsTests
         }
     }
 
+    [Fact]
+    public void Run_McpX三菱非D区地址会产生阻塞失败()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                PlcProtocol = PlcProtocolType.Mitsubishi_MC_Binary.ToString(),
+                PlcDriverProvider = "McpX",
+                PlcTriggerAddress = "M100",
+                PlcResultAddress = "D101"
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "PLC address config" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_Hao三菱可接受常见非D区字地址()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                PlcProtocol = PlcProtocolType.Mitsubishi_MC_Binary.ToString(),
+                PlcDriverProvider = "HaoCommunication",
+                PlcTriggerAddress = "M100",
+                PlcResultAddress = "Y10"
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "PLC address config" &&
+                i.Status == StartupDiagnosticStatus.Pass);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(StartupDiagnosticsTests), Guid.NewGuid().ToString("N"));

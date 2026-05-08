@@ -9,11 +9,11 @@
 
     const PLC_PROTOCOL_UI_HINTS = {
         Mitsubishi_MC_ASCII: {
-            help: "三菱 MC ASCII：常用 D100 / M100 / X10 / Y10；地址不带协议前缀。",
+            help: "三菱 MC ASCII：Hsl/Hao 支持 D/M/X/Y 等字地址；McpX 当前业务适配只支持 D 区。",
             placeholder: "例如 D100",
         },
         Mitsubishi_MC_Binary: {
-            help: "三菱 MC Binary：常用 D100 / M100 / X10 / Y10；地址不带协议前缀。",
+            help: "三菱 MC Binary：Hsl/Hao 支持 D/M/X/Y 等字地址；McpX 当前业务适配只支持 D 区。",
             placeholder: "例如 D100",
         },
         Siemens_S7: {
@@ -25,7 +25,7 @@
             placeholder: "例如 40001",
         },
         Omron_Fins: {
-            help: "欧姆龙 FINS：常用 D100 / CIO100 / W100 / H100。",
+            help: "欧姆龙 FINS：常用 D100 / CIO100(C100) / W100 / H100 / A100。",
             placeholder: "例如 D100",
         },
     };
@@ -345,9 +345,20 @@
         updatePlcProtocolModeUi();
     }
 
-    function validatePlcAddress(address, protocol) {
+    function validatePlcAddress(address, protocol, driver = "") {
         const compact = getCompactPlcAddress(address);
         if (!compact) return "地址不能为空";
+        if (protocol.startsWith("Mitsubishi")) {
+            if (driver === "McpX") {
+                return /^(?:D)?\d+$/.test(compact) ? null : "McpX 当前业务适配仅支持三菱 D 区地址，例如 D100";
+            }
+            if (/^(?:D|M|S|T|C|R)\d+$/.test(compact)) return null;
+            if (/^(?:X|Y)[0-9A-F]+$/.test(compact)) return null;
+            if (/^(?:D|M|S|T|C|R|X|Y)[0-9A-F]+\.\d+$/.test(compact)) {
+                return "当前信号读写使用字地址，不支持位地址";
+            }
+            return "三菱地址需为 D100、M100、X10 或 Y10 格式";
+        }
         if (protocol === "Siemens_S7") {
             if (/^(M|I|Q|AI|AQ)\d+$/.test(compact)) return null;
             if (/^(?:[MIQ]\d+\.\d+|DB\d+\.(?:\d+|DBX\d+)\.\d+)$/.test(compact)) {
@@ -362,7 +373,13 @@
         if (protocol === "Modbus_TCP") {
             return /^\d+$/.test(compact) ? null : "Modbus 地址需为数字";
         }
-        if (/^(D|M|X|Y|CIO|W|H)\d+$/i.test(compact)) return null;
+        if (protocol === "Omron_Fins") {
+            if (/^(?:D|CIO|C|W|H|A)\d+$/.test(compact)) return null;
+            if (/^(?:D|CIO|C|W|H|A)\d+\.\d+$/.test(compact)) {
+                return "当前信号读写使用字地址，不支持位地址";
+            }
+            return "欧姆龙地址需为 D100、CIO100、W100、H100 或 A100 格式";
+        }
         return "地址格式不符合当前 PLC 协议";
     }
 
@@ -377,9 +394,9 @@
             return "仅三菱协议支持 McpX 驱动库";
         }
 
-        const triggerError = validatePlcAddress(triggerAddress, protocol);
+        const triggerError = validatePlcAddress(triggerAddress, protocol, driver);
         if (triggerError) return `触发地址无效: ${triggerError}`;
-        const resultError = validatePlcAddress(resultAddress, protocol);
+        const resultError = validatePlcAddress(resultAddress, protocol, driver);
         if (resultError) return `结果地址无效: ${resultError}`;
 
         if (mode === "HandshakeV1") {
@@ -396,13 +413,13 @@
                 ["ResetFault", "cfg-plc-reset-fault"],
             ];
             for (const [label, inputId] of handshakeFields) {
-                const error = validatePlcAddress(byId(inputId)?.value || "", protocol);
+                const error = validatePlcAddress(byId(inputId)?.value || "", protocol, driver);
                 if (error) return `${label} 地址无效: ${error}`;
             }
         }
 
         if (byId("cfg-barcode-enabled")?.checked) {
-            const barcodeError = validatePlcAddress(byId("cfg-barcode-address")?.value || "", protocol);
+            const barcodeError = validatePlcAddress(byId("cfg-barcode-address")?.value || "", protocol, driver);
             if (barcodeError) return `条码地址无效: ${barcodeError}`;
         }
 

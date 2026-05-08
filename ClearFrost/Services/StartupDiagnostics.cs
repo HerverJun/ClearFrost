@@ -154,7 +154,11 @@ namespace ClearFrost.Services
 
                 foreach (string address in addresses)
                 {
-                    PlcAddressNormalizer.NormalizeOrThrow(address, protocolType);
+                    string normalized = PlcAddressNormalizer.NormalizeOrThrow(address, protocolType);
+                    PlcAddressNormalizer.EnsureDriverSupportsAddress(
+                        normalized,
+                        protocolType,
+                        config.PlcDriverProvider);
                 }
 
                 return Pass("PLC address config", "PLC addresses are valid.", config.PlcProtocolMode.ToString(), isBlocking: true);

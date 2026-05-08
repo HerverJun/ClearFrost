@@ -12,9 +12,18 @@ public class PlcAddressNormalizerTests
     [Theory]
     [InlineData(PlcProtocolType.Mitsubishi_MC_ASCII, "555", "D555")]
     [InlineData(PlcProtocolType.Mitsubishi_MC_ASCII, "D555", "D555")]
+    [InlineData(PlcProtocolType.Mitsubishi_MC_ASCII, "m100", "M100")]
+    [InlineData(PlcProtocolType.Mitsubishi_MC_ASCII, "X1A", "X1A")]
+    [InlineData(PlcProtocolType.Mitsubishi_MC_ASCII, "y10", "Y10")]
+    [InlineData(PlcProtocolType.Mitsubishi_MC_ASCII, "C20", "C20")]
     [InlineData(PlcProtocolType.Mitsubishi_MC_Binary, "555", "D555")]
     [InlineData(PlcProtocolType.Omron_Fins, "100", "D100")]
     [InlineData(PlcProtocolType.Omron_Fins, "D100", "D100")]
+    [InlineData(PlcProtocolType.Omron_Fins, "CIO100", "C100")]
+    [InlineData(PlcProtocolType.Omron_Fins, "c100", "C100")]
+    [InlineData(PlcProtocolType.Omron_Fins, "W100", "W100")]
+    [InlineData(PlcProtocolType.Omron_Fins, "H100", "H100")]
+    [InlineData(PlcProtocolType.Omron_Fins, "A100", "A100")]
     [InlineData(PlcProtocolType.Modbus_TCP, "100", "100")]
     [InlineData(PlcProtocolType.Siemens_S7, "DB100.0", "DB100.0")]
     [InlineData(PlcProtocolType.Siemens_S7, "DB100.1", "DB100.1")]
@@ -56,6 +65,34 @@ public class PlcAddressNormalizerTests
         var action = () => PlcAddressNormalizer.NormalizeOrThrow(rawAddress, PlcProtocolType.Siemens_S7);
 
         action.Should().Throw<ArgumentException>();
+    }
+
+    [Theory]
+    [InlineData(PlcProtocolType.Mitsubishi_MC_ASCII, "D100.0")]
+    [InlineData(PlcProtocolType.Mitsubishi_MC_ASCII, "Q100")]
+    [InlineData(PlcProtocolType.Omron_Fins, "D100.0")]
+    [InlineData(PlcProtocolType.Omron_Fins, "M100")]
+    [InlineData(PlcProtocolType.Modbus_TCP, "D100")]
+    public void Normalize_其他协议非法地址抛异常(PlcProtocolType protocolType, string rawAddress)
+    {
+        var action = () => PlcAddressNormalizer.NormalizeOrThrow(rawAddress, protocolType);
+
+        action.Should().Throw<ArgumentException>();
+    }
+
+    [Theory]
+    [InlineData("D100", true)]
+    [InlineData("M100", false)]
+    [InlineData("X10", false)]
+    public void IsSupportedByDriver_McpX仅允许三菱D区(string normalizedAddress, bool expected)
+    {
+        bool supported = PlcAddressNormalizer.IsSupportedByDriver(
+            normalizedAddress,
+            PlcProtocolType.Mitsubishi_MC_Binary,
+            "McpX",
+            out _);
+
+        supported.Should().Be(expected);
     }
 }
 

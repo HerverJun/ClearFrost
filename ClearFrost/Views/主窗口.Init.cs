@@ -877,19 +877,19 @@ namespace ClearFrost
                         }
 
                         bool requiresHandshakeAddresses = plcProtocolMode == PlcProtocolMode.HandshakeV1;
-                        plcTriggerAddress = PlcAddressNormalizer.NormalizeOrThrow(plcTriggerAddress, plcProtocolType);
-                        plcResultAddress = PlcAddressNormalizer.NormalizeOrThrow(plcResultAddress, plcProtocolType);
-                        plcTriggerSeqAddress = NormalizeOptionalPlcAddressForSave(plcTriggerSeqAddress, plcProtocolType, 557, requiresHandshakeAddresses);
-                        plcResultSeqAddress = NormalizeOptionalPlcAddressForSave(plcResultSeqAddress, plcProtocolType, 558, requiresHandshakeAddresses);
-                        plcVisionOnlineAddress = NormalizeOptionalPlcAddressForSave(plcVisionOnlineAddress, plcProtocolType, 559, requiresHandshakeAddresses);
-                        plcVisionReadyAddress = NormalizeOptionalPlcAddressForSave(plcVisionReadyAddress, plcProtocolType, 560, requiresHandshakeAddresses);
-                        plcVisionBusyAddress = NormalizeOptionalPlcAddressForSave(plcVisionBusyAddress, plcProtocolType, 561, requiresHandshakeAddresses);
-                        plcInspectionDoneAddress = NormalizeOptionalPlcAddressForSave(plcInspectionDoneAddress, plcProtocolType, 562, requiresHandshakeAddresses);
-                        plcErrorCodeAddress = NormalizeOptionalPlcAddressForSave(plcErrorCodeAddress, plcProtocolType, 563, requiresHandshakeAddresses);
-                        plcTraceSavedAddress = NormalizeOptionalPlcAddressForSave(plcTraceSavedAddress, plcProtocolType, 564, requiresHandshakeAddresses);
-                        plcHeartbeatAddress = NormalizeOptionalPlcAddressForSave(plcHeartbeatAddress, plcProtocolType, 565, requiresHandshakeAddresses);
-                        plcResetFaultAddress = NormalizeOptionalPlcAddressForSave(plcResetFaultAddress, plcProtocolType, 566, requiresHandshakeAddresses);
-                        barcodeAddress = NormalizeOptionalPlcAddressForSave(barcodeAddress, plcProtocolType, 570, barcodeEnabled);
+                        plcTriggerAddress = NormalizeRequiredPlcAddressForSave(plcTriggerAddress, plcProtocolType, plcDriverProvider);
+                        plcResultAddress = NormalizeRequiredPlcAddressForSave(plcResultAddress, plcProtocolType, plcDriverProvider);
+                        plcTriggerSeqAddress = NormalizeOptionalPlcAddressForSave(plcTriggerSeqAddress, plcProtocolType, plcDriverProvider, 557, requiresHandshakeAddresses);
+                        plcResultSeqAddress = NormalizeOptionalPlcAddressForSave(plcResultSeqAddress, plcProtocolType, plcDriverProvider, 558, requiresHandshakeAddresses);
+                        plcVisionOnlineAddress = NormalizeOptionalPlcAddressForSave(plcVisionOnlineAddress, plcProtocolType, plcDriverProvider, 559, requiresHandshakeAddresses);
+                        plcVisionReadyAddress = NormalizeOptionalPlcAddressForSave(plcVisionReadyAddress, plcProtocolType, plcDriverProvider, 560, requiresHandshakeAddresses);
+                        plcVisionBusyAddress = NormalizeOptionalPlcAddressForSave(plcVisionBusyAddress, plcProtocolType, plcDriverProvider, 561, requiresHandshakeAddresses);
+                        plcInspectionDoneAddress = NormalizeOptionalPlcAddressForSave(plcInspectionDoneAddress, plcProtocolType, plcDriverProvider, 562, requiresHandshakeAddresses);
+                        plcErrorCodeAddress = NormalizeOptionalPlcAddressForSave(plcErrorCodeAddress, plcProtocolType, plcDriverProvider, 563, requiresHandshakeAddresses);
+                        plcTraceSavedAddress = NormalizeOptionalPlcAddressForSave(plcTraceSavedAddress, plcProtocolType, plcDriverProvider, 564, requiresHandshakeAddresses);
+                        plcHeartbeatAddress = NormalizeOptionalPlcAddressForSave(plcHeartbeatAddress, plcProtocolType, plcDriverProvider, 565, requiresHandshakeAddresses);
+                        plcResetFaultAddress = NormalizeOptionalPlcAddressForSave(plcResetFaultAddress, plcProtocolType, plcDriverProvider, 566, requiresHandshakeAddresses);
+                        barcodeAddress = NormalizeOptionalPlcAddressForSave(barcodeAddress, plcProtocolType, plcDriverProvider, 570, barcodeEnabled);
 
                         _appConfig.PlcProtocol = plcProtocol;
                         _appConfig.PlcDriverProvider = plcDriverProvider;
@@ -1423,21 +1423,35 @@ namespace ClearFrost
             }
         }
 
+        private static string NormalizeRequiredPlcAddressForSave(
+            string address,
+            PlcProtocolType protocolType,
+            string driverProvider)
+        {
+            string normalized = PlcAddressNormalizer.NormalizeOrThrow(address, protocolType);
+            PlcAddressNormalizer.EnsureDriverSupportsAddress(normalized, protocolType, driverProvider);
+            return normalized;
+        }
+
         private static string NormalizeOptionalPlcAddressForSave(
             string address,
             PlcProtocolType protocolType,
+            string driverProvider,
             int defaultNumber,
             bool required)
         {
             if (required)
             {
-                return PlcAddressNormalizer.NormalizeOrThrow(address, protocolType);
+                return NormalizeRequiredPlcAddressForSave(address, protocolType, driverProvider);
             }
 
-            return PlcAddressNormalizer.MigrateLegacyAddress(
+            string normalized = PlcAddressNormalizer.MigrateLegacyAddress(
                 address,
                 protocolType,
                 GetProtocolDefaultPlcAddress(protocolType, defaultNumber));
+            return PlcAddressNormalizer.IsSupportedByDriver(normalized, protocolType, driverProvider, out _)
+                ? normalized
+                : GetProtocolDefaultPlcAddress(protocolType, defaultNumber);
         }
 
         private static string GetProtocolDefaultPlcAddress(PlcProtocolType protocolType, int number)
