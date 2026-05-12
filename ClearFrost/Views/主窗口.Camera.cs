@@ -225,6 +225,192 @@ namespace ClearFrost
             }
         }
 
+        private async Task CaptureCameraPreviewFrameAsync(string payloadJson)
+        {
+            if (IsShutdownInProgress)
+            {
+                return;
+            }
+
+            await _uiController.SendUiCommand("cameraPreviewStatus", new
+            {
+                isBusy = true,
+                message = "正在打开相机并获取画面..."
+            });
+
+            try
+            {
+                CameraConfig? activeConfig = ApplyCameraPreviewPayload(payloadJson);
+                if (activeConfig == null || string.IsNullOrWhiteSpace(activeConfig.SerialNumber))
+                {
+                    throw new InvalidOperationException("未配置活动相机或序列号为空");
+                }
+
+                bool needsOpen = !_cameraService.IsOpen || !_cameraService.IsGrabbing;
+                if (needsOpen)
+                {
+                    if (_isCameraOpening)
+                    {
+                        throw new InvalidOperationException("相机正在连接中，请稍候重试");
+                    }
+
+                    await btnOpenCamera_LogicAsync();
+                }
+                else
+                {
+                    getParam();
+                }
+
+                if (!_cameraService.IsOpen)
+                {
+                    throw new InvalidOperationException(_cameraService.LastError ?? "相机未连接");
+                }
+
+                if (!_cameraService.IsGrabbing)
+                {
+                    _cameraService.StartCapture();
+                }
+
+                using Mat? frame = await Task.Run(() => _cameraService.CaptureFrame(3000));
+                if (frame == null || frame.Empty())
+                {
+                    throw new InvalidOperationException(_cameraService.LastError ?? "获取单帧失败");
+                }
+
+                await _uiController.SendCameraPreviewFrame(frame);
+                await _uiController.SendUiCommand("cameraPreviewStatus", new
+                {
+                    isBusy = false,
+                    message = "预览已更新",
+                    type = "success"
+                });
+            }
+            catch (Exception ex)
+            {
+                await _uiController.LogToFrontend($"相机预览取帧失败: {ex.Message}", "error");
+                await _uiController.SendUiCommand("cameraPreviewStatus", new
+                {
+                    isBusy = false,
+                    message = $"获取失败: {ex.Message}",
+                    type = "error"
+                });
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = $"获取单帧失败: {ex.Message}",
+                    type = "warning",
+                    durationMs = 3000
+                });
+            }
+        }
+
+        private CameraConfig? ApplyCameraPreviewPayload(string payloadJson)
+        {
+            CameraConfig? activeConfig = _appConfig.ActiveCamera ?? _appConfig.EnsureActiveCameraConfigFromLegacy();
+            if (string.IsNullOrWhiteSpace(payloadJson))
+            {
+                return activeConfig;
+            }
+
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(payloadJson);
+                JsonElement root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                {
+                    return activeConfig;
+                }
+
+                string serialNumber = ReadJsonString(root, "serialNumber", "SerialNumber").Trim();
+                if (string.IsNullOrWhiteSpace(serialNumber))
+                {
+                    return activeConfig;
+                }
+
+                string cameraId = ReadJsonString(root, "cameraId", "CameraId").Trim();
+                string manufacturer = ReadJsonString(root, "manufacturer", "Manufacturer").Trim();
+                string displayName = ReadJsonString(root, "displayName", "DisplayName").Trim();
+
+                CameraConfig config =
+                    (!string.IsNullOrWhiteSpace(cameraId)
+                        ? _appConfig.Cameras.FirstOrDefault(c => c.Id == cameraId)
+                        : null) ??
+                    _appConfig.Cameras.FirstOrDefault(c =>
+                        string.Equals(c.SerialNumber?.Trim(), serialNumber, StringComparison.OrdinalIgnoreCase)) ??
+                    activeConfig ??
+                    new CameraConfig();
+
+                bool isNewConfig = !_appConfig.Cameras.Any(c => c.Id == config.Id);
+                bool cameraIdentityChanged =
+                    !string.Equals(config.SerialNumber?.Trim(), serialNumber, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrWhiteSpace(manufacturer) &&
+                     !string.Equals(config.Manufacturer?.Trim(), manufacturer, StringComparison.OrdinalIgnoreCase));
+
+                config.SerialNumber = serialNumber;
+                config.Manufacturer = string.IsNullOrWhiteSpace(manufacturer)
+                    ? (string.IsNullOrWhiteSpace(config.Manufacturer) ? "Huaray" : config.Manufacturer)
+                    : manufacturer;
+                config.DisplayName = string.IsNullOrWhiteSpace(displayName) ? serialNumber : displayName;
+                config.ExposureTime = ReadJsonDouble(root, config.ExposureTime, "exposureTime", "ExposureTime");
+                config.Gain = ReadJsonDouble(root, config.Gain, "gain", "Gain");
+                config.IsEnabled = true;
+
+                if (isNewConfig)
+                {
+                    _appConfig.Cameras.Add(config);
+                }
+
+                _appConfig.ActiveCameraId = config.Id;
+                SynchronizeActiveCameraRegistration(config, recreateExisting: cameraIdentityChanged);
+                return config;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CameraPreview] 解析预览相机参数失败: {ex.Message}");
+                return activeConfig;
+            }
+        }
+
+        private static string ReadJsonString(JsonElement root, params string[] names)
+        {
+            foreach (string name in names)
+            {
+                if (root.TryGetProperty(name, out JsonElement value) &&
+                    value.ValueKind != JsonValueKind.Null &&
+                    value.ValueKind != JsonValueKind.Undefined)
+                {
+                    return value.ValueKind == JsonValueKind.String
+                        ? value.GetString() ?? string.Empty
+                        : value.ToString();
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static double ReadJsonDouble(JsonElement root, double fallback, params string[] names)
+        {
+            foreach (string name in names)
+            {
+                if (!root.TryGetProperty(name, out JsonElement value))
+                {
+                    continue;
+                }
+
+                if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out double number))
+                {
+                    return number;
+                }
+
+                if (value.ValueKind == JsonValueKind.String &&
+                    double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out number))
+                {
+                    return number;
+                }
+            }
+
+            return fallback;
+        }
+
         private bool TryInitializeCapturePipeline(ICamera activeCamera, CancellationToken token, out bool usedMonoFallback, out string errorMessage, out string startupNotice)
         {
             usedMonoFallback = false;

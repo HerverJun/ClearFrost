@@ -32,6 +32,31 @@
             </div>
             <h1>清霜 <span>ClearFrost</span></h1>
         </div>
+        <div class="stitch-top-status-lights">
+            <div class="stitch-status-lights" aria-label="设备状态">
+                <div id="status-cam" class="stitch-status-light" title="相机未连接" aria-label="相机: 未连接">
+                    <span class="stitch-status-label">
+                        <span id="status-cam-dot" class="status-dot status-off" aria-hidden="true"></span>
+                        <span>相机</span>
+                    </span>
+                    <strong id="status-cam-text">未连接</strong>
+                </div>
+                <div id="status-plc" class="stitch-status-light" title="PLC未连接" aria-label="PLC: 未连接">
+                    <span class="stitch-status-label">
+                        <span id="status-plc-dot" class="status-dot status-off" aria-hidden="true"></span>
+                        <span>PLC</span>
+                    </span>
+                    <strong id="status-plc-text">未连接</strong>
+                </div>
+                <div id="status-plc-trigger" class="stitch-status-light" title="PLC触发拍照待触发" aria-label="PLC触发拍照: 待触发">
+                    <span class="stitch-status-label">
+                        <span id="status-plc-trigger-dot" class="status-dot status-off" aria-hidden="true"></span>
+                        <span>触发拍照</span>
+                    </span>
+                    <strong id="status-plc-trigger-text">待触发</strong>
+                </div>
+            </div>
+        </div>
         <nav class="stitch-nav-actions" aria-label="操作">
             <button data-action="openSettingsModal" title="系统设置" aria-label="系统设置">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -127,15 +152,10 @@
                 </div>
             </section>
 
-            <div class="stitch-left-actions">
-                <button data-cmd="test_yolo" title="选择本地图片并执行一次模型推理">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16M12 4v11m0-11 4 4m-4-4-4 4" />
-                    </svg>
-                    本地推理
-                </button>
-            </div>
+            <section class="stitch-section stitch-key-log-section">
+                <h3>关键日志 (Key Logs)</h3>
+                <div id="log-container" class="stitch-key-log-list scroller" aria-live="polite"></div>
+            </section>
         </aside>
 
         <main id="camera-panel" class="stitch-camera-panel">
@@ -316,6 +336,17 @@
                             <button data-cmd="get_model_list"
                                 class="w-full py-2 bg-celadon-50 text-celadon-600 hover:bg-celadon-100 text-[10px] font-bold rounded-lg transition-[background-color,color,box-shadow]">
                                 刷新模型列表
+                            </button>
+                        </div>
+                        <div class="col-span-2">
+                            <label class="text-[10px] font-bold text-ink-400 mb-1 block">本地验证</label>
+                            <button data-cmd="test_yolo" title="选择本地图片并执行一次模型推理"
+                                class="w-full py-2 bg-ink-700 text-white hover:bg-ink-800 text-[10px] font-bold rounded-lg transition-[background-color,color,box-shadow] inline-flex items-center justify-center gap-2">
+                                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16M12 4v11m0-11 4 4m-4-4-4 4" />
+                                </svg>
+                                本地推理
                             </button>
                         </div>
                     </div>
@@ -671,14 +702,15 @@
                     <div class="cf-camera-preview-card flex flex-col">
                         <h4>实时预览</h4>
                         <div class="cf-camera-preview-box flex-1 min-h-[200px]">
+                            <img id="camera-preview-image" class="hidden" alt="相机实时预览">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
                                     d="M3 7.5A2.5 2.5 0 0 1 5.5 5H13l2 2h3.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9Z" />
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"
                                     d="m4 4 16 16M9.5 12.5a3 3 0 0 0 4 4" />
                             </svg>
-                            <span>点击以获取实时画面</span>
-                            <button type="button" data-cmd="manual_detect">获取单帧</button>
+                            <span id="camera-preview-status">点击以获取实时画面</span>
+                            <button id="btn-camera-preview-frame" type="button" data-action="requestCameraPreviewFrame">获取单帧</button>
                         </div>
                     </div>
                     <div class="space-y-3 col-span-2">

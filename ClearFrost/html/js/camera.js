@@ -167,6 +167,68 @@
         window.addLog?.(`正在直连相机: ${camera.serialNumber || camera.model || "-"}`, "info");
     }
 
+    function setCameraPreviewStatus({ isBusy = false, message = "", type = "info" } = {}) {
+        const button = byId("btn-camera-preview-frame");
+        const status = byId("camera-preview-status");
+        const box = status?.closest(".cf-camera-preview-box");
+        const hasFrame = Boolean(byId("camera-preview-image")?.src);
+
+        if (button) {
+            button.disabled = Boolean(isBusy);
+            button.textContent = isBusy ? "获取中..." : "获取单帧";
+            button.classList.toggle("opacity-70", Boolean(isBusy));
+            button.classList.toggle("cursor-wait", Boolean(isBusy));
+        }
+
+        if (status && message) {
+            status.textContent = message;
+            status.classList.toggle("text-red-600", type === "error");
+        }
+
+        if (box && !hasFrame) {
+            box.classList.remove("has-frame");
+        }
+    }
+
+    function collectCameraPreviewPayload() {
+        return {
+            cameraId: byId("cfg-cam-select")?.value || window.activeCameraId || "",
+            displayName: byId("cfg-cam-name")?.value || "",
+            manufacturer: byId("cfg-cam-manufacturer")?.value || "Huaray",
+            serialNumber: byId("cfg-cam-serial")?.value || "",
+            exposureTime: parseFloat(byId("cfg-cam-exposure")?.value) || 50000,
+            gain: parseFloat(byId("cfg-cam-gain")?.value) || 1.0,
+        };
+    }
+
+    function requestCameraPreviewFrame() {
+        setCameraPreviewStatus({ isBusy: true, message: "正在打开相机并获取画面..." });
+        bridge.sendCommand("capture_camera_preview", collectCameraPreviewPayload());
+    }
+
+    function receiveCameraPreviewFrame(data) {
+        const image = byId("camera-preview-image");
+        const status = byId("camera-preview-status");
+        const box = image?.closest(".cf-camera-preview-box");
+        if (!image) return;
+
+        const base64 = data?.base64 || data?.Base64 || "";
+        const url = data?.url || data?.Url || "";
+        const src = url || (base64 ? (String(base64).startsWith("data:image") ? base64 : `data:image/jpeg;base64,${base64}`) : "");
+        if (!src) return;
+
+        image.onload = () => {
+            image.classList.remove("hidden");
+            box?.classList.add("has-frame");
+            if (status) status.textContent = "预览已更新";
+            setCameraPreviewStatus({ isBusy: false });
+        };
+        image.onerror = () => {
+            setCameraPreviewStatus({ isBusy: false, message: "预览画面加载失败", type: "error" });
+        };
+        image.src = src;
+    }
+
     function searchCamerasHik() {
         const modal = byId("super-search-modal");
         const results = byId("super-search-results");
@@ -196,12 +258,16 @@
         deleteCurrentCamera,
         directConnectCamera,
         onCameraSelected,
+        requestCameraPreviewFrame,
         receiveCameraList,
+        receiveCameraPreviewFrame,
         receiveSuperSearchResult,
         searchCamerasHik,
+        setCameraPreviewStatus,
         superSearchCameras,
     });
 
     bridge.registerMessageHandler("cameraList", receiveCameraList);
+    bridge.registerMessageHandler("cameraPreviewFrame", receiveCameraPreviewFrame);
     bridge.registerMessageHandler("discoveredCameras", receiveSuperSearchResult);
 })();

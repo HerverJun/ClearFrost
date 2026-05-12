@@ -778,23 +778,23 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .status-on {
-    background: #10b981 !important;
-    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+    background: radial-gradient(circle at 30% 30%, #22d394, #10b981) !important;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15), 0 0 10px rgba(16, 185, 129, 0.3);
 }
 
 .status-off {
-    background: #cbd5e1 !important;
-    box-shadow: none;
+    background: linear-gradient(180deg, #d0d8e3 0%, #c5cdd8 100%) !important;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
 .status-warning {
-    background: #f59e0b !important;
-    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+    background: radial-gradient(circle at 30% 30%, #fbbf47, #f59e0b) !important;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15), 0 0 10px rgba(245, 158, 11, 0.25);
 }
 
 .status-error {
-    background: #dc2626 !important;
-    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+    background: radial-gradient(circle at 30% 30%, #f04646, #dc2626) !important;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15), 0 0 10px rgba(220, 38, 38, 0.3);
 }
 
 .cf-console-panel {
@@ -1042,21 +1042,21 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 /* Exact Stitch draft shell */
 .cf-stitch-page {
-    --stitch-bg: #faf9fa;
-    --stitch-surface: #faf9fa;
-    --stitch-surface-low: #f5f3f4;
+    --stitch-bg: #f3f5f8;
+    --stitch-surface: #f6f7f9;
+    --stitch-surface-low: #eceef2;
     --stitch-surface-card: #ffffff;
-    --stitch-side: #e2e8f0;
-    --stitch-side-soft: #f8fafc;
-    --stitch-text: #1b1c1d;
-    --stitch-muted: #64748b;
-    --stitch-primary: #094cb2;
-    --stitch-primary-container: #3366cc;
-    --stitch-primary-fixed: #d9e2ff;
-    --stitch-tertiary: #6d5e00;
-    --stitch-error: #ba1a1a;
-    --stitch-error-container: #ffdad6;
-    background: var(--stitch-bg) !important;
+    --stitch-side: #e8ebf0;
+    --stitch-side-soft: #f1f3f6;
+    --stitch-text: #0f1221;
+    --stitch-muted: #5a6278;
+    --stitch-primary: #0d3d9e;
+    --stitch-primary-container: #2a5bc7;
+    --stitch-primary-fixed: #d4e0ff;
+    --stitch-tertiary: #7c5c00;
+    --stitch-error: #b71c1c;
+    --stitch-error-container: #ffd8d6;
+    background: radial-gradient(ellipse 80% 60% at 50% -10%, #e8ecf5 0%, var(--stitch-bg) 60%) !important;
     color: var(--stitch-text) !important;
     font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif !important;
 }
@@ -1076,12 +1076,14 @@ input[type="range"]::-webkit-slider-runnable-track {
 .stitch-topbar {
     height: 72px;
     flex: 0 0 72px;
-    display: flex;
+    display: grid;
+    grid-template-columns: auto minmax(360px, 1fr) auto;
     align-items: center;
-    justify-content: space-between;
+    column-gap: 24px;
     padding: 16px 32px;
-    background: rgba(241, 245, 249, 0.96);
-    border-bottom: 1px solid rgba(195, 198, 213, 0.45);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,253,0.96) 100%);
+    border-bottom: 1px solid rgba(180,190,210,0.45);
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.03);
     z-index: 50;
 }
 
@@ -1097,10 +1099,10 @@ input[type="range"]::-webkit-slider-runnable-track {
     height: 36px;
     display: grid;
     place-items: center;
-    border-radius: 8px;
+    border-radius: 10px;
     flex: 0 0 auto;
-    background: #d9e2ff;
-    box-shadow: inset 0 0 0 1px rgba(9, 76, 178, 0.12);
+    background: linear-gradient(135deg, #dbe4ff 0%, #c7d5ff 100%);
+    box-shadow: inset 0 0 0 1px rgba(9, 76, 178, 0.12), 0 2px 6px rgba(9, 76, 178, 0.08);
 }
 
 .stitch-snow-mark svg {
@@ -1116,6 +1118,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     line-height: 1;
     font-weight: 800;
     white-space: nowrap;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.9);
 }
 
 .stitch-brand h1 span {
@@ -1123,28 +1126,41 @@ input[type="range"]::-webkit-slider-runnable-track {
     font-family: inherit;
 }
 
+.stitch-top-status-lights {
+    min-width: 0;
+    display: flex;
+    justify-content: center;
+}
+
+.stitch-top-status-lights .stitch-status-lights {
+    width: min(420px, 100%);
+    margin: 0;
+}
+
 .stitch-nav-actions {
+    justify-self: end;
     display: flex;
     align-items: center;
     gap: 24px;
 }
 
 .stitch-nav-actions button {
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
     display: grid;
     place-items: center;
-    color: #64748b;
+    color: #5a6278;
     border: 0;
-    border-radius: 8px;
+    border-radius: 10px;
     background: transparent;
     cursor: pointer;
-    transition: color 0.16s ease, background-color 0.16s ease, opacity 0.16s ease;
+    transition: color 0.16s ease, background-color 0.16s ease, opacity 0.16s ease, box-shadow 0.16s ease;
 }
 
 .stitch-nav-actions button:hover {
     color: var(--stitch-primary);
-    background: rgba(9, 76, 178, 0.08);
+    background: linear-gradient(180deg, rgba(9, 76, 178, 0.08) 0%, rgba(9, 76, 178, 0.05) 100%);
+    box-shadow: inset 0 0 0 1px rgba(9, 76, 178, 0.1);
 }
 
 .stitch-nav-actions svg {
@@ -1165,10 +1181,12 @@ input[type="range"]::-webkit-slider-runnable-track {
     display: flex;
     flex-direction: column;
     gap: 0;
-    padding: 24px;
+    padding: 16px 18px;
     overflow-y: auto;
     scrollbar-width: none;
-    background: #e2e8f0;
+    background: linear-gradient(180deg, #e4e8ef 0%, #dce1ea 100%);
+    border-right: 1px solid rgba(160, 172, 192, 0.25);
+    box-shadow: inset -6px 0 12px -8px rgba(15, 23, 42, 0.06);
 }
 
 .stitch-left-panel::-webkit-scrollbar {
@@ -1176,44 +1194,54 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .stitch-section {
-    margin-bottom: 32px;
+    margin-bottom: 18px;
+}
+
+.stitch-section:last-of-type {
+    margin-bottom: 0;
 }
 
 .stitch-section h3,
 .stitch-log-panel > h3 {
-    margin: 0 0 16px;
-    color: #64748b;
-    font-size: 12px;
+    margin: 0 0 10px;
+    color: #5a6278;
+    font-size: 11px;
     line-height: 1.2;
-    font-weight: 700;
+    font-weight: 800;
     text-transform: uppercase;
+    letter-spacing: 0.06em;
 }
 
 .stitch-stat-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
+    gap: 8px;
 }
 
 .stitch-stat-card,
 .stitch-model-card,
 .stitch-toggle-card,
 .cf-stitch-page .cf-flow-row {
-    border-radius: 8px;
+    border-radius: 10px;
     background: var(--stitch-surface-card);
-    box-shadow: none;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.03), inset 0 1px 0 rgba(255,255,255,0.85);
+    border: 1px solid rgba(180, 190, 210, 0.35);
 }
 
 .stitch-stat-card {
-    min-height: 96px;
-    padding: 16px;
+    min-height: 66px;
+    padding: 12px 14px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
+    background: linear-gradient(180deg, #ffffff 0%, #fafbfd 100%);
 }
 
 .stitch-stat-wide {
     grid-column: 1 / -1;
+    min-height: 74px;
+    justify-content: flex-start;
+    gap: 5px;
 }
 
 .stitch-stat-card span,
@@ -1221,16 +1249,18 @@ input[type="range"]::-webkit-slider-runnable-track {
 .stitch-model-card label,
 .stitch-toggle-card > span {
     color: #434653;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
 }
 
 .stitch-stat-card strong {
     color: var(--stitch-primary);
     font-family: "Noto Serif SC", "Microsoft YaHei", serif;
-    font-size: 28px;
+    font-size: 24px;
     line-height: 1;
     font-weight: 800;
+    letter-spacing: -0.02em;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.8);
 }
 
 .stitch-stat-card:nth-child(2) strong,
@@ -1247,91 +1277,158 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .stitch-progress {
     width: 100%;
-    height: 8px;
+    height: 6px;
+    margin-top: 2px;
     border-radius: 999px;
     overflow: hidden;
-    background: var(--stitch-surface-low);
+    background: linear-gradient(180deg, #e2e6ec 0%, #e8ebf0 100%);
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
 .stitch-progress-fill {
     height: 100%;
     border-radius: inherit;
-    background: var(--stitch-primary);
-    transition: width 0.18s ease;
+    background: linear-gradient(90deg, #0d3d9e 0%, #2a5bc7 60%, #4a7de8 100%);
+    box-shadow: 0 0 8px rgba(13, 61, 158, 0.25);
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .stitch-okng-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-top: 12px;
+    gap: 8px;
+    margin-top: 8px;
 }
 
 .stitch-okng-grid div {
-    min-height: 58px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: #ffffff;
+    min-height: 42px;
+    padding: 9px 12px;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafd 100%);
+    border: 1px solid rgba(180, 190, 210, 0.35);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255,255,255,0.85);
 }
 
 .stitch-okng-grid strong {
     display: block;
-    margin-top: 4px;
+    margin-top: 2px;
     color: var(--stitch-text);
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 800;
 }
 
 .stitch-okng-grid div:first-child strong {
-    color: var(--stitch-primary);
+    color: #0d47a1;
 }
 
 .stitch-okng-grid div:last-child strong {
-    color: var(--stitch-error);
+    color: #b71c1c;
 }
 
 .stitch-model-stack {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 8px;
 }
 
 .stitch-model-card {
-    padding: 16px;
-    border: 1px solid rgba(195, 198, 213, 0.3);
+    padding: 10px 12px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafd 100%);
+    border: 1px solid rgba(180, 190, 210, 0.35);
 }
 
 .stitch-model-card label {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
+    margin-bottom: 5px;
 }
 
 .stitch-model-card select {
     width: 100%;
-    height: 40px;
+    height: 34px;
     padding: 0 12px;
-    border: 0;
+    border: 1px solid rgba(180, 190, 210, 0.4);
     border-radius: 8px;
     color: var(--stitch-text);
-    background: var(--stitch-surface-low);
-    font-size: 14px;
+    background: linear-gradient(180deg, #f5f7fa 0%, #eceef2 100%);
+    font-size: 12px;
+    font-weight: 600;
     outline: none;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .stitch-model-card select:focus {
     box-shadow: 0 0 0 2px rgba(9, 76, 178, 0.28);
 }
 
+.stitch-status-lights {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.stitch-status-light {
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 10px;
+    border: 1px solid rgba(180, 190, 210, 0.4);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(248,250,253,0.85) 100%);
+    color: #475569;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255,255,255,0.9);
+}
+
+.stitch-top-status-lights .stitch-status-light {
+    min-width: 118px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(245,248,252,0.9) 100%);
+    border: 1px solid rgba(160, 180, 210, 0.35);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255,255,255,0.95);
+}
+
+.stitch-status-label {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 800;
+    white-space: nowrap;
+    letter-spacing: 0.01em;
+}
+
+.stitch-status-light strong {
+    display: none;
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.stitch-status-light.is-connected strong,
+.stitch-status-light.is-triggering strong {
+    color: #047857;
+}
+
+.stitch-status-light .status-dot {
+    width: 9px;
+    height: 9px;
+}
+
 .stitch-toggle-card {
-    min-height: 58px;
-    padding: 16px;
+    min-height: 40px;
+    padding: 10px 12px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    border: 1px solid rgba(195, 198, 213, 0.3);
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafd 100%);
+    border: 1px solid rgba(180, 190, 210, 0.35);
 }
 
 .stitch-toggle-card em {
@@ -1340,8 +1437,8 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .stitch-switch {
     position: relative;
-    width: 42px;
-    height: 22px;
+    width: 38px;
+    height: 20px;
     flex: 0 0 auto;
     cursor: pointer;
 }
@@ -1366,8 +1463,8 @@ input[type="range"]::-webkit-slider-runnable-track {
     position: absolute;
     top: 3px;
     left: 3px;
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     border-radius: 999px;
     background: #ffffff;
     transition: transform 0.16s ease;
@@ -1379,7 +1476,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .stitch-switch input:checked + span::after {
-    transform: translateX(20px);
+    transform: translateX(18px);
 }
 
 .stitch-camera-panel {
@@ -1388,7 +1485,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     display: flex;
     flex-direction: column;
     padding: 24px;
-    background: var(--stitch-surface);
+    background: linear-gradient(180deg, #f0f2f6 0%, #e8ebf0 100%);
 }
 
 .stitch-video-shell {
@@ -1398,9 +1495,9 @@ input[type="range"]::-webkit-slider-runnable-track {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-radius: 12px;
+    border-radius: 14px;
     background: var(--stitch-surface-card);
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 8px 32px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.05), 0 0 0 1px rgba(180, 190, 210, 0.3);
 }
 
 .stitch-feed-info {
@@ -1430,30 +1527,39 @@ input[type="range"]::-webkit-slider-runnable-track {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    padding: 5px 12px;
-    border-radius: 8px;
+    padding: 6px 14px;
+    border-radius: 10px;
     color: #ffffff;
-    background: rgba(9, 76, 178, 0.78);
-    border: 1px solid rgba(9, 76, 178, 0.3);
-    font-size: 14px;
+    background: linear-gradient(135deg, rgba(9, 76, 178, 0.88) 0%, rgba(13, 61, 158, 0.92) 100%);
+    border: 1px solid rgba(9, 76, 178, 0.25);
+    font-size: 13px;
     font-weight: 700;
+    box-shadow: 0 2px 8px rgba(9, 76, 178, 0.2), inset 0 1px 0 rgba(255,255,255,0.15);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.15);
 }
 
 .stitch-feed-chips span + span {
-    background: rgba(15, 23, 42, 0.72);
-    border-color: rgba(250, 249, 250, 0.3);
+    background: linear-gradient(135deg, rgba(25, 35, 55, 0.82) 0%, rgba(15, 23, 42, 0.88) 100%);
+    border-color: rgba(250, 249, 250, 0.2);
 }
 
 .stitch-feed-info button {
-    width: 32px;
-    height: 32px;
+    width: 34px;
+    height: 34px;
     display: grid;
     place-items: center;
     border: 0;
     border-radius: 999px;
     color: #ffffff;
-    background: rgba(15, 23, 42, 0.72);
+    background: linear-gradient(135deg, rgba(35, 45, 65, 0.85) 0%, rgba(15, 23, 42, 0.9) 100%);
     pointer-events: auto;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2), inset 0 1px 0 rgba(255,255,255,0.1);
+    transition: background 0.16s ease, transform 0.15s ease, box-shadow 0.16s ease;
+}
+
+.stitch-feed-info button:hover {
+    background: linear-gradient(135deg, rgba(55, 65, 85, 0.9) 0%, rgba(35, 45, 65, 0.95) 100%);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.3), inset 0 1px 0 rgba(255,255,255,0.15);
 }
 
 .stitch-feed-info button svg {
@@ -1465,7 +1571,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     position: relative;
     flex: 1 1 auto;
     min-height: 0;
-    background: #cbd5e1;
+    background: linear-gradient(180deg, #c5cdd8 0%, #d0d8e3 100%);
 }
 
 .stitch-video-feed::before {
@@ -1487,7 +1593,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .stitch-video-feed img {
     object-fit: contain;
-    background: #cbd5e1;
+    background: linear-gradient(180deg, #c5cdd8 0%, #d0d8e3 100%);
 }
 
 .stitch-video-feed canvas {
@@ -1515,27 +1621,30 @@ input[type="range"]::-webkit-slider-runnable-track {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    min-width: 132px;
-    padding: 12px 24px;
-    border-radius: 8px;
+    min-width: 148px;
+    padding: 14px 32px;
+    border-radius: 12px;
     text-align: center;
-    font-size: 44px;
+    font-size: 48px;
     font-weight: 900;
-    letter-spacing: 0;
-    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.3);
+    letter-spacing: -0.02em;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(255,255,255,0.15) inset;
     pointer-events: none;
+    backdrop-filter: blur(4px);
 }
 
 .stitch-result-ok {
-    color: #00419d;
-    background: rgba(217, 226, 255, 0.95);
-    border: 2px solid #3366cc;
+    color: #003285;
+    background: linear-gradient(180deg, rgba(217, 226, 255, 0.98) 0%, rgba(200, 215, 255, 0.96) 100%);
+    border: 2px solid #2a5bc7;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.6);
 }
 
 .stitch-result-ng {
-    color: #93000a;
-    background: rgba(255, 218, 214, 0.96);
-    border: 2px solid #ba1a1a;
+    color: #7a0008;
+    background: linear-gradient(180deg, rgba(255, 218, 214, 0.98) 0%, rgba(255, 200, 195, 0.96) 100%);
+    border: 2px solid #b71c1c;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.6);
 }
 
 .stitch-result-strip {
@@ -1543,9 +1652,10 @@ input[type="range"]::-webkit-slider-runnable-track {
     min-height: 64px;
     align-items: center;
     gap: 12px;
-    padding: 10px 14px;
-    background: var(--stitch-surface-card);
-    border-top: 1px solid rgba(195, 198, 213, 0.4);
+    padding: 12px 18px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafd 100%);
+    border-top: 1px solid rgba(180, 190, 210, 0.4);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
 }
 
 .stitch-result-strip > div {
@@ -1556,12 +1666,15 @@ input[type="range"]::-webkit-slider-runnable-track {
 .stitch-result-strip strong {
     color: var(--stitch-text);
     font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
 }
 
 .stitch-result-strip p {
-    margin: 3px 0 0;
+    margin: 4px 0 0;
     color: var(--stitch-muted);
     font-size: 11px;
+    font-weight: 600;
 }
 
 .stitch-result-strip p span {
@@ -1570,9 +1683,14 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .stitch-result-strip > span:last-child {
-    color: #434653;
+    color: #3a3f4d;
     font-size: 12px;
     font-weight: 800;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: linear-gradient(180deg, #f0f2f6 0%, #e8ebf0 100%);
+    border: 1px solid rgba(180, 190, 210, 0.35);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.8), 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .cf-stitch-page .cf-result-pill,
@@ -1586,25 +1704,30 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page .cf-result-pill {
-    width: 52px;
-    height: 32px;
+    width: 54px;
+    height: 34px;
+    border-radius: 6px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
 .cf-stitch-page .result-idle {
-    color: #434653;
-    background: #e3e2e3;
+    color: #4a5060;
+    background: linear-gradient(180deg, #e8eaef 0%, #dfe2e8 100%);
+    border: 1px solid rgba(160, 172, 192, 0.35);
 }
 
 .cf-stitch-page .result-ok,
 .cf-stitch-page .cf-flow-row.ok .cf-flow-status {
-    color: #00419d;
-    background: #d9e2ff;
+    color: #003285;
+    background: linear-gradient(180deg, #dce5ff 0%, #c9d5f7 100%);
+    border: 1px solid rgba(42, 91, 199, 0.25);
 }
 
 .cf-stitch-page .result-ng,
 .cf-stitch-page .cf-flow-row.ng .cf-flow-status {
-    color: #93000a;
-    background: #ffdad6;
+    color: #7a0008;
+    background: linear-gradient(180deg, #ffe0dc 0%, #ffd0ca 100%);
+    border: 1px solid rgba(183, 28, 28, 0.25);
 }
 
 .stitch-log-panel {
@@ -1614,8 +1737,9 @@ input[type="range"]::-webkit-slider-runnable-track {
     flex-direction: column;
     min-height: 0;
     padding: 24px;
-    background: var(--stitch-surface-low);
-    border-left: 1px solid #e3e2e3;
+    background: linear-gradient(180deg, #eceef2 0%, #e5e8ee 100%);
+    border-left: 1px solid rgba(160, 172, 192, 0.25);
+    box-shadow: inset 6px 0 12px -8px rgba(15, 23, 42, 0.06);
 }
 
 .stitch-log-panel > h3 {
@@ -1625,6 +1749,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     font-weight: 700;
     text-transform: none;
     margin-bottom: 24px;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.8);
 }
 
 .stitch-log-list {
@@ -1649,8 +1774,9 @@ input[type="range"]::-webkit-slider-runnable-track {
     column-gap: 10px;
     row-gap: 4px;
     min-height: 78px;
-    padding: 11px 12px 10px 18px;
+    padding: 12px 14px 11px 20px;
     overflow: hidden;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
 }
 
 .cf-stitch-page .cf-flow-rail {
@@ -1659,11 +1785,13 @@ input[type="range"]::-webkit-slider-runnable-track {
     top: 0;
     bottom: 0;
     width: 4px;
-    background: var(--stitch-primary);
+    background: linear-gradient(180deg, #0d3d9e 0%, #2a5bc7 100%);
+    box-shadow: 2px 0 6px rgba(13, 61, 158, 0.15);
 }
 
 .cf-stitch-page .cf-flow-row.ng .cf-flow-rail {
-    background: var(--stitch-error);
+    background: linear-gradient(180deg, #b71c1c 0%, #dc3838 100%);
+    box-shadow: 2px 0 6px rgba(183, 28, 28, 0.15);
 }
 
 .cf-stitch-page .cf-flow-head {
@@ -1684,10 +1812,13 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page .cf-flow-status {
     grid-area: status;
     justify-self: end;
-    min-width: 34px;
-    height: 18px;
-    padding: 0 7px;
-    line-height: 18px;
+    min-width: 36px;
+    height: 20px;
+    padding: 0 8px;
+    line-height: 20px;
+    font-size: 11px;
+    font-weight: 800;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 1px 2px rgba(15, 23, 42, 0.05);
 }
 
 .cf-stitch-page .cf-flow-sn {
@@ -1719,10 +1850,12 @@ input[type="range"]::-webkit-slider-runnable-track {
     display: grid;
     place-items: center;
     min-height: 140px;
-    color: #737784;
-    border-radius: 8px;
-    background: #ffffff;
+    color: #6b7280;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafd 100%);
+    border: 1px solid rgba(180, 190, 210, 0.3);
     font-size: 13px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
 }
 
 .stitch-action-stack {
@@ -1731,7 +1864,8 @@ input[type="range"]::-webkit-slider-runnable-track {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    border-top: 1px solid rgba(195, 198, 213, 0.32);
+    border-top: 1px solid rgba(180, 190, 210, 0.35);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
 }
 
 .stitch-start-button,
@@ -1750,13 +1884,18 @@ input[type="range"]::-webkit-slider-runnable-track {
     width: 100%;
     min-height: 48px;
     color: #ffffff;
-    background: linear-gradient(90deg, #094cb2, #3366cc);
+    background: linear-gradient(135deg, #0a2e7a 0%, #0d3d9e 40%, #2a5bc7 100%);
     border: 0;
+    border-radius: 10px;
     font-size: 14px;
+    box-shadow: 0 4px 14px rgba(13, 61, 158, 0.35), 0 1px 3px rgba(13, 61, 158, 0.2), inset 0 1px 0 rgba(255,255,255,0.15);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    letter-spacing: 0.02em;
 }
 
 .stitch-start-button:hover {
-    opacity: 0.9;
+    background: linear-gradient(135deg, #0d3d9e 0%, #1a4db5 40%, #3d6ed8 100%);
+    box-shadow: 0 6px 20px rgba(13, 61, 158, 0.45), 0 2px 6px rgba(13, 61, 158, 0.25), inset 0 1px 0 rgba(255,255,255,0.2);
 }
 
 .stitch-action-grid {
@@ -1767,7 +1906,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .stitch-left-actions {
     margin-top: auto;
-    padding-top: 16px;
+    padding-top: 8px;
 }
 
 .stitch-left-actions button {
@@ -1776,12 +1915,12 @@ input[type="range"]::-webkit-slider-runnable-track {
     justify-content: center;
     gap: 8px;
     width: 100%;
-    min-height: 42px;
+    min-height: 36px;
     color: #606569;
     background: #dfe3e8;
     border: 1px solid #c3c6d5;
     border-radius: 8px;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     cursor: pointer;
     transition: opacity 0.16s ease, background-color 0.16s ease;
@@ -1792,21 +1931,90 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .stitch-left-actions svg {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     flex: 0 0 auto;
+}
+
+.stitch-key-log-section {
+    flex: 1 1 auto;
+    min-height: 150px;
+    display: flex;
+    flex-direction: column;
+    margin-top: 4px;
+    margin-bottom: 0;
+}
+
+.stitch-key-log-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 10px;
+    overflow-y: auto;
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(250,252,255,0.8) 100%);
+    border: 1px solid rgba(180, 190, 210, 0.35);
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.stitch-key-log-list:empty::before {
+    content: "等待相机 / PLC 关键日志...";
+    height: 100%;
+    min-height: 96px;
+    display: grid;
+    place-items: center;
+    color: #737784;
+    font-size: 12px;
+}
+
+.cf-key-log-row {
+    padding: 8px 10px;
+    border-left: 3px solid rgba(9, 76, 178, 0.5);
+    border-radius: 8px;
+    color: #3a3f4d;
+    background: linear-gradient(90deg, rgba(255,255,255,0.9) 0%, rgba(250,252,255,0.85) 100%);
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-size: 11px;
+    line-height: 1.35;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.cf-key-log-row + .cf-key-log-row {
+    margin-top: 6px;
+}
+
+.cf-key-log-row.error {
+    border-left-color: var(--stitch-error);
+    color: #7a0008;
+    background: linear-gradient(90deg, rgba(255, 218, 214, 0.35) 0%, rgba(255, 230, 228, 0.25) 100%);
+}
+
+.cf-key-log-row.warning {
+    border-left-color: #b7791f;
+    color: #7c4a03;
+    background: linear-gradient(90deg, rgba(254, 243, 199, 0.4) 0%, rgba(255, 250, 235, 0.3) 100%);
+}
+
+.cf-key-log-row.success {
+    border-left-color: #047857;
+    color: #065f46;
+    background: linear-gradient(90deg, rgba(209, 250, 229, 0.4) 0%, rgba(240, 253, 247, 0.3) 100%);
 }
 
 .stitch-action-grid button {
     min-height: 42px;
-    color: #606569;
-    background: #dfe3e8;
-    border: 1px solid #c3c6d5;
+    color: #3a3f4d;
+    background: linear-gradient(180deg, #eef1f5 0%, #e4e8ee 100%);
+    border: 1px solid rgba(160, 172, 192, 0.45);
+    border-radius: 10px;
     font-size: 12px;
+    font-weight: 700;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255,255,255,0.8);
 }
 
 .stitch-action-grid button:hover {
-    background: #e3e2e3;
+    background: linear-gradient(180deg, #f5f7fa 0%, #eceef2 100%);
+    border-color: rgba(130, 150, 190, 0.5);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255,255,255,0.9);
 }
 
 .stitch-start-button svg,
@@ -1826,7 +2034,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     .stitch-left-panel {
         width: 300px;
         flex-basis: 300px;
-        padding: 20px;
+        padding: 16px;
     }
 
     .stitch-log-panel {
@@ -2474,9 +2682,24 @@ input[type="range"]::-webkit-slider-runnable-track {
     height: 264px;
     display: grid;
     place-items: center;
+    overflow: hidden;
     color: #475569;
     background: #ddd;
     border-radius: 3px;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-preview-box img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #d1d5db;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-preview-box.has-frame svg,
+.cf-stitch-page #settings-modal .cf-camera-preview-box.has-frame #camera-preview-status {
+    display: none;
 }
 
 .cf-stitch-page #settings-modal .cf-camera-preview-box svg {
@@ -3087,4 +3310,312 @@ input[type="range"]::-webkit-slider-runnable-track {
         grid-column: 1;
         grid-row: 3;
     }
+}
+
+/* =========================================
+   ClearFrost Stitch Visual Cleanup
+   Keep the compact layout, remove noisy glow.
+   ========================================= */
+
+.cf-stitch-page {
+    --stitch-bg: #f2f5f8;
+    --stitch-surface: #eef2f6;
+    --stitch-surface-low: #e7ecf2;
+    --stitch-surface-card: #ffffff;
+    --stitch-side: #e6ebf1;
+    --stitch-side-soft: #f4f7fa;
+    --stitch-text: #152033;
+    --stitch-muted: #667085;
+    --stitch-primary: #0b5cab;
+    --stitch-primary-container: #1d6fc2;
+    --stitch-primary-fixed: #dcecff;
+    --stitch-tertiary: #7a5a12;
+    --stitch-error: #b42318;
+    --stitch-error-container: #fee4e2;
+    background: #f2f5f8 !important;
+}
+
+.stitch-topbar {
+    background: #ffffff !important;
+    border-bottom: 1px solid #d8e0ea !important;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05) !important;
+}
+
+.stitch-left-panel {
+    background: #e8edf3 !important;
+    border-right: 1px solid #d3dce8 !important;
+    box-shadow: none !important;
+}
+
+.stitch-camera-panel {
+    background: #f2f5f8 !important;
+}
+
+.stitch-log-panel {
+    background: #e8edf3 !important;
+    border-left: 1px solid #d3dce8 !important;
+    box-shadow: none !important;
+}
+
+.stitch-snow-mark {
+    border-radius: 8px !important;
+    background: #e7f1fb !important;
+    box-shadow: inset 0 0 0 1px #bed5ef !important;
+}
+
+.stitch-brand h1,
+.stitch-log-panel > h3,
+.stitch-stat-card strong,
+.stitch-feed-chips span,
+.stitch-result-ok,
+.stitch-result-ng {
+    text-shadow: none !important;
+}
+
+.stitch-nav-actions button {
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+.stitch-nav-actions button:hover {
+    background: #edf5ff !important;
+    box-shadow: none !important;
+}
+
+.stitch-stat-card,
+.stitch-model-card,
+.stitch-toggle-card,
+.stitch-okng-grid div,
+.stitch-status-light,
+.cf-stitch-page .cf-flow-row,
+.cf-stitch-page .cf-empty-state {
+    background: #ffffff !important;
+    border: 1px solid #dbe3ee !important;
+    border-radius: 8px !important;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04) !important;
+}
+
+.stitch-stat-card:hover,
+.stitch-model-card:hover,
+.stitch-toggle-card:hover,
+.cf-stitch-page .cf-flow-row:hover {
+    border-color: #c9d6e6 !important;
+    box-shadow: 0 2px 6px rgba(16, 24, 40, 0.06) !important;
+}
+
+.stitch-progress {
+    background: #dce4ee !important;
+    box-shadow: inset 0 1px 1px rgba(16, 24, 40, 0.08) !important;
+}
+
+.stitch-progress-fill {
+    background: #0b5cab !important;
+    box-shadow: none !important;
+}
+
+.stitch-model-card select {
+    background: #f7f9fc !important;
+    border: 1px solid #cfd9e6 !important;
+    box-shadow: none !important;
+}
+
+.stitch-model-card select:focus {
+    border-color: #0b5cab !important;
+    box-shadow: 0 0 0 3px rgba(11, 92, 171, 0.14) !important;
+}
+
+.status-dot,
+.stitch-status-light .status-dot {
+    box-shadow: none !important;
+}
+
+.status-on {
+    background: #12b76a !important;
+    box-shadow: 0 0 0 3px rgba(18, 183, 106, 0.14) !important;
+}
+
+.status-off {
+    background: #b8c2cf !important;
+    box-shadow: none !important;
+}
+
+.status-warning {
+    background: #f79009 !important;
+    box-shadow: 0 0 0 3px rgba(247, 144, 9, 0.14) !important;
+}
+
+.status-error {
+    background: #d92d20 !important;
+    box-shadow: 0 0 0 3px rgba(217, 45, 32, 0.14) !important;
+}
+
+.stitch-switch span {
+    background: #cfd9e6 !important;
+}
+
+.stitch-switch input:checked + span {
+    background: #0b5cab !important;
+}
+
+.stitch-video-shell {
+    border-radius: 12px !important;
+    background: #ffffff !important;
+    box-shadow:
+        0 1px 2px rgba(16, 24, 40, 0.06),
+        0 8px 24px rgba(16, 24, 40, 0.08) !important;
+}
+
+.stitch-feed-info {
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.46), rgba(15, 23, 42, 0)) !important;
+}
+
+.stitch-feed-chips span {
+    border-radius: 8px !important;
+    background: rgba(11, 92, 171, 0.88) !important;
+    border: 1px solid rgba(255, 255, 255, 0.22) !important;
+    box-shadow: none !important;
+}
+
+.stitch-feed-chips span + span,
+.stitch-feed-info button {
+    background: rgba(15, 23, 42, 0.72) !important;
+    border-color: rgba(255, 255, 255, 0.18) !important;
+    box-shadow: none !important;
+}
+
+.stitch-feed-info button:hover {
+    background: rgba(15, 23, 42, 0.86) !important;
+    box-shadow: none !important;
+}
+
+.stitch-video-feed,
+.stitch-video-feed img {
+    background: #cbd5e1 !important;
+}
+
+.stitch-result-overlay {
+    border-radius: 10px !important;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.24) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+.stitch-result-ok {
+    color: #084c93 !important;
+    background: rgba(220, 236, 255, 0.96) !important;
+    border: 2px solid #1d6fc2 !important;
+}
+
+.stitch-result-ng {
+    color: #9f1b13 !important;
+    background: rgba(254, 228, 226, 0.96) !important;
+    border: 2px solid #d92d20 !important;
+}
+
+.stitch-result-strip {
+    background: #ffffff !important;
+    border-top: 1px solid #dbe3ee !important;
+    box-shadow: none !important;
+}
+
+.stitch-result-strip > span:last-child,
+.cf-stitch-page .cf-result-pill,
+.cf-stitch-page .cf-flow-status {
+    box-shadow: none !important;
+}
+
+.cf-stitch-page .result-idle {
+    color: #475467 !important;
+    background: #edf1f5 !important;
+    border: 1px solid #d1dae6 !important;
+}
+
+.cf-stitch-page .result-ok,
+.cf-stitch-page .cf-flow-row.ok .cf-flow-status {
+    color: #084c93 !important;
+    background: #dcecff !important;
+    border: 1px solid #b9d7f7 !important;
+}
+
+.cf-stitch-page .result-ng,
+.cf-stitch-page .cf-flow-row.ng .cf-flow-status {
+    color: #9f1b13 !important;
+    background: #fee4e2 !important;
+    border: 1px solid #fecdca !important;
+}
+
+.cf-stitch-page .cf-flow-rail {
+    background: #0b5cab !important;
+    box-shadow: none !important;
+}
+
+.cf-stitch-page .cf-flow-row.ng .cf-flow-rail {
+    background: #d92d20 !important;
+    box-shadow: none !important;
+}
+
+.stitch-action-stack {
+    border-top: 1px solid #d3dce8 !important;
+    box-shadow: none !important;
+}
+
+.stitch-start-button {
+    background: #0b5cab !important;
+    border-radius: 8px !important;
+    box-shadow: 0 3px 10px rgba(11, 92, 171, 0.22) !important;
+    text-shadow: none !important;
+}
+
+.stitch-start-button:hover {
+    background: #084c93 !important;
+    box-shadow: 0 5px 14px rgba(11, 92, 171, 0.28) !important;
+}
+
+.stitch-action-grid button,
+.stitch-left-actions button {
+    color: #39465a !important;
+    background: #f7f9fc !important;
+    border: 1px solid #cfd9e6 !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+.stitch-action-grid button:hover,
+.stitch-left-actions button:hover {
+    color: #0b5cab !important;
+    background: #ffffff !important;
+    border-color: #aec8e4 !important;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06) !important;
+}
+
+.stitch-key-log-list {
+    background: #f7f9fc !important;
+    border: 1px solid #dbe3ee !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+.cf-key-log-row {
+    color: #39465a !important;
+    background: #ffffff !important;
+    border-left-color: #0b5cab !important;
+    box-shadow: none !important;
+}
+
+.cf-key-log-row.error {
+    color: #9f1b13 !important;
+    background: #fff8f7 !important;
+    border-left-color: #d92d20 !important;
+}
+
+.cf-key-log-row.warning {
+    color: #7a4b00 !important;
+    background: #fffbf0 !important;
+    border-left-color: #f79009 !important;
+}
+
+.cf-key-log-row.success {
+    color: #067647 !important;
+    background: #f6fef9 !important;
+    border-left-color: #12b76a !important;
 }

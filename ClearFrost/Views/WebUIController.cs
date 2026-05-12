@@ -64,6 +64,7 @@ namespace ClearFrost
         public event EventHandler? OnFindCamera;
         public event EventHandler? OnOpenCamera;
         public event EventHandler? OnManualDetect;
+        public event EventHandler<string>? OnCaptureCameraPreview;
         public event EventHandler? OnManualRelease;
         public event EventHandler? OnOpenSettings;
         public event EventHandler? OnGetModelList;
@@ -346,6 +347,28 @@ namespace ClearFrost
             }
         }
 
+        /// <summary>
+        /// Sends a single settings-modal camera preview frame to the frontend.
+        /// </summary>
+        public Task SendCameraPreviewFrame(Mat image, int targetWidth = 640, int targetHeight = 360, int jpegQuality = 70)
+        {
+            if (!IsWebViewReady(_webView) || image == null || image.Empty())
+            {
+                return Task.CompletedTask;
+            }
+
+            using Mat resized = ResizeForPreview(image, targetWidth, targetHeight);
+            int quality = Math.Clamp(jpegQuality, 1, 100);
+            Cv2.ImEncode(".jpg", resized, out byte[] encoded, new[] { new ImageEncodingParam(ImwriteFlags.JpegQuality, quality) });
+
+            PostMessage("cameraPreviewFrame", new
+            {
+                base64 = Convert.ToBase64String(encoded),
+                frameId = Interlocked.Increment(ref _previewFrameId)
+            });
+            return Task.CompletedTask;
+        }
+
         private async Task UpdateImageFileAsync(byte[] encoded)
         {
             if (string.IsNullOrWhiteSpace(_webPreviewCachePath))
@@ -592,6 +615,13 @@ namespace ClearFrost
                                 break;
                             case "manual_detect":
                                 OnManualDetect?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "capture_camera_preview":
+                                OnCaptureCameraPreview?.Invoke(
+                                    this,
+                                    root.TryGetProperty("value", out JsonElement previewElement)
+                                        ? previewElement.GetRawText()
+                                        : "{}");
                                 break;
                             case "manual_release":
                                 OnManualRelease?.Invoke(this, EventArgs.Empty);
@@ -1318,6 +1348,7 @@ namespace ClearFrost
                 OnFindCamera = null;
                 OnOpenCamera = null;
                 OnManualDetect = null;
+                OnCaptureCameraPreview = null;
                 OnManualRelease = null;
                 OnOpenSettings = null;
                 OnGetModelList = null;
@@ -1360,4 +1391,3 @@ namespace ClearFrost
         }
     }
 }
-

@@ -318,8 +318,24 @@
     let openCameraUnlockTimer = null;
     let openCameraPending = false;
     let exitAppPending = false;
+    let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
     const KnownRenderReasons = new Set(["inspection", "stats", "health", "bootstrap", "state"]);
+    const KeyLogPatterns = [
+        /PLC/i,
+        /Plc/i,
+        /相机/,
+        /Camera/i,
+        /连接/,
+        /断开/,
+        /未连接/,
+        /启动系统/,
+        /打开相机/,
+        /开启成功/,
+        /开启异常/,
+        /驱动缺失/,
+        /启动诊断/,
+    ];
 
     function shouldRenderFull(reasons) {
         if (!Array.isArray(reasons) || reasons.length === 0) return true;
@@ -353,7 +369,7 @@
 
     function setDotState(dotId, state) {
         const dot = el(dotId);
-        if (!dot || dot.dataset.cfState === state) return;
+        if (!dot || (dot.dataset.cfState === state && dot.classList.contains(state))) return;
         dot.dataset.cfState = state;
         dot.classList.remove("status-on", "status-off", "status-warning", "status-error", "bg-slate-300", "bg-emerald-500");
         dot.classList.add(state);
@@ -540,7 +556,18 @@
 
     }
 
-    function renderHealthSnapshot() {}
+    function renderHealthSnapshot(state) {
+        const health = state?.health || {};
+        const cameraStatus = health.cameraStatus || health.CameraStatus || "";
+        const plcStatus = health.plcStatus || health.PlcStatus || "";
+
+        if (cameraStatus) {
+            updateConnection("cam", /^(Open|Grabbing)$/i.test(String(cameraStatus)));
+        }
+        if (plcStatus) {
+            updateConnection("plc", /^Connected/i.test(String(plcStatus)));
+        }
+    }
 
     function renderAll(state, reasons = []) {
         if (hasRenderReason(reasons, "inspection")) {
@@ -583,6 +610,9 @@
 
     function addLog(msg, type = "info") {
         if (!el("log-container")) return;
+        const normalizedMessage = String(msg || "");
+        const normalizedType = String(type || "").toLowerCase();
+        if (normalizedType !== "error" && !KeyLogPatterns.some((pattern) => pattern.test(normalizedMessage))) return;
         logBuffer.push({ msg, type, time: new Date().toLocaleTimeString() });
         if (!logFlushTimer) {
             logFlushTimer = window.setTimeout(() => {
@@ -590,8 +620,7 @@
                 flushBufferedLogs(
                     logBuffer,
                     "log-container",
-                    (entryType) => "p-1 font-mono text-[10px] border-l-2 " +
-                        (entryType === "error" ? "border-vermilion text-vermilion bg-vermilion/5" : "border-celadon-300 text-ink-500 hover:bg-slate-50"),
+                    (entryType) => `cf-key-log-row ${entryType || "info"}`,
                     (entry) => `${entry.time} ${entry.msg}`,
                 );
             }, LogFlushIntervalMs);
@@ -676,6 +705,27 @@
     }
 
     function updateConnection(type, isConnected) {
+        const normalizedType = String(type || "").toLowerCase();
+        const indicator =
+            normalizedType === "cam" || normalizedType === "camera"
+                ? { root: "status-cam", dot: "status-cam-dot", text: "status-cam-text", label: "相机" }
+                : normalizedType === "plc"
+                    ? { root: "status-plc", dot: "status-plc-dot", text: "status-plc-text", label: "PLC" }
+                    : null;
+
+        if (indicator) {
+            const connected = Boolean(isConnected);
+            const statusText = connected ? "已连接" : "未连接";
+            const root = el(indicator.root);
+            setDotState(indicator.dot, connected ? "status-on" : "status-off");
+            setText(indicator.text, statusText);
+            toggleClass(root, "is-connected", connected);
+            if (root) {
+                root.setAttribute("aria-label", `${indicator.label}: ${statusText}`);
+                root.title = `${indicator.label}${statusText}`;
+            }
+        }
+
         if (type === "cam" && !isConnected && openCameraPending) {
             openCameraPending = false;
             setOpenCameraButtonBusy(false);
@@ -809,6 +859,37 @@
     }
 
     function flashPlcTrigger() {
+        const dot = el("status-plc-trigger-dot");
+        const root = el("status-plc-trigger");
+        if (!dot) return;
+
+        if (plcTriggerResetTimer) {
+            window.clearTimeout(plcTriggerResetTimer);
+            plcTriggerResetTimer = null;
+        }
+
+        dot.classList.remove("status-trigger-flash", "status-off", "status-on", "status-warning", "status-error");
+        void dot.offsetWidth;
+        dot.classList.add("status-trigger-flash");
+        if (root) root.classList.add("is-triggering");
+        setText("status-plc-trigger-text", "触发");
+        if (root) {
+            root.setAttribute("aria-label", "PLC触发拍照: 已触发");
+            root.title = "PLC触发拍照已触发";
+        }
+
+        plcTriggerResetTimer = window.setTimeout(() => {
+            dot.classList.remove("status-trigger-flash");
+            dot.dataset.cfState = "";
+            setDotState("status-plc-trigger-dot", "status-off");
+            if (root) root.classList.remove("is-triggering");
+            setText("status-plc-trigger-text", "待触发");
+            if (root) {
+                root.setAttribute("aria-label", "PLC触发拍照: 待触发");
+                root.title = "PLC触发拍照待触发";
+            }
+            plcTriggerResetTimer = null;
+        }, 650);
     }
 
     function updateCameraName(name) {
@@ -824,6 +905,9 @@
                 break;
             case "toast":
                 showToast(payload.message || payload.Message, payload.type || payload.Type || "info", payload.durationMs || payload.DurationMs || 1400);
+                break;
+            case "cameraPreviewStatus":
+                window.setCameraPreviewStatus?.(payload);
                 break;
             case "showPasswordModal":
                 window.showPasswordModal?.();
@@ -2188,6 +2272,68 @@
         window.addLog?.(`正在直连相机: ${camera.serialNumber || camera.model || "-"}`, "info");
     }
 
+    function setCameraPreviewStatus({ isBusy = false, message = "", type = "info" } = {}) {
+        const button = byId("btn-camera-preview-frame");
+        const status = byId("camera-preview-status");
+        const box = status?.closest(".cf-camera-preview-box");
+        const hasFrame = Boolean(byId("camera-preview-image")?.src);
+
+        if (button) {
+            button.disabled = Boolean(isBusy);
+            button.textContent = isBusy ? "获取中..." : "获取单帧";
+            button.classList.toggle("opacity-70", Boolean(isBusy));
+            button.classList.toggle("cursor-wait", Boolean(isBusy));
+        }
+
+        if (status && message) {
+            status.textContent = message;
+            status.classList.toggle("text-red-600", type === "error");
+        }
+
+        if (box && !hasFrame) {
+            box.classList.remove("has-frame");
+        }
+    }
+
+    function collectCameraPreviewPayload() {
+        return {
+            cameraId: byId("cfg-cam-select")?.value || window.activeCameraId || "",
+            displayName: byId("cfg-cam-name")?.value || "",
+            manufacturer: byId("cfg-cam-manufacturer")?.value || "Huaray",
+            serialNumber: byId("cfg-cam-serial")?.value || "",
+            exposureTime: parseFloat(byId("cfg-cam-exposure")?.value) || 50000,
+            gain: parseFloat(byId("cfg-cam-gain")?.value) || 1.0,
+        };
+    }
+
+    function requestCameraPreviewFrame() {
+        setCameraPreviewStatus({ isBusy: true, message: "正在打开相机并获取画面..." });
+        bridge.sendCommand("capture_camera_preview", collectCameraPreviewPayload());
+    }
+
+    function receiveCameraPreviewFrame(data) {
+        const image = byId("camera-preview-image");
+        const status = byId("camera-preview-status");
+        const box = image?.closest(".cf-camera-preview-box");
+        if (!image) return;
+
+        const base64 = data?.base64 || data?.Base64 || "";
+        const url = data?.url || data?.Url || "";
+        const src = url || (base64 ? (String(base64).startsWith("data:image") ? base64 : `data:image/jpeg;base64,${base64}`) : "");
+        if (!src) return;
+
+        image.onload = () => {
+            image.classList.remove("hidden");
+            box?.classList.add("has-frame");
+            if (status) status.textContent = "预览已更新";
+            setCameraPreviewStatus({ isBusy: false });
+        };
+        image.onerror = () => {
+            setCameraPreviewStatus({ isBusy: false, message: "预览画面加载失败", type: "error" });
+        };
+        image.src = src;
+    }
+
     function searchCamerasHik() {
         const modal = byId("super-search-modal");
         const results = byId("super-search-results");
@@ -2217,13 +2363,17 @@
         deleteCurrentCamera,
         directConnectCamera,
         onCameraSelected,
+        requestCameraPreviewFrame,
         receiveCameraList,
+        receiveCameraPreviewFrame,
         receiveSuperSearchResult,
         searchCamerasHik,
+        setCameraPreviewStatus,
         superSearchCameras,
     });
 
     bridge.registerMessageHandler("cameraList", receiveCameraList);
+    bridge.registerMessageHandler("cameraPreviewFrame", receiveCameraPreviewFrame);
     bridge.registerMessageHandler("discoveredCameras", receiveSuperSearchResult);
 })();
 

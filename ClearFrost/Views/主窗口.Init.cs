@@ -71,6 +71,13 @@ namespace ClearFrost
             };
 
             // Camera 服务事件
+            _cameraService.ConnectionChanged += (connected) =>
+            {
+                InvokeOnUIThread(() =>
+                {
+                    SafeFireAndForget(_uiController.UpdateConnection("cam", connected), "更新相机状态");
+                });
+            };
             _cameraService.ErrorOccurred += (error) =>
             {
                 RecordHealthError("Camera", error);
@@ -155,6 +162,7 @@ namespace ClearFrost
             // 绑定 WebUI 事件
             _uiController.OnOpenCamera += (s, e) => SafeFireAndForget(btnOpenCamera_LogicAsync(), "打开相机");
             _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(btnCapture_LogicAsync(), "手动检测"));
+            _uiController.OnCaptureCameraPreview += (s, json) => InvokeOnUIThread(() => SafeFireAndForget(CaptureCameraPreviewFrameAsync(json), "获取相机预览单帧"));
             _uiController.OnManualRelease += (s, e) => SafeFireAndForget(fx_btn_LogicAsync(), "手动放行"); // Async void handler
             _uiController.OnOpenSettings += (s, e) => InvokeOnUIThread(() => btnSettings_Logic());
             _uiController.OnCollectDataset += (s, e) => SafeFireAndForget(CollectDatasetAsync(), "数据集收集");
