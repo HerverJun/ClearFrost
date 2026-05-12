@@ -297,6 +297,31 @@
         return document.getElementById(id);
     }
 
+    function normalizeThresholdValue(value, fallback = 0) {
+        const num = parseFloat(value);
+        if (Number.isNaN(num)) return fallback;
+        return Math.max(0, Math.min(1, num));
+    }
+
+    function setThresholdControl(inputId, legacySliderId, value, fallback = 0) {
+        const normalized = normalizeThresholdValue(value, fallback);
+        const input = byId(inputId);
+        if (input) input.value = normalized.toFixed(2);
+
+        const legacySlider = byId(legacySliderId);
+        if (legacySlider) legacySlider.value = Math.round(normalized * 100);
+        return normalized;
+    }
+
+    function readThresholdControl(inputId, legacySliderId, fallback) {
+        const input = byId(inputId);
+        if (input) return normalizeThresholdValue(input.value, fallback);
+
+        const legacySlider = byId(legacySliderId);
+        if (legacySlider) return normalizeThresholdValue(parseFloat(legacySlider.value) / 100, fallback);
+        return fallback;
+    }
+
     function getCompactPlcAddress(value) {
         return String(value || "").trim().replace(/\s+/g, "").toUpperCase();
     }
@@ -557,14 +582,10 @@
 
         if (data.TaskType !== undefined && byId("task-type-select")) byId("task-type-select").value = String(data.TaskType);
         if (data.Confidence !== undefined) {
-            const percent = Math.round(Number(data.Confidence) * 100);
-            if (byId("conf-slider")) byId("conf-slider").value = percent;
-            if (byId("conf-value")) byId("conf-value").textContent = Number(data.Confidence).toFixed(2);
+            setThresholdControl("conf-input", "conf-slider", data.Confidence);
         }
         if (data.IouThreshold !== undefined) {
-            const percent = Math.round(Number(data.IouThreshold) * 100);
-            if (byId("iou-slider")) byId("iou-slider").value = percent;
-            if (byId("iou-value")) byId("iou-value").textContent = Number(data.IouThreshold).toFixed(2);
+            setThresholdControl("iou-input", "iou-slider", data.IouThreshold);
         }
         if (data.EnableMultiModelFallback !== undefined) applyMultiModelUiState(!!data.EnableMultiModelFallback);
         if (data.BarcodeEnabled !== undefined) {
@@ -796,8 +817,8 @@
         }
 
         if (byId("task-type-select")) data.TaskType = parseInt(byId("task-type-select").value, 10);
-        if (byId("conf-slider")) data.Confidence = Math.max(0, Math.min(1, parseFloat(byId("conf-slider").value) / 100));
-        if (byId("iou-slider")) data.IouThreshold = Math.max(0, Math.min(1, parseFloat(byId("iou-slider").value) / 100));
+        data.Confidence = readThresholdControl("conf-input", "conf-slider", 0.5);
+        data.IouThreshold = readThresholdControl("iou-input", "iou-slider", 0.45);
 
         return data;
     }
@@ -896,14 +917,18 @@
     }
 
     function updateConfidence(val) {
-        const value = parseFloat(val) / 100;
-        if (byId("conf-value")) byId("conf-value").innerText = value.toFixed(2);
+        const fallback = store.state.settings?.Confidence ?? 0.5;
+        const rawValue = byId("conf-input") ? val : parseFloat(val) / 100;
+        const value = setThresholdControl("conf-input", "conf-slider", rawValue, fallback);
+        store.state.settings = { ...(store.state.settings || {}), Confidence: value };
         bridge.sendCommand("set_confidence", value);
     }
 
     function updateIou(val) {
-        const value = parseFloat(val) / 100;
-        if (byId("iou-value")) byId("iou-value").innerText = value.toFixed(2);
+        const fallback = store.state.settings?.IouThreshold ?? 0.45;
+        const rawValue = byId("iou-input") ? val : parseFloat(val) / 100;
+        const value = setThresholdControl("iou-input", "iou-slider", rawValue, fallback);
+        store.state.settings = { ...(store.state.settings || {}), IouThreshold: value };
         bridge.sendCommand("set_iou", value);
     }
 

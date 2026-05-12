@@ -2556,6 +2556,10 @@ input[type="range"]::-webkit-slider-runnable-track {
     content: "";
 }
 
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="preset"]::before {
+    content: "";
+}
+
 .cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="camera"]::before {
     content: "";
 }
@@ -2595,6 +2599,10 @@ input[type="range"]::-webkit-slider-runnable-track {
     box-shadow: none !important;
 }
 
+.cf-stitch-page #settings-modal [data-settings-section="preset"] #project-preset-select {
+    max-width: none;
+}
+
 .cf-stitch-page #settings-modal [data-settings-section] {
     max-width: none;
     background: #ffffff;
@@ -2623,6 +2631,10 @@ input[type="range"]::-webkit-slider-runnable-track {
     font-family: "Inter", "Microsoft YaHei", sans-serif;
     font-size: 12px;
     font-weight: 400;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="preset"] > h3::after {
+    content: "维护现场项目预设，并按历史记录收集训练数据集。";
 }
 
 .cf-stitch-page #settings-modal [data-settings-section="camera"] > h3::after {
