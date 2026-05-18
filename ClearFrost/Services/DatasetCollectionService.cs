@@ -64,7 +64,7 @@ namespace ClearFrost.Services
             }
             else
             {
-                // 过滤出磁盘上实际存在的图片（优先 RenderedImagePath，其次 ImagePath）
+                // 过滤出磁盘上实际存在的原图，避免渲染框污染训练数据。
                 validRecords = allRecords
                     .Select(r => ResolveImagePath(r))
                     .Where(r => !string.IsNullOrWhiteSpace(r.EffectiveImagePath) && File.Exists(r.EffectiveImagePath))
@@ -351,17 +351,10 @@ namespace ClearFrost.Services
         }
 
         /// <summary>
-        /// 决定使用哪条图片路径：优先渲染图，其次原图
+        /// 决定使用哪条图片路径：仅使用原图，避免渲染框污染训练数据。
         /// </summary>
         private static DetectionRecordLite ResolveImagePath(DetectionRecordLite record)
         {
-            if (!string.IsNullOrWhiteSpace(record.RenderedImagePath) &&
-                File.Exists(record.RenderedImagePath))
-            {
-                record.EffectiveImagePath = record.RenderedImagePath;
-                return record;
-            }
-
             if (!string.IsNullOrWhiteSpace(record.ImagePath) &&
                 File.Exists(record.ImagePath))
             {
@@ -369,9 +362,7 @@ namespace ClearFrost.Services
                 return record;
             }
 
-            record.EffectiveImagePath = !string.IsNullOrWhiteSpace(record.RenderedImagePath)
-                ? record.RenderedImagePath
-                : record.ImagePath;
+            record.EffectiveImagePath = record.ImagePath;
             return record;
         }
 

@@ -1,12 +1,15 @@
-using System;
+﻿using System;
+using System.Collections.Immutable;
 using System.IO;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-class Program
+namespace ClearFrost.Tools.HslTypeAnalyzer;
+
+internal static class Program
 {
-    static void Main()
+    private static void Main()
     {
         string dllPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -41,7 +44,7 @@ class Program
         }
     }
 
-    static string GetTypeName(MetadataReader reader, EntityHandle handle)
+    private static string GetTypeName(MetadataReader reader, EntityHandle handle)
     {
         switch (handle.Kind)
         {
@@ -61,15 +64,21 @@ class Program
     }
 }
 
-class SimpleTypeProvider : ISignatureTypeProvider<string, object>
+internal sealed class SimpleTypeProvider : ISignatureTypeProvider<string, object?>
 {
     public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode.ToString();
     public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => reader.GetString(reader.GetTypeDefinition(handle).Name);
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => reader.GetString(reader.GetTypeReference(handle).Name);
     public string GetSZArrayType(string elementType) => elementType + "[]";
     public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments) => genericType + "<" + string.Join(",", typeArguments) + ">";
-    public string GetGenericMethodParameter(object genericContext, int index) => "!!" + index;
-    public string GetGenericTypeParameter(object genericContext, int index) => "!" + index;
+    public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
+    {
+        var typeSpecification = reader.GetTypeSpecification(handle);
+        return typeSpecification.DecodeSignature(this, genericContext);
+    }
+
+    public string GetGenericMethodParameter(object? genericContext, int index) => "!!" + index;
+    public string GetGenericTypeParameter(object? genericContext, int index) => "!" + index;
     public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
     public string GetPinnedType(string elementType) => elementType;
     public string GetPointerType(string elementType) => elementType + "*";

@@ -66,6 +66,39 @@ public class DatasetCollectionServiceTests
     }
 
     [Fact]
+    public async Task CollectAsync_直接扫描时忽略Rendered子目录()
+    {
+        string tempDir = CreateTempDirectory();
+        string dbPath = CreateEmptyDatabase(tempDir);
+        string storagePath = CreateTempDirectory();
+        DateTime timestamp = DateTime.Now.Date.AddHours(16).AddMinutes(11).AddSeconds(12);
+        string imageDir = Path.Combine(
+            storagePath,
+            "Images",
+            "Unqualified",
+            timestamp.ToString("yyyy年MM月dd日"),
+            timestamp.ToString("HH"));
+        string renderedDir = Path.Combine(imageDir, "Rendered");
+        Directory.CreateDirectory(renderedDir);
+        File.WriteAllBytes(
+            Path.Combine(imageDir, $"FAIL_{timestamp:HHmmss}123.jpg"),
+            new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+        File.WriteAllBytes(
+            Path.Combine(renderedDir, $"FAIL_{timestamp:HHmmss}123_rendered.jpg"),
+            new byte[] { 0xFF, 0xD8, 0xFF, 0xE1 });
+        var service = new DatasetCollectionService(dbPath, storagePath);
+
+        var result = await service.CollectAsync(maxDays: 15, totalCount: 1, failRatio: 1.0);
+
+        result.Success.Should().BeTrue();
+        result.FailCopied.Should().Be(1);
+        Directory.GetFiles(Path.Combine(result.OutputDirectory, "Fail"))
+            .Should()
+            .ContainSingle()
+            .Which.Should().EndWith(".jpg").And.NotContain("rendered");
+    }
+
+    [Fact]
     public async Task CollectAsync_有足够记录_正确收集并复制()
     {
         string tempDir = CreateTempDirectory();
@@ -187,6 +220,47 @@ public class DatasetCollectionServiceTests
         result.Success.Should().BeTrue();
         result.FailCopied.Should().Be(1);
         File.Exists(Path.Combine(result.OutputDirectory, "Fail", "original.jpg")).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CollectAsync_原图和渲染图都存在_优先复制原图()
+    {
+        string tempDir = CreateTempDirectory();
+        string storagePath = CreateTempDirectory();
+        string dbPath = Path.Combine(tempDir, "detection.db");
+        DateTime timestamp = DateTime.Now;
+        string originalPath = Path.Combine(tempDir, "original.jpg");
+        string renderedPath = Path.Combine(tempDir, "rendered.jpg");
+        File.WriteAllBytes(originalPath, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+        File.WriteAllBytes(renderedPath, new byte[] { 0xFF, 0xD8, 0xFF, 0xE1 });
+        CreateDatabaseWithSingleRecord(dbPath, timestamp, isQualified: false, originalPath, renderedPath, "INS-BOTH-PATHS");
+        var service = new DatasetCollectionService(dbPath, storagePath);
+
+        var result = await service.CollectAsync(maxDays: 15, totalCount: 1, failRatio: 1.0);
+
+        result.Success.Should().BeTrue();
+        result.FailCopied.Should().Be(1);
+        File.Exists(Path.Combine(result.OutputDirectory, "Fail", "original.jpg")).Should().BeTrue();
+        File.Exists(Path.Combine(result.OutputDirectory, "Fail", "rendered.jpg")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CollectAsync_原图缺失但渲染图存在_不会复制渲染图()
+    {
+        string tempDir = CreateTempDirectory();
+        string storagePath = CreateTempDirectory();
+        string dbPath = Path.Combine(tempDir, "detection.db");
+        DateTime timestamp = DateTime.Now;
+        string missingOriginalPath = Path.Combine(tempDir, "missing-original.jpg");
+        string renderedPath = Path.Combine(tempDir, "rendered.jpg");
+        File.WriteAllBytes(renderedPath, new byte[] { 0xFF, 0xD8, 0xFF, 0xE1 });
+        CreateDatabaseWithSingleRecord(dbPath, timestamp, isQualified: false, missingOriginalPath, renderedPath, "INS-ONLY-RENDER");
+        var service = new DatasetCollectionService(dbPath, storagePath);
+
+        var result = await service.CollectAsync(maxDays: 15, totalCount: 1, failRatio: 1.0);
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("图片文件在磁盘上已不存在");
     }
 
     [Fact]

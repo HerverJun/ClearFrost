@@ -1,4 +1,4 @@
-# Visual Studio
+﻿# Visual Studio
 .vs/
 bin/
 obj/
@@ -81,6 +81,7 @@ packages/
 PublishOutput/
 Release/
 Debug/
+artifacts/
 
 # Documentation Files (大文档文件，按需提交)
 # *.docx

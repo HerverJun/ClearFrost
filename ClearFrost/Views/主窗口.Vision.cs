@@ -194,8 +194,8 @@ namespace ClearFrost
                     using (var sourceMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(originalBitmap))
                     using (var renderedMat = TryRenderDetectionMat(sourceMat, results, labels))
                     {
-                        // 保存检测图像到追溯库（不合格时复用渲染结果）
-                        await SaveDetectionImage(sourceMat, results, isQualified, result.UsedModelLabels, renderedMat);
+                        // 追溯保存原图与带框复查图；数据集收集只使用原图路径。
+                        await SaveDetectionImage(sourceMat, isQualified, renderedMat);
 
                         _statisticsService.RecordDetection(isQualified);
 
@@ -543,7 +543,7 @@ namespace ClearFrost
             bool finalQualified = false;
             int finalResultCount = 0;
             int attemptCount = 0;
-            ImageSavePayload? imagePayload = null;
+            List<ImageSavePayload>? imagePayloads = null;
             DetectionPersistencePayload? persistencePayload = null;
             string? productBarcode = null;
             bool? barcodeReadSucceeded = null;
@@ -823,12 +823,10 @@ namespace ClearFrost
                         renderToUiMs = renderSw.ElapsedMilliseconds;
                         context.RenderToUiMs = renderToUiMs;
 
-                        imagePayload = CreateImageSavePayload(
+                        imagePayloads = CreateImageSavePayloads(
                             context,
                             frameToProcess,
-                            results,
                             isQualified,
-                            result.UsedModelLabels,
                             renderedMat);
                         context.TotalMs = captureMs + inferenceMs + roiFilterMs + plcWriteMs + renderToUiMs;
                         persistencePayload = BuildDetectionPersistencePayload(context, result, results, finalResultCount, isQualified);
@@ -861,12 +859,11 @@ namespace ClearFrost
                         $"InspectionId: {request.InspectionId}{Environment.NewLine}检测流程异常: {ex.Message}",
                         false);
 
-                    imagePayload = CreateImageSavePayload(
+                    imagePayloads = CreateImageSavePayloads(
                         context,
                         frameToProcess,
-                        new List<YoloResult>(),
                         false);
-                    (bool errorImageQueued, saveQueueMs) = await EnqueueImagePayloadAsync(context, imagePayload);
+                    (bool errorImageQueued, saveQueueMs) = await EnqueueImagePayloadsAsync(context, imagePayloads);
                     context.TotalMs = captureMs + inferenceMs + roiFilterMs + plcWriteMs + renderToUiMs + saveQueueMs;
                     var errorPayload = BuildDetectionPersistencePayload(
                         context,
@@ -894,7 +891,7 @@ namespace ClearFrost
             }
 
             bool imageQueuedForRecord;
-            (imageQueuedForRecord, saveQueueMs) = await EnqueueImagePayloadAsync(context, imagePayload);
+            (imageQueuedForRecord, saveQueueMs) = await EnqueueImagePayloadsAsync(context, imagePayloads);
 
             context.TotalMs = captureMs + inferenceMs + roiFilterMs + plcWriteMs + renderToUiMs + saveQueueMs;
             if (persistencePayload != null)
@@ -981,7 +978,7 @@ namespace ClearFrost
             return OpenCvSharp.Extensions.BitmapConverter.ToMat(resultImage);
         }
 
-        private ImageSavePayload? CreateImageSavePayload(Mat image, List<YoloResult> results, bool isQualified, string[]? usedLabels = null, Mat? renderedImage = null)
+        private List<ImageSavePayload>? CreateImageSavePayloads(Mat image, bool isQualified, Mat? renderedImage = null)
         {
             var context = new InspectionContext
             {
@@ -990,11 +987,12 @@ namespace ClearFrost
                 TriggerSource = "TEST"
             };
 
-            return CreateImageSavePayload(context, image, results, isQualified, usedLabels, renderedImage);
+            return CreateImageSavePayloads(context, image, isQualified, renderedImage);
         }
 
-        private ImageSavePayload? CreateImageSavePayload(InspectionContext context, Mat image, List<YoloResult> results, bool isQualified, string[]? usedLabels = null, Mat? renderedImage = null)
+        private List<ImageSavePayload>? CreateImageSavePayloads(InspectionContext context, Mat image, bool isQualified, Mat? renderedImage = null)
         {
+            var payloads = new List<ImageSavePayload>();
             try
             {
                 DateTime now = context.TriggerTime.LocalDateTime;
@@ -1011,28 +1009,28 @@ namespace ClearFrost
                 string fileName = BuildTraceImageFileName(isQualified, safeInspectionId, context.ProductBarcode);
                 string filePath = Path.Combine(directory, fileName);
                 context.ImagePath = filePath;
+                payloads.Add(ImageSavePayload.Create(image, filePath));
 
-                // 不合格图像优先复用调用方已渲染结果，避免二次 ToBitmap + 渲染。
-                if (!isQualified && results.Count > 0)
+                if (renderedImage != null && !renderedImage.Empty())
                 {
-                    if (renderedImage != null && !renderedImage.Empty())
-                    {
-                        context.RenderedImagePath = filePath;
-                        return ImageSavePayload.Create(renderedImage, filePath);
-                    }
+                    string renderedDirectory = Path.Combine(directory, "Rendered");
+                    Directory.CreateDirectory(renderedDirectory);
 
-                    string[] labels = usedLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
-                    using var bitmap = image.ToBitmap();
-                    using var resultImage = _detectionService.GenerateResultImage(bitmap, results, labels);
-                    using var renderedMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(resultImage);
-                    context.RenderedImagePath = filePath;
-                    return ImageSavePayload.Create(renderedMat, filePath);
+                    string renderedFileName = AddFileNameSuffix(fileName, "_rendered");
+                    string renderedPath = Path.Combine(renderedDirectory, renderedFileName);
+                    context.RenderedImagePath = renderedPath;
+                    payloads.Add(ImageSavePayload.Create(renderedImage, renderedPath));
                 }
 
-                return ImageSavePayload.Create(image, filePath);
+                return payloads;
             }
             catch (Exception ex)
             {
+                foreach (ImageSavePayload payload in payloads)
+                {
+                    payload.Dispose();
+                }
+
                 Debug.WriteLine($"保存检测图像失败: {ex.Message}");
                 if (string.IsNullOrWhiteSpace(context.ErrorCode))
                 {
@@ -1041,6 +1039,13 @@ namespace ClearFrost
 
                 return null;
             }
+        }
+
+        private static string AddFileNameSuffix(string fileName, string suffix)
+        {
+            string nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
+            string extension = Path.GetExtension(fileName);
+            return $"{nameWithoutExtension}{suffix}{extension}";
         }
 
         private static string BuildTraceImageFileName(bool isQualified, string inspectionId, string? productBarcode)
@@ -1086,30 +1091,33 @@ namespace ClearFrost
             return safe;
         }
 
-        private async Task<string> SaveDetectionImage(Mat image, List<YoloResult> results, bool isQualified, string[]? usedLabels = null, Mat? renderedImage = null)
+        private async Task<string> SaveDetectionImage(Mat image, bool isQualified, Mat? renderedImage = null)
         {
-            ImageSavePayload? payload = CreateImageSavePayload(image, results, isQualified, usedLabels, renderedImage);
-            if (payload == null)
+            List<ImageSavePayload>? payloads = CreateImageSavePayloads(image, isQualified, renderedImage);
+            if (payloads == null || payloads.Count == 0)
             {
                 return string.Empty;
             }
 
-            bool enqueued = _imageSaveQueue.Enqueue(payload);
-            if (!enqueued)
+            string originalPath = payloads[0].Path;
+            foreach (ImageSavePayload payload in payloads)
             {
-                payload.Dispose();
-                return string.Empty;
+                bool enqueued = _imageSaveQueue.Enqueue(payload);
+                if (!enqueued)
+                {
+                    payload.Dispose();
+                }
             }
 
-            return payload.Path;
+            return originalPath;
         }
 
-        private async Task<(bool Queued, long ElapsedMs)> EnqueueImagePayloadAsync(InspectionContext context, ImageSavePayload? payload)
+        private async Task<(bool Queued, long ElapsedMs)> EnqueueImagePayloadsAsync(InspectionContext context, List<ImageSavePayload>? payloads)
         {
             context.CurrentStage = InspectionStage.SaveImage;
             var saveSw = Stopwatch.StartNew();
 
-            if (payload == null)
+            if (payloads == null || payloads.Count == 0)
             {
                 saveSw.Stop();
                 context.SaveImageMs = saveSw.ElapsedMilliseconds;
@@ -1124,13 +1132,21 @@ namespace ClearFrost
                 return (false, context.SaveImageMs);
             }
 
-            bool imageQueued = _imageSaveQueue.Enqueue(payload);
+            bool imageQueued = true;
+            foreach (ImageSavePayload payload in payloads)
+            {
+                if (!_imageSaveQueue.Enqueue(payload))
+                {
+                    payload.Dispose();
+                    imageQueued = false;
+                }
+            }
+
             saveSw.Stop();
             context.SaveImageMs = saveSw.ElapsedMilliseconds;
 
             if (!imageQueued)
             {
-                payload.Dispose();
                 if (string.IsNullOrWhiteSpace(context.ErrorCode))
                 {
                     context.SetError(InspectionStage.SaveImage, "ImageQueueFull", "图像保存队列入队失败");
