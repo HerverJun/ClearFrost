@@ -404,8 +404,13 @@
                                 <label class="flex items-center gap-2 cursor-pointer">
                                     <input id="cfg-yolo-gpu" type="checkbox"
                                         class="accent-celadon-600 w-3.5 h-3.5 rounded">
-                                    <span class="text-[10px] font-bold text-ink-500">启用 GPU 加速</span>
+                                    <span class="text-[10px] font-bold text-ink-500">启用 DirectML GPU 加速</span>
                                 </label>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">GPU 设备 ID</label>
+                                <input id="cfg-yolo-gpu-index" type="number" min="0" step="1"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="0">
                             </div>
                             <div class="col-span-2">
                                 <label class="flex items-center gap-2 cursor-pointer">

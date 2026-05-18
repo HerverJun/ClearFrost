@@ -220,8 +220,8 @@ yolo export model=yolo11n.pt format=onnx
 <summary><strong>Q: GPU 加速未启用？</strong></summary>
 
 1. 确保显卡驱动是最新版本
-2. 在设置中勾选「启用 GPU 加速 (CUDA)」
-3. 确认安装了 DirectML 运行时
+2. 在设置中勾选「启用 DirectML GPU 加速」
+3. 确认显卡和驱动支持 DirectML，并检查 GPU 设备 ID 是否正确
 </details>
 
 ---

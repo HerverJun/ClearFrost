@@ -33,8 +33,10 @@ namespace ClearFrost.Services
         private YoloDetector? _yolo;
         private MultiModelManager? _modelManager;
         private readonly bool _useGpu;
+        private int _gpuDeviceId;
         private readonly List<string> _availableModels = new List<string>();
         private string _currentModelName = "未加载";
+        private DetectionRuntimeStatus _runtimeStatus = new DetectionRuntimeStatus();
         private bool _disposed;
 
         #endregion
@@ -53,6 +55,7 @@ namespace ClearFrost.Services
         public string CurrentModelName => _currentModelName;
         public IReadOnlyList<string> AvailableModels => _availableModels.AsReadOnly();
         public long LastInferenceMs { get; private set; }
+        public DetectionRuntimeStatus RuntimeStatus => _runtimeStatus;
 
         /// <summary>
         /// 获取当前主检测器实例（用于 Mat 直通渲染等优化路径）。
@@ -63,9 +66,11 @@ namespace ClearFrost.Services
 
         #region 构造函数
 
-        public DetectionService(bool useGpu = true)
+        public DetectionService(bool useGpu = true, int gpuDeviceId = 0)
         {
             _useGpu = useGpu;
+            _gpuDeviceId = Math.Max(0, gpuDeviceId);
+            _runtimeStatus = CreateRuntimeStatus(useGpu, false, _gpuDeviceId, string.Empty);
         }
 
         #endregion
@@ -78,7 +83,63 @@ namespace ClearFrost.Services
         /// <param name="modelPath">模型文件的完整路径</param>
         /// <param name="useGpu">是否使用 GPU 进行推理</param>
         /// <returns>如果是加载成功返回 true，否则返回 false</returns>
-        public async Task<bool> LoadModelAsync(string modelPath, bool useGpu)
+        public async Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0)
+        {
+            gpuDeviceId = Math.Max(0, gpuDeviceId);
+            _gpuDeviceId = gpuDeviceId;
+
+            if (!File.Exists(modelPath))
+            {
+                ErrorOccurred?.Invoke($"模型文件不存在: {modelPath}");
+                return false;
+            }
+
+            if (useGpu)
+            {
+                try
+                {
+                    bool loaded = await LoadModelCoreAsync(modelPath, useGpu: true, gpuDeviceId).ConfigureAwait(false);
+                    if (loaded)
+                    {
+                        _runtimeStatus = CreateRuntimeStatus(true, true, gpuDeviceId, string.Empty);
+                    }
+                    return loaded;
+                }
+                catch (Exception ex)
+                {
+                    string reason = ex.Message;
+                    ErrorOccurred?.Invoke($"DirectML GPU 加速不可用，已回退 CPU: {reason}");
+                    Debug.WriteLine($"[DetectionService] DirectML GPU 加载失败，回退 CPU: {ex}");
+
+                    try
+                    {
+                        bool loaded = await LoadModelCoreAsync(modelPath, useGpu: false, gpuDeviceId).ConfigureAwait(false);
+                        _runtimeStatus = CreateRuntimeStatus(true, false, gpuDeviceId, reason);
+                        return loaded;
+                    }
+                    catch (Exception cpuEx)
+                    {
+                        _runtimeStatus = CreateRuntimeStatus(true, false, gpuDeviceId, reason);
+                        ErrorOccurred?.Invoke($"CPU 回退加载模型失败: {cpuEx.Message}");
+                        return false;
+                    }
+                }
+            }
+
+            try
+            {
+                bool loaded = await LoadModelCoreAsync(modelPath, useGpu: false, gpuDeviceId).ConfigureAwait(false);
+                _runtimeStatus = CreateRuntimeStatus(false, false, gpuDeviceId, string.Empty);
+                return loaded;
+            }
+            catch (Exception ex)
+            {
+                ErrorOccurred?.Invoke($"加载模型失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task<bool> LoadModelCoreAsync(string modelPath, bool useGpu, int gpuDeviceId)
         {
             bool rebuildManager = false;
             bool committedTempManager = false;
@@ -87,32 +148,28 @@ namespace ClearFrost.Services
 
             try
             {
-                if (!File.Exists(modelPath))
-                {
-                    ErrorOccurred?.Invoke($"模型文件不存在: {modelPath}");
-                    return false;
-                }
-
-                rebuildManager = _modelManager != null && _modelManager.UseGpu != useGpu;
+                rebuildManager = _modelManager == null ||
+                    _modelManager.UseGpu != useGpu ||
+                    (useGpu && _modelManager.GpuDeviceId != gpuDeviceId);
                 string preservedAux1Path = string.Empty;
                 string preservedAux2Path = string.Empty;
                 bool preservedFallback = false;
 
                 if (rebuildManager)
                 {
-                    previousManager = _modelManager ?? throw new InvalidOperationException("多模型管理器初始化失败");
-                    preservedAux1Path = previousManager.Auxiliary1ModelPath ?? string.Empty;
-                    preservedAux2Path = previousManager.Auxiliary2ModelPath ?? string.Empty;
-                    preservedFallback = previousManager.EnableFallback;
-                    replacementManager = new MultiModelManager(useGpu)
+                    previousManager = _modelManager;
+                    if (previousManager != null)
+                    {
+                        preservedAux1Path = previousManager.Auxiliary1ModelPath ?? string.Empty;
+                        preservedAux2Path = previousManager.Auxiliary2ModelPath ?? string.Empty;
+                        preservedFallback = previousManager.EnableFallback;
+                    }
+
+                    replacementManager = new MultiModelManager(useGpu, gpuDeviceId)
                     {
                         EnableFallback = preservedFallback
                     };
-                    Debug.WriteLine($"[DetectionService] GPU 设置变化为 {useGpu}，准备重建多模型管理器");
-                }
-                else if (_modelManager == null)
-                {
-                    _modelManager = new MultiModelManager(useGpu);
+                    Debug.WriteLine($"[DetectionService] 推理后端变化为 GPU={useGpu}, Device={gpuDeviceId}，准备重建多模型管理器");
                 }
 
                 MultiModelManager manager = replacementManager ?? _modelManager
@@ -132,10 +189,11 @@ namespace ClearFrost.Services
                     await Task.Run(() =>
                     {
                         _yolo?.Dispose(); // 显式释放旧资源
-                        _yolo = new YoloDetector(modelPath, 0, 0, useGpu);
+                        _yolo = new YoloDetector(modelPath, 0, gpuDeviceId, useGpu);
                     });
                 }
-                else if (rebuildManager)
+
+                if (rebuildManager)
                 {
                     // 主模型加载成功且本次发生过 GPU 重建，按新 GPU 设置恢复辅助槽。
                     if (!string.IsNullOrEmpty(preservedAux1Path) && File.Exists(preservedAux1Path))
@@ -164,11 +222,6 @@ namespace ClearFrost.Services
                 Debug.WriteLine($"[DetectionService] 模型已加载: {modelName} (MultiModelManager: {_modelManager?.IsPrimaryLoaded ?? false})");
                 return true;
             }
-            catch (Exception ex)
-            {
-                ErrorOccurred?.Invoke($"加载模型失败: {ex.Message}");
-                return false;
-            }
             finally
             {
                 if (rebuildManager && !committedTempManager)
@@ -184,7 +237,7 @@ namespace ClearFrost.Services
         /// <param name="modelsDirectory">模型目录路径</param>
         /// <param name="useGpu">是否使用 GPU</param>
         /// <returns>如果有模型加载成功返回 true，否则返回 false</returns>
-        public async Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu)
+        public async Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0)
         {
             try
             {
@@ -208,22 +261,11 @@ namespace ClearFrost.Services
                     return false;
                 }
 
-                // 初始化多模型管理器 (显式回收旧资源以防内存泄漏)
-                _modelManager?.Dispose();
-                _yolo?.Dispose();
-                _yolo = null;
-                _modelManager = new MultiModelManager(useGpu);
-
                 // 加载主模型 (第一个找到的模型)
                 string primaryModelPath = modelFiles[0];
-                await Task.Run(() => _modelManager.LoadPrimaryModel(primaryModelPath));
-
-                if (_modelManager.IsPrimaryLoaded)
+                if (await LoadModelAsync(primaryModelPath, useGpu, gpuDeviceId).ConfigureAwait(false))
                 {
-                    string loadedName = System.IO.Path.GetFileNameWithoutExtension(_modelManager.PrimaryModelPath);
-                    _currentModelName = loadedName;
-                    ModelLoaded?.Invoke(loadedName);
-                    Debug.WriteLine($"[DetectionService] 多模型管理器初始化完成: {_modelManager.PrimaryModelPath}");
+                    Debug.WriteLine($"[DetectionService] 多模型管理器初始化完成: {primaryModelPath}");
                     return true;
                 }
 
@@ -265,7 +307,7 @@ namespace ClearFrost.Services
                     return false;
                 }
 
-                return await LoadModelAsync(modelPath, _useGpu);
+                return await LoadModelAsync(modelPath, _useGpu, _gpuDeviceId);
             }
             catch (Exception ex)
             {
@@ -635,6 +677,22 @@ namespace ClearFrost.Services
                 ErrorOccurred?.Invoke($"加载辅助模型{modelIndex}失败: {ex.Message}");
                 return false;
             }
+        }
+
+        private static DetectionRuntimeStatus CreateRuntimeStatus(
+            bool gpuRequested,
+            bool gpuActive,
+            int gpuDeviceId,
+            string gpuFailureReason)
+        {
+            return new DetectionRuntimeStatus
+            {
+                GpuRequested = gpuRequested,
+                GpuActive = gpuActive,
+                GpuDeviceId = Math.Max(0, gpuDeviceId),
+                ExecutionProvider = gpuActive ? "DmlExecutionProvider" : "CPUExecutionProvider",
+                GpuFailureReason = gpuFailureReason ?? string.Empty
+            };
         }
 
         #endregion

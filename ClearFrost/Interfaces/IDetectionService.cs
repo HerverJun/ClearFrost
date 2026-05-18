@@ -68,6 +68,18 @@ namespace ClearFrost.Interfaces
     }
 
     /// <summary>
+    /// 检测运行时推理后端状态。
+    /// </summary>
+    public sealed class DetectionRuntimeStatus
+    {
+        public bool GpuRequested { get; init; }
+        public bool GpuActive { get; init; }
+        public int GpuDeviceId { get; init; }
+        public string ExecutionProvider { get; init; } = "CPUExecutionProvider";
+        public string GpuFailureReason { get; init; } = string.Empty;
+    }
+
+    /// <summary>
     /// 检测服务接口
     /// </summary>
     public interface IDetectionService : IDisposable
@@ -113,6 +125,11 @@ namespace ClearFrost.Interfaces
         /// </summary>
         long LastInferenceMs { get; }
 
+        /// <summary>
+        /// 当前检测推理后端状态。
+        /// </summary>
+        DetectionRuntimeStatus RuntimeStatus { get; }
+
         #endregion
 
         #region 方法
@@ -123,14 +140,14 @@ namespace ClearFrost.Interfaces
         /// <param name="modelPath">模型文件路径</param>
         /// <param name="useGpu">是否使用 GPU</param>
         /// <returns>是否成功</returns>
-        Task<bool> LoadModelAsync(string modelPath, bool useGpu);
+        Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0);
 
         /// <summary>
         /// 扫描并加载默认模型
         /// </summary>
         /// <param name="modelsDirectory">模型目录</param>
         /// <param name="useGpu">是否使用 GPU</param>
-        Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu);
+        Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0);
 
         /// <summary>
         /// 切换模型

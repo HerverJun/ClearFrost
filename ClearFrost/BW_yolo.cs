@@ -154,6 +154,11 @@ namespace ClearFrost.Yolo
         private float _maskScaleH = 0;
         private string _modelVersion = "";
         private string _taskType = "";
+        private bool _requestedGpu;
+        private bool _gpuActive;
+        private int _gpuDeviceId;
+        private string _executionProvider = "CPUExecutionProvider";
+        private string _gpuFailureReason = "";
         private int _segWidth = 0;
         private int _poseWidth = 0;
         private float _scale = 1;
@@ -168,6 +173,16 @@ namespace ClearFrost.Yolo
         /// 上次推理的性能指标
         /// </summary>
         public InferenceMetrics? LastMetrics { get; private set; }
+
+        public bool RequestedGpu => _requestedGpu;
+
+        public bool GpuActive => _gpuActive;
+
+        public int GpuDeviceId => _gpuDeviceId;
+
+        public string ExecutionProvider => _executionProvider;
+
+        public string GpuFailureReason => _gpuFailureReason;
 
         /// <summary>
         /// 全局工业渲染模式开关。开启后使用轻量绘制路径。
@@ -286,17 +301,45 @@ namespace ClearFrost.Yolo
                 throw new ArgumentNullException(nameof(modelPath));
             if (!File.Exists(modelPath))
                 throw new FileNotFoundException($"Model file not found: {modelPath}", modelPath);
+            if (gpuIndex < 0)
+                throw new ArgumentOutOfRangeException(nameof(gpuIndex));
+
+            _requestedGpu = useGpu;
+            _gpuDeviceId = gpuIndex;
+            _executionProvider = useGpu ? "DmlExecutionProvider" : "CPUExecutionProvider";
 
             var options = CreateSessionOptions(useGpu, gpuIndex, 0);
 
             try
             {
                 _inferenceSession = new InferenceSession(modelPath, options);
+                InitializeModelMetadata(yoloVersion);
+                if (useGpu)
+                {
+                    ValidateDirectMlSession();
+                }
             }
-            catch
+            catch (Exception ex)
             {
+                _gpuActive = false;
+                _gpuFailureReason = ex.Message;
+                _executionProvider = "CPUExecutionProvider";
+                _inferenceSession?.Dispose();
+                _inferenceSession = null;
                 options.Dispose();
                 throw;
+            }
+            finally
+            {
+                options.Dispose();
+            }
+        }
+
+        private void InitializeModelMetadata(int yoloVersion)
+        {
+            if (_inferenceSession == null)
+            {
+                throw new InvalidOperationException("ONNX 推理会话未初始化");
             }
 
             _modelInputName = _inferenceSession.InputNames.First();
@@ -382,14 +425,22 @@ namespace ClearFrost.Yolo
         {
             var options = new SessionOptions();
             options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
-            options.EnableMemoryPattern = true;
+            options.EnableMemoryPattern = !useGpu;
             options.EnableCpuMemArena = true;
+            if (useGpu)
+            {
+                options.ExecutionMode = ExecutionMode.ORT_SEQUENTIAL;
+            }
             options.IntraOpNumThreads = intraOpThreads > 0
                 ? intraOpThreads
                 : Math.Max(1, Environment.ProcessorCount / 2);
 
             if (useGpu)
             {
+                options.EnableProfiling = true;
+                options.ProfileOutputPathPrefix = Path.Combine(
+                    Path.GetTempPath(),
+                    $"clearfrost-dml-{Environment.ProcessId}-{Guid.NewGuid():N}");
                 try
                 {
                     options.AppendExecutionProvider_DML(gpuIndex);
@@ -401,6 +452,60 @@ namespace ClearFrost.Yolo
             }
 
             return options;
+        }
+
+        private void ValidateDirectMlSession()
+        {
+            if (_inferenceSession == null)
+            {
+                throw new InvalidOperationException("ONNX 推理会话未初始化");
+            }
+
+            string profilePath = string.Empty;
+            bool warmupCompleted = false;
+            try
+            {
+                int[] dimensions = _inputTensorInfo
+                    .Select((value, index) => value > 0 ? value : index == 0 ? 1 : 640)
+                    .ToArray();
+                int elementCount = dimensions.Aggregate(1, (current, value) => checked(current * value));
+                var tensor = new DenseTensor<float>(new float[elementCount], dimensions);
+                IReadOnlyCollection<NamedOnnxValue> inputs = new List<NamedOnnxValue>
+                {
+                    NamedOnnxValue.CreateFromTensor(_modelInputName, tensor)
+                };
+
+                using (var results = _inferenceSession.Run(inputs))
+                {
+                    _ = results.Count;
+                }
+
+                warmupCompleted = true;
+                profilePath = _inferenceSession.EndProfiling();
+                string profileText = File.Exists(profilePath) ? File.ReadAllText(profilePath) : string.Empty;
+                if (!profileText.Contains("DmlExecutionProvider", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("DirectML 探针未在 profiling 中发现 DmlExecutionProvider 节点");
+                }
+
+                _gpuActive = true;
+                _executionProvider = "DmlExecutionProvider";
+                _gpuFailureReason = string.Empty;
+            }
+            finally
+            {
+                if (warmupCompleted && !string.IsNullOrWhiteSpace(profilePath))
+                {
+                    try
+                    {
+                        File.Delete(profilePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[YoloDetector] 删除 DirectML profiling 文件失败: {ex.Message}");
+                    }
+                }
+            }
         }
 
         /// <summary>

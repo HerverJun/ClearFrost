@@ -118,6 +118,50 @@ public class DetectionServiceTests
         }
     }
 
+    [Fact]
+    public async Task LoadModelAsync_GpuIndex_RecordsRequestedDevice()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string modelPath = CopyModel(GetSampleOnnxPath(), tempDir, "primary.onnx");
+            using var service = new DetectionService(useGpu: true, gpuDeviceId: 2);
+
+            bool loaded = await service.LoadModelAsync(modelPath, useGpu: true, gpuDeviceId: 2);
+
+            loaded.Should().BeTrue();
+            service.RuntimeStatus.GpuRequested.Should().BeTrue();
+            service.RuntimeStatus.GpuDeviceId.Should().Be(2);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task LoadModelAsync_DirectMlFailure_FallsBackToCpuAndRecordsReason()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string modelPath = CopyModel(GetSampleOnnxPath(), tempDir, "primary.onnx");
+            using var service = new DetectionService(useGpu: true, gpuDeviceId: 99);
+
+            bool loaded = await service.LoadModelAsync(modelPath, useGpu: true, gpuDeviceId: 99);
+
+            loaded.Should().BeTrue();
+            service.RuntimeStatus.GpuRequested.Should().BeTrue();
+            service.RuntimeStatus.GpuActive.Should().BeFalse();
+            service.RuntimeStatus.ExecutionProvider.Should().Be("CPUExecutionProvider");
+            service.RuntimeStatus.GpuFailureReason.Should().NotBeNullOrWhiteSpace();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static MultiModelManager? GetModelManager(DetectionService service)
     {
         var field = typeof(DetectionService).GetField(

@@ -561,6 +561,7 @@
             MaxRetryCount: "cfg-logic-retry-count",
             RetryIntervalMs: "cfg-logic-retry-interval",
             EnableGpu: "cfg-yolo-gpu",
+            GpuIndex: "cfg-yolo-gpu-index",
             IndustrialRenderMode: "cfg-industrial-render-mode",
             BarcodeEnabled: "cfg-barcode-enabled",
             BarcodeAddress: "cfg-barcode-address",
@@ -789,6 +790,7 @@
             "cfg-logic-retry-count": "MaxRetryCount",
             "cfg-logic-retry-interval": "RetryIntervalMs",
             "cfg-yolo-gpu": "EnableGpu",
+            "cfg-yolo-gpu-index": "GpuIndex",
             "cfg-industrial-render-mode": "IndustrialRenderMode",
             "cfg-barcode-enabled": "BarcodeEnabled",
             "cfg-barcode-address": "BarcodeAddress",
@@ -799,7 +801,7 @@
         const numericFields = new Set([
             "PlcPort", "PlcTriggerDelayMs", "PlcPollingIntervalMs", "PlcOkValue", "PlcNgValue",
             "PlcSiemensRack", "PlcSiemensSlot", "ExposureTime", "GainRaw", "TargetCount",
-            "MaxRetryCount", "RetryIntervalMs", "BarcodeWordLength",
+            "MaxRetryCount", "RetryIntervalMs", "GpuIndex", "BarcodeWordLength",
         ]);
         const data = {};
 
@@ -986,6 +988,7 @@
             "cfg-logic-target-count": preset.TargetCount,
             "cfg-logic-retry-count": preset.MaxRetryCount ?? 1,
             "cfg-logic-retry-interval": preset.RetryIntervalMs ?? 2000,
+            "cfg-yolo-gpu-index": preset.GpuIndex ?? 0,
             "cfg-storage-path": preset.StoragePath ?? "C:\\GreeVisionData",
         };
         Object.entries(textAssignments).forEach(([id, value]) => {

@@ -116,9 +116,10 @@ public class HealthMonitorTests
         public string CurrentModelName => "fake-model";
         public IReadOnlyList<string> AvailableModels => Array.Empty<string>();
         public long LastInferenceMs => 0;
+        public DetectionRuntimeStatus RuntimeStatus { get; } = new DetectionRuntimeStatus();
 
-        public Task<bool> LoadModelAsync(string modelPath, bool useGpu) => Task.FromResult(true);
-        public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu) => Task.FromResult(true);
+        public Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
+        public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
         public Task<bool> SwitchModelAsync(string modelName) => Task.FromResult(true);
         public Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold, string? targetLabel = null, int targetCount = 0)
             => Task.FromResult(new DetectionResultData());

@@ -66,7 +66,7 @@ Program.cs
  hslcommunication/11.6.1/lib/netstandard2.1/HslCommunication.dll
  mcpx/0.6.0/lib/net8.0/McpXLib.dll
  microsoft.data.sqlite.core/10.0.1/lib/net8.0/Microsoft.Data.Sqlite.dll
- microsoft.ml.onnxruntime.managed/1.16.3/lib/net6.0/Microsoft.ML.OnnxRuntime.dll
+ microsoft.ml.onnxruntime.managed/1.24.4/lib/net8.0/Microsoft.ML.OnnxRuntime.dll
  microsoft.netcore.app.ref/8.0.22/ref/net8.0/
   Microsoft.CSharp.dll
   Microsoft.VisualBasic.Core.dll
@@ -269,6 +269,7 @@ Program.cs
  sqlitepclraw.core/2.1.11/lib/netstandard2.0/SQLitePCLRaw.core.dll
  sqlitepclraw.provider.e_sqlite3/2.1.11/lib/net6.0-windows7.0/SQLitePCLRaw.provider.e_sqlite3.dll
  system.io.ports/7.0.0/lib/net7.0/System.IO.Ports.dll
+ system.numerics.tensors/9.0.0/lib/net8.0/System.Numerics.Tensors.dll
 
 [analyzerReferences]
 <DOTNET>/sdk/10.0.101/Sdks/Microsoft.NET.Sdk/analyzers/

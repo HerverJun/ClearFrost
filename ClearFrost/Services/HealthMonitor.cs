@@ -36,6 +36,7 @@ namespace ClearFrost.Services
         public string CameraStatus { get; init; } = string.Empty;
         public string PlcStatus { get; init; } = string.Empty;
         public string ModelStatus { get; init; } = string.Empty;
+        public DetectionRuntimeStatus DetectionRuntime { get; init; } = new DetectionRuntimeStatus();
         public string RecipeStatus { get; init; } = string.Empty;
         public string StorageStatus { get; init; } = string.Empty;
         public string DatabaseStatus { get; init; } = string.Empty;
@@ -154,6 +155,7 @@ namespace ClearFrost.Services
             long imageFailed = _imageSaveQueue.FailedCount;
             long recordDropped = _recordQueue.DroppedCount;
             long recordFailed = _recordQueue.FailedCount;
+            DetectionRuntimeStatus detectionRuntime = _detectionService.RuntimeStatus;
             var syntheticErrors = BuildQueueErrors(imageDropped, imageFailed, recordDropped, recordFailed);
             var allErrors = errors.Concat(syntheticErrors).TakeLast(MaxRecentErrors).ToArray();
 
@@ -170,7 +172,10 @@ namespace ClearFrost.Services
                 InspectionState = string.IsNullOrWhiteSpace(lastInspectionId) ? "Idle" : "Completed",
                 CameraStatus = _cameraService.IsOpen ? (_cameraService.IsGrabbing ? "Grabbing" : "Open") : "Closed",
                 PlcStatus = _plcService.IsConnected ? $"Connected:{_plcService.ProtocolName}" : "Disconnected",
-                ModelStatus = _detectionService.IsModelLoaded ? $"Loaded:{_detectionService.CurrentModelName}" : "NotLoaded",
+                ModelStatus = _detectionService.IsModelLoaded
+                    ? $"Loaded:{_detectionService.CurrentModelName}:{detectionRuntime.ExecutionProvider}"
+                    : "NotLoaded",
+                DetectionRuntime = detectionRuntime,
                 RecipeStatus = "LegacyAppConfig",
                 StorageStatus = level == HealthLevel.Critical ? "Error" : "Writable",
                 DatabaseStatus = recordFailed > 0 ? "Warning" : "Ready",

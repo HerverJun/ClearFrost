@@ -17,9 +17,9 @@ using System.Threading.Tasks;
 using ClearFrost.Core.Inspection;
 using ClearFrost.Core.Models;
 using ClearFrost.Hardware;
+using ClearFrost.Interfaces;
 using ClearFrost.Yolo;
 using ClearFrost.Helpers;
-using ClearFrost.Interfaces;
 using ClearFrost.Services;
 
 namespace ClearFrost
@@ -39,6 +39,7 @@ namespace ClearFrost
             await _uiController.LogToFrontend("正在加载 YOLO 模型...", "info");
 
             bool useGpu = _appConfig.EnableGpu;
+            int gpuIndex = Math.Max(0, _appConfig.GpuIndex);
 
             if (!Directory.Exists(模型路径))
             {
@@ -72,7 +73,7 @@ namespace ClearFrost
                 try
                 {
                     string modelPath = Path.Combine(模型路径, 模型名);
-                    bool success = await _detectionService.LoadModelAsync(modelPath, useGpu);
+                    bool success = await _detectionService.LoadModelAsync(modelPath, useGpu, gpuIndex);
                     if (success)
                     {
                         模型名 = Path.GetFileName(modelPath);
@@ -82,7 +83,7 @@ namespace ClearFrost
                             _appConfig.Save();
                         }
 
-                        await _uiController.LogToFrontend($"模型加载成功: {模型名}", "success");
+                        await _uiController.LogToFrontend(BuildModelLoadStatusMessage($"模型加载成功: {模型名}"), "success");
                         await RestoreMultiModelConfigAsync();
                     }
                     else
@@ -271,13 +272,13 @@ namespace ClearFrost
                     return;
                 }
 
-                bool success = await _detectionService.LoadModelAsync(modelPath, _appConfig.EnableGpu);
+                bool success = await _detectionService.LoadModelAsync(modelPath, _appConfig.EnableGpu, _appConfig.GpuIndex);
                 if (success)
                 {
                     模型名 = modelFileName;
                     _appConfig.CurrentModelFileName = modelFileName;
                     _appConfig.Save();
-                    await _uiController.LogToFrontend($"模型切换成功: {modelFileName}", "success");
+                    await _uiController.LogToFrontend(BuildModelLoadStatusMessage($"模型切换成功: {modelFileName}"), "success");
                 }
                 else
                 {
@@ -1236,6 +1237,22 @@ namespace ClearFrost
             {
                 WriteIndented = false
             });
+        }
+
+        private string BuildModelLoadStatusMessage(string prefix)
+        {
+            DetectionRuntimeStatus status = _detectionService.RuntimeStatus;
+            if (status.GpuRequested && !status.GpuActive)
+            {
+                string reason = string.IsNullOrWhiteSpace(status.GpuFailureReason)
+                    ? "DirectML 探针未通过"
+                    : status.GpuFailureReason;
+                return $"{prefix}，DirectML GPU 未生效，已使用 CPU（{reason}）";
+            }
+
+            return status.GpuActive
+                ? $"{prefix}，DirectML GPU 已生效 (GPU {status.GpuDeviceId})"
+                : $"{prefix}，当前使用 CPU";
         }
 
         private DetectionPersistencePayload BuildDetectionPersistencePayload(

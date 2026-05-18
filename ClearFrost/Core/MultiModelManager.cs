@@ -192,6 +192,11 @@ namespace ClearFrost.Yolo
         /// </summary>
         public bool UseGpu => _useGpu;
 
+        /// <summary>
+        /// 当前 manager 使用的 GPU 设备 ID。仅在 UseGpu 为 true 时影响 DirectML provider。
+        /// </summary>
+        public int GpuDeviceId => _gpuDeviceId;
+
         /// 
         public int PrimaryHitCount { get; private set; }
 

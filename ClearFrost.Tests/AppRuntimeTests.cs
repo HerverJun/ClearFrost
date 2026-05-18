@@ -90,6 +90,48 @@ namespace ClearFrost.Tests
             }
         }
 
+        [Fact]
+        public async Task Constructor_默认检测服务使用配置GpuIndex()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            var appConfig = new AppConfig
+            {
+                StoragePath = tempDir,
+                EnableGpu = true,
+                GpuIndex = 2
+            };
+
+            using var cameraManager = new CameraManager(true);
+            var runtime = new AppRuntime(
+                appConfig,
+                cameraManager,
+                cameraService: null,
+                plcService: null,
+                detectionService: null,
+                storageService: null,
+                statisticsService: null,
+                databaseService: null,
+                imageSaveQueue: null,
+                detectionRecordQueue: null,
+                webUIController: null);
+
+            try
+            {
+                runtime.DetectionService.RuntimeStatus.GpuRequested.Should().BeTrue();
+                runtime.DetectionService.RuntimeStatus.GpuDeviceId.Should().Be(2);
+            }
+            finally
+            {
+                await runtime.DisposeAsync();
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
         private sealed class FakeCameraService : ICameraService
         {
             private readonly List<string> _order;
@@ -165,9 +207,10 @@ namespace ClearFrost.Tests
             public string CurrentModelName => "fake-model";
             public IReadOnlyList<string> AvailableModels => Array.Empty<string>();
             public long LastInferenceMs => 0;
+            public DetectionRuntimeStatus RuntimeStatus { get; } = new DetectionRuntimeStatus();
 
-            public Task<bool> LoadModelAsync(string modelPath, bool useGpu) => Task.FromResult(true);
-            public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu) => Task.FromResult(true);
+            public Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
+            public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
             public Task<bool> SwitchModelAsync(string modelName) => Task.FromResult(true);
             public Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold, string? targetLabel = null, int targetCount = 0)
                 => Task.FromResult(new DetectionResultData());

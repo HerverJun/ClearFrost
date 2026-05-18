@@ -992,6 +992,12 @@ namespace ClearFrost
                         if (root.TryGetProperty("Confidence", out var conf) && conf.TryGetDouble(out double confVal)) _appConfig.Confidence = (float)Math.Clamp(confVal, 0d, 1d);
                         if (root.TryGetProperty("IouThreshold", out var iou) && iou.TryGetDouble(out double iouVal)) _appConfig.IouThreshold = (float)Math.Clamp(iouVal, 0d, 1d);
                         if (root.TryGetProperty("EnableGpu", out var eg)) _appConfig.EnableGpu = eg.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("GpuIndex", out var gpuIndex))
+                        {
+                            _appConfig.GpuIndex = gpuIndex.TryGetInt32(out int gpuIndexVal)
+                                ? Math.Max(0, gpuIndexVal)
+                                : _appConfig.GpuIndex;
+                        }
                         if (root.TryGetProperty("IndustrialRenderMode", out var irm)) _appConfig.IndustrialRenderMode = irm.ValueKind == JsonValueKind.True;
                         if (root.TryGetProperty("UseFileBackedWebImageTransport", out var fileTransport)) _appConfig.UseFileBackedWebImageTransport = fileTransport.ValueKind == JsonValueKind.True;
                         YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;

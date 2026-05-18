@@ -58,7 +58,7 @@ namespace ClearFrost
             CameraManager = cameraManager ?? throw new ArgumentNullException(nameof(cameraManager));
             CameraService = cameraService ?? new CameraService(CameraManager);
             PlcService = plcService ?? new PlcService();
-            DetectionService = detectionService ?? new DetectionService(appConfig.EnableGpu);
+            DetectionService = detectionService ?? new DetectionService(appConfig.EnableGpu, appConfig.GpuIndex);
             StorageService = storageService ?? new StorageService(appConfig.StoragePath);
             StatisticsService = statisticsService ?? new StatisticsService(StorageService.SystemPath.Replace("\\System", ""));
             DatabaseService = databaseService ?? new SqliteDatabaseService();
