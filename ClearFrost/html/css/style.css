@@ -2841,6 +2841,10 @@ input[type="range"]::-webkit-slider-runnable-track {
     grid-column: span 2;
 }
 
+.cf-stitch-page #settings-modal .cf-plc-span-3 {
+    grid-column: 1 / -1;
+}
+
 .cf-stitch-page #settings-modal .cf-plc-help {
     grid-column: 1 / -1;
     margin: -4px 0 0;
@@ -3630,4 +3634,114 @@ input[type="range"]::-webkit-slider-runnable-track {
     color: #067647 !important;
     background: #f6fef9 !important;
     border-left-color: #12b76a !important;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="sequence"]::before,
+.cf-stitch-page #settings-modal .cf-settings-tab[data-settings-tab="trigger"]::before {
+    content: "";
+}
+
+@media (max-width: 980px) {
+    .cf-stitch-page #settings-modal {
+        padding: 16px !important;
+        align-items: center !important;
+    }
+
+    .cf-stitch-page #settings-modal > .cf-ornate-modal {
+        width: calc(100vw - 32px);
+        height: calc(100vh - 32px);
+    }
+
+    .cf-stitch-page #settings-modal > .cf-ornate-modal::after {
+        display: none;
+    }
+
+    .cf-stitch-page #settings-modal > .cf-ornate-modal > .scroller {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .cf-stitch-page #settings-modal .cf-settings-nav {
+        grid-column: 1;
+        grid-row: 1;
+        flex-direction: row !important;
+        overflow-x: auto;
+        padding: 64px 14px 12px !important;
+        border-right: 0 !important;
+        border-bottom: 1px solid #dde5ef !important;
+    }
+
+    .cf-stitch-page #settings-modal .cf-settings-nav::before {
+        top: 20px;
+        left: 18px;
+        font-size: 16px;
+    }
+
+    .cf-stitch-page #settings-modal .cf-settings-nav::after {
+        top: 48px;
+        left: 18px;
+    }
+
+    .cf-stitch-page #settings-modal .cf-settings-tab {
+        width: auto !important;
+        min-height: 38px !important;
+        flex: 0 0 auto;
+        white-space: nowrap;
+        font-size: 13px;
+    }
+
+    .cf-stitch-page #settings-modal .cf-settings-content {
+        grid-column: 1;
+        grid-row: 2;
+        padding: 16px !important;
+    }
+
+    .cf-stitch-page #settings-modal .cf-plc-grid-3,
+    .cf-stitch-page #settings-modal .cf-plc-grid-4,
+    .cf-stitch-page #settings-modal .cf-plc-grid-5 {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 640px) {
+    .cf-stitch-page #settings-modal {
+        padding: 8px !important;
+    }
+
+    .cf-stitch-page #settings-modal > .cf-ornate-modal {
+        width: calc(100vw - 16px);
+        height: calc(100vh - 16px);
+    }
+
+    .cf-stitch-page #settings-modal .cf-settings-content {
+        padding: 12px !important;
+    }
+
+    .cf-stitch-page #settings-modal [data-settings-section] {
+        padding: 14px;
+    }
+
+    .cf-stitch-page #settings-modal .cf-plc-grid-2,
+    .cf-stitch-page #settings-modal .cf-plc-grid-3,
+    .cf-stitch-page #settings-modal .cf-plc-grid-4,
+    .cf-stitch-page #settings-modal .cf-plc-grid-5,
+    .cf-stitch-page #settings-modal [data-settings-section="camera"]:not(.hidden) {
+        grid-template-columns: 1fr !important;
+    }
+
+    .cf-stitch-page #settings-modal .cf-camera-fields,
+    .cf-stitch-page #settings-modal .cf-camera-preview-card {
+        grid-column: 1 !important;
+    }
+
+    .cf-stitch-page #settings-modal .cf-plc-span-2,
+    .cf-stitch-page #settings-modal .cf-plc-span-3 {
+        grid-column: 1 / -1;
+    }
+
+    .cf-stitch-page #settings-modal .cf-serial-port-row,
+    .cf-stitch-page #settings-modal .cf-serial-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
 }

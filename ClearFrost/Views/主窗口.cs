@@ -1,6 +1,7 @@
 ﻿using MVSDK_Net;
 using ClearFrost.Config;
 using ClearFrost.Hardware;
+using ClearFrost.Hardware.Triggers;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 using System.IO;
@@ -71,6 +72,7 @@ namespace ClearFrost
             _modelRegistry = _appRuntime.ModelRegistry;
             _healthMonitor = _appRuntime.HealthMonitor;
             _startupDiagnostics = _appRuntime.StartupDiagnostics;
+            _serialTriggerService = new SerialPhotoelectricTriggerService();
             LogStartupDiagnostics();
 
             // 注册所有事件监听 (实现位于 主窗口.Init.cs)

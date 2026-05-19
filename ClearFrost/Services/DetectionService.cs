@@ -101,7 +101,11 @@ namespace ClearFrost.Services
                     bool loaded = await LoadModelCoreAsync(modelPath, useGpu: true, gpuDeviceId).ConfigureAwait(false);
                     if (loaded)
                     {
-                        _runtimeStatus = CreateRuntimeStatus(true, true, gpuDeviceId, string.Empty);
+                        _runtimeStatus = CreateRuntimeStatusFromDetector(PrimaryDetector, true, gpuDeviceId);
+                        if (!_runtimeStatus.GpuActive && !string.IsNullOrWhiteSpace(_runtimeStatus.GpuFailureReason))
+                        {
+                            ErrorOccurred?.Invoke($"DirectML GPU 加速不可用，已使用 CPU: {_runtimeStatus.GpuFailureReason}");
+                        }
                     }
                     return loaded;
                 }
@@ -692,6 +696,26 @@ namespace ClearFrost.Services
                 GpuDeviceId = Math.Max(0, gpuDeviceId),
                 ExecutionProvider = gpuActive ? "DmlExecutionProvider" : "CPUExecutionProvider",
                 GpuFailureReason = gpuFailureReason ?? string.Empty
+            };
+        }
+
+        private static DetectionRuntimeStatus CreateRuntimeStatusFromDetector(
+            YoloDetector? detector,
+            bool gpuRequested,
+            int gpuDeviceId)
+        {
+            if (detector == null)
+            {
+                return CreateRuntimeStatus(gpuRequested, false, gpuDeviceId, string.Empty);
+            }
+
+            return new DetectionRuntimeStatus
+            {
+                GpuRequested = gpuRequested,
+                GpuActive = detector.GpuActive,
+                GpuDeviceId = Math.Max(0, detector.GpuDeviceId),
+                ExecutionProvider = detector.ExecutionProvider,
+                GpuFailureReason = detector.GpuFailureReason ?? string.Empty
             };
         }
 

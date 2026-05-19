@@ -26,6 +26,16 @@ namespace ClearFrost.Hardware
         private readonly object _sync = new object();
         private ICamera? _camera;
         private bool _disposed;
+        private static readonly string[] AutoPixelFormatCandidates =
+        {
+            "BGR8",
+            "RGB8",
+            "BayerRG8",
+            "BayerGB8",
+            "BayerGR8",
+            "BayerBG8",
+            "Mono8"
+        };
 
         public string Id { get; }
         public CameraConfig Config { get; }
@@ -87,14 +97,7 @@ namespace ClearFrost.Hardware
 
                 camera.IMV_SetDoubleFeatureValue("ExposureTime", Config.ExposureTime);
                 camera.IMV_SetDoubleFeatureValue("GainRaw", Config.Gain);
-                if (!string.IsNullOrWhiteSpace(Config.PixelFormat))
-                {
-                    int pixelResult = camera.IMV_SetEnumFeatureSymbol("PixelFormat", Config.PixelFormat.Trim());
-                    if (pixelResult != IMVDefine.IMV_OK)
-                    {
-                        Debug.WriteLine($"[CameraInstance] Set PixelFormat failed: {Config.PixelFormat}, ErrorCode={pixelResult}");
-                    }
-                }
+                ConfigurePixelFormat(camera);
                 camera.IMV_SetEnumFeatureSymbol("TriggerSelector", "FrameStart");
                 camera.IMV_SetEnumFeatureSymbol("TriggerMode", "On");
                 camera.IMV_SetEnumFeatureSymbol("TriggerSource", "Software");
@@ -102,6 +105,35 @@ namespace ClearFrost.Hardware
                 State = CameraInstanceState.Open;
 
                 return true;
+            }
+        }
+
+        private void ConfigurePixelFormat(ICamera camera)
+        {
+            string requested = Config.PixelFormat?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(requested) ||
+                string.Equals(requested, "Auto", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (string candidate in AutoPixelFormatCandidates)
+                {
+                    int result = camera.IMV_SetEnumFeatureSymbol("PixelFormat", candidate);
+                    if (result == IMVDefine.IMV_OK)
+                    {
+                        Debug.WriteLine($"[CameraInstance] Auto PixelFormat selected: {candidate}, Camera={Config.DisplayName}");
+                        return;
+                    }
+
+                    Debug.WriteLine($"[CameraInstance] Auto PixelFormat candidate failed: {candidate}, ErrorCode={result}, Camera={Config.DisplayName}");
+                }
+
+                Debug.WriteLine($"[CameraInstance] Auto PixelFormat failed for all candidates, Camera={Config.DisplayName}");
+                return;
+            }
+
+            int pixelResult = camera.IMV_SetEnumFeatureSymbol("PixelFormat", requested);
+            if (pixelResult != IMVDefine.IMV_OK)
+            {
+                Debug.WriteLine($"[CameraInstance] Set PixelFormat failed: {requested}, ErrorCode={pixelResult}, Camera={Config.DisplayName}");
             }
         }
 

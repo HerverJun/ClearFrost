@@ -308,31 +308,50 @@ namespace ClearFrost.Yolo
             _gpuDeviceId = gpuIndex;
             _executionProvider = useGpu ? "DmlExecutionProvider" : "CPUExecutionProvider";
 
-            var options = CreateSessionOptions(useGpu, gpuIndex, 0);
+            if (!useGpu)
+            {
+                CreateCpuSession(modelPath, yoloVersion);
+                return;
+            }
 
             try
             {
+                using var options = CreateSessionOptions(useGpu: true, gpuIndex, 0);
                 _inferenceSession = new InferenceSession(modelPath, options);
                 InitializeModelMetadata(yoloVersion);
-                if (useGpu)
-                {
-                    ValidateDirectMlSession();
-                }
+                ValidateDirectMlSession();
             }
             catch (Exception ex)
             {
+                string reason = ex.Message;
+                Debug.WriteLine($"[YoloDetector] DirectML 初始化失败，回退 CPU: {reason}");
+
                 _gpuActive = false;
-                _gpuFailureReason = ex.Message;
+                _gpuFailureReason = reason;
                 _executionProvider = "CPUExecutionProvider";
                 _inferenceSession?.Dispose();
                 _inferenceSession = null;
-                options.Dispose();
-                throw;
+
+                try
+                {
+                    CreateCpuSession(modelPath, yoloVersion);
+                }
+                catch (Exception cpuEx)
+                {
+                    throw new InvalidOperationException(
+                        $"DirectML 初始化失败，CPU 回退加载模型也失败: {cpuEx.Message}",
+                        cpuEx);
+                }
             }
-            finally
-            {
-                options.Dispose();
-            }
+        }
+
+        private void CreateCpuSession(string modelPath, int yoloVersion)
+        {
+            using var cpuOptions = CreateSessionOptions(useGpu: false, gpuIndex: 0, intraOpThreads: 0);
+            _inferenceSession = new InferenceSession(modelPath, cpuOptions);
+            InitializeModelMetadata(yoloVersion);
+            _gpuActive = false;
+            _executionProvider = "CPUExecutionProvider";
         }
 
         private void InitializeModelMetadata(int yoloVersion)

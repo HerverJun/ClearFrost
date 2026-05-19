@@ -711,7 +711,9 @@
                 ? { root: "status-cam", dot: "status-cam-dot", text: "status-cam-text", label: "相机" }
                 : normalizedType === "plc"
                     ? { root: "status-plc", dot: "status-plc-dot", text: "status-plc-text", label: "PLC" }
-                    : null;
+                    : normalizedType === "serialtrigger"
+                        ? { root: "status-serial-trigger", dot: "status-serial-trigger-dot", text: "status-serial-trigger-text", label: "串口" }
+                        : null;
 
         if (indicator) {
             const connected = Boolean(isConnected);
@@ -1342,6 +1344,83 @@
         if (group) group.classList.toggle("hidden", !showRackSlot);
     }
 
+    function updateTriggerSourceUi() {
+        const triggerSource = byId("cfg-trigger-source")?.value || "PLC";
+        const serialSection = byId("cfg-serial-trigger-section");
+        if (serialSection) serialSection.classList.toggle("hidden", triggerSource !== "SerialPhotoelectric");
+
+        const serialStatus = byId("status-serial-trigger");
+        const serialText = byId("status-serial-trigger-text");
+        const serialDot = byId("status-serial-trigger-dot");
+        if (serialStatus && triggerSource !== "SerialPhotoelectric") {
+            serialStatus.classList.remove("is-connected");
+            serialStatus.title = "串口光电未启用";
+            serialStatus.setAttribute("aria-label", "串口光电: 未启用");
+            if (serialText) serialText.textContent = "未启用";
+            if (serialDot) {
+                serialDot.classList.remove("status-on", "status-warn");
+                serialDot.classList.add("status-off");
+            }
+        }
+    }
+
+    function normalizeSerialPortName(value) {
+        const raw = String(value || "").trim();
+        if (!raw) return "";
+        const match = raw.match(/\bCOM\d+\b/i);
+        return match ? match[0].toUpperCase() : raw;
+    }
+
+    function ensureSerialPortOption(value, displayName) {
+        const select = byId("cfg-serial-port");
+        const portName = normalizeSerialPortName(value);
+        if (!select || !portName) return;
+
+        const existing = Array.from(select.options).find((opt) =>
+            normalizeSerialPortName(opt.value) === portName
+        );
+        if (existing) {
+            existing.value = portName;
+            if (displayName) existing.text = displayName;
+            return;
+        }
+
+        const option = document.createElement("option");
+        option.value = portName;
+        option.text = displayName || portName;
+        select.add(option);
+    }
+
+    function handleSerialPortsDetected(data) {
+        const select = byId("cfg-serial-port");
+        if (!select) return;
+        const ports = data?.ports || data?.Ports || data || [];
+        const currentValue = normalizeSerialPortName(select.value);
+        select.innerHTML = '<option value="">-- 请选择 COM 口 --</option>';
+        let preferredValue = "";
+        ports.forEach((port) => {
+            const rawName = typeof port === "string" ? port : (port.name || port.Name || "");
+            const displayName = typeof port === "string"
+                ? port
+                : (port.displayName || port.DisplayName || rawName);
+            ensureSerialPortOption(rawName || displayName, displayName);
+            const portName = normalizeSerialPortName(rawName || displayName);
+            const isPreferred = typeof port === "object" && (port.isPreferred || port.IsPreferred);
+            if (!preferredValue && (isPreferred || ports.length === 1)) {
+                preferredValue = portName;
+            }
+        });
+        if (currentValue) {
+            ensureSerialPortOption(currentValue);
+            select.value = currentValue;
+        } else if (preferredValue) {
+            select.value = preferredValue;
+        }
+        const selectedText = select.value ? `，已选择 ${select.value}` : "";
+        window.showToast?.(`识别到 ${ports.length} 个串口${selectedText}`, ports.length ? "success" : "warning", 1400);
+        window.addLog?.(`串口自动识别完成: ${ports.length} 个${selectedText}`, ports.length ? "success" : "warning");
+    }
+
     function updatePlcProtocolModeUi() {
         const mode = byId("cfg-plc-protocol-mode")?.value || "Legacy";
         const handshakeOptions = byId("cfg-plc-handshake-options");
@@ -1459,6 +1538,37 @@
         return null;
     }
 
+    function validateTriggerSettings() {
+        const triggerSource = byId("cfg-trigger-source")?.value || "PLC";
+        if (triggerSource !== "SerialPhotoelectric") return null;
+
+        const portName = normalizeSerialPortName(byId("cfg-serial-port")?.value || "");
+        if (!portName) {
+            return "选择串口光电触发时，必须先选择 COM 口";
+        }
+
+        return null;
+    }
+
+    function normalizeWireSequenceLabels(value) {
+        return String(value || "")
+            .split(",")
+            .map((label) => label.trim())
+            .filter(Boolean)
+            .join(",");
+    }
+
+    function validateWireSequenceSettings() {
+        if (!byId("cfg-wire-sequence-enabled")?.checked) return null;
+
+        const labels = normalizeWireSequenceLabels(byId("cfg-wire-sequence-labels")?.value || "");
+        if (!labels) {
+            return "启用线序判定时，必须配置期望标签顺序";
+        }
+
+        return null;
+    }
+
     function activateSettingsTab(tabName) {
         document.querySelectorAll(".cf-settings-tab").forEach((btn) => {
             btn.classList.toggle("active", btn.dataset.settingsTab === tabName);
@@ -1535,6 +1645,19 @@
 
         const mapping = {
             StoragePath: "cfg-storage-path",
+            TriggerSource: "cfg-trigger-source",
+            SerialPhotoelectricPortName: "cfg-serial-port",
+            SerialPhotoelectricBaudRate: "cfg-serial-baud",
+            SerialPhotoelectricDebounceMs: "cfg-serial-debounce",
+            SerialPhotoelectricTimeoutMs: "cfg-serial-timeout",
+            WireSequenceJudgeEnabled: "cfg-wire-sequence-enabled",
+            WireSequenceExpectedLabels: "cfg-wire-sequence-labels",
+            WireSequenceSortBy: "cfg-wire-sequence-sort-by",
+            WireSequenceDirection: "cfg-wire-sequence-direction",
+            WireSequenceExpectedCount: "cfg-wire-sequence-count",
+            WireSequenceMinConfidence: "cfg-wire-sequence-confidence",
+            WireSequenceAllowMissing: "cfg-wire-sequence-allow-missing",
+            WireSequenceAllowDuplicate: "cfg-wire-sequence-allow-duplicate",
             PlcProtocol: "cfg-plc-protocol",
             PlcDriverProvider: "cfg-plc-driver-provider",
             PlcProtocolMode: "cfg-plc-protocol-mode",
@@ -1562,6 +1685,7 @@
             CameraName: "cfg-cam-name",
             CameraSerialNumber: "cfg-cam-serial",
             CameraManufacturer: "cfg-cam-manufacturer",
+            CameraPixelFormat: "cfg-cam-pixel-format",
             ExposureTime: "cfg-cam-exposure",
             GainRaw: "cfg-cam-gain",
             TargetLabel: "cfg-logic-target-label",
@@ -1582,6 +1706,9 @@
             if (data[propName] === undefined) continue;
             const input = byId(inputId);
             if (!input) continue;
+            if (inputId === "cfg-serial-port" && data[propName]) {
+                ensureSerialPortOption(data[propName]);
+            }
             if (input.type === "checkbox") {
                 input.checked = !!data[propName];
             } else {
@@ -1596,12 +1723,20 @@
         if (data.IouThreshold !== undefined) {
             setThresholdControl("iou-input", "iou-slider", data.IouThreshold);
         }
+        const activeCamera = Array.isArray(data.Cameras)
+            ? (data.Cameras.find((camera) => camera.Id === data.ActiveCameraId || camera.id === data.ActiveCameraId) ||
+                data.Cameras.find((camera) => camera.IsEnabled || camera.isEnabled) ||
+                data.Cameras[0])
+            : null;
+        const pixelFormat = data.CameraPixelFormat || activeCamera?.PixelFormat || activeCamera?.pixelFormat || "Mono8";
+        if (byId("cfg-cam-pixel-format")) byId("cfg-cam-pixel-format").value = pixelFormat;
         if (data.EnableMultiModelFallback !== undefined) applyMultiModelUiState(!!data.EnableMultiModelFallback);
         if (data.BarcodeEnabled !== undefined) {
             store.state.inspection = { ...store.state.inspection, barcodeEnabled: !!data.BarcodeEnabled };
             store.notify("inspection");
         }
         updatePlcAddressUi();
+        updateTriggerSourceUi();
         if (store.state.modelList?.length) {
             selectModelOption(byId("model-select"), data.CurrentModelFileName);
             selectModelOption(byId("auxiliary1-select"), data.Auxiliary1ModelPath);
@@ -1704,6 +1839,16 @@
             alert(plcError);
             return;
         }
+        const triggerError = validateTriggerSettings();
+        if (triggerError) {
+            alert(triggerError);
+            return;
+        }
+        const sequenceError = validateWireSequenceSettings();
+        if (sequenceError) {
+            alert(sequenceError);
+            return;
+        }
 
         let presetId = findProjectPresetIdByName(name);
         if (presetId && !confirm(`已存在同名预设“${name}”，是否覆盖？`)) {
@@ -1737,6 +1882,16 @@
             alert(plcError);
             return;
         }
+        const triggerError = validateTriggerSettings();
+        if (triggerError) {
+            alert(triggerError);
+            return;
+        }
+        const sequenceError = validateWireSequenceSettings();
+        if (sequenceError) {
+            alert(sequenceError);
+            return;
+        }
 
         const preset = collectSettingsData();
         preset.name = name;
@@ -1764,6 +1919,19 @@
     function collectSettingsData() {
         const fieldMapping = {
             "cfg-storage-path": "StoragePath",
+            "cfg-trigger-source": "TriggerSource",
+            "cfg-serial-port": "SerialPhotoelectricPortName",
+            "cfg-serial-baud": "SerialPhotoelectricBaudRate",
+            "cfg-serial-debounce": "SerialPhotoelectricDebounceMs",
+            "cfg-serial-timeout": "SerialPhotoelectricTimeoutMs",
+            "cfg-wire-sequence-enabled": "WireSequenceJudgeEnabled",
+            "cfg-wire-sequence-labels": "WireSequenceExpectedLabels",
+            "cfg-wire-sequence-sort-by": "WireSequenceSortBy",
+            "cfg-wire-sequence-direction": "WireSequenceDirection",
+            "cfg-wire-sequence-count": "WireSequenceExpectedCount",
+            "cfg-wire-sequence-confidence": "WireSequenceMinConfidence",
+            "cfg-wire-sequence-allow-missing": "WireSequenceAllowMissing",
+            "cfg-wire-sequence-allow-duplicate": "WireSequenceAllowDuplicate",
             "cfg-plc-protocol": "PlcProtocol",
             "cfg-plc-driver-provider": "PlcDriverProvider",
             "cfg-plc-protocol-mode": "PlcProtocolMode",
@@ -1791,6 +1959,7 @@
             "cfg-cam-name": "CameraName",
             "cfg-cam-serial": "CameraSerialNumber",
             "cfg-cam-manufacturer": "CameraManufacturer",
+            "cfg-cam-pixel-format": "CameraPixelFormat",
             "cfg-cam-exposure": "ExposureTime",
             "cfg-cam-gain": "GainRaw",
             "cfg-logic-target-label": "TargetLabel",
@@ -1810,6 +1979,8 @@
             "PlcPort", "PlcTriggerDelayMs", "PlcPollingIntervalMs", "PlcOkValue", "PlcNgValue",
             "PlcSiemensRack", "PlcSiemensSlot", "ExposureTime", "GainRaw", "TargetCount",
             "MaxRetryCount", "RetryIntervalMs", "GpuIndex", "BarcodeWordLength",
+            "SerialPhotoelectricBaudRate", "SerialPhotoelectricDebounceMs", "SerialPhotoelectricTimeoutMs",
+            "WireSequenceExpectedCount", "WireSequenceMinConfidence",
         ]);
         const data = {};
 
@@ -1821,9 +1992,14 @@
             } else if (numericFields.has(propName) || input.type === "number") {
                 const numVal = parseFloat(input.value);
                 data[propName] = Number.isNaN(numVal) ? 0 : numVal;
+            } else if (propName === "SerialPhotoelectricPortName") {
+                data[propName] = normalizeSerialPortName(input.value);
             } else {
                 data[propName] = input.value || "";
             }
+        }
+        if (data.WireSequenceExpectedLabels !== undefined) {
+            data.WireSequenceExpectedLabels = normalizeWireSequenceLabels(data.WireSequenceExpectedLabels);
         }
 
         if (byId("task-type-select")) data.TaskType = parseInt(byId("task-type-select").value, 10);
@@ -1837,6 +2013,16 @@
         const plcError = validatePlcSettings();
         if (plcError) {
             alert(plcError);
+            return;
+        }
+        const triggerError = validateTriggerSettings();
+        if (triggerError) {
+            alert(triggerError);
+            return;
+        }
+        const sequenceError = validateWireSequenceSettings();
+        if (sequenceError) {
+            alert(sequenceError);
             return;
         }
 
@@ -1960,6 +2146,11 @@
         }
 
         const textAssignments = {
+            "cfg-trigger-source": preset.TriggerSource ?? "PLC",
+            "cfg-serial-port": preset.SerialPhotoelectricPortName ?? "",
+            "cfg-serial-baud": preset.SerialPhotoelectricBaudRate ?? 9600,
+            "cfg-serial-debounce": preset.SerialPhotoelectricDebounceMs ?? 50,
+            "cfg-serial-timeout": preset.SerialPhotoelectricTimeoutMs ?? 1000,
             "cfg-plc-ip": preset.PlcIp,
             "cfg-plc-port": preset.PlcPort,
             "cfg-plc-trigger": preset.PlcTriggerAddress,
@@ -1990,23 +2181,33 @@
             "cfg-cam-name": getPresetDisplayName(presetId, preset),
             "cfg-cam-serial": preset.CameraSerialNumber,
             "cfg-cam-manufacturer": preset.CameraManufacturer ?? "Huaray",
+            "cfg-cam-pixel-format": preset.CameraPixelFormat ?? preset.PixelFormat ?? "Mono8",
             "cfg-cam-exposure": preset.ExposureTime,
             "cfg-cam-gain": preset.GainRaw ?? preset.Gain ?? 1.1,
             "cfg-logic-target-label": preset.TargetLabel,
             "cfg-logic-target-count": preset.TargetCount,
             "cfg-logic-retry-count": preset.MaxRetryCount ?? 1,
             "cfg-logic-retry-interval": preset.RetryIntervalMs ?? 2000,
+            "cfg-wire-sequence-labels": preset.WireSequenceExpectedLabels ?? "Wire_Brown,Wire_Black,Wire_Blue",
+            "cfg-wire-sequence-sort-by": preset.WireSequenceSortBy ?? "CenterX",
+            "cfg-wire-sequence-direction": preset.WireSequenceDirection ?? "LeftToRight",
+            "cfg-wire-sequence-count": preset.WireSequenceExpectedCount ?? 0,
+            "cfg-wire-sequence-confidence": preset.WireSequenceMinConfidence ?? 0,
             "cfg-yolo-gpu-index": preset.GpuIndex ?? 0,
             "cfg-storage-path": preset.StoragePath ?? "C:\\GreeVisionData",
         };
         Object.entries(textAssignments).forEach(([id, value]) => {
             const input = byId(id);
+            if (id === "cfg-serial-port" && value) ensureSerialPortOption(value);
             if (input) input.value = value;
         });
 
         const checkboxAssignments = {
             "cfg-barcode-enabled": preset.BarcodeEnabled ?? false,
             "cfg-barcode-required": preset.BarcodeRequired ?? false,
+            "cfg-wire-sequence-enabled": preset.WireSequenceJudgeEnabled ?? false,
+            "cfg-wire-sequence-allow-missing": preset.WireSequenceAllowMissing ?? false,
+            "cfg-wire-sequence-allow-duplicate": preset.WireSequenceAllowDuplicate ?? false,
             "cfg-yolo-gpu": preset.EnableGpu ?? false,
             "cfg-industrial-render-mode": preset.IndustrialRenderMode ?? true,
         };
@@ -2018,6 +2219,7 @@
         updatePlcAddressUi();
         updatePlcProtocolModeUi();
         updateSiemensRackSlotVisibility();
+        updateTriggerSourceUi();
         syncProjectPresetName();
         window.addLog?.(`已加载预设: ${getPresetDisplayName(presetId, preset)}`, "success");
     }
@@ -2122,6 +2324,8 @@
         verifyPassword,
         collectDataset,
         handleDatasetCollectResult,
+        handleSerialPortsDetected,
+        updateTriggerSourceUi,
     });
 
     bridge.registerMessageHandler("bootstrapSnapshot", handleBootstrapSnapshot);
@@ -2129,6 +2333,7 @@
     bridge.registerMessageHandler("modelList", (data) => initModelList(data?.models || data?.Models || data || [], false));
     bridge.registerMessageHandler("projectPresets", handleProjectPresets);
     bridge.registerMessageHandler("datasetCollectResult", handleDatasetCollectResult);
+    bridge.registerMessageHandler("serialPortsDetected", handleSerialPortsDetected);
 })();
 
 // ==========================================
@@ -2151,6 +2356,7 @@
         const fields = {
             "cfg-cam-name": camera.displayName || "",
             "cfg-cam-manufacturer": camera.manufacturer || "Huaray",
+            "cfg-cam-pixel-format": camera.pixelFormat || "Mono8",
             "cfg-cam-serial": camera.serialNumber || "",
             "cfg-cam-exposure": camera.exposureTime || "",
             "cfg-cam-gain": camera.gain || "",
@@ -2208,6 +2414,7 @@
     function addNewCamera() {
         const displayName = byId("cfg-cam-name")?.value || `相机 ${(window.cameraList?.length || 0) + 1}`;
         const manufacturer = byId("cfg-cam-manufacturer")?.value || "Huaray";
+        const pixelFormat = byId("cfg-cam-pixel-format")?.value || "Mono8";
         const serialNumber = byId("cfg-cam-serial")?.value || "";
         const exposureTime = parseFloat(byId("cfg-cam-exposure")?.value) || 50000;
         const gain = parseFloat(byId("cfg-cam-gain")?.value) || 1.0;
@@ -2220,6 +2427,7 @@
         bridge.sendCommand("add_camera", {
             displayName,
             manufacturer,
+            pixelFormat,
             serialNumber,
             exposureTime,
             gain,
@@ -2328,6 +2536,7 @@
             cameraId: byId("cfg-cam-select")?.value || window.activeCameraId || "",
             displayName: byId("cfg-cam-name")?.value || "",
             manufacturer: byId("cfg-cam-manufacturer")?.value || "Huaray",
+            pixelFormat: byId("cfg-cam-pixel-format")?.value || "Mono8",
             serialNumber: byId("cfg-cam-serial")?.value || "",
             exposureTime: parseFloat(byId("cfg-cam-exposure")?.value) || 50000,
             gain: parseFloat(byId("cfg-cam-gain")?.value) || 1.0,

@@ -18,6 +18,7 @@
         const fields = {
             "cfg-cam-name": camera.displayName || "",
             "cfg-cam-manufacturer": camera.manufacturer || "Huaray",
+            "cfg-cam-pixel-format": camera.pixelFormat || "Mono8",
             "cfg-cam-serial": camera.serialNumber || "",
             "cfg-cam-exposure": camera.exposureTime || "",
             "cfg-cam-gain": camera.gain || "",
@@ -75,6 +76,7 @@
     function addNewCamera() {
         const displayName = byId("cfg-cam-name")?.value || `相机 ${(window.cameraList?.length || 0) + 1}`;
         const manufacturer = byId("cfg-cam-manufacturer")?.value || "Huaray";
+        const pixelFormat = byId("cfg-cam-pixel-format")?.value || "Mono8";
         const serialNumber = byId("cfg-cam-serial")?.value || "";
         const exposureTime = parseFloat(byId("cfg-cam-exposure")?.value) || 50000;
         const gain = parseFloat(byId("cfg-cam-gain")?.value) || 1.0;
@@ -87,6 +89,7 @@
         bridge.sendCommand("add_camera", {
             displayName,
             manufacturer,
+            pixelFormat,
             serialNumber,
             exposureTime,
             gain,
@@ -195,6 +198,7 @@
             cameraId: byId("cfg-cam-select")?.value || window.activeCameraId || "",
             displayName: byId("cfg-cam-name")?.value || "",
             manufacturer: byId("cfg-cam-manufacturer")?.value || "Huaray",
+            pixelFormat: byId("cfg-cam-pixel-format")?.value || "Mono8",
             serialNumber: byId("cfg-cam-serial")?.value || "",
             exposureTime: parseFloat(byId("cfg-cam-exposure")?.value) || 50000,
             gain: parseFloat(byId("cfg-cam-gain")?.value) || 1.0,

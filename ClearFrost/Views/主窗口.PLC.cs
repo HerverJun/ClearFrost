@@ -44,7 +44,7 @@ namespace ClearFrost
         /// <summary>
         /// 通过服务层连接 PLC
         /// </summary>
-        private async Task ConnectPlcViaServiceAsync()
+        private async Task ConnectPlcViaServiceAsync(bool startTriggerMonitoring = true)
         {
             string driverProvider = _appConfig.PlcDriverProvider;
             string protocol = _appConfig.PlcProtocol;
@@ -68,25 +68,50 @@ namespace ClearFrost
 
             if (success)
             {
-                if (!await EnsureStartupReadyForProductionAsync("PLC触发监听"))
+                bool shouldStartPlcTrigger =
+                    _appConfig.TriggerSource == TriggerSource.PLC &&
+                    startTriggerMonitoring;
+
+                if (shouldStartPlcTrigger && !IsCameraReadyForInspection(out string cameraBlockReason))
+                {
+                    shouldStartPlcTrigger = false;
+                    await _uiController.LogToFrontend(
+                        $"PLC已连接，但相机未就绪，暂未启动触发监听: {cameraBlockReason}",
+                        "warning");
+                }
+
+                if (shouldStartPlcTrigger && !await EnsureStartupReadyForProductionAsync("PLC触发监听"))
                 {
                     await _uiController.LogToFrontend("PLC已连接，但启动诊断未通过，未启动触发监听", "warning");
                     await SendHealthSnapshotToFrontendAsync();
                     return;
                 }
 
-                // 启动触发监控
-                _plcService.StartMonitoring(
-                    triggerAddress,
-                    _appConfig.PlcPollingIntervalMs,
-                    _appConfig.PlcTriggerDelayMs,
-                    new PlcMonitoringOptions
-                    {
-                        ProtocolMode = _appConfig.PlcProtocolMode,
-                        TriggerSeqAddress = _appConfig.PlcTriggerSeqAddress
-                    });
-                await _uiController.LogToFrontend(
-                    $"✅ PLC连接成功，开始监听 {triggerAddress} ({_appConfig.PlcProtocolMode})", "success");
+                if (shouldStartPlcTrigger)
+                {
+                    // 启动 PLC 触发监控
+                    _plcService.StartMonitoring(
+                        triggerAddress,
+                        _appConfig.PlcPollingIntervalMs,
+                        _appConfig.PlcTriggerDelayMs,
+                        new PlcMonitoringOptions
+                        {
+                            ProtocolMode = _appConfig.PlcProtocolMode,
+                            TriggerSeqAddress = _appConfig.PlcTriggerSeqAddress
+                        });
+                    await _uiController.LogToFrontend(
+                        $"✅ PLC连接成功，开始监听 {triggerAddress} ({_appConfig.PlcProtocolMode})", "success");
+                }
+                else
+                {
+                    _plcService.StopMonitoring();
+                    string modeText = _appConfig.TriggerSource == TriggerSource.SerialPhotoelectric
+                        ? "串口光电触发模式，PLC仅用于结果写回/条码读取"
+                        : "PLC触发监听暂未启动";
+                    await _uiController.LogToFrontend(
+                        $"✅ PLC连接成功（{modeText}）", "success");
+                }
+
                 WriteHealthSnapshotLog("PLC连接成功");
                 await SendHealthSnapshotToFrontendAsync();
             }
@@ -98,6 +123,55 @@ namespace ClearFrost
                     $"❌ PLC连接失败: {err}（协议: {protocol}, 地址: {ip}:{port}）", "error");
                 await SendHealthSnapshotToFrontendAsync();
             }
+        }
+
+        /// <summary>
+        /// 启动 PLC 触发监听（要求 PLC 已连接且当前触发源为 PLC）。
+        /// </summary>
+        private async Task StartPlcTriggerMonitoringIfReadyAsync()
+        {
+            if (_appConfig.TriggerSource != TriggerSource.PLC)
+            {
+                _plcService.StopMonitoring();
+                return;
+            }
+
+            if (!_plcService.IsConnected)
+            {
+                await ConnectPlcViaServiceAsync(startTriggerMonitoring: true);
+                return;
+            }
+
+            if (!IsCameraReadyForInspection(out string cameraBlockReason))
+            {
+                _plcService.StopMonitoring();
+                await _uiController.LogToFrontend(
+                    $"PLC已连接，但相机未就绪，暂未启动触发监听: {cameraBlockReason}",
+                    "warning");
+                return;
+            }
+
+            if (!await EnsureStartupReadyForProductionAsync("PLC触发监听"))
+            {
+                _plcService.StopMonitoring();
+                await _uiController.LogToFrontend("PLC已连接，但启动诊断未通过，未启动触发监听", "warning");
+                await SendHealthSnapshotToFrontendAsync();
+                return;
+            }
+
+            _plcService.StartMonitoring(
+                _appConfig.PlcTriggerAddress,
+                _appConfig.PlcPollingIntervalMs,
+                _appConfig.PlcTriggerDelayMs,
+                new PlcMonitoringOptions
+                {
+                    ProtocolMode = _appConfig.PlcProtocolMode,
+                    TriggerSeqAddress = _appConfig.PlcTriggerSeqAddress
+                });
+
+            await _uiController.LogToFrontend(
+                $"✅ PLC开始监听 {_appConfig.PlcTriggerAddress} ({_appConfig.PlcProtocolMode})", "success");
+            await SendHealthSnapshotToFrontendAsync();
         }
 
         /// <summary>

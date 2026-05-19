@@ -185,7 +185,7 @@ namespace ClearFrost
                     {
                         await _uiController.LogToFrontend("默认像素格式取首帧失败，已自动回退为 Mono8。", "warning");
                     }
-                    SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC自动连接");
+                    SafeFireAndForget(StartTriggerSourceAsync(), "启动生产触发源");
                 }
                 else if (!string.IsNullOrWhiteSpace(errorMessage))
                 {
@@ -424,7 +424,11 @@ namespace ClearFrost
             {
                 if (channelCount == 1)
                 {
-                    startupNotice = "相机当前输出 Mono8 单通道图像，已按工业检测模式稳定采集。";
+                    startupNotice = "相机当前输出单通道图像，已按工业检测模式稳定采集。";
+                }
+                else if (channelCount >= 3)
+                {
+                    startupNotice = "相机当前输出彩色图像，已按彩色检测链路采集。";
                 }
 
                 return true;

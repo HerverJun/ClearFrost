@@ -48,7 +48,14 @@
                     </span>
                     <strong id="status-plc-text">未连接</strong>
                 </div>
-                <div id="status-plc-trigger" class="stitch-status-light" title="PLC触发拍照待触发" aria-label="PLC触发拍照: 待触发">
+                <div id="status-serial-trigger" class="stitch-status-light" title="串口光电未启用" aria-label="串口光电: 未启用">
+                    <span class="stitch-status-label">
+                        <span id="status-serial-trigger-dot" class="status-dot status-off" aria-hidden="true"></span>
+                        <span>串口</span>
+                    </span>
+                    <strong id="status-serial-trigger-text">未启用</strong>
+                </div>
+                <div id="status-plc-trigger" class="stitch-status-light" title="触发拍照待触发" aria-label="触发拍照: 待触发">
                     <span class="stitch-status-label">
                         <span id="status-plc-trigger-dot" class="status-dot status-off" aria-hidden="true"></span>
                         <span>触发拍照</span>
@@ -249,10 +256,14 @@
                     <div class="cf-settings-nav">
                         <button type="button" class="cf-settings-tab active" data-settings-tab="vision"
                             data-action="activateSettingsTab" data-value="vision">视觉模型配置</button>
+                        <button type="button" class="cf-settings-tab" data-settings-tab="sequence"
+                            data-action="activateSettingsTab" data-value="sequence">线序判定</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="preset"
                             data-action="activateSettingsTab" data-value="preset">预设与收集</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="camera"
                             data-action="activateSettingsTab" data-value="camera">相机参数配置</button>
+                        <button type="button" class="cf-settings-tab" data-settings-tab="trigger"
+                            data-action="activateSettingsTab" data-value="trigger">触发源配置</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="plc"
                             data-action="activateSettingsTab" data-value="plc">PLC与条码</button>
                     </div>
@@ -423,11 +434,159 @@
                     </div>
                 </div>
 
-                <div class="space-y-4 hidden" data-settings-section="plc">
+                <div class="space-y-4 hidden" data-settings-section="sequence">
                     <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
-                        PLC 通讯配置</h3>
+                        线序判定
+                    </h3>
                     <div class="cf-plc-layout">
                         <section class="cf-plc-group cf-plc-group-primary">
+                            <div class="cf-plc-group-title">
+                                <span>端子线序</span>
+                                <em>按检测框位置排序后比对标签顺序</em>
+                            </div>
+                            <div class="cf-plc-grid cf-plc-grid-3">
+                                <label class="cf-plc-toggle cf-plc-span-3">
+                                    <input id="cfg-wire-sequence-enabled" type="checkbox"
+                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
+                                    <span>启用线序判定</span>
+                                </label>
+                                <div class="cf-plc-span-3">
+                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">期望标签顺序</label>
+                                    <input id="cfg-wire-sequence-labels" type="text"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                                        placeholder="Wire_Brown,Wire_Black,Wire_Blue">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">排序字段</label>
+                                    <select id="cfg-wire-sequence-sort-by"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono cursor-pointer">
+                                        <option value="CenterX">中心 X</option>
+                                        <option value="CenterY">中心 Y</option>
+                                        <option value="TopY">顶部 Y</option>
+                                        <option value="Confidence">置信度</option>
+                                        <option value="Area">面积</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">排序方向</label>
+                                    <select id="cfg-wire-sequence-direction"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono cursor-pointer">
+                                        <option value="LeftToRight">从左到右</option>
+                                        <option value="RightToLeft">从右到左</option>
+                                        <option value="TopToBottom">从上到下</option>
+                                        <option value="BottomToTop">从下到上</option>
+                                        <option value="Ascending">升序</option>
+                                        <option value="Descending">降序</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">期望数量</label>
+                                    <input id="cfg-wire-sequence-count" type="number" min="0" max="256" step="1"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="0">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">最低置信度</label>
+                                    <input id="cfg-wire-sequence-confidence" type="number" min="0" max="1" step="0.01"
+                                        inputmode="decimal"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="0.00">
+                                </div>
+                                <label class="cf-plc-toggle">
+                                    <input id="cfg-wire-sequence-allow-missing" type="checkbox"
+                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
+                                    <span>允许缺失</span>
+                                </label>
+                                <label class="cf-plc-toggle">
+                                    <input id="cfg-wire-sequence-allow-duplicate" type="checkbox"
+                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
+                                    <span>允许重复</span>
+                                </label>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+
+                <div class="space-y-4 hidden" data-settings-section="trigger">
+                    <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
+                        触发源配置</h3>
+                    <div class="cf-plc-layout">
+                        <section class="cf-plc-group cf-plc-group-primary">
+                            <div class="cf-plc-group-title">
+                                <span>触发源</span>
+                                <em>选择检测触发方式</em>
+                            </div>
+                            <div class="cf-plc-grid cf-plc-grid-3">
+                                <div>
+                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">触发源</label>
+                                    <select id="cfg-trigger-source" data-change-action="updateTriggerSourceUi"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
+                                        <option value="PLC">PLC</option>
+                                        <option value="SerialPhotoelectric">串口光电</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section id="cfg-serial-trigger-section" class="cf-plc-group hidden">
+                            <div class="cf-plc-group-title">
+                                <span>串口光电参数</span>
+                                <em>光电遮挡 01 11 / 恢复 01 22</em>
+                            </div>
+                            <div class="cf-plc-grid cf-plc-grid-3">
+                                <div class="cf-plc-span-2">
+                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">COM 口</label>
+                                    <div class="flex gap-2 cf-serial-port-row">
+                                        <select id="cfg-serial-port"
+                                            class="flex-1 tech-input px-3 py-2 rounded-lg text-xs font-mono cursor-pointer">
+                                            <option value="">-- 请选择 COM 口 --</option>
+                                        </select>
+                                        <button data-cmd="serial_auto_detect_ports"
+                                            class="px-3 py-2 bg-celadon-50 text-celadon-600 hover:bg-celadon-100 text-[10px] font-bold rounded-lg transition-[background-color,color,box-shadow]"
+                                            title="自动识别 COM 口">
+                                            自动识别
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">波特率</label>
+                                    <select id="cfg-serial-baud"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono cursor-pointer">
+                                        <option value="9600">9600</option>
+                                        <option value="19200">19200</option>
+                                        <option value="38400">38400</option>
+                                        <option value="57600">57600</option>
+                                        <option value="115200">115200</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-[10px] text-ink-400 mb-1 block">去抖时间 (毫秒)</label>
+                                    <input id="cfg-serial-debounce" type="number" min="0" step="10"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="50">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] text-ink-400 mb-1 block">读取超时 (毫秒)</label>
+                                    <input id="cfg-serial-timeout" type="number" min="100" step="100"
+                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="1000">
+                                </div>
+                                <div class="flex items-end gap-2 cf-serial-actions">
+                                    <button data-cmd="serial_simulate_trigger"
+                                        class="px-4 py-2 bg-celadon-50 text-celadon-700 hover:bg-celadon-100 text-[10px] font-bold rounded-lg transition-[background-color,color,box-shadow] border border-celadon-100">
+                                        模拟触发检测
+                                    </button>
+                                    <button data-cmd="serial_test_trigger"
+                                        class="px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-[10px] font-bold rounded-lg transition-[background-color,color,box-shadow] border border-indigo-100">
+                                        写出测试帧
+                                    </button>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+
+                <div class="space-y-4 hidden" data-settings-section="plc">
+                    <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
+                        PLC 与条码通讯</h3>
+                    <div class="cf-plc-layout">
+                        <section id="cfg-plc-section" class="cf-plc-group cf-plc-group-primary">
                             <div class="cf-plc-group-title">
                                 <span>连接参数</span>
                                 <em>协议、驱动和控制器网络地址</em>
@@ -683,6 +842,20 @@
                                 class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
                                 <option value="Huaray">华睿 (Huaray)</option>
                                 <option value="Hikvision">海康威视 (Hikvision)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">像素格式</label>
+                            <select id="cfg-cam-pixel-format"
+                                class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
+                                <option value="Mono8">默认黑白 Mono8</option>
+                                <option value="Auto">自动（优先彩色，失败转黑白）</option>
+                                <option value="BGR8">强制彩色 BGR8</option>
+                                <option value="RGB8">强制彩色 RGB8</option>
+                                <option value="BayerRG8">强制 BayerRG8</option>
+                                <option value="BayerGB8">强制 BayerGB8</option>
+                                <option value="BayerGR8">强制 BayerGR8</option>
+                                <option value="BayerBG8">强制 BayerBG8</option>
                             </select>
                         </div>
                         <div>

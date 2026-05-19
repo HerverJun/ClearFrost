@@ -190,7 +190,18 @@ namespace ClearFrost
                     }
                     else
                     {
-                        isQualified = EvaluateQualificationByTarget(results, labels, _appConfig.TargetLabel, _appConfig.TargetCount);
+                        if (_appConfig.WireSequenceJudgeEnabled)
+                        {
+                            WireSequenceJudgeResult sequenceResult = WireSequenceJudgeService.Evaluate(results, labels, _appConfig);
+                            isQualified = sequenceResult.IsMatch;
+                            await _uiController.LogToFrontend(
+                                $"线序判定: {(sequenceResult.IsMatch ? "OK" : "NG")} | {sequenceResult.Message}",
+                                sequenceResult.IsMatch ? "info" : "warning");
+                        }
+                        else
+                        {
+                            isQualified = EvaluateQualificationByTarget(results, labels, _appConfig.TargetLabel, _appConfig.TargetCount);
+                        }
                     }
                     using (var sourceMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(originalBitmap))
                     using (var renderedMat = TryRenderDetectionMat(sourceMat, results, labels))
@@ -308,6 +319,20 @@ namespace ClearFrost
             });
 
             return $"Found {results.Count}: {string.Join(", ", details)}";
+        }
+
+        private string BuildWireSequenceStatus(List<YoloResult> results, string[] labels)
+        {
+            if (!_appConfig.WireSequenceJudgeEnabled)
+            {
+                return string.Empty;
+            }
+
+            WireSequenceJudgeResult sequenceResult = WireSequenceJudgeService.Evaluate(results, labels, _appConfig);
+            string actual = sequenceResult.ActualOrder.Count == 0
+                ? "<empty>"
+                : string.Join(" -> ", sequenceResult.ActualOrder);
+            return $" | 线序: {(sequenceResult.IsMatch ? "OK" : "NG")} [{actual}]";
         }
 
         private readonly record struct DetectionCycleRequest(
@@ -438,15 +463,24 @@ namespace ClearFrost
             {
                 case DetectionDropReason.Shutdown:
                     DiagLog($"⚠ [{triggerSource}] [{inspectionId ?? "-"}] 软件正在退出，已忽略检测请求 | {summary}");
-                    await _uiController.LogToFrontend($"软件正在退出，已忽略检测请求{idSuffix}", "warning");
+                    if (IsManualTriggerSource(triggerSource))
+                    {
+                        await _uiController.LogToFrontend($"软件正在退出，已忽略检测请求{idSuffix}", "warning");
+                    }
                     break;
                 case DetectionDropReason.Debounce:
                     DiagLog($"⚠ [{triggerSource}] [{inspectionId ?? "-"}] 触发命中防抖窗口，已忽略 | {summary}");
-                    await _uiController.LogToFrontend($"检测触发过于频繁，已忽略本次请求{idSuffix}", "warning");
+                    if (IsManualTriggerSource(triggerSource))
+                    {
+                        await _uiController.LogToFrontend($"检测触发过于频繁，已忽略本次请求{idSuffix}", "warning");
+                    }
                     break;
                 default:
                     DiagLog($"⚠ [{triggerSource}] [{inspectionId ?? "-"}] 信号量已被占用，跳过 | {summary}");
-                    await _uiController.LogToFrontend($"检测正在进行中，请稍候...{idSuffix}", "warning");
+                    if (IsManualTriggerSource(triggerSource))
+                    {
+                        await _uiController.LogToFrontend($"检测正在进行中，请稍候...{idSuffix}", "warning");
+                    }
                     break;
             }
 
@@ -531,7 +565,11 @@ namespace ClearFrost
             CancellationToken cancellationToken)
         {
             InspectionContext context = request.Context;
-            await _uiController.LogToFrontend($"开始检测... ({request.TriggerSource}触发, ID: {request.InspectionId})", "info");
+            bool isManualTrigger = IsManualTriggerSource(request.TriggerSource);
+            if (isManualTrigger)
+            {
+                await _uiController.LogToFrontend($"开始检测... ({request.TriggerSource}触发, ID: {request.InspectionId})", "info");
+            }
             await WriteHandshakeDetectionStartedAsync(context);
 
             long captureMs = 0;
@@ -780,7 +818,23 @@ namespace ClearFrost
                     }
                     else
                     {
-                        isQualified = EvaluateQualificationByTarget(results, labels, _appConfig.TargetLabel, _appConfig.TargetCount);
+                        if (_appConfig.WireSequenceJudgeEnabled)
+                        {
+                            WireSequenceJudgeResult sequenceResult = WireSequenceJudgeService.Evaluate(results, labels, _appConfig);
+                            isQualified = sequenceResult.IsMatch;
+                            string sequenceMessage = $"线序判定({request.InspectionId}): {(sequenceResult.IsMatch ? "OK" : "NG")} | {sequenceResult.Message}";
+                            DiagLog(sequenceMessage);
+                            if (isManualTrigger)
+                            {
+                                await _uiController.LogToFrontend(
+                                    sequenceMessage,
+                                    sequenceResult.IsMatch ? "info" : "warning");
+                            }
+                        }
+                        else
+                        {
+                            isQualified = EvaluateQualificationByTarget(results, labels, _appConfig.TargetLabel, _appConfig.TargetCount);
+                        }
                     }
                     finalQualified = isQualified;
                     context.ResultSeq = context.TriggerSeq;
@@ -800,9 +854,10 @@ namespace ClearFrost
                         var renderSw = Stopwatch.StartNew();
                         string objDesc = GetDetailedDetectionLog(results, labels);
                         string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
+                        string sequenceInfo = BuildWireSequenceStatus(results, labels);
                         string statusMessage = detectionFailed
                             ? $"[{request.TriggerSource}] ID {request.InspectionId} 检测失败，已判定为不合格: {result.ErrorMessage} | {inferenceMs}ms"
-                            : $"[{request.TriggerSource}] ID {request.InspectionId} 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {inferenceMs}ms{modelInfo}";
+                            : $"[{request.TriggerSource}] ID {request.InspectionId} 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc}{sequenceInfo} | {inferenceMs}ms{modelInfo}";
                         await _uiController.SendDetectionFrame(
                             renderedMat ?? frameToProcess,
                             isQualified,
@@ -1397,6 +1452,11 @@ namespace ClearFrost
 
         private async Task WriteHandshakeDetectionStartedAsync(InspectionContext context)
         {
+            if (_appConfig.TriggerSource != TriggerSource.PLC)
+            {
+                return;
+            }
+
             if (_appConfig.PlcProtocolMode != PlcProtocolMode.HandshakeV1)
             {
                 return;
@@ -1413,6 +1473,11 @@ namespace ClearFrost
 
         private async Task WriteHandshakeDetectionCompletedAsync(InspectionContext context, bool isQualified)
         {
+            if (_appConfig.TriggerSource != TriggerSource.PLC)
+            {
+                return;
+            }
+
             if (_appConfig.PlcProtocolMode != PlcProtocolMode.HandshakeV1)
             {
                 return;

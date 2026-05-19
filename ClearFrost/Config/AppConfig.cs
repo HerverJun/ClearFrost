@@ -1,5 +1,6 @@
 ﻿using System;
 using ClearFrost.Hardware;
+using ClearFrost.Hardware.Triggers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -85,6 +86,33 @@ namespace ClearFrost.Config
         /// </summary>
         public int PlcSiemensSlot { get; set; } = 2;
 
+        // ================== Trigger Source Settings ==================
+        /// <summary>
+        /// 触发源: PLC 或 SerialPhotoelectric
+        /// </summary>
+        [JsonConverter(typeof(JsonStringEnumConverter))]
+        public TriggerSource TriggerSource { get; set; } = TriggerSource.PLC;
+
+        /// <summary>
+        /// 串口光电 COM 口名称
+        /// </summary>
+        public string SerialPhotoelectricPortName { get; set; } = "";
+
+        /// <summary>
+        /// 串口光电波特率
+        /// </summary>
+        public int SerialPhotoelectricBaudRate { get; set; } = 9600;
+
+        /// <summary>
+        /// 串口光电去抖时间 (毫秒)
+        /// </summary>
+        public int SerialPhotoelectricDebounceMs { get; set; } = 50;
+
+        /// <summary>
+        /// 串口光电读取超时 (毫秒)
+        /// </summary>
+        public int SerialPhotoelectricTimeoutMs { get; set; } = 1000;
+
         // ================== Multi-Camera Settings ==================
         /// <summary>
         /// 相机配置列表 (多相机支持)
@@ -153,6 +181,40 @@ namespace ClearFrost.Config
         public int MaxRetryCount { get; set; } = 1;
         public int RetryIntervalMs { get; set; } = 2000;
 
+        // ================== Wire Sequence Judge Settings ==================
+        /// <summary>
+        /// 启用端子线序判定。启用后检测结果按配置排序并比对 ExpectedLabels。
+        /// </summary>
+        public bool WireSequenceJudgeEnabled { get; set; } = false;
+
+        /// <summary>
+        /// 期望线序标签，逗号分隔，例如 Wire_Brown,Wire_Black,Wire_Blue。
+        /// </summary>
+        public string WireSequenceExpectedLabels { get; set; } = "Wire_Brown,Wire_Black,Wire_Blue";
+
+        /// <summary>
+        /// 排序字段: CenterX, CenterY, TopY, Confidence, Area。
+        /// </summary>
+        public string WireSequenceSortBy { get; set; } = "CenterX";
+
+        /// <summary>
+        /// 排序方向: Ascending, Descending, LeftToRight, RightToLeft, TopToBottom, BottomToTop。
+        /// </summary>
+        public string WireSequenceDirection { get; set; } = "LeftToRight";
+
+        /// <summary>
+        /// 期望检测数量。0 表示按期望标签数量推导。
+        /// </summary>
+        public int WireSequenceExpectedCount { get; set; } = 0;
+
+        /// <summary>
+        /// 线序判定前的最低置信度过滤。
+        /// </summary>
+        public double WireSequenceMinConfidence { get; set; } = 0.0;
+
+        public bool WireSequenceAllowMissing { get; set; } = false;
+        public bool WireSequenceAllowDuplicate { get; set; } = false;
+
         // ================== Legacy Traditional Vision Compatibility Settings ==================
         public int VisionMode { get; set; } = 0;
         public string TemplateImagePath { get; set; } = "";
@@ -171,7 +233,7 @@ namespace ClearFrost.Config
         public AppConfig()
         {
             MigrateLegacyCamera();
-            NormalizePlcAddresses();
+            NormalizeRuntimeSettings();
         }
 
         private static void LogError(string operation, Exception ex)
@@ -207,7 +269,7 @@ namespace ClearFrost.Config
                     };
                     var config = JsonSerializer.Deserialize<AppConfig>(json, options) ?? new AppConfig();
                     config.MigrateLegacyCamera();
-                    config.NormalizePlcAddresses();
+                    config.NormalizeRuntimeSettings();
                     if (!PathsEqual(loadPath, ConfigPath))
                     {
                         config.TrySeedRuntimeConfig();
@@ -301,6 +363,8 @@ namespace ClearFrost.Config
             try
             {
                 NormalizePlcAddresses();
+                NormalizeSequenceJudgeSettings();
+                NormalizeCameraPixelFormats();
                 string configDir = Path.GetDirectoryName(ConfigPath) ?? string.Empty;
                 if (!string.IsNullOrWhiteSpace(configDir))
                 {
@@ -323,7 +387,51 @@ namespace ClearFrost.Config
         public void OnDeserialized()
         {
             MigrateLegacyCamera();
+            NormalizeRuntimeSettings();
+        }
+
+        private void NormalizeRuntimeSettings()
+        {
             NormalizePlcAddresses();
+            NormalizeSequenceJudgeSettings();
+            NormalizeCameraPixelFormats();
+        }
+
+        private void NormalizeSequenceJudgeSettings()
+        {
+            WireSequenceExpectedLabels = string.Join(
+                ",",
+                (WireSequenceExpectedLabels ?? string.Empty)
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(label => !string.IsNullOrWhiteSpace(label)));
+            WireSequenceExpectedCount = Math.Clamp(WireSequenceExpectedCount, 0, 256);
+            WireSequenceMinConfidence = Math.Clamp(WireSequenceMinConfidence, 0.0, 1.0);
+
+            if (string.IsNullOrWhiteSpace(WireSequenceSortBy))
+            {
+                WireSequenceSortBy = "CenterX";
+            }
+
+            if (string.IsNullOrWhiteSpace(WireSequenceDirection))
+            {
+                WireSequenceDirection = "LeftToRight";
+            }
+        }
+
+        private void NormalizeCameraPixelFormats()
+        {
+            if (Cameras == null)
+            {
+                return;
+            }
+
+            foreach (var camera in Cameras)
+            {
+                if (string.IsNullOrWhiteSpace(camera.PixelFormat))
+                {
+                    camera.PixelFormat = "Mono8";
+                }
+            }
         }
 
         private void NormalizePlcAddresses()

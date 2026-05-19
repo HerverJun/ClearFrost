@@ -46,6 +46,13 @@ public class AppConfigTests
         config.Cameras.Should().ContainSingle();
         config.ActiveCamera.Should().NotBeNull();
         config.ActiveCamera!.Id.Should().Be("legacy_cam");
+        config.ActiveCamera.PixelFormat.Should().Be("Mono8");
+        config.WireSequenceJudgeEnabled.Should().BeFalse();
+        config.WireSequenceExpectedLabels.Should().Be("Wire_Brown,Wire_Black,Wire_Blue");
+        config.WireSequenceSortBy.Should().Be("CenterX");
+        config.WireSequenceDirection.Should().Be("LeftToRight");
+        config.WireSequenceExpectedCount.Should().Be(0);
+        config.WireSequenceMinConfidence.Should().Be(0.0);
     }
 
     [Fact]
@@ -337,5 +344,119 @@ public class AppConfigTests
         config.Should().NotBeNull();
         config!.PlcTriggerAddress.Should().Be("D555");
         config.PlcResultAddress.Should().Be("D556");
+    }
+
+    [Fact]
+    public void 串口光电_默认配置值正确()
+    {
+        var config = new AppConfig();
+
+        config.TriggerSource.Should().Be(ClearFrost.Hardware.TriggerSource.PLC);
+        config.SerialPhotoelectricPortName.Should().Be("");
+        config.SerialPhotoelectricBaudRate.Should().Be(9600);
+        config.SerialPhotoelectricDebounceMs.Should().Be(50);
+        config.SerialPhotoelectricTimeoutMs.Should().Be(1000);
+    }
+
+    [Fact]
+    public void 串口光电_Json序列化往返()
+    {
+        var config = new AppConfig
+        {
+            TriggerSource = ClearFrost.Hardware.TriggerSource.SerialPhotoelectric,
+            SerialPhotoelectricPortName = "COM3",
+            SerialPhotoelectricBaudRate = 115200,
+            SerialPhotoelectricDebounceMs = 100,
+            SerialPhotoelectricTimeoutMs = 2000,
+        };
+
+        string json = JsonSerializer.Serialize(config);
+        var restored = JsonSerializer.Deserialize<AppConfig>(json);
+
+        restored.Should().NotBeNull();
+        restored!.TriggerSource.Should().Be(ClearFrost.Hardware.TriggerSource.SerialPhotoelectric);
+        restored.SerialPhotoelectricPortName.Should().Be("COM3");
+        restored.SerialPhotoelectricBaudRate.Should().Be(115200);
+        restored.SerialPhotoelectricDebounceMs.Should().Be(100);
+        restored.SerialPhotoelectricTimeoutMs.Should().Be(2000);
+    }
+
+    [Fact]
+    public void 线序判定_Json序列化往返()
+    {
+        var config = new AppConfig
+        {
+            WireSequenceJudgeEnabled = true,
+            WireSequenceExpectedLabels = "Wire_Black,Wire_Blue",
+            WireSequenceSortBy = "CenterY",
+            WireSequenceDirection = "TopToBottom",
+            WireSequenceExpectedCount = 2,
+            WireSequenceMinConfidence = 0.62,
+            WireSequenceAllowMissing = true,
+            WireSequenceAllowDuplicate = true,
+        };
+
+        string json = JsonSerializer.Serialize(config);
+        var restored = JsonSerializer.Deserialize<AppConfig>(json);
+
+        restored.Should().NotBeNull();
+        restored!.WireSequenceJudgeEnabled.Should().BeTrue();
+        restored.WireSequenceExpectedLabels.Should().Be("Wire_Black,Wire_Blue");
+        restored.WireSequenceSortBy.Should().Be("CenterY");
+        restored.WireSequenceDirection.Should().Be("TopToBottom");
+        restored.WireSequenceExpectedCount.Should().Be(2);
+        restored.WireSequenceMinConfidence.Should().BeApproximately(0.62, 0.001);
+        restored.WireSequenceAllowMissing.Should().BeTrue();
+        restored.WireSequenceAllowDuplicate.Should().BeTrue();
+    }
+
+    [Fact]
+    public void 相机像素格式_旧Mono8配置保持显式黑白()
+    {
+        const string json = """
+        {
+          "Cameras": [
+            {
+              "Id": "cam1",
+              "SerialNumber": "SN001",
+              "DisplayName": "现场相机",
+              "PixelFormat": "Mono8",
+              "IsEnabled": true
+            }
+          ],
+          "ActiveCameraId": "cam1"
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<AppConfig>(json);
+
+        config.Should().NotBeNull();
+        config!.ActiveCamera.Should().NotBeNull();
+        config.ActiveCamera!.PixelFormat.Should().Be("Mono8");
+    }
+
+    [Fact]
+    public void 相机像素格式_空配置迁移为Mono8()
+    {
+        const string json = """
+        {
+          "Cameras": [
+            {
+              "Id": "cam1",
+              "SerialNumber": "SN001",
+              "DisplayName": "现场相机",
+              "PixelFormat": "",
+              "IsEnabled": true
+            }
+          ],
+          "ActiveCameraId": "cam1"
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<AppConfig>(json);
+
+        config.Should().NotBeNull();
+        config!.ActiveCamera.Should().NotBeNull();
+        config.ActiveCamera!.PixelFormat.Should().Be("Mono8");
     }
 }

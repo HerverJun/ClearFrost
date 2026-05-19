@@ -413,7 +413,9 @@
                 ? { root: "status-cam", dot: "status-cam-dot", text: "status-cam-text", label: "相机" }
                 : normalizedType === "plc"
                     ? { root: "status-plc", dot: "status-plc-dot", text: "status-plc-text", label: "PLC" }
-                    : null;
+                    : normalizedType === "serialtrigger"
+                        ? { root: "status-serial-trigger", dot: "status-serial-trigger-dot", text: "status-serial-trigger-text", label: "串口" }
+                        : null;
 
         if (indicator) {
             const connected = Boolean(isConnected);

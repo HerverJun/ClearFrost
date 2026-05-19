@@ -1,6 +1,7 @@
 ﻿using MVSDK_Net;
 using ClearFrost.Config;
 using ClearFrost.Hardware;
+using ClearFrost.Hardware.Triggers;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 using System.IO;
@@ -42,6 +43,7 @@ namespace ClearFrost
         private readonly ModelRegistry _modelRegistry;
         private readonly HealthMonitor _healthMonitor;
         private readonly StartupDiagnostics _startupDiagnostics;
+        private readonly ISerialPhotoelectricTriggerService _serialTriggerService;
 
         // WebUI 控制器
         private WebUIController _uiController;

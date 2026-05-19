@@ -2,6 +2,7 @@
 using ClearFrost.Config;
 using ClearFrost.Models;
 using ClearFrost.Hardware;
+using ClearFrost.Hardware.Triggers;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 using System.IO;
@@ -70,6 +71,31 @@ namespace ClearFrost
                 SafeFireAndForget(SendHealthSnapshotToFrontendAsync(), "刷新健康快照");
             };
 
+            // 串口光电触发服务事件
+            _serialTriggerService.ConnectionChanged += (connected) =>
+            {
+                InvokeOnUIThread(() =>
+                {
+                    SafeFireAndForget(_uiController.UpdateConnection("serialTrigger", connected), "更新串口光电状态");
+                });
+            };
+            _serialTriggerService.TriggerReceived += () =>
+            {
+                Debug.WriteLine($"[主窗口] 收到串口光电触发事件 - {DateTime.Now:HH:mm:ss.fff}");
+                InvokeOnUIThread(() =>
+                {
+                    SafeFireAndForget(_uiController.FlashPlcTrigger(), "串口光电触发指示灯");
+                });
+
+                InvokeOnUIThread(() => SafeFireAndForget(btnCapture_LogicAsync("串口光电"), "串口光电触发检测"));
+            };
+            _serialTriggerService.ErrorOccurred += (error) =>
+            {
+                RecordHealthError("SerialTrigger", error);
+                SafeFireAndForget(_uiController.LogToFrontend($"串口光电错误: {error}", "error"), "串口光电错误日志");
+                SafeFireAndForget(SendHealthSnapshotToFrontendAsync(), "刷新健康快照");
+            };
+
             // Camera 服务事件
             _cameraService.ConnectionChanged += (connected) =>
             {
@@ -88,10 +114,8 @@ namespace ClearFrost
             // Detection 服务事件
             _detectionService.DetectionCompleted += (result) =>
             {
-                // 检测完成后的 UI 更新
-                SafeFireAndForget(_uiController.LogToFrontend(
-                    $"检测完成: {(result.IsQualified ? "合格" : "不合格")} ({result.ElapsedMs}ms)",
-                    result.IsQualified ? "success" : "error"), "检测结果日志");
+                // 高频生产节拍下不向前端日志追加每次 OK/NG，主界面状态由 SendDetectionFrame 更新。
+                Debug.WriteLine($"[DetectionService] 检测完成: {(result.IsQualified ? "OK" : "NG")} ({result.ElapsedMs}ms)");
             };
             _detectionService.ModelLoaded += (modelName) =>
             {
@@ -169,7 +193,7 @@ namespace ClearFrost
             _uiController.OnGetModelList += (s, e) => SafeFireAndForget(InitModelList(), "刷新模型列表");
             _uiController.OnChangeModel += (s, modelName) => InvokeOnUIThread(() => ChangeModel_Logic(modelName));
             _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC手动连接");
-            _uiController.OnRequestHealthSnapshot += (s, e) => SafeFireAndForget(SendHealthSnapshotToFrontendAsync(), "前端刷新健康快照");
+            _uiController.OnRequestHealthSnapshot += (s, e) => SafeFireAndForget(SendHealthSnapshotToFrontendAsync(showToast: true), "前端刷新健康快照");
             _uiController.OnThresholdChanged += (s, val) =>
             {
                 _appConfig.IouThreshold = Math.Clamp(val / 100f, 0f, 1f);
@@ -194,6 +218,57 @@ namespace ClearFrost
                 await _uiController.LogToFrontend("✅ 今日统计已清除", "success");
             };
 
+            // ================== 串口光电事件 ==================
+            _uiController.OnSerialAutoDetectPorts += async (s, e) =>
+            {
+                try
+                {
+                    var ports = await _serialTriggerService.GetAvailablePortsAsync();
+                    await _uiController.SendUiCommand("serialPortsDetected", new { ports });
+                }
+                catch (Exception ex)
+                {
+                    await _uiController.LogToFrontend($"串口识别失败: {ex.Message}", "error");
+                }
+            };
+            _uiController.OnSerialTestTrigger += async (s, e) =>
+            {
+                try
+                {
+                    bool ok = await _serialTriggerService.SendTestTriggerAsync();
+                    if (ok)
+                    {
+                        await _uiController.SendUiCommand("toast", new
+                        {
+                            message = "测试帧已写出",
+                            type = "success",
+                            durationMs = 1200
+                        });
+                    }
+                    else
+                    {
+                        await _uiController.LogToFrontend($"串口测试失败: {_serialTriggerService.LastError}", "error");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    await _uiController.LogToFrontend($"串口测试异常: {ex.Message}", "error");
+                }
+            };
+            _uiController.OnSerialSimulateTrigger += (s, e) =>
+            {
+                InvokeOnUIThread(() =>
+                {
+                    SafeFireAndForget(_uiController.SendUiCommand("toast", new
+                    {
+                        message = "已模拟一次串口触发",
+                        type = "info",
+                        durationMs = 1200
+                    }), "串口模拟触发提示");
+                    SafeFireAndForget(btnCapture_LogicAsync("串口光电模拟"), "串口光电模拟触发检测");
+                });
+            };
+
             // ================== 多相机事件 ==================
             _uiController.OnGetCameraList += async (s, e) =>
             {
@@ -203,6 +278,7 @@ namespace ClearFrost
                     displayName = c.DisplayName,
                     serialNumber = c.SerialNumber,
                     manufacturer = c.Manufacturer,
+                    pixelFormat = c.PixelFormat,
                     exposureTime = c.ExposureTime,
                     gain = c.Gain
                 }).ToList();
@@ -278,6 +354,7 @@ namespace ClearFrost
                     string displayName = r.TryGetProperty("displayName", out var dn) ? dn.GetString()?.Trim() ?? "" : "";
                     string serialNumber = r.TryGetProperty("serialNumber", out var sn) ? sn.GetString()?.Trim() ?? "" : "";
                     string manufacturer = r.TryGetProperty("manufacturer", out var mf) ? mf.GetString() ?? "Huaray" : "Huaray";
+                    string pixelFormat = r.TryGetProperty("pixelFormat", out var pf) ? NormalizeCameraPixelFormatForSave(pf.GetString()) : "Auto";
                     double exposure = r.TryGetProperty("exposureTime", out var exp) ? exp.GetDouble() : 50000;
                     double gain = r.TryGetProperty("gain", out var g) ? g.GetDouble() : 1.0;
 
@@ -293,6 +370,7 @@ namespace ClearFrost
                     {
                         existing.DisplayName = displayName;
                         existing.Manufacturer = manufacturer;
+                        existing.PixelFormat = pixelFormat;
                         existing.ExposureTime = exposure;
                         existing.Gain = gain;
                         await _uiController.LogToFrontend($"✅ 已更新相机配置: {displayName} ({manufacturer})");
@@ -305,6 +383,7 @@ namespace ClearFrost
                             SerialNumber = serialNumber,
                             DisplayName = displayName,
                             Manufacturer = manufacturer,
+                            PixelFormat = pixelFormat,
                             ExposureTime = exposure,
                             Gain = gain,
                             IsEnabled = true
@@ -332,6 +411,7 @@ namespace ClearFrost
                         displayName = c.DisplayName,
                         serialNumber = c.SerialNumber,
                         manufacturer = c.Manufacturer,
+                        pixelFormat = c.PixelFormat,
                         exposureTime = c.ExposureTime,
                         gain = c.Gain
                     }).ToList();
@@ -367,6 +447,7 @@ namespace ClearFrost
                         displayName = c.DisplayName,
                         serialNumber = c.SerialNumber,
                         manufacturer = c.Manufacturer,
+                        pixelFormat = c.PixelFormat,
                         exposureTime = c.ExposureTime,
                         gain = c.Gain
                     }).ToList();
@@ -517,6 +598,7 @@ namespace ClearFrost
                             displayName = c.DisplayName,
                             serialNumber = c.SerialNumber,
                             manufacturer = c.Manufacturer,
+                            pixelFormat = c.PixelFormat,
                             exposureTime = c.ExposureTime,
                             gain = c.Gain
                         }).ToList();
@@ -576,6 +658,7 @@ namespace ClearFrost
                         displayName = c.DisplayName,
                         serialNumber = c.SerialNumber,
                         manufacturer = c.Manufacturer,
+                        pixelFormat = c.PixelFormat,
                         exposureTime = c.ExposureTime,
                         gain = c.Gain
                     }).ToList();
@@ -844,6 +927,42 @@ namespace ClearFrost
                         string barcodeEncoding = _appConfig.BarcodeEncoding;
                         bool barcodeRequired = _appConfig.BarcodeRequired;
 
+                        TriggerSource triggerSource = _appConfig.TriggerSource;
+                        string serialPortName = _appConfig.SerialPhotoelectricPortName;
+                        int serialBaudRate = _appConfig.SerialPhotoelectricBaudRate;
+                        int serialDebounceMs = _appConfig.SerialPhotoelectricDebounceMs;
+                        int serialTimeoutMs = _appConfig.SerialPhotoelectricTimeoutMs;
+
+                        if (root.TryGetProperty("TriggerSource", out var ts)) triggerSource = GetJsonEnumValue(ts, triggerSource);
+                        if (root.TryGetProperty("SerialPhotoelectricPortName", out var spn)) serialPortName = GetJsonStringValue(spn, serialPortName);
+                        if (root.TryGetProperty("SerialPhotoelectricBaudRate", out var sbr)) serialBaudRate = sbr.TryGetInt32(out int sbrVal) ? Math.Max(1200, sbrVal) : serialBaudRate;
+                        if (root.TryGetProperty("SerialPhotoelectricDebounceMs", out var sdm)) serialDebounceMs = sdm.TryGetInt32(out int sdmVal) ? Math.Max(0, sdmVal) : serialDebounceMs;
+                        if (root.TryGetProperty("SerialPhotoelectricTimeoutMs", out var stm)) serialTimeoutMs = stm.TryGetInt32(out int stmVal) ? Math.Max(100, stmVal) : serialTimeoutMs;
+                        serialPortName = NormalizeSerialPortNameForSave(serialPortName);
+                        if (triggerSource == TriggerSource.SerialPhotoelectric && string.IsNullOrWhiteSpace(serialPortName))
+                        {
+                            throw new InvalidOperationException("选择串口光电触发时，必须先选择 COM 口");
+                        }
+
+                        _appConfig.TriggerSource = triggerSource;
+                        _appConfig.SerialPhotoelectricPortName = serialPortName;
+                        _appConfig.SerialPhotoelectricBaudRate = serialBaudRate;
+                        _appConfig.SerialPhotoelectricDebounceMs = serialDebounceMs;
+                        _appConfig.SerialPhotoelectricTimeoutMs = serialTimeoutMs;
+
+                        if (root.TryGetProperty("WireSequenceJudgeEnabled", out var wsEnabled)) _appConfig.WireSequenceJudgeEnabled = wsEnabled.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("WireSequenceExpectedLabels", out var wsLabels)) _appConfig.WireSequenceExpectedLabels = NormalizeWireSequenceLabelsForSave(GetJsonStringValue(wsLabels, _appConfig.WireSequenceExpectedLabels));
+                        if (root.TryGetProperty("WireSequenceSortBy", out var wsSortBy)) _appConfig.WireSequenceSortBy = GetJsonStringValue(wsSortBy, _appConfig.WireSequenceSortBy);
+                        if (root.TryGetProperty("WireSequenceDirection", out var wsDirection)) _appConfig.WireSequenceDirection = GetJsonStringValue(wsDirection, _appConfig.WireSequenceDirection);
+                        if (root.TryGetProperty("WireSequenceExpectedCount", out var wsCount)) _appConfig.WireSequenceExpectedCount = wsCount.TryGetInt32(out int wsCountVal) ? Math.Clamp(wsCountVal, 0, 256) : _appConfig.WireSequenceExpectedCount;
+                        if (root.TryGetProperty("WireSequenceMinConfidence", out var wsMinConfidence) && wsMinConfidence.TryGetDouble(out double wsMinConfidenceVal)) _appConfig.WireSequenceMinConfidence = Math.Clamp(wsMinConfidenceVal, 0d, 1d);
+                        if (root.TryGetProperty("WireSequenceAllowMissing", out var wsAllowMissing)) _appConfig.WireSequenceAllowMissing = wsAllowMissing.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("WireSequenceAllowDuplicate", out var wsAllowDuplicate)) _appConfig.WireSequenceAllowDuplicate = wsAllowDuplicate.ValueKind == JsonValueKind.True;
+                        if (_appConfig.WireSequenceJudgeEnabled && !HasConfiguredWireSequenceLabels(_appConfig.WireSequenceExpectedLabels))
+                        {
+                            throw new InvalidOperationException("启用线序判定时，必须配置期望标签顺序");
+                        }
+
                         if (root.TryGetProperty("PlcProtocol", out var ppr)) plcProtocol = ppr.GetString() ?? plcProtocol;
                         if (root.TryGetProperty("PlcDriverProvider", out var pdp)) plcDriverProvider = pdp.GetString() ?? plcDriverProvider;
                         if (root.TryGetProperty("PlcProtocolMode", out var ppm)) plcProtocolMode = GetJsonEnumValue(ppm, plcProtocolMode);
@@ -933,6 +1052,7 @@ namespace ClearFrost
                         string previousCameraId = activeCamBefore?.Id ?? string.Empty;
                         string previousSerialNumber = activeCamBefore?.SerialNumber?.Trim() ?? string.Empty;
                         string previousManufacturer = activeCamBefore?.Manufacturer?.Trim() ?? string.Empty;
+                        string cameraPixelFormat = activeCamBefore?.PixelFormat ?? "Auto";
                         var activeCam = activeCamBefore;
                         if (root.TryGetProperty("CameraName", out var cn))
                         {
@@ -949,6 +1069,10 @@ namespace ClearFrost
                             _appConfig.CameraManufacturer = cm.GetString()?.Trim() ?? _appConfig.CameraManufacturer;
                             if (activeCam != null) activeCam.Manufacturer = _appConfig.CameraManufacturer;
                         }
+                        if (root.TryGetProperty("CameraPixelFormat", out var cpf))
+                        {
+                            cameraPixelFormat = NormalizeCameraPixelFormatForSave(GetJsonStringValue(cpf, cameraPixelFormat));
+                        }
                         if (root.TryGetProperty("ExposureTime", out var et))
                         {
                             _appConfig.ExposureTime = et.TryGetDouble(out double etVal) ? etVal : _appConfig.ExposureTime;
@@ -960,6 +1084,10 @@ namespace ClearFrost
                             if (activeCam != null) activeCam.Gain = _appConfig.GainRaw;
                         }
                         activeCam = _appConfig.EnsureActiveCameraConfigFromLegacy();
+                        if (activeCam != null)
+                        {
+                            activeCam.PixelFormat = NormalizeCameraPixelFormatForSave(cameraPixelFormat);
+                        }
                         bool cameraIdentityChanged = activeCam != null &&
                             (string.IsNullOrWhiteSpace(previousCameraId) ||
                              !string.Equals(previousCameraId, activeCam.Id, StringComparison.OrdinalIgnoreCase) ||
@@ -1019,8 +1147,8 @@ namespace ClearFrost
                         // 重新初始化YOLO(如果GPU设置改变)
                         InitYolo();
 
-                        // 尝试重新连接PLC (应用新IP/端口)
-                        _ = ConnectPlcViaServiceAsync();
+                        // 根据 TriggerSource 切换触发源；PLC 通讯连接保留用于写回/条码，监听只按触发源启动。
+                        _ = StartTriggerSourceAsync();
 
                         await _uiController.SendUiCommand("closeSettingsModal");
                         await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
@@ -1087,6 +1215,56 @@ namespace ClearFrost
             // 启动后台清理
             StartCleanupTask();
             StartEmergencyCleanupMonitor();
+
+            // 触发监听在相机打开成功后启动，避免软件刚启动时现场信号误入检测链路。
+        }
+
+        /// <summary>
+        /// 根据 TriggerSource 启动对应触发源
+        /// </summary>
+        private async Task StartTriggerSourceAsync()
+        {
+            if (_appConfig.TriggerSource == TriggerSource.SerialPhotoelectric)
+            {
+                _plcService.StopMonitoring();
+
+                if (!IsCameraReadyForInspection(out string cameraBlockReason))
+                {
+                    _serialTriggerService.Stop();
+                    await _uiController.LogToFrontend(
+                        $"串口光电触发暂未启动: {cameraBlockReason}",
+                        "warning");
+                }
+                else if (!string.IsNullOrWhiteSpace(_appConfig.SerialPhotoelectricPortName))
+                {
+                    bool ok = await _serialTriggerService.StartAsync(
+                        _appConfig.SerialPhotoelectricPortName,
+                        _appConfig.SerialPhotoelectricBaudRate,
+                        _appConfig.SerialPhotoelectricDebounceMs,
+                        _appConfig.SerialPhotoelectricTimeoutMs);
+                    if (ok)
+                    {
+                        await _uiController.LogToFrontend($"串口光电已启动: {_appConfig.SerialPhotoelectricPortName}", "success");
+                    }
+                    else
+                    {
+                        string err = _serialTriggerService.LastError ?? "未知错误";
+                        RecordHealthError("SerialTrigger", $"串口光电启动失败: {err}");
+                        await _uiController.LogToFrontend($"串口光电启动失败: {err}", "error");
+                    }
+                }
+                else
+                {
+                    await _uiController.LogToFrontend("串口光电 COM 口未配置，跳过自动启动", "warning");
+                }
+
+                await ConnectPlcViaServiceAsync(startTriggerMonitoring: false);
+            }
+            else
+            {
+                _serialTriggerService.Stop();
+                await StartPlcTriggerMonitoringIfReadyAsync();
+            }
         }
 
         /// <summary>
@@ -1256,6 +1434,15 @@ namespace ClearFrost
 
             try
             {
+                _serialTriggerService?.Stop();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Shutdown] 停止串口光电监听失败: {ex.Message}");
+            }
+
+            try
+            {
                 WindowHelpers.RestoreSleep();
             }
             catch (Exception ex)
@@ -1304,6 +1491,10 @@ namespace ClearFrost
                     $"RecordDropped={_detectionRecordQueue.DroppedCount}, RecordFailed={_detectionRecordQueue.FailedCount}");
 
                 _appRuntime.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                if (_serialTriggerService is IDisposable serialDisposable)
+                {
+                    serialDisposable.Dispose();
+                }
             }
             catch (Exception ex)
             {
@@ -1419,17 +1610,20 @@ namespace ClearFrost
             _appConfig.ActiveCameraId = activeConfig.Id;
         }
 
-        private async Task SendHealthSnapshotToFrontendAsync()
+        private async Task SendHealthSnapshotToFrontendAsync(bool showToast = false)
         {
             try
             {
                 await _uiController.SendHealthSnapshot(_healthMonitor.GetSnapshot());
-                await _uiController.SendUiCommand("toast", new
+                if (showToast)
                 {
-                    message = "健康状态已刷新",
-                    type = "success",
-                    durationMs = 1200
-                });
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = "健康状态已刷新",
+                        type = "success",
+                        durationMs = 1200
+                    });
+                }
             }
             catch (Exception ex)
             {
@@ -1496,6 +1690,69 @@ namespace ClearFrost
             }
 
             return fallback;
+        }
+
+        private static string NormalizeSerialPortNameForSave(string value)
+        {
+            string raw = value?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return string.Empty;
+            }
+
+            int comIndex = raw.IndexOf("COM", StringComparison.OrdinalIgnoreCase);
+            if (comIndex < 0)
+            {
+                return raw;
+            }
+
+            int digitStart = comIndex + 3;
+            int digitEnd = digitStart;
+            while (digitEnd < raw.Length && char.IsDigit(raw[digitEnd]))
+            {
+                digitEnd++;
+            }
+
+            return digitEnd > digitStart
+                ? raw.Substring(comIndex, digitEnd - comIndex).ToUpperInvariant()
+                : raw;
+        }
+
+        private static string NormalizeWireSequenceLabelsForSave(string value)
+        {
+            return string.Join(
+                ",",
+                (value ?? string.Empty)
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(label => !string.IsNullOrWhiteSpace(label)));
+        }
+
+        private static bool HasConfiguredWireSequenceLabels(string value)
+        {
+            return !string.IsNullOrWhiteSpace(NormalizeWireSequenceLabelsForSave(value));
+        }
+
+        private static string NormalizeCameraPixelFormatForSave(string? value)
+        {
+            string raw = value?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return "Mono8";
+            }
+
+            string[] allowed =
+            {
+                "Auto",
+                "Mono8",
+                "BGR8",
+                "RGB8",
+                "BayerRG8",
+                "BayerGB8",
+                "BayerGR8",
+                "BayerBG8"
+            };
+
+            return allowed.FirstOrDefault(format => string.Equals(format, raw, StringComparison.OrdinalIgnoreCase)) ?? "Mono8";
         }
 
         private static TEnum GetJsonEnumValue<TEnum>(JsonElement value, TEnum fallback)

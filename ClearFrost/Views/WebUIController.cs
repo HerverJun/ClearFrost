@@ -107,6 +107,11 @@ namespace ClearFrost
         public event EventHandler<string>? OnSetAuxiliary2Model;
         public event EventHandler<bool>? OnToggleMultiModelFallback;
 
+        // ================== 串口光电事件 ==================
+        public event EventHandler? OnSerialAutoDetectPorts;
+        public event EventHandler? OnSerialTestTrigger;
+        public event EventHandler? OnSerialSimulateTrigger;
+
         public WebUIController()
         {
         }
@@ -870,6 +875,17 @@ namespace ClearFrost
                                 }
                                 break;
 
+                            // ================== 串口光电命令 ==================
+                            case "serial_auto_detect_ports":
+                                OnSerialAutoDetectPorts?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "serial_test_trigger":
+                                OnSerialTestTrigger?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "serial_simulate_trigger":
+                                OnSerialSimulateTrigger?.Invoke(this, EventArgs.Empty);
+                                break;
+
                             default:
                                 break;
                         }
@@ -1386,6 +1402,9 @@ namespace ClearFrost
                 OnSetAuxiliary1Model = null;
                 OnSetAuxiliary2Model = null;
                 OnToggleMultiModelFallback = null;
+                OnSerialAutoDetectPorts = null;
+                OnSerialTestTrigger = null;
+                OnSerialSimulateTrigger = null;
                 _webView = null;
             }
         }

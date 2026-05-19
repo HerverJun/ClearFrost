@@ -46,7 +46,7 @@ namespace ClearFrost.Config
         public string Manufacturer { get; set; } = "Huaray";
 
         /// <summary>
-        /// 相机输出像素格式。工业检测默认使用 Mono8，避免自动切到彩色格式导致带宽和步长风险。
+        /// 相机输出像素格式。默认使用 Mono8；需要彩色链路时可显式选择 Auto 或彩色格式。
         /// </summary>
         public string PixelFormat { get; set; } = "Mono8";
 
