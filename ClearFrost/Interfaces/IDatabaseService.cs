@@ -45,6 +45,9 @@ namespace ClearFrost.Interfaces
         public int InferenceMs { get; set; }
         public string ModelName { get; set; } = "";
         public string CameraId { get; set; } = "";
+        public string RuleSummary { get; set; } = "";
+        public string RuleResultJson { get; set; } = "";
+        public string RuleSetJson { get; set; } = "";
         public string ResultJson { get; set; } = "";
     }
 

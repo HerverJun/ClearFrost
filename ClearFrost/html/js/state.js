@@ -16,6 +16,7 @@
         recentInspections: [],
         settings: {},
         modelList: [],
+        modelLabels: [],
         cameraList: [],
         activeCameraId: "",
         history: {
@@ -166,12 +167,14 @@
         const health = snapshot.health || snapshot.Health;
         const config = snapshot.config || snapshot.Config;
         const models = snapshot.models || snapshot.Models;
+        const modelLabels = snapshot.modelLabels || snapshot.ModelLabels;
         const cameras = snapshot.cameras || snapshot.Cameras;
         const activeCameraId = pickValue(snapshot, "activeCameraId", "ActiveCameraId");
         const storagePath = pickValue(snapshot, "storagePath", "StoragePath");
 
         if (config) state.settings = config;
         if (Array.isArray(models)) state.modelList = models;
+        if (Array.isArray(modelLabels)) state.modelLabels = modelLabels;
         if (Array.isArray(cameras)) state.cameraList = cameras;
         if (activeCameraId !== undefined) state.activeCameraId = activeCameraId || "";
         if (storagePath !== undefined) state.storagePath = storagePath || "";

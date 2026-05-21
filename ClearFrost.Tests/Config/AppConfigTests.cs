@@ -2,9 +2,12 @@
 // AppConfigTests.cs - 配置管理单元测试
 // ============================================================================
 using ClearFrost.Config;
+using ClearFrost.Core.Rules;
 using ClearFrost.Hardware;
 using FluentAssertions;
+using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ClearFrost.Tests.Config;
 
@@ -408,6 +411,82 @@ public class AppConfigTests
         restored.WireSequenceMinConfidence.Should().BeApproximately(0.62, 0.001);
         restored.WireSequenceAllowMissing.Should().BeTrue();
         restored.WireSequenceAllowDuplicate.Should().BeTrue();
+    }
+
+    [Fact]
+    public void 保存配置Json_移除旧判定字段并保留规则集()
+    {
+        var config = new AppConfig
+        {
+            TargetLabel = "legacy",
+            TargetCount = 9,
+            WireSequenceJudgeEnabled = true,
+            WireSequenceExpectedLabels = "A,B"
+        };
+        config.GetInspectionRuleSet();
+
+        var method = typeof(AppConfig).GetMethod(
+            "SerializeForSave",
+            BindingFlags.NonPublic | BindingFlags.Instance);
+
+        method.Should().NotBeNull();
+        string json = (string)method!.Invoke(config, Array.Empty<object>())!;
+        JsonObject rootObject = JsonNode.Parse(json)!.AsObject();
+
+        rootObject.ContainsKey("InspectionRuleSetJson").Should().BeTrue();
+        rootObject.ContainsKey("TargetLabel").Should().BeFalse();
+        rootObject.ContainsKey("TargetCount").Should().BeFalse();
+        rootObject.ContainsKey("WireSequenceJudgeEnabled").Should().BeFalse();
+        rootObject.ContainsKey("WireSequenceExpectedLabels").Should().BeFalse();
+    }
+
+    [Fact]
+    public void 保存配置Json_未提前读取规则集_仍先迁移再移除旧判定字段()
+    {
+        var config = new AppConfig
+        {
+            TargetLabel = "legacy_screw",
+            TargetCount = 9,
+            InspectionRuleSetJson = string.Empty
+        };
+
+        var method = typeof(AppConfig).GetMethod(
+            "SerializeForSave",
+            BindingFlags.NonPublic | BindingFlags.Instance);
+
+        method.Should().NotBeNull();
+        string json = (string)method!.Invoke(config, Array.Empty<object>())!;
+        JsonObject rootObject = JsonNode.Parse(json)!.AsObject();
+        rootObject.ContainsKey("TargetLabel").Should().BeFalse();
+        rootObject.ContainsKey("TargetCount").Should().BeFalse();
+
+        string ruleSetJson = rootObject["InspectionRuleSetJson"]!.GetValue<string>();
+        InspectionRuleSet ruleSet = InspectionRuleSetSerializer.DeserializeOrDefault(ruleSetJson);
+        ruleSet.Rules.Should().ContainSingle();
+        ruleSet.Rules[0].Label.Should().Be("legacy_screw");
+        ruleSet.Rules[0].Count.Should().Be(9);
+        ruleSet.FallbackTargetLabel.Should().Be("legacy_screw");
+        ruleSet.FallbackTargetCount.Should().Be(9);
+    }
+
+    [Fact]
+    public void 保存配置Json_规则Json无效_抛出错误且不静默覆盖()
+    {
+        var config = new AppConfig
+        {
+            InspectionRuleSetJson = "{ bad json"
+        };
+        var method = typeof(AppConfig).GetMethod(
+            "SerializeForSave",
+            BindingFlags.NonPublic | BindingFlags.Instance);
+
+        method.Should().NotBeNull();
+        Action act = () => method!.Invoke(config, Array.Empty<object>());
+
+        act.Should()
+            .Throw<TargetInvocationException>()
+            .WithInnerException<InvalidOperationException>()
+            .WithMessage("*判定规则配置 JSON 无效*");
     }
 
     [Fact]

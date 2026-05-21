@@ -141,6 +141,9 @@ namespace ClearFrost.Services
         public int InferenceMs { get; init; }
         public string ModelName { get; init; } = string.Empty;
         public string CameraId { get; init; } = string.Empty;
+        public string RuleSummary { get; init; } = string.Empty;
+        public string RuleResultJson { get; init; } = string.Empty;
+        public string RuleSetJson { get; init; } = string.Empty;
         public string ResultJson { get; init; } = string.Empty;
 
         public DetectionRecord ToDetectionRecord()
@@ -181,6 +184,9 @@ namespace ClearFrost.Services
                 InferenceMs = InferenceMs,
                 ModelName = ModelName,
                 CameraId = CameraId,
+                RuleSummary = RuleSummary,
+                RuleResultJson = RuleResultJson,
+                RuleSetJson = RuleSetJson,
                 ResultJson = ResultJson
             };
         }

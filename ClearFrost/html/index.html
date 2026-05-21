@@ -257,7 +257,7 @@
                         <button type="button" class="cf-settings-tab active" data-settings-tab="vision"
                             data-action="activateSettingsTab" data-value="vision">视觉模型配置</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="sequence"
-                            data-action="activateSettingsTab" data-value="sequence">线序判定</button>
+                            data-action="activateSettingsTab" data-value="sequence">判定规则</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="preset"
                             data-action="activateSettingsTab" data-value="preset">预设与收集</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="camera"
@@ -400,17 +400,6 @@
                                 <input id="cfg-logic-retry-interval" type="number" step="100" min="0"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="2000">
                             </div>
-                            <div>
-                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">检测目标标签</label>
-                                <input id="cfg-logic-target-label" type="text"
-                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold"
-                                    placeholder="wrapper">
-                            </div>
-                            <div>
-                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">目标数量</label>
-                                <input id="cfg-logic-target-count" type="number" min="0"
-                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="1">
-                            </div>
                             <div class="col-span-2">
                                 <label class="flex items-center gap-2 cursor-pointer">
                                     <input id="cfg-yolo-gpu" type="checkbox"
@@ -436,73 +425,31 @@
 
                 <div class="space-y-4 hidden" data-settings-section="sequence">
                     <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
-                        线序判定
+                        判定规则
                     </h3>
-                    <div class="cf-plc-layout">
-                        <section class="cf-plc-group cf-plc-group-primary">
-                            <div class="cf-plc-group-title">
-                                <span>端子线序</span>
-                                <em>按检测框位置排序后比对标签顺序</em>
-                            </div>
-                            <div class="cf-plc-grid cf-plc-grid-3">
-                                <label class="cf-plc-toggle cf-plc-span-3">
-                                    <input id="cfg-wire-sequence-enabled" type="checkbox"
-                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
-                                    <span>启用线序判定</span>
-                                </label>
-                                <div class="cf-plc-span-3">
-                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">期望标签顺序</label>
-                                    <input id="cfg-wire-sequence-labels" type="text"
-                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
-                                        placeholder="Wire_Brown,Wire_Black,Wire_Blue">
-                                </div>
-                                <div>
-                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">排序字段</label>
-                                    <select id="cfg-wire-sequence-sort-by"
-                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono cursor-pointer">
-                                        <option value="CenterX">中心 X</option>
-                                        <option value="CenterY">中心 Y</option>
-                                        <option value="TopY">顶部 Y</option>
-                                        <option value="Confidence">置信度</option>
-                                        <option value="Area">面积</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">排序方向</label>
-                                    <select id="cfg-wire-sequence-direction"
-                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono cursor-pointer">
-                                        <option value="LeftToRight">从左到右</option>
-                                        <option value="RightToLeft">从右到左</option>
-                                        <option value="TopToBottom">从上到下</option>
-                                        <option value="BottomToTop">从下到上</option>
-                                        <option value="Ascending">升序</option>
-                                        <option value="Descending">降序</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">期望数量</label>
-                                    <input id="cfg-wire-sequence-count" type="number" min="0" max="256" step="1"
-                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="0">
-                                </div>
-                                <div>
-                                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">最低置信度</label>
-                                    <input id="cfg-wire-sequence-confidence" type="number" min="0" max="1" step="0.01"
-                                        inputmode="decimal"
-                                        class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="0.00">
-                                </div>
-                                <label class="cf-plc-toggle">
-                                    <input id="cfg-wire-sequence-allow-missing" type="checkbox"
-                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
-                                    <span>允许缺失</span>
-                                </label>
-                                <label class="cf-plc-toggle">
-                                    <input id="cfg-wire-sequence-allow-duplicate" type="checkbox"
-                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
-                                    <span>允许重复</span>
-                                </label>
-                            </div>
-                        </section>
-                    </div>
+                    <section class="cf-plc-group cf-plc-group-primary">
+                        <div class="cf-plc-group-title">
+                            <span>规则编排</span>
+                            <em>全部启用规则满足时判定合格</em>
+                        </div>
+                        <div class="flex flex-wrap gap-2 mb-4">
+                            <button type="button" data-action="addInspectionRule" data-value='"Count"'
+                                class="px-3 py-2 bg-celadon-600 text-white hover:bg-celadon-700 text-[10px] font-bold rounded-lg transition-[background-color]">
+                                新增数量规则
+                            </button>
+                            <button type="button" data-action="addInspectionRule" data-value='"OrderedLabels"'
+                                class="px-3 py-2 bg-ink-700 text-white hover:bg-ink-800 text-[10px] font-bold rounded-lg transition-[background-color]">
+                                新增顺序规则
+                            </button>
+                            <button type="button" data-action="addInspectionRule" data-value='"RelativePosition"'
+                                class="px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 text-[10px] font-bold rounded-lg transition-[background-color]">
+                                新增位置规则
+                            </button>
+                        </div>
+                        <datalist id="inspection-rule-label-options"></datalist>
+                        <div id="inspection-rule-list" class="space-y-3"></div>
+                        <input id="cfg-inspection-rule-set-json" type="hidden">
+                    </section>
                 </div>
 
                 <div class="space-y-4 hidden" data-settings-section="trigger">

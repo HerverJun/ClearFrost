@@ -17,6 +17,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using ClearFrost.Core.Rules;
 using ClearFrost.Yolo;
 using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
@@ -115,11 +116,12 @@ namespace ClearFrost
             _detectionService.DetectionCompleted += (result) =>
             {
                 // 高频生产节拍下不向前端日志追加每次 OK/NG，主界面状态由 SendDetectionFrame 更新。
-                Debug.WriteLine($"[DetectionService] 检测完成: {(result.IsQualified ? "OK" : "NG")} ({result.ElapsedMs}ms)");
+                Debug.WriteLine($"[DetectionService] 推理完成: Error={result.HasError}, {result.ElapsedMs}ms");
             };
             _detectionService.ModelLoaded += (modelName) =>
             {
                 SafeFireAndForget(_uiController.LogToFrontend($"模型已加载: {modelName}", "success"), "模型加载日志");
+                SafeFireAndForget(_uiController.SendModelLabels(_detectionService.GetLabels()), "推送模型标签");
             };
             _detectionService.ErrorOccurred += (error) =>
             {
@@ -673,6 +675,7 @@ namespace ClearFrost
                         currentStats,
                         _healthMonitor.GetSnapshot(),
                         _appConfig.StoragePath);
+                    await _uiController.SendModelLabels(_detectionService.GetLabels());
                     await _uiController.SendProjectPresets(ProjectPresetStore.Load());
 
                     if (currentStats.TotalCount > 0)
@@ -950,6 +953,19 @@ namespace ClearFrost
                         _appConfig.SerialPhotoelectricDebounceMs = serialDebounceMs;
                         _appConfig.SerialPhotoelectricTimeoutMs = serialTimeoutMs;
 
+                        if (root.TryGetProperty("InspectionRuleSetJson", out var ruleSetJsonElement))
+                        {
+                            string ruleSetJson = ruleSetJsonElement.ValueKind == JsonValueKind.String
+                                ? ruleSetJsonElement.GetString() ?? string.Empty
+                                : ruleSetJsonElement.GetRawText();
+                            if (!InspectionRuleSetSerializer.TryDeserialize(ruleSetJson, out InspectionRuleSet ruleSet, out string ruleSetError))
+                            {
+                                throw new InvalidOperationException($"判定规则配置无效: {ruleSetError}");
+                            }
+
+                            _appConfig.InspectionRuleSetJson = InspectionRuleSetSerializer.Serialize(ruleSet);
+                        }
+
                         if (root.TryGetProperty("WireSequenceJudgeEnabled", out var wsEnabled)) _appConfig.WireSequenceJudgeEnabled = wsEnabled.ValueKind == JsonValueKind.True;
                         if (root.TryGetProperty("WireSequenceExpectedLabels", out var wsLabels)) _appConfig.WireSequenceExpectedLabels = NormalizeWireSequenceLabelsForSave(GetJsonStringValue(wsLabels, _appConfig.WireSequenceExpectedLabels));
                         if (root.TryGetProperty("WireSequenceSortBy", out var wsSortBy)) _appConfig.WireSequenceSortBy = GetJsonStringValue(wsSortBy, _appConfig.WireSequenceSortBy);
@@ -958,11 +974,6 @@ namespace ClearFrost
                         if (root.TryGetProperty("WireSequenceMinConfidence", out var wsMinConfidence) && wsMinConfidence.TryGetDouble(out double wsMinConfidenceVal)) _appConfig.WireSequenceMinConfidence = Math.Clamp(wsMinConfidenceVal, 0d, 1d);
                         if (root.TryGetProperty("WireSequenceAllowMissing", out var wsAllowMissing)) _appConfig.WireSequenceAllowMissing = wsAllowMissing.ValueKind == JsonValueKind.True;
                         if (root.TryGetProperty("WireSequenceAllowDuplicate", out var wsAllowDuplicate)) _appConfig.WireSequenceAllowDuplicate = wsAllowDuplicate.ValueKind == JsonValueKind.True;
-                        if (_appConfig.WireSequenceJudgeEnabled && !HasConfiguredWireSequenceLabels(_appConfig.WireSequenceExpectedLabels))
-                        {
-                            throw new InvalidOperationException("启用线序判定时，必须配置期望标签顺序");
-                        }
-
                         if (root.TryGetProperty("PlcProtocol", out var ppr)) plcProtocol = ppr.GetString() ?? plcProtocol;
                         if (root.TryGetProperty("PlcDriverProvider", out var pdp)) plcDriverProvider = pdp.GetString() ?? plcDriverProvider;
                         if (root.TryGetProperty("PlcProtocolMode", out var ppm)) plcProtocolMode = GetJsonEnumValue(ppm, plcProtocolMode);
@@ -1137,6 +1148,7 @@ namespace ClearFrost
                         {
                             throw new InvalidOperationException(_appConfig.LastError ?? "配置保存失败");
                         }
+                        _recipeManager.Save(_recipeManager.GenerateDefault(_appConfig));
 
                         // 更新相关路径
                         _uiController.ImageBasePath = Path_Images;

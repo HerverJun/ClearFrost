@@ -18,6 +18,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
+using ClearFrost.Core.Rules;
 using ClearFrost.Interfaces;
 using ClearFrost.Yolo;
 
@@ -324,8 +325,11 @@ namespace ClearFrost.Services
 
         #region 检测方法
 
-        public async Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold,
-            string? targetLabel = null, int targetCount = 0)
+        public async Task<DetectionResultData> DetectAsync(
+            Mat image,
+            float confidence,
+            float iouThreshold,
+            InspectionFallbackGoal? fallbackGoal = null)
         {
             var result = new DetectionResultData();
 
@@ -343,7 +347,7 @@ namespace ClearFrost.Services
 
             try
             {
-                var inference = await RunInferenceAsync(image, confidence, iouThreshold, targetLabel, targetCount);
+                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
 
@@ -353,9 +357,7 @@ namespace ClearFrost.Services
                     inference.UsedModelName,
                     inference.UsedModelLabels,
                     inference.WasFallback,
-                    sw.ElapsedMilliseconds,
-                    targetLabel,
-                    targetCount);
+                    sw.ElapsedMilliseconds);
 
                 DetectionCompleted?.Invoke(result);
                 return result;
@@ -367,17 +369,11 @@ namespace ClearFrost.Services
             }
         }
 
-        /// <summary>
-        /// 对图像执行检测（使用 Bitmap，支持目标标签和期望数量判定）
-        /// </summary>
-        /// <param name="image">输入图像</param>
-        /// <param name="confidence">置信度阈值</param>
-        /// <param name="iouThreshold">IOU 阈值</param>
-        /// <param name="targetLabel">目标标签名（用于判定合格）</param>
-        /// <param name="targetCount">期望目标数量（用于判定合格）</param>
-        /// <returns>检测结果数据对象</returns>
-        public async Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold,
-            string? targetLabel = null, int targetCount = 0)
+        public async Task<DetectionResultData> DetectAsync(
+            Bitmap image,
+            float confidence,
+            float iouThreshold,
+            InspectionFallbackGoal? fallbackGoal = null)
         {
             var result = new DetectionResultData();
 
@@ -395,7 +391,7 @@ namespace ClearFrost.Services
 
             try
             {
-                var inference = await RunInferenceAsync(image, confidence, iouThreshold, targetLabel, targetCount);
+                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
 
@@ -405,9 +401,7 @@ namespace ClearFrost.Services
                     inference.UsedModelName,
                     inference.UsedModelLabels,
                     inference.WasFallback,
-                    sw.ElapsedMilliseconds,
-                    targetLabel,
-                    targetCount);
+                    sw.ElapsedMilliseconds);
 
                 DetectionCompleted?.Invoke(result);
                 return result;
@@ -420,12 +414,18 @@ namespace ClearFrost.Services
         }
 
         private async Task<(List<YoloResult> Results, string UsedModelName, string[] UsedModelLabels, bool WasFallback)> RunInferenceAsync(
-            Bitmap image, float confidence, float iouThreshold, string? targetLabel, int targetCount)
+            Bitmap image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
                 var inferenceResult = await _modelManager.InferenceWithFallbackAsync(
-                    image, confidence, iouThreshold, false, 1, targetLabel, targetCount);
+                    image,
+                    confidence,
+                    iouThreshold,
+                    false,
+                    1,
+                    fallbackGoal?.TargetLabel,
+                    fallbackGoal?.TargetCount ?? 0);
                 if (inferenceResult.HasError)
                 {
                     throw new InvalidOperationException(inferenceResult.ErrorMessage);
@@ -445,12 +445,18 @@ namespace ClearFrost.Services
         }
 
         private async Task<(List<YoloResult> Results, string UsedModelName, string[] UsedModelLabels, bool WasFallback)> RunInferenceAsync(
-            Mat image, float confidence, float iouThreshold, string? targetLabel, int targetCount)
+            Mat image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
                 var inferenceResult = await _modelManager.InferenceWithFallbackAsync(
-                    image, confidence, iouThreshold, false, 1, targetLabel, targetCount);
+                    image,
+                    confidence,
+                    iouThreshold,
+                    false,
+                    1,
+                    fallbackGoal?.TargetLabel,
+                    fallbackGoal?.TargetCount ?? 0);
                 if (inferenceResult.HasError)
                 {
                     throw new InvalidOperationException(inferenceResult.ErrorMessage);
@@ -475,39 +481,11 @@ namespace ClearFrost.Services
             string usedModelName,
             string[] usedModelLabels,
             bool wasFallback,
-            long elapsedMs,
-            string? targetLabel,
-            int targetCount)
+            long elapsedMs)
         {
-            bool isQualified;
-            if (!string.IsNullOrWhiteSpace(targetLabel))
-            {
-                if (targetCount < 0)
-                {
-                    isQualified = false;
-                    Debug.WriteLine($"[DetectionService] 判定失败: 目标数量不能为负数 ({targetCount})");
-                }
-                else
-                {
-                    int actualCount = allResults.Count(r =>
-                    {
-                        string detectedLabel = (r.ClassId >= 0 && r.ClassId < usedModelLabels.Length)
-                            ? usedModelLabels[r.ClassId]
-                            : "";
-                        return detectedLabel.Equals(targetLabel, StringComparison.OrdinalIgnoreCase);
-                    });
-
-                    isQualified = actualCount == targetCount;
-                    Debug.WriteLine($"[DetectionService] 判定: 目标标签='{targetLabel}', 期望数量={targetCount}, 实际数量={actualCount}, 是否合格={isQualified}");
-                }
-            }
-            else
-            {
-                isQualified = allResults.Count == 0;
-                Debug.WriteLine($"[DetectionService] 判定(默认): 检测结果数量={allResults.Count}, 是否合格={isQualified}");
-            }
-
-            result.IsQualified = isQualified;
+            Debug.WriteLine($"[DetectionService] 推理完成: 检测结果数量={allResults.Count}, 耗时={elapsedMs}ms");
+            result.IsQualified = false;
+            result.IsRuleEvaluated = false;
             result.Results = allResults;
             result.ElapsedMs = elapsedMs;
             result.UsedModelLabels = usedModelLabels;
@@ -523,6 +501,7 @@ namespace ClearFrost.Services
             return new DetectionResultData
             {
                 IsQualified = false,
+                IsRuleEvaluated = false,
                 Results = new List<YoloResult>(),
                 ElapsedMs = elapsedMs,
                 UsedModelLabels = Array.Empty<string>(),

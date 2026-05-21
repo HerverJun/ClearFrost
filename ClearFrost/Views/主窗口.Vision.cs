@@ -16,6 +16,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using ClearFrost.Core.Inspection;
 using ClearFrost.Core.Models;
+using ClearFrost.Core.Rules;
 using ClearFrost.Hardware;
 using ClearFrost.Interfaces;
 using ClearFrost.Yolo;
@@ -169,8 +170,11 @@ namespace ClearFrost
 
                     var sw = Stopwatch.StartNew();
 
-                    // 执行检测
-                    var result = await _detectionService.DetectAsync(originalBitmap, _appConfig.Confidence, _appConfig.IouThreshold, _appConfig.TargetLabel, _appConfig.TargetCount);
+                    InspectionRuleSet ruleSet = _appConfig.GetInspectionRuleSet();
+                    InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
+
+                    // 执行模型推理，最终 OK/NG 在 ROI 过滤后由规则引擎判定。
+                    var result = await _detectionService.DetectAsync(originalBitmap, _appConfig.Confidence, _appConfig.IouThreshold, fallbackGoal);
 
                     sw.Stop();
 
@@ -190,18 +194,14 @@ namespace ClearFrost
                     }
                     else
                     {
-                        if (_appConfig.WireSequenceJudgeEnabled)
-                        {
-                            WireSequenceJudgeResult sequenceResult = WireSequenceJudgeService.Evaluate(results, labels, _appConfig);
-                            isQualified = sequenceResult.IsMatch;
-                            await _uiController.LogToFrontend(
-                                $"线序判定: {(sequenceResult.IsMatch ? "OK" : "NG")} | {sequenceResult.Message}",
-                                sequenceResult.IsMatch ? "info" : "warning");
-                        }
-                        else
-                        {
-                            isQualified = EvaluateQualificationByTarget(results, labels, _appConfig.TargetLabel, _appConfig.TargetCount);
-                        }
+                        InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(ruleSet, results, labels);
+                        result.JudgeResult = judgeResult;
+                        result.IsRuleEvaluated = true;
+                        result.IsQualified = judgeResult.IsQualified;
+                        isQualified = judgeResult.IsQualified;
+                        await _uiController.LogToFrontend(
+                            $"规则判定: {(judgeResult.IsQualified ? "OK" : "NG")} | {judgeResult.Summary}",
+                            judgeResult.IsQualified ? "info" : "warning");
                     }
                     using (var sourceMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(originalBitmap))
                     using (var renderedMat = TryRenderDetectionMat(sourceMat, results, labels))
@@ -213,9 +213,10 @@ namespace ClearFrost
 
                         string objDesc = GetDetailedDetectionLog(results, labels);
                         string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
+                        string ruleInfo = BuildRuleStatus(result.JudgeResult);
                         string statusMessage = detectionFailed
                             ? $"检测失败，已判定为不合格: {result.ErrorMessage} | {sw.ElapsedMilliseconds}ms"
-                            : $"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc} | {sw.ElapsedMilliseconds}ms{modelInfo}";
+                            : $"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc}{ruleInfo} | {sw.ElapsedMilliseconds}ms{modelInfo}";
                         await _uiController.SendDetectionFrame(
                             renderedMat ?? sourceMat,
                             isQualified,
@@ -321,18 +322,17 @@ namespace ClearFrost
             return $"Found {results.Count}: {string.Join(", ", details)}";
         }
 
-        private string BuildWireSequenceStatus(List<YoloResult> results, string[] labels)
+        private static string BuildRuleStatus(InspectionJudgeResult? judgeResult)
         {
-            if (!_appConfig.WireSequenceJudgeEnabled)
+            if (judgeResult == null)
             {
                 return string.Empty;
             }
 
-            WireSequenceJudgeResult sequenceResult = WireSequenceJudgeService.Evaluate(results, labels, _appConfig);
-            string actual = sequenceResult.ActualOrder.Count == 0
-                ? "<empty>"
-                : string.Join(" -> ", sequenceResult.ActualOrder);
-            return $" | 线序: {(sequenceResult.IsMatch ? "OK" : "NG")} [{actual}]";
+            string summary = string.IsNullOrWhiteSpace(judgeResult.Summary)
+                ? "-"
+                : judgeResult.Summary;
+            return $" | 规则: {(judgeResult.IsQualified ? "OK" : "NG")} [{summary}]";
         }
 
         private readonly record struct DetectionCycleRequest(
@@ -779,12 +779,13 @@ namespace ClearFrost
                 {
                     context.CurrentStage = InspectionStage.Inference;
                     var inferSw = Stopwatch.StartNew();
+                    InspectionRuleSet ruleSet = _appConfig.GetInspectionRuleSet();
+                    InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
                     DetectionResultData result = await _detectionService.DetectAsync(
                         frameToProcess,
                         _appConfig.Confidence,
                         _appConfig.IouThreshold,
-                        _appConfig.TargetLabel,
-                        _appConfig.TargetCount);
+                        fallbackGoal);
                     inferSw.Stop();
                     inferenceMs = inferSw.ElapsedMilliseconds;
                     context.InferenceMs = inferenceMs;
@@ -818,22 +819,18 @@ namespace ClearFrost
                     }
                     else
                     {
-                        if (_appConfig.WireSequenceJudgeEnabled)
+                        InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(ruleSet, results, labels);
+                        result.JudgeResult = judgeResult;
+                        result.IsRuleEvaluated = true;
+                        result.IsQualified = judgeResult.IsQualified;
+                        isQualified = judgeResult.IsQualified;
+                        string judgeMessage = $"规则判定({request.InspectionId}): {(judgeResult.IsQualified ? "OK" : "NG")} | {judgeResult.Summary}";
+                        DiagLog(judgeMessage);
+                        if (isManualTrigger)
                         {
-                            WireSequenceJudgeResult sequenceResult = WireSequenceJudgeService.Evaluate(results, labels, _appConfig);
-                            isQualified = sequenceResult.IsMatch;
-                            string sequenceMessage = $"线序判定({request.InspectionId}): {(sequenceResult.IsMatch ? "OK" : "NG")} | {sequenceResult.Message}";
-                            DiagLog(sequenceMessage);
-                            if (isManualTrigger)
-                            {
-                                await _uiController.LogToFrontend(
-                                    sequenceMessage,
-                                    sequenceResult.IsMatch ? "info" : "warning");
-                            }
-                        }
-                        else
-                        {
-                            isQualified = EvaluateQualificationByTarget(results, labels, _appConfig.TargetLabel, _appConfig.TargetCount);
+                            await _uiController.LogToFrontend(
+                                judgeMessage,
+                                judgeResult.IsQualified ? "info" : "warning");
                         }
                     }
                     finalQualified = isQualified;
@@ -854,10 +851,10 @@ namespace ClearFrost
                         var renderSw = Stopwatch.StartNew();
                         string objDesc = GetDetailedDetectionLog(results, labels);
                         string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
-                        string sequenceInfo = BuildWireSequenceStatus(results, labels);
+                        string ruleInfo = BuildRuleStatus(result.JudgeResult);
                         string statusMessage = detectionFailed
                             ? $"[{request.TriggerSource}] ID {request.InspectionId} 检测失败，已判定为不合格: {result.ErrorMessage} | {inferenceMs}ms"
-                            : $"[{request.TriggerSource}] ID {request.InspectionId} 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc}{sequenceInfo} | {inferenceMs}ms{modelInfo}";
+                            : $"[{request.TriggerSource}] ID {request.InspectionId} 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc}{ruleInfo} | {inferenceMs}ms{modelInfo}";
                         await _uiController.SendDetectionFrame(
                             renderedMat ?? frameToProcess,
                             isQualified,
@@ -1325,6 +1322,7 @@ namespace ClearFrost
                 : Path.GetFileNameWithoutExtension(usedModelName);
             string recipeId = _recipeManager.CurrentRecipe?.RecipeId ?? "default";
             string recipeVersion = _recipeManager.CurrentRecipe?.Version ?? string.Empty;
+            InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(_appConfig.GetInspectionRuleSet());
 
             return new DetectionPersistencePayload
             {
@@ -1358,10 +1356,13 @@ namespace ClearFrost
                 UsedModelName = usedModelName,
                 ModelName = usedModelName,
                 InferenceMs = ClampLongToInt(context.InferenceMs),
-                TargetLabel = _appConfig.TargetLabel ?? string.Empty,
-                ExpectedCount = _appConfig.TargetCount,
+                TargetLabel = fallbackGoal?.TargetLabel ?? string.Empty,
+                ExpectedCount = fallbackGoal?.TargetCount ?? 0,
                 ActualCount = actualCount,
                 CameraId = _cameraManager.ActiveCameraId ?? string.Empty,
+                RuleSummary = result?.JudgeResult?.Summary ?? string.Empty,
+                RuleResultJson = SerializeRuleResults(result?.JudgeResult),
+                RuleSetJson = _appConfig.InspectionRuleSetJson ?? string.Empty,
                 ResultJson = resultJsonOverride ?? SerializeDetectionResults(results)
             };
         }
@@ -1401,6 +1402,21 @@ namespace ClearFrost
                     Height = r.BoundingBox.Height
                 }
             }));
+        }
+
+        private static string SerializeRuleResults(InspectionJudgeResult? judgeResult)
+        {
+            if (judgeResult == null || judgeResult.RuleResults.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            return JsonSerializer.Serialize(new
+            {
+                judgeResult.IsQualified,
+                judgeResult.Summary,
+                Rules = judgeResult.RuleResults
+            });
         }
 
         private void WritePerformanceProfileLog(

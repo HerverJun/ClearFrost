@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Threading.Tasks;
 using OpenCvSharp;
+using ClearFrost.Core.Rules;
 using ClearFrost.Yolo;
 
 namespace ClearFrost.Interfaces
@@ -22,9 +23,19 @@ namespace ClearFrost.Interfaces
     public class DetectionResultData
     {
         /// <summary>
-        /// 是否合格
+        /// 是否合格。只有 IsRuleEvaluated=true 或 HasError=true 时才代表最终 OK/NG。
         /// </summary>
         public bool IsQualified { get; set; }
+
+        /// <summary>
+        /// 是否已经完成规则引擎判定。纯推理层返回时该值为 false。
+        /// </summary>
+        public bool IsRuleEvaluated { get; set; }
+
+        /// <summary>
+        /// 规则引擎输出的最终判定。推理层本身不再负责业务规则判定。
+        /// </summary>
+        public InspectionJudgeResult? JudgeResult { get; set; }
 
         /// <summary>
         /// YOLO 检测结果列表
@@ -161,16 +172,14 @@ namespace ClearFrost.Interfaces
         /// <param name="image">输入图像 (Mat)</param>
         /// <param name="confidence">置信度阈值</param>
         /// <param name="iouThreshold">IOU 阈值</param>
-        /// <param name="targetLabel">目标标签名（用于判定合格）</param>
-        /// <param name="targetCount">期望目标数量（用于判定合格）</param>
-        Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold, string? targetLabel = null, int targetCount = 0);
+        /// <param name="fallbackGoal">可选多模型回退目标，不参与最终 OK/NG 判定。</param>
+        Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal = null);
 
         /// <summary>
         /// 执行检测 (Bitmap 输入)
         /// </summary>
-        /// <param name="targetLabel">目标标签名（用于判定合格）</param>
-        /// <param name="targetCount">期望目标数量（用于判定合格）</param>
-        Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold, string? targetLabel = null, int targetCount = 0);
+        /// <param name="fallbackGoal">可选多模型回退目标，不参与最终 OK/NG 判定。</param>
+        Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal = null);
 
         /// <summary>
         /// 生成带标注的结果图像

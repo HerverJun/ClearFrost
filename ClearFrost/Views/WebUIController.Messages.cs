@@ -28,6 +28,12 @@ namespace ClearFrost
             return Task.CompletedTask;
         }
 
+        public Task SendModelLabels(string[] labels)
+        {
+            PostMessage("modelLabels", new { labels = labels ?? System.Array.Empty<string>() });
+            return Task.CompletedTask;
+        }
+
         public Task SendBootstrapSnapshot(
             AppConfig config,
             IEnumerable<object> cameras,

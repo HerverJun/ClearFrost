@@ -322,6 +322,450 @@
         return fallback;
     }
 
+    function escapeHtml(value) {
+        return window.CF_UTILS?.escapeHtml
+            ? window.CF_UTILS.escapeHtml(value)
+            : String(value ?? "");
+    }
+
+    function makeRuleId() {
+        return `rule-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    function createInspectionRule(type = "Count") {
+        if (type === "OrderedLabels") {
+            return {
+                Id: makeRuleId(),
+                Name: "顺序规则",
+                Enabled: true,
+                Type: "OrderedLabels",
+                ExpectedLabels: [],
+                SortBy: "CenterX",
+                Direction: "LeftToRight",
+                ExpectedCount: 0,
+                MinConfidence: 0,
+                AllowMissing: false,
+                AllowDuplicate: false,
+            };
+        }
+
+        if (type === "RelativePosition") {
+            return {
+                Id: makeRuleId(),
+                Name: "位置规则",
+                Enabled: true,
+                Type: "RelativePosition",
+                SubjectLabel: "",
+                ReferenceLabel: "",
+                Relation: "LeftOf",
+                MinDistance: 0,
+                MaxDistance: 0,
+                MinConfidence: 0,
+            };
+        }
+
+        return {
+            Id: makeRuleId(),
+            Name: "数量规则",
+            Enabled: true,
+            Type: "Count",
+            Label: "",
+            Operator: "Equal",
+            Count: 1,
+            MinConfidence: 0,
+        };
+    }
+
+    function normalizeRuleLabels(value) {
+        if (Array.isArray(value)) {
+            return value.map((label) => String(label || "").trim()).filter(Boolean);
+        }
+
+        return String(value || "")
+            .split(",")
+            .map((label) => label.trim())
+            .filter(Boolean);
+    }
+
+    function normalizeInspectionRule(rule) {
+        const type = rule?.Type || rule?.type || "Count";
+        const base = createInspectionRule(type);
+        const normalized = {
+            ...base,
+            ...rule,
+            Id: rule?.Id || rule?.id || base.Id,
+            Name: rule?.Name ?? rule?.name ?? base.Name,
+            Enabled: rule?.Enabled ?? rule?.enabled ?? true,
+            Type: type,
+            MinConfidence: normalizeThresholdValue(rule?.MinConfidence ?? rule?.minConfidence ?? base.MinConfidence, 0),
+        };
+
+        if (type === "OrderedLabels") {
+            normalized.ExpectedLabels = normalizeRuleLabels(rule?.ExpectedLabels ?? rule?.expectedLabels);
+            normalized.ExpectedCount = Math.max(0, parseInt(rule?.ExpectedCount ?? rule?.expectedCount ?? 0, 10) || 0);
+            normalized.AllowMissing = !!(rule?.AllowMissing ?? rule?.allowMissing);
+            normalized.AllowDuplicate = !!(rule?.AllowDuplicate ?? rule?.allowDuplicate);
+            normalized.SortBy = rule?.SortBy || rule?.sortBy || "CenterX";
+            normalized.Direction = rule?.Direction || rule?.direction || "LeftToRight";
+            return normalized;
+        }
+
+        if (type === "RelativePosition") {
+            normalized.SubjectLabel = String(rule?.SubjectLabel ?? rule?.subjectLabel ?? "").trim();
+            normalized.ReferenceLabel = String(rule?.ReferenceLabel ?? rule?.referenceLabel ?? "").trim();
+            normalized.Relation = rule?.Relation || rule?.relation || "LeftOf";
+            normalized.MinDistance = Math.max(0, parseFloat(rule?.MinDistance ?? rule?.minDistance ?? 0) || 0);
+            normalized.MaxDistance = Math.max(0, parseFloat(rule?.MaxDistance ?? rule?.maxDistance ?? 0) || 0);
+            return normalized;
+        }
+
+        normalized.Label = String(rule?.Label ?? rule?.label ?? "").trim();
+        normalized.Operator = rule?.Operator || rule?.operator || "Equal";
+        normalized.Count = Math.max(0, parseInt(rule?.Count ?? rule?.count ?? 0, 10) || 0);
+        return normalized;
+    }
+
+    function makeLegacyRuleSet(data) {
+        if (data?.WireSequenceJudgeEnabled) {
+            return {
+                Version: 1,
+                Mode: "All",
+                FallbackTargetLabel: data.TargetLabel || "",
+                FallbackTargetCount: Number.isFinite(Number(data.TargetCount)) ? Math.max(0, Number(data.TargetCount)) : 0,
+                Rules: [{
+                    ...createInspectionRule("OrderedLabels"),
+                    Name: "端子线序",
+                    ExpectedLabels: normalizeRuleLabels(data.WireSequenceExpectedLabels || "Wire_Brown,Wire_Black,Wire_Blue"),
+                    SortBy: data.WireSequenceSortBy || "CenterX",
+                    Direction: data.WireSequenceDirection || "LeftToRight",
+                    ExpectedCount: data.WireSequenceExpectedCount || 0,
+                    MinConfidence: data.WireSequenceMinConfidence || 0,
+                    AllowMissing: !!data.WireSequenceAllowMissing,
+                    AllowDuplicate: !!data.WireSequenceAllowDuplicate,
+                }],
+            };
+        }
+
+        return {
+            Version: 1,
+            Mode: "All",
+            FallbackTargetLabel: data?.TargetLabel || "",
+            FallbackTargetCount: Number.isFinite(Number(data?.TargetCount)) ? Math.max(0, Number(data.TargetCount)) : 0,
+            Rules: [{
+                ...createInspectionRule("Count"),
+                Name: `${data?.TargetLabel || "目标"} 数量`,
+                Label: data?.TargetLabel || "screw",
+                Count: Number.isFinite(Number(data?.TargetCount)) ? Number(data.TargetCount) : 4,
+            }],
+        };
+    }
+
+    function normalizeInspectionRuleSet(raw, legacyData = {}) {
+        let parsed = raw;
+        if (typeof raw === "string" && raw.trim()) {
+            try {
+                parsed = JSON.parse(raw);
+            } catch {
+                parsed = null;
+            }
+        }
+
+        if (!parsed || !Array.isArray(parsed.Rules || parsed.rules)) {
+            parsed = makeLegacyRuleSet(legacyData);
+        }
+
+        const rules = (parsed.Rules || parsed.rules || []).map(normalizeInspectionRule);
+        const fallbackLabel = parsed.FallbackTargetLabel ?? parsed.fallbackTargetLabel ?? "";
+        const fallbackCount = Number(parsed.FallbackTargetCount ?? parsed.fallbackTargetCount ?? 0);
+        return {
+            Version: 1,
+            Mode: "All",
+            FallbackTargetLabel: String(fallbackLabel || "").trim(),
+            FallbackTargetCount: Number.isFinite(fallbackCount) ? Math.max(0, Math.floor(fallbackCount)) : 0,
+            Rules: rules.length ? rules : makeLegacyRuleSet(legacyData).Rules,
+        };
+    }
+
+    function getCurrentRuleSet() {
+        return store.state.inspectionRuleSet || normalizeInspectionRuleSet(store.state.settings?.InspectionRuleSetJson, store.state.settings || {});
+    }
+
+    function syncInspectionRuleJson() {
+        const ruleSet = getCurrentRuleSet();
+        const hidden = byId("cfg-inspection-rule-set-json");
+        if (hidden) hidden.value = JSON.stringify(ruleSet);
+        store.state.settings = { ...(store.state.settings || {}), InspectionRuleSetJson: JSON.stringify(ruleSet) };
+        return ruleSet;
+    }
+
+    function updateRuleLabelOptions() {
+        const datalist = byId("inspection-rule-label-options");
+        if (!datalist) return;
+        const labels = Array.isArray(store.state.modelLabels) ? store.state.modelLabels : [];
+        datalist.innerHTML = labels
+            .map((label) => `<option value="${escapeHtml(label)}"></option>`)
+            .join("");
+    }
+
+    function ruleTypeLabel(type) {
+        if (type === "OrderedLabels") return "顺序";
+        if (type === "RelativePosition") return "位置";
+        return "数量";
+    }
+
+    function ruleInputAttrs(index, field, extra = "") {
+        return `data-input-action="updateInspectionRule" data-change-action="updateInspectionRule" data-pass-element="true" data-rule-index="${index}" data-rule-field="${field}" ${extra}`;
+    }
+
+    function renderCountRuleFields(rule, index) {
+        return `
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">标签</label>
+                <input value="${escapeHtml(rule.Label || "")}" list="inspection-rule-label-options"
+                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold" placeholder="留空表示全部目标"
+                    ${ruleInputAttrs(index, "Label")}>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">比较</label>
+                <select class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono cursor-pointer"
+                    ${ruleInputAttrs(index, "Operator")}>
+                    ${operatorOptions(rule.Operator)}
+                </select>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">数量</label>
+                <input type="number" min="0" step="1" value="${escapeHtml(rule.Count ?? 0)}"
+                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                    ${ruleInputAttrs(index, "Count")}>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">最低置信度</label>
+                <input type="number" min="0" max="1" step="0.01" value="${escapeHtml(rule.MinConfidence ?? 0)}"
+                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                    ${ruleInputAttrs(index, "MinConfidence")}>
+            </div>
+        `;
+    }
+
+    function renderOrderedRuleFields(rule, index) {
+        return `
+            <div class="cf-plc-span-3">
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">期望标签顺序</label>
+                <input value="${escapeHtml((rule.ExpectedLabels || []).join(","))}"
+                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                    placeholder="Wire_Brown,Wire_Black,Wire_Blue"
+                    ${ruleInputAttrs(index, "ExpectedLabels")}>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">排序字段</label>
+                <select class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono cursor-pointer"
+                    ${ruleInputAttrs(index, "SortBy")}>
+                    ${optionList(rule.SortBy, [["CenterX", "中心 X"], ["CenterY", "中心 Y"], ["TopY", "顶部 Y"], ["Confidence", "置信度"], ["Area", "面积"]])}
+                </select>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">排序方向</label>
+                <select class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono cursor-pointer"
+                    ${ruleInputAttrs(index, "Direction")}>
+                    ${optionList(rule.Direction, [["LeftToRight", "从左到右"], ["RightToLeft", "从右到左"], ["TopToBottom", "从上到下"], ["BottomToTop", "从下到上"], ["Ascending", "升序"], ["Descending", "降序"]])}
+                </select>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">期望数量</label>
+                <input type="number" min="0" max="256" step="1" value="${escapeHtml(rule.ExpectedCount ?? 0)}"
+                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                    ${ruleInputAttrs(index, "ExpectedCount")}>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">最低置信度</label>
+                <input type="number" min="0" max="1" step="0.01" value="${escapeHtml(rule.MinConfidence ?? 0)}"
+                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                    ${ruleInputAttrs(index, "MinConfidence")}>
+            </div>
+            <label class="cf-plc-toggle">
+                <input type="checkbox" class="accent-celadon-600 w-3.5 h-3.5 rounded" ${rule.AllowMissing ? "checked" : ""}
+                    ${ruleInputAttrs(index, "AllowMissing")}>
+                <span>允许缺失</span>
+            </label>
+            <label class="cf-plc-toggle">
+                <input type="checkbox" class="accent-celadon-600 w-3.5 h-3.5 rounded" ${rule.AllowDuplicate ? "checked" : ""}
+                    ${ruleInputAttrs(index, "AllowDuplicate")}>
+                <span>允许重复</span>
+            </label>
+        `;
+    }
+
+    function renderPositionRuleFields(rule, index) {
+        return `
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">主标签</label>
+                <input value="${escapeHtml(rule.SubjectLabel || "")}" list="inspection-rule-label-options"
+                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold"
+                    ${ruleInputAttrs(index, "SubjectLabel")}>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">关系</label>
+                <select class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono cursor-pointer"
+                    ${ruleInputAttrs(index, "Relation")}>
+                    ${optionList(rule.Relation, [["LeftOf", "在左侧"], ["RightOf", "在右侧"], ["Above", "在上方"], ["Below", "在下方"]])}
+                </select>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">参考标签</label>
+                <input value="${escapeHtml(rule.ReferenceLabel || "")}" list="inspection-rule-label-options"
+                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold"
+                    ${ruleInputAttrs(index, "ReferenceLabel")}>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">最小间距(px)</label>
+                <input type="number" min="0" step="1" value="${escapeHtml(rule.MinDistance ?? 0)}"
+                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                    ${ruleInputAttrs(index, "MinDistance")}>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">最大间距(px)</label>
+                <input type="number" min="0" step="1" value="${escapeHtml(rule.MaxDistance ?? 0)}"
+                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                    ${ruleInputAttrs(index, "MaxDistance")}>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-ink-400 mb-1 block">最低置信度</label>
+                <input type="number" min="0" max="1" step="0.01" value="${escapeHtml(rule.MinConfidence ?? 0)}"
+                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono"
+                    ${ruleInputAttrs(index, "MinConfidence")}>
+            </div>
+        `;
+    }
+
+    function optionList(current, pairs) {
+        return pairs.map(([value, label]) =>
+            `<option value="${value}" ${String(current) === value ? "selected" : ""}>${label}</option>`
+        ).join("");
+    }
+
+    function operatorOptions(current) {
+        return optionList(current, [
+            ["Equal", "等于"],
+            ["NotEqual", "不等于"],
+            ["GreaterThan", "大于"],
+            ["GreaterThanOrEqual", "大于等于"],
+            ["LessThan", "小于"],
+            ["LessThanOrEqual", "小于等于"],
+        ]);
+    }
+
+    function renderInspectionRules() {
+        updateRuleLabelOptions();
+        const container = byId("inspection-rule-list");
+        if (!container) return;
+        const ruleSet = getCurrentRuleSet();
+        const rules = ruleSet.Rules || [];
+        if (!rules.length) {
+            container.innerHTML = '<p class="text-[10px] text-ink-400">尚未配置规则。</p>';
+            syncInspectionRuleJson();
+            return;
+        }
+
+        container.innerHTML = rules.map((rule, index) => {
+            const fields = rule.Type === "OrderedLabels"
+                ? renderOrderedRuleFields(rule, index)
+                : rule.Type === "RelativePosition"
+                    ? renderPositionRuleFields(rule, index)
+                    : renderCountRuleFields(rule, index);
+            return `
+                <article class="bg-white/80 border border-celadon-100 rounded-lg p-4 shadow-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" class="accent-celadon-600 w-3.5 h-3.5 rounded" ${rule.Enabled ? "checked" : ""}
+                                ${ruleInputAttrs(index, "Enabled")}>
+                            <span class="px-2 py-1 rounded bg-celadon-50 text-celadon-700 text-[10px] font-bold">${ruleTypeLabel(rule.Type)}</span>
+                            <input value="${escapeHtml(rule.Name || "")}" class="tech-input px-2 py-1 rounded-lg text-xs font-bold"
+                                ${ruleInputAttrs(index, "Name")} placeholder="规则名称">
+                        </div>
+                        <div class="flex gap-1">
+                            <button type="button" data-action="moveInspectionRule" data-value='{"index":${index},"direction":-1}'
+                                class="px-2 py-1 bg-porcelain-100 text-ink-500 hover:bg-celadon-50 text-[10px] font-bold rounded">上移</button>
+                            <button type="button" data-action="moveInspectionRule" data-value='{"index":${index},"direction":1}'
+                                class="px-2 py-1 bg-porcelain-100 text-ink-500 hover:bg-celadon-50 text-[10px] font-bold rounded">下移</button>
+                            <button type="button" data-action="duplicateInspectionRule" data-value="${index}"
+                                class="px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded">复制</button>
+                            <button type="button" data-action="removeInspectionRule" data-value="${index}"
+                                class="px-2 py-1 bg-red-50 text-red-600 hover:bg-red-100 text-[10px] font-bold rounded">删除</button>
+                        </div>
+                    </div>
+                    <div class="cf-plc-grid cf-plc-grid-3">
+                        ${fields}
+                    </div>
+                </article>
+            `;
+        }).join("");
+        syncInspectionRuleJson();
+    }
+
+    function updateInspectionRule(element) {
+        const index = parseInt(element?.dataset?.ruleIndex, 10);
+        const field = element?.dataset?.ruleField;
+        const rules = getCurrentRuleSet().Rules || [];
+        if (!Number.isInteger(index) || !field || !rules[index]) return;
+
+        let value = element.type === "checkbox" ? element.checked : element.value;
+        if (["Count", "ExpectedCount"].includes(field)) value = Math.max(0, parseInt(value, 10) || 0);
+        if (["MinConfidence"].includes(field)) value = normalizeThresholdValue(value, 0);
+        if (["MinDistance", "MaxDistance"].includes(field)) value = Math.max(0, parseFloat(value) || 0);
+        if (field === "ExpectedLabels") value = normalizeRuleLabels(value);
+        rules[index][field] = value;
+        syncInspectionRuleJson();
+    }
+
+    function addInspectionRule(type) {
+        const ruleSet = getCurrentRuleSet();
+        ruleSet.Rules.push(createInspectionRule(type || "Count"));
+        store.state.inspectionRuleSet = ruleSet;
+        renderInspectionRules();
+    }
+
+    function removeInspectionRule(index) {
+        const ruleSet = getCurrentRuleSet();
+        ruleSet.Rules.splice(parseInt(index, 10), 1);
+        store.state.inspectionRuleSet = ruleSet;
+        renderInspectionRules();
+    }
+
+    function duplicateInspectionRule(index) {
+        const ruleSet = getCurrentRuleSet();
+        const source = ruleSet.Rules[parseInt(index, 10)];
+        if (!source) return;
+        ruleSet.Rules.splice(parseInt(index, 10) + 1, 0, { ...JSON.parse(JSON.stringify(source)), Id: makeRuleId(), Name: `${source.Name || "规则"} 副本` });
+        store.state.inspectionRuleSet = ruleSet;
+        renderInspectionRules();
+    }
+
+    function moveInspectionRule(payload) {
+        const ruleSet = getCurrentRuleSet();
+        const index = parseInt(payload?.index, 10);
+        const direction = parseInt(payload?.direction, 10);
+        const nextIndex = index + direction;
+        if (!ruleSet.Rules[index] || nextIndex < 0 || nextIndex >= ruleSet.Rules.length) return;
+        const [item] = ruleSet.Rules.splice(index, 1);
+        ruleSet.Rules.splice(nextIndex, 0, item);
+        store.state.inspectionRuleSet = ruleSet;
+        renderInspectionRules();
+    }
+
+    function validateInspectionRuleSettings() {
+        const rules = getCurrentRuleSet().Rules || [];
+        if (!rules.length) return "至少需要配置一条判定规则";
+        for (const rule of rules.filter((r) => r.Enabled !== false)) {
+            if (rule.Type === "OrderedLabels" && !normalizeRuleLabels(rule.ExpectedLabels).length) {
+                return `规则“${rule.Name || "顺序规则"}”必须配置期望标签顺序`;
+            }
+            if (rule.Type === "RelativePosition" && (!rule.SubjectLabel || !rule.ReferenceLabel)) {
+                return `规则“${rule.Name || "位置规则"}”必须配置主标签和参考标签`;
+            }
+        }
+        return null;
+    }
+
     function getCompactPlcAddress(value) {
         return String(value || "").trim().replace(/\s+/g, "").toUpperCase();
     }
@@ -540,25 +984,6 @@
         return null;
     }
 
-    function normalizeWireSequenceLabels(value) {
-        return String(value || "")
-            .split(",")
-            .map((label) => label.trim())
-            .filter(Boolean)
-            .join(",");
-    }
-
-    function validateWireSequenceSettings() {
-        if (!byId("cfg-wire-sequence-enabled")?.checked) return null;
-
-        const labels = normalizeWireSequenceLabels(byId("cfg-wire-sequence-labels")?.value || "");
-        if (!labels) {
-            return "启用线序判定时，必须配置期望标签顺序";
-        }
-
-        return null;
-    }
-
     function activateSettingsTab(tabName) {
         document.querySelectorAll(".cf-settings-tab").forEach((btn) => {
             btn.classList.toggle("active", btn.dataset.settingsTab === tabName);
@@ -640,14 +1065,6 @@
             SerialPhotoelectricBaudRate: "cfg-serial-baud",
             SerialPhotoelectricDebounceMs: "cfg-serial-debounce",
             SerialPhotoelectricTimeoutMs: "cfg-serial-timeout",
-            WireSequenceJudgeEnabled: "cfg-wire-sequence-enabled",
-            WireSequenceExpectedLabels: "cfg-wire-sequence-labels",
-            WireSequenceSortBy: "cfg-wire-sequence-sort-by",
-            WireSequenceDirection: "cfg-wire-sequence-direction",
-            WireSequenceExpectedCount: "cfg-wire-sequence-count",
-            WireSequenceMinConfidence: "cfg-wire-sequence-confidence",
-            WireSequenceAllowMissing: "cfg-wire-sequence-allow-missing",
-            WireSequenceAllowDuplicate: "cfg-wire-sequence-allow-duplicate",
             PlcProtocol: "cfg-plc-protocol",
             PlcDriverProvider: "cfg-plc-driver-provider",
             PlcProtocolMode: "cfg-plc-protocol-mode",
@@ -678,8 +1095,6 @@
             CameraPixelFormat: "cfg-cam-pixel-format",
             ExposureTime: "cfg-cam-exposure",
             GainRaw: "cfg-cam-gain",
-            TargetLabel: "cfg-logic-target-label",
-            TargetCount: "cfg-logic-target-count",
             MaxRetryCount: "cfg-logic-retry-count",
             RetryIntervalMs: "cfg-logic-retry-interval",
             EnableGpu: "cfg-yolo-gpu",
@@ -713,6 +1128,8 @@
         if (data.IouThreshold !== undefined) {
             setThresholdControl("iou-input", "iou-slider", data.IouThreshold);
         }
+        store.state.inspectionRuleSet = normalizeInspectionRuleSet(data.InspectionRuleSetJson, data);
+        renderInspectionRules();
         const activeCamera = Array.isArray(data.Cameras)
             ? (data.Cameras.find((camera) => camera.Id === data.ActiveCameraId || camera.id === data.ActiveCameraId) ||
                 data.Cameras.find((camera) => camera.IsEnabled || camera.isEnabled) ||
@@ -834,7 +1251,7 @@
             alert(triggerError);
             return;
         }
-        const sequenceError = validateWireSequenceSettings();
+        const sequenceError = validateInspectionRuleSettings();
         if (sequenceError) {
             alert(sequenceError);
             return;
@@ -877,7 +1294,7 @@
             alert(triggerError);
             return;
         }
-        const sequenceError = validateWireSequenceSettings();
+        const sequenceError = validateInspectionRuleSettings();
         if (sequenceError) {
             alert(sequenceError);
             return;
@@ -914,14 +1331,6 @@
             "cfg-serial-baud": "SerialPhotoelectricBaudRate",
             "cfg-serial-debounce": "SerialPhotoelectricDebounceMs",
             "cfg-serial-timeout": "SerialPhotoelectricTimeoutMs",
-            "cfg-wire-sequence-enabled": "WireSequenceJudgeEnabled",
-            "cfg-wire-sequence-labels": "WireSequenceExpectedLabels",
-            "cfg-wire-sequence-sort-by": "WireSequenceSortBy",
-            "cfg-wire-sequence-direction": "WireSequenceDirection",
-            "cfg-wire-sequence-count": "WireSequenceExpectedCount",
-            "cfg-wire-sequence-confidence": "WireSequenceMinConfidence",
-            "cfg-wire-sequence-allow-missing": "WireSequenceAllowMissing",
-            "cfg-wire-sequence-allow-duplicate": "WireSequenceAllowDuplicate",
             "cfg-plc-protocol": "PlcProtocol",
             "cfg-plc-driver-provider": "PlcDriverProvider",
             "cfg-plc-protocol-mode": "PlcProtocolMode",
@@ -952,8 +1361,6 @@
             "cfg-cam-pixel-format": "CameraPixelFormat",
             "cfg-cam-exposure": "ExposureTime",
             "cfg-cam-gain": "GainRaw",
-            "cfg-logic-target-label": "TargetLabel",
-            "cfg-logic-target-count": "TargetCount",
             "cfg-logic-retry-count": "MaxRetryCount",
             "cfg-logic-retry-interval": "RetryIntervalMs",
             "cfg-yolo-gpu": "EnableGpu",
@@ -967,10 +1374,9 @@
         };
         const numericFields = new Set([
             "PlcPort", "PlcTriggerDelayMs", "PlcPollingIntervalMs", "PlcOkValue", "PlcNgValue",
-            "PlcSiemensRack", "PlcSiemensSlot", "ExposureTime", "GainRaw", "TargetCount",
+            "PlcSiemensRack", "PlcSiemensSlot", "ExposureTime", "GainRaw",
             "MaxRetryCount", "RetryIntervalMs", "GpuIndex", "BarcodeWordLength",
             "SerialPhotoelectricBaudRate", "SerialPhotoelectricDebounceMs", "SerialPhotoelectricTimeoutMs",
-            "WireSequenceExpectedCount", "WireSequenceMinConfidence",
         ]);
         const data = {};
 
@@ -988,13 +1394,10 @@
                 data[propName] = input.value || "";
             }
         }
-        if (data.WireSequenceExpectedLabels !== undefined) {
-            data.WireSequenceExpectedLabels = normalizeWireSequenceLabels(data.WireSequenceExpectedLabels);
-        }
-
         if (byId("task-type-select")) data.TaskType = parseInt(byId("task-type-select").value, 10);
         data.Confidence = readThresholdControl("conf-input", "conf-slider", 0.5);
         data.IouThreshold = readThresholdControl("iou-input", "iou-slider", 0.45);
+        data.InspectionRuleSetJson = JSON.stringify(getCurrentRuleSet());
 
         return data;
     }
@@ -1010,7 +1413,7 @@
             alert(triggerError);
             return;
         }
-        const sequenceError = validateWireSequenceSettings();
+        const sequenceError = validateInspectionRuleSettings();
         if (sequenceError) {
             alert(sequenceError);
             return;
@@ -1174,15 +1577,8 @@
             "cfg-cam-pixel-format": preset.CameraPixelFormat ?? preset.PixelFormat ?? "Mono8",
             "cfg-cam-exposure": preset.ExposureTime,
             "cfg-cam-gain": preset.GainRaw ?? preset.Gain ?? 1.1,
-            "cfg-logic-target-label": preset.TargetLabel,
-            "cfg-logic-target-count": preset.TargetCount,
             "cfg-logic-retry-count": preset.MaxRetryCount ?? 1,
             "cfg-logic-retry-interval": preset.RetryIntervalMs ?? 2000,
-            "cfg-wire-sequence-labels": preset.WireSequenceExpectedLabels ?? "Wire_Brown,Wire_Black,Wire_Blue",
-            "cfg-wire-sequence-sort-by": preset.WireSequenceSortBy ?? "CenterX",
-            "cfg-wire-sequence-direction": preset.WireSequenceDirection ?? "LeftToRight",
-            "cfg-wire-sequence-count": preset.WireSequenceExpectedCount ?? 0,
-            "cfg-wire-sequence-confidence": preset.WireSequenceMinConfidence ?? 0,
             "cfg-yolo-gpu-index": preset.GpuIndex ?? 0,
             "cfg-storage-path": preset.StoragePath ?? "C:\\GreeVisionData",
         };
@@ -1195,9 +1591,6 @@
         const checkboxAssignments = {
             "cfg-barcode-enabled": preset.BarcodeEnabled ?? false,
             "cfg-barcode-required": preset.BarcodeRequired ?? false,
-            "cfg-wire-sequence-enabled": preset.WireSequenceJudgeEnabled ?? false,
-            "cfg-wire-sequence-allow-missing": preset.WireSequenceAllowMissing ?? false,
-            "cfg-wire-sequence-allow-duplicate": preset.WireSequenceAllowDuplicate ?? false,
             "cfg-yolo-gpu": preset.EnableGpu ?? false,
             "cfg-industrial-render-mode": preset.IndustrialRenderMode ?? true,
         };
@@ -1210,6 +1603,8 @@
         updatePlcProtocolModeUi();
         updateSiemensRackSlotVisibility();
         updateTriggerSourceUi();
+        store.state.inspectionRuleSet = normalizeInspectionRuleSet(preset.InspectionRuleSetJson, preset);
+        renderInspectionRules();
         syncProjectPresetName();
         window.addLog?.(`已加载预设: ${getPresetDisplayName(presetId, preset)}`, "success");
     }
@@ -1306,6 +1701,12 @@
         updateSelectedProjectPreset,
         updateConfidence,
         updateIou,
+        addInspectionRule,
+        duplicateInspectionRule,
+        moveInspectionRule,
+        removeInspectionRule,
+        renderInspectionRules,
+        updateInspectionRule,
         updatePlcAddressUi,
         updatePlcProtocolModeUi,
         updateSiemensRackSlotVisibility,
@@ -1321,6 +1722,10 @@
     bridge.registerMessageHandler("bootstrapSnapshot", handleBootstrapSnapshot);
     bridge.registerMessageHandler("configSnapshot", handleConfigSnapshot);
     bridge.registerMessageHandler("modelList", (data) => initModelList(data?.models || data?.Models || data || [], false));
+    bridge.registerMessageHandler("modelLabels", (data) => {
+        store.state.modelLabels = data?.labels || data?.Labels || data || [];
+        updateRuleLabelOptions();
+    });
     bridge.registerMessageHandler("projectPresets", handleProjectPresets);
     bridge.registerMessageHandler("datasetCollectResult", handleDatasetCollectResult);
     bridge.registerMessageHandler("serialPortsDetected", handleSerialPortsDetected);

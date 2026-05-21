@@ -26,6 +26,7 @@ namespace ClearFrost.Core.Recipes
         public int TaskType { get; set; }
         public bool EnablePreprocessing { get; set; }
         public bool IndustrialRenderMode { get; set; }
+        public string InspectionRuleSetJson { get; set; } = string.Empty;
         public int VisionMode { get; set; }
         public string TemplateImagePath { get; set; } = string.Empty;
         public double TemplateThreshold { get; set; }
@@ -54,6 +55,7 @@ namespace ClearFrost.Core.Recipes
                 TaskType = config.TaskType,
                 EnablePreprocessing = config.EnablePreprocessing,
                 IndustrialRenderMode = config.IndustrialRenderMode,
+                InspectionRuleSetJson = config.InspectionRuleSetJson ?? string.Empty,
                 VisionMode = config.VisionMode,
                 TemplateImagePath = config.TemplateImagePath ?? string.Empty,
                 TemplateThreshold = config.TemplateThreshold,

@@ -175,37 +175,6 @@ namespace ClearFrost
         }
 
         /// <summary>
-        /// 基于目标标签与目标数量重新计算合格判定（用于 ROI 过滤后）。
-        /// </summary>
-        private static bool EvaluateQualificationByTarget(
-            IReadOnlyList<YoloResult> results,
-            string[]? labels,
-            string? targetLabel,
-            int targetCount)
-        {
-            if (!string.IsNullOrWhiteSpace(targetLabel) && labels != null)
-            {
-                if (targetCount < 0)
-                {
-                    return false;
-                }
-
-                int actualCount = results.Count(r =>
-                {
-                    if (r.ClassId < 0 || r.ClassId >= labels.Length)
-                    {
-                        return false;
-                    }
-
-                    return string.Equals(labels[r.ClassId], targetLabel, StringComparison.OrdinalIgnoreCase);
-                });
-                return actualCount == targetCount;
-            }
-
-            return results.Count == 0;
-        }
-
-        /// <summary>
         /// 写入检测结果到 PLC
         /// </summary>
         public async Task<bool> WriteDetectionResult(bool isQualified)

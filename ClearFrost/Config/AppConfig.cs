@@ -7,7 +7,9 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using ClearFrost.Core.Rules;
 using ClearFrost.Helpers;
 
 namespace ClearFrost.Config
@@ -181,6 +183,12 @@ namespace ClearFrost.Config
         public int MaxRetryCount { get; set; } = 1;
         public int RetryIntervalMs { get; set; } = 2000;
 
+        // ================== Inspection Rule Settings ==================
+        /// <summary>
+        /// 检测判定规则集 JSON。新配置入口，旧 Target/WireSequence 字段仅作为迁移输入保留。
+        /// </summary>
+        public string InspectionRuleSetJson { get; set; } = "";
+
         // ================== Wire Sequence Judge Settings ==================
         /// <summary>
         /// 启用端子线序判定。启用后检测结果按配置排序并比对 ExpectedLabels。
@@ -233,7 +241,9 @@ namespace ClearFrost.Config
         public AppConfig()
         {
             MigrateLegacyCamera();
-            NormalizeRuntimeSettings();
+            NormalizePlcAddresses();
+            NormalizeSequenceJudgeSettings();
+            NormalizeCameraPixelFormats();
         }
 
         private static void LogError(string operation, Exception ex)
@@ -364,6 +374,7 @@ namespace ClearFrost.Config
             {
                 NormalizePlcAddresses();
                 NormalizeSequenceJudgeSettings();
+                NormalizeInspectionRuleSetSettings();
                 NormalizeCameraPixelFormats();
                 string configDir = Path.GetDirectoryName(ConfigPath) ?? string.Empty;
                 if (!string.IsNullOrWhiteSpace(configDir))
@@ -371,7 +382,7 @@ namespace ClearFrost.Config
                     Directory.CreateDirectory(configDir);
                 }
 
-                string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+                string json = SerializeForSave();
                 WriteConfigAtomically(ConfigPath, json);
                 LastError = null;
                 return true;
@@ -390,11 +401,50 @@ namespace ClearFrost.Config
             NormalizeRuntimeSettings();
         }
 
+        private string SerializeForSave()
+        {
+            NormalizeInspectionRuleSetSettings();
+            string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+            JsonObject? root = JsonNode.Parse(json)?.AsObject();
+            if (root == null)
+            {
+                return json;
+            }
+
+            string[] legacyRuleFields =
+            {
+                nameof(TargetLabel),
+                nameof(TargetCount),
+                nameof(WireSequenceJudgeEnabled),
+                nameof(WireSequenceExpectedLabels),
+                nameof(WireSequenceSortBy),
+                nameof(WireSequenceDirection),
+                nameof(WireSequenceExpectedCount),
+                nameof(WireSequenceMinConfidence),
+                nameof(WireSequenceAllowMissing),
+                nameof(WireSequenceAllowDuplicate)
+            };
+
+            foreach (string field in legacyRuleFields)
+            {
+                root.Remove(field);
+            }
+
+            return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        }
+
         private void NormalizeRuntimeSettings()
         {
             NormalizePlcAddresses();
             NormalizeSequenceJudgeSettings();
+            NormalizeInspectionRuleSetSettings();
             NormalizeCameraPixelFormats();
+        }
+
+        public InspectionRuleSet GetInspectionRuleSet()
+        {
+            NormalizeInspectionRuleSetSettings();
+            return InspectionRuleSetSerializer.DeserializeOrDefault(InspectionRuleSetJson);
         }
 
         private void NormalizeSequenceJudgeSettings()
@@ -416,6 +466,32 @@ namespace ClearFrost.Config
             {
                 WireSequenceDirection = "LeftToRight";
             }
+        }
+
+        private void NormalizeInspectionRuleSetSettings()
+        {
+            if (!InspectionRuleSetSerializer.TryDeserialize(InspectionRuleSetJson, out InspectionRuleSet ruleSet, out string errorMessage))
+            {
+                throw new InvalidOperationException($"判定规则配置 JSON 无效: {errorMessage}");
+            }
+
+            if (ruleSet.Rules.Count == 0)
+            {
+                ruleSet = WireSequenceJudgeEnabled
+                    ? InspectionRuleSetSerializer.FromLegacyWireSequence(
+                        WireSequenceExpectedLabels,
+                        WireSequenceSortBy,
+                        WireSequenceDirection,
+                        WireSequenceExpectedCount,
+                        WireSequenceMinConfidence,
+                        WireSequenceAllowMissing,
+                        WireSequenceAllowDuplicate,
+                        TargetLabel,
+                        TargetCount)
+                    : InspectionRuleSetSerializer.FromLegacyTarget(TargetLabel, TargetCount);
+            }
+
+            InspectionRuleSetJson = InspectionRuleSetSerializer.Serialize(ruleSet);
         }
 
         private void NormalizeCameraPixelFormats()

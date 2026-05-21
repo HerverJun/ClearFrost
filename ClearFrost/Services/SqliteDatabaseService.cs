@@ -53,6 +53,9 @@ namespace ClearFrost.Services
             "InferenceMs",
             "ModelName",
             "CameraId",
+            "RuleSummary",
+            "RuleResultJson",
+            "RuleSetJson",
             "ResultJson"
         };
 
@@ -320,6 +323,9 @@ namespace ClearFrost.Services
                     InferenceMs INTEGER,
                     ModelName TEXT,
                     CameraId TEXT,
+                    RuleSummary TEXT,
+                    RuleResultJson TEXT,
+                    RuleSetJson TEXT,
                     ResultJson TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_timestamp ON DetectionRecords(Timestamp);
@@ -365,6 +371,9 @@ namespace ClearFrost.Services
             AddColumnIfMissing(connection, existingColumns, "InferenceMs", "INTEGER");
             AddColumnIfMissing(connection, existingColumns, "ModelName", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "CameraId", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "RuleSummary", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "RuleResultJson", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "RuleSetJson", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "ResultJson", "TEXT");
 
             using var indexCommand = connection.CreateCommand();
@@ -514,6 +523,9 @@ namespace ClearFrost.Services
                         InferenceMs,
                         ModelName,
                         CameraId,
+                        RuleSummary,
+                        RuleResultJson,
+                        RuleSetJson,
                         ResultJson
                     )
                     VALUES
@@ -552,6 +564,9 @@ namespace ClearFrost.Services
                         @InferenceMs,
                         @ModelName,
                         @CameraId,
+                        @RuleSummary,
+                        @RuleResultJson,
+                        @RuleSetJson,
                         @ResultJson
                     )
                 ";
@@ -595,6 +610,9 @@ namespace ClearFrost.Services
                 command.Parameters.AddWithValue("@InferenceMs", record.InferenceMs);
                 command.Parameters.AddWithValue("@ModelName", record.ModelName ?? "");
                 command.Parameters.AddWithValue("@CameraId", record.CameraId ?? "");
+                command.Parameters.AddWithValue("@RuleSummary", record.RuleSummary ?? "");
+                command.Parameters.AddWithValue("@RuleResultJson", record.RuleResultJson ?? "");
+                command.Parameters.AddWithValue("@RuleSetJson", record.RuleSetJson ?? "");
                 command.Parameters.AddWithValue("@ResultJson", record.ResultJson ?? "");
 
                 await command.ExecuteNonQueryAsync();
@@ -678,6 +696,9 @@ namespace ClearFrost.Services
                         InferenceMs = GetInt32OrDefault(reader, "InferenceMs"),
                         ModelName = GetStringOrDefault(reader, "ModelName"),
                         CameraId = GetStringOrDefault(reader, "CameraId"),
+                        RuleSummary = GetStringOrDefault(reader, "RuleSummary"),
+                        RuleResultJson = GetStringOrDefault(reader, "RuleResultJson"),
+                        RuleSetJson = GetStringOrDefault(reader, "RuleSetJson"),
                         ResultJson = GetStringOrDefault(reader, "ResultJson")
                     });
                 }

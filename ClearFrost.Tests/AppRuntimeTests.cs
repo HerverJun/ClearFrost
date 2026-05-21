@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Threading.Tasks;
 using ClearFrost.Config;
+using ClearFrost.Core.Rules;
 using ClearFrost.Hardware;
 using ClearFrost.Interfaces;
 using ClearFrost.Models;
@@ -212,9 +213,9 @@ namespace ClearFrost.Tests
             public Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
             public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
             public Task<bool> SwitchModelAsync(string modelName) => Task.FromResult(true);
-            public Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold, string? targetLabel = null, int targetCount = 0)
+            public Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal = null)
                 => Task.FromResult(new DetectionResultData());
-            public Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold, string? targetLabel = null, int targetCount = 0)
+            public Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal = null)
                 => Task.FromResult(new DetectionResultData());
             public Bitmap GenerateResultImage(Bitmap original, List<YoloResult> results, string[] labels) => new Bitmap(original);
             public void SetTaskMode(int taskType) { }
