@@ -113,6 +113,83 @@ namespace ClearFrost.Tests.Services
         }
 
         [Fact]
+        public void DetectionTraceImageResolver_路径为空时按旧目录时间回退原图()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+
+            try
+            {
+                string imageDir = Path.Combine(tempDir, "NG", "2026-01-27");
+                Directory.CreateDirectory(imageDir);
+                string imagePath = Path.Combine(imageDir, "144650_563.jpg");
+                File.WriteAllText(imagePath, "legacy image");
+                File.SetLastWriteTime(imagePath, new DateTime(2026, 1, 27, 14, 46, 50, 563));
+
+                var record = new DetectionTraceRecord
+                {
+                    Timestamp = new DateTime(2026, 1, 27, 14, 46, 50),
+                    IsQualified = false
+                };
+
+                DetectionTraceImageResolution resolved = DetectionTraceImageResolver.Resolve(record, tempDir);
+
+                resolved.ImagePath.Should().Be(imagePath);
+                resolved.UsedFallbackImagePath.Should().BeTrue();
+                resolved.HasRenderedImage.Should().BeFalse();
+                resolved.MissingRenderedImage.Should().BeTrue();
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, recursive: true);
+                }
+            }
+        }
+
+        [Fact]
+        public void DetectionTraceImageResolver_路径为空时按InspectionId回退并识别复查图()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+
+            try
+            {
+                string imageDir = Path.Combine(tempDir, "Unqualified", "2026年05月19日", "10");
+                string renderedDir = Path.Combine(imageDir, "Rendered");
+                Directory.CreateDirectory(renderedDir);
+
+                const string inspectionId = "CF-20260519-104743741-TEST-000001";
+                string imagePath = Path.Combine(imageDir, $"FAIL_{inspectionId}.jpg");
+                string renderedPath = Path.Combine(renderedDir, $"FAIL_{inspectionId}_rendered.jpg");
+                File.WriteAllText(imagePath, "original image");
+                File.WriteAllText(renderedPath, "rendered image");
+
+                var record = new DetectionTraceRecord
+                {
+                    Timestamp = new DateTime(2026, 5, 19, 10, 47, 43, 741),
+                    IsQualified = false,
+                    InspectionId = inspectionId
+                };
+
+                DetectionTraceImageResolution resolved = DetectionTraceImageResolver.Resolve(record, tempDir);
+
+                resolved.ImagePath.Should().Be(imagePath);
+                resolved.RenderedImagePath.Should().Be(renderedPath);
+                resolved.HasRenderedImage.Should().BeTrue();
+                resolved.UsedFallbackImagePath.Should().BeTrue();
+                resolved.UsedDerivedRenderedPath.Should().BeTrue();
+                resolved.DisplayImagePath.Should().Be(renderedPath);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, recursive: true);
+                }
+            }
+        }
+
+        [Fact]
         public void BuildTraceImageFileName_包含安全化条码()
         {
             MethodInfo? method = typeof(global::ClearFrost.主窗口).GetMethod(

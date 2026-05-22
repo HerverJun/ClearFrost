@@ -1222,7 +1222,10 @@ namespace ClearFrost
 
                 DetectionTracePage page = await DatabaseService.GetTraceRecordPageAsync(query);
                 List<DetectionTraceRecord> records = page.Records.ToList();
-                object[] payload = records.Select(BuildTraceRecordPayload).ToArray();
+                var imageFileCache = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+                object[] payload = records
+                    .Select(record => BuildTraceRecordPayload(record, imageFileCache))
+                    .ToArray();
                 PostMessage("historyImages", new
                 {
                     records = payload,
@@ -1247,9 +1250,17 @@ namespace ClearFrost
             }
         }
 
-        private object BuildTraceRecordPayload(DetectionTraceRecord record)
+        private object BuildTraceRecordPayload(
+            DetectionTraceRecord record,
+            IDictionary<string, IReadOnlyList<string>>? imageFileCache = null)
         {
-            var resolution = DetectionTraceImageResolver.Resolve(record);
+            var resolution = string.IsNullOrWhiteSpace(ImageBasePath)
+                ? DetectionTraceImageResolver.Resolve(record)
+                : DetectionTraceImageResolver.Resolve(
+                    record,
+                    ImageBasePath,
+                    File.Exists,
+                    directory => GetCachedTraceImageFiles(imageFileCache, directory));
             string? imageUrl = TryCreateImageUrl(resolution.ImagePath);
             string? renderedImageUrl = TryCreateImageUrl(resolution.RenderedImagePath);
             bool hasRenderedImage = !string.IsNullOrWhiteSpace(renderedImageUrl);
@@ -1274,8 +1285,52 @@ namespace ClearFrost
                 hasImage = hasImage,
                 hasRenderedImage = hasRenderedImage,
                 missingRenderedImage = !hasRenderedImage,
-                usedDerivedRenderedPath = resolution.UsedDerivedRenderedPath
+                usedDerivedRenderedPath = resolution.UsedDerivedRenderedPath,
+                usedFallbackImagePath = resolution.UsedFallbackImagePath
             };
+        }
+
+        private static IEnumerable<string> GetCachedTraceImageFiles(
+            IDictionary<string, IReadOnlyList<string>>? imageFileCache,
+            string directory)
+        {
+            if (imageFileCache == null)
+            {
+                return EnumerateTraceImageFiles(directory);
+            }
+
+            if (imageFileCache.TryGetValue(directory, out IReadOnlyList<string>? cachedFiles))
+            {
+                return cachedFiles;
+            }
+
+            IReadOnlyList<string> files = EnumerateTraceImageFiles(directory);
+            imageFileCache[directory] = files;
+            return files;
+        }
+
+        private static string[] EnumerateTraceImageFiles(string directory)
+        {
+            try
+            {
+                if (!Directory.Exists(directory))
+                {
+                    return Array.Empty<string>();
+                }
+
+                return Directory.EnumerateFiles(directory)
+                    .Where(path =>
+                    {
+                        string extension = Path.GetExtension(path);
+                        return extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                            extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase);
+                    })
+                    .ToArray();
+            }
+            catch
+            {
+                return Array.Empty<string>();
+            }
         }
 
         private string? TryCreateImageUrl(string path)
@@ -1287,17 +1342,19 @@ namespace ClearFrost
 
             try
             {
-                if (!File.Exists(path))
+                string basePath = Path.GetFullPath(ImageBasePath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string fullPath = ResolveImageFullPath(path, basePath);
+                if (!File.Exists(fullPath))
                 {
                     return null;
                 }
 
-                string basePath = Path.GetFullPath(ImageBasePath)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                string fullPath = Path.GetFullPath(path);
                 string relativePath = Path.GetRelativePath(basePath, fullPath);
 
-                if (relativePath.StartsWith("..", StringComparison.Ordinal) ||
+                if (relativePath.Equals("..", StringComparison.Ordinal) ||
+                    relativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) ||
+                    relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal) ||
                     Path.IsPathRooted(relativePath))
                 {
                     return null;
@@ -1312,6 +1369,32 @@ namespace ClearFrost
             {
                 return null;
             }
+        }
+
+        private static string ResolveImageFullPath(string path, string basePath)
+        {
+            if (Path.IsPathRooted(path))
+            {
+                return Path.GetFullPath(path);
+            }
+
+            string relativeToImageBase = Path.GetFullPath(Path.Combine(basePath, path));
+            if (File.Exists(relativeToImageBase))
+            {
+                return relativeToImageBase;
+            }
+
+            string? parent = Directory.GetParent(basePath)?.FullName;
+            if (!string.IsNullOrWhiteSpace(parent))
+            {
+                string relativeToStorageRoot = Path.GetFullPath(Path.Combine(parent, path));
+                if (File.Exists(relativeToStorageRoot))
+                {
+                    return relativeToStorageRoot;
+                }
+            }
+
+            return relativeToImageBase;
         }
 
         private static string? TryGetStringProperty(JsonElement element, string propertyName)
