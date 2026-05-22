@@ -1240,7 +1240,7 @@ namespace ClearFrost
                     return;
                 }
 
-                string appVersion = Application.ProductVersion ?? string.Empty;
+                string appVersion = AppVersion.InformationalVersion;
                 ConfigMigrationExportResult result = ConfigMigrationService.Export(_appConfig, dialog.FileName, appVersion);
                 await _uiController.LogToFrontend($"配置迁移文件已导出: {result.Path}", "success");
                 await _uiController.SendUiCommand("toast", new

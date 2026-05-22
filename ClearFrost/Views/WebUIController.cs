@@ -35,6 +35,7 @@ using System.Collections.Generic;
 using System.Threading;
 using OpenCvSharp;
 using ClearFrost.Core.Inspection;
+using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
 
@@ -173,8 +174,7 @@ namespace ClearFrost
             try
             {
                 // [安全工业模式] UDF 加入版本号隔离，升级后不继承旧版缓存
-                string appVer = System.Reflection.Assembly.GetExecutingAssembly()
-                    .GetName().Version?.ToString(3) ?? "0.0.0";
+                string appVer = AppVersion.CacheKey;
                 string userDataFolder = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "GreeVision_WebView2", appVer);
