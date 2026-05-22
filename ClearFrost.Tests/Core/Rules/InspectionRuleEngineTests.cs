@@ -1,4 +1,4 @@
-using ClearFrost.Config;
+﻿using ClearFrost.Config;
 using ClearFrost.Core.Rules;
 using ClearFrost.Yolo;
 using FluentAssertions;
@@ -151,6 +151,62 @@ public class InspectionRuleEngineTests
 
         result.IsQualified.Should().BeFalse();
         result.RuleResults[0].Message.Should().Contain("位置不满足");
+    }
+
+    [Fact]
+    public void Evaluate_NoEnabledRules_ReturnsNg()
+    {
+        var ruleSet = RuleSet(new InspectionRule
+        {
+            Type = InspectionRuleTypes.Count,
+            Label = "screw",
+            Count = 1,
+            Enabled = false
+        });
+
+        InspectionJudgeResult result = InspectionRuleEngine.Evaluate(ruleSet, Array.Empty<YoloResult>(), Labels);
+
+        result.IsQualified.Should().BeFalse();
+        result.Summary.Should().Contain("未启用判定规则");
+    }
+
+    [Fact]
+    public void Evaluate_OrderedLabelsAllowMissingButNoDetections_ReturnsNg()
+    {
+        var ruleSet = RuleSet(new InspectionRule
+        {
+            Type = InspectionRuleTypes.OrderedLabels,
+            ExpectedLabels = new List<string> { "Wire_Brown", "Wire_Black" },
+            AllowMissing = true
+        });
+
+        InspectionJudgeResult result = InspectionRuleEngine.Evaluate(ruleSet, Array.Empty<YoloResult>(), Labels);
+
+        result.IsQualified.Should().BeFalse();
+        result.RuleResults[0].Message.Should().Contain("未检测到期望标签");
+    }
+
+    [Fact]
+    public void Evaluate_RelativePositionRequiresEverySubjectToMatch_ReturnsNg()
+    {
+        var ruleSet = RuleSet(new InspectionRule
+        {
+            Type = InspectionRuleTypes.RelativePosition,
+            SubjectLabel = "screw",
+            ReferenceLabel = "body",
+            Relation = InspectionRuleRelations.LeftOf
+        });
+        var detections = new[]
+        {
+            Detection(0, 20, 20, width: 10),
+            Detection(0, 120, 20, width: 10),
+            Detection(4, 80, 20, width: 20),
+        };
+
+        InspectionJudgeResult result = InspectionRuleEngine.Evaluate(ruleSet, detections, Labels);
+
+        result.IsQualified.Should().BeFalse();
+        result.RuleResults[0].Actual.Should().Contain("主目标 2 个");
     }
 
     [Fact]

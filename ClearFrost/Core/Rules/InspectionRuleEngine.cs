@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: InspectionRuleEngine.cs
 // 描述:   检测判定规则引擎
 // ============================================================================
@@ -26,10 +26,8 @@ namespace ClearFrost.Core.Rules
             {
                 return new InspectionJudgeResult
                 {
-                    IsQualified = resultList.Count == 0,
-                    Summary = resultList.Count == 0
-                        ? "未配置规则，且未检测到目标，判定 OK"
-                        : $"未配置规则，但检测到 {resultList.Count} 个目标，判定 NG",
+                    IsQualified = false,
+                    Summary = "未启用判定规则，判定 NG",
                     RuleResults = Array.Empty<InspectionRuleResult>()
                 };
             }
@@ -154,6 +152,10 @@ namespace ClearFrost.Core.Rules
             {
                 reasons.Add("未配置期望顺序");
             }
+            else if (actualOrder.Count == 0)
+            {
+                reasons.Add("未检测到期望标签");
+            }
 
             if (!rule.AllowMissing && missingLabels.Count > 0)
             {
@@ -194,27 +196,57 @@ namespace ClearFrost.Core.Rules
             string referenceLabel = rule.ReferenceLabel?.Trim() ?? string.Empty;
             double minConfidence = NormalizeConfidence(rule.MinConfidence);
 
-            YoloResult? subject = FindBestDetection(detections, labels, subjectLabel, minConfidence);
-            YoloResult? reference = FindBestDetection(detections, labels, referenceLabel, minConfidence);
-
             if (string.IsNullOrWhiteSpace(subjectLabel) || string.IsNullOrWhiteSpace(referenceLabel))
             {
                 return Result(rule, false, "主标签和参考标签必须配置", "未配置", "位置规则缺少标签");
             }
 
-            if (subject == null || reference == null)
+            List<YoloResult> subjects = FindDetections(detections, labels, subjectLabel, minConfidence);
+            List<YoloResult> references = FindDetections(detections, labels, referenceLabel, minConfidence);
+
+            if (subjects.Count == 0 || references.Count == 0)
             {
-                string actual = subject == null && reference == null
+                string actual = subjects.Count == 0 && references.Count == 0
                     ? "主标签和参考标签均缺失"
-                    : subject == null ? "主标签缺失" : "参考标签缺失";
+                    : subjects.Count == 0 ? "主标签缺失" : "参考标签缺失";
                 return Result(rule, false, RelativeExpected(rule), actual, actual);
             }
 
-            double distance = GetEdgeDistance(subject, reference, rule.Relation);
-            bool directionMatched = IsRelativeDirectionMatched(subject, reference, rule.Relation, rule.MinDistance);
-            bool maxMatched = rule.MaxDistance <= 0 || distance <= rule.MaxDistance;
-            bool isMatch = directionMatched && maxMatched;
-            string actualText = $"{RelativeActual(rule.Relation)} 间距 {distance:F1}px";
+            var subjectResults = subjects
+                .Select(subject =>
+                {
+                    var distances = references
+                        .Select(reference =>
+                        {
+                            double distance = GetEdgeDistance(subject, reference, rule.Relation);
+                            bool matched = IsRelativeDirectionMatched(subject, reference, rule.Relation, rule.MinDistance) &&
+                                           (rule.MaxDistance <= 0 || distance <= rule.MaxDistance);
+
+                            return new
+                            {
+                                Distance = distance,
+                                Matched = matched
+                            };
+                        })
+                        .ToList();
+                    double bestDistance = distances.Any(item => item.Matched)
+                        ? distances.Where(item => item.Matched).Min(item => item.Distance)
+                        : distances.OrderBy(item => Math.Abs(item.Distance)).First().Distance;
+
+                    return new
+                    {
+                        BestDistance = bestDistance,
+                        Matched = distances.Any(item => item.Matched)
+                    };
+                })
+                .ToList();
+
+            bool isMatch = subjectResults.All(item => item.Matched);
+            double displayDistance = subjectResults
+                .Select(item => item.BestDistance)
+                .DefaultIfEmpty(0)
+                .Min();
+            string actualText = $"{RelativeActual(rule.Relation)} 间距 {displayDistance:F1}px, 主目标 {subjects.Count} 个, 参考 {references.Count} 个";
 
             return Result(
                 rule,
@@ -263,7 +295,7 @@ namespace ClearFrost.Core.Rules
             return $"Class_{detection.ClassId}";
         }
 
-        private static YoloResult? FindBestDetection(
+        private static List<YoloResult> FindDetections(
             IReadOnlyList<YoloResult> detections,
             IReadOnlyList<string> labels,
             string targetLabel,
@@ -275,7 +307,7 @@ namespace ClearFrost.Core.Rules
                     string.Equals(ResolveLabel(detection, labels), targetLabel, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(detection => detection.Confidence)
                 .ThenByDescending(detection => detection.Area)
-                .FirstOrDefault();
+                .ToList();
         }
 
         private static bool IsRelativeDirectionMatched(

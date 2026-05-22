@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: IDetectionService.cs
 // 描述:   检测服务接口
 //
@@ -76,6 +76,21 @@ namespace ClearFrost.Interfaces
         /// 检测错误说明。
         /// </summary>
         public string ErrorMessage { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 本次检测实际使用的判定规则快照。
+        /// </summary>
+        public string RuleSetJson { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 本次检测用于追溯显示的主要目标标签。
+        /// </summary>
+        public string TargetLabel { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 本次检测用于追溯显示的期望数量。
+        /// </summary>
+        public int ExpectedCount { get; set; }
     }
 
     /// <summary>
@@ -173,13 +188,23 @@ namespace ClearFrost.Interfaces
         /// <param name="confidence">置信度阈值</param>
         /// <param name="iouThreshold">IOU 阈值</param>
         /// <param name="fallbackGoal">可选多模型回退目标，不参与最终 OK/NG 判定。</param>
-        Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal = null);
+        Task<DetectionResultData> DetectAsync(
+            Mat image,
+            float confidence,
+            float iouThreshold,
+            InspectionFallbackGoal? fallbackGoal = null,
+            MultiModelCandidateEvaluator? candidateEvaluator = null);
 
         /// <summary>
         /// 执行检测 (Bitmap 输入)
         /// </summary>
         /// <param name="fallbackGoal">可选多模型回退目标，不参与最终 OK/NG 判定。</param>
-        Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal = null);
+        Task<DetectionResultData> DetectAsync(
+            Bitmap image,
+            float confidence,
+            float iouThreshold,
+            InspectionFallbackGoal? fallbackGoal = null,
+            MultiModelCandidateEvaluator? candidateEvaluator = null);
 
         /// <summary>
         /// 生成带标注的结果图像

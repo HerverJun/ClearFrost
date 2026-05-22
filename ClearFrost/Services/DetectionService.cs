@@ -337,7 +337,8 @@ namespace ClearFrost.Services
             Mat image,
             float confidence,
             float iouThreshold,
-            InspectionFallbackGoal? fallbackGoal = null)
+            InspectionFallbackGoal? fallbackGoal = null,
+            MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
             var result = new DetectionResultData();
 
@@ -355,7 +356,7 @@ namespace ClearFrost.Services
 
             try
             {
-                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal);
+                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
 
@@ -381,7 +382,8 @@ namespace ClearFrost.Services
             Bitmap image,
             float confidence,
             float iouThreshold,
-            InspectionFallbackGoal? fallbackGoal = null)
+            InspectionFallbackGoal? fallbackGoal = null,
+            MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
             var result = new DetectionResultData();
 
@@ -399,7 +401,7 @@ namespace ClearFrost.Services
 
             try
             {
-                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal);
+                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
 
@@ -422,7 +424,11 @@ namespace ClearFrost.Services
         }
 
         private async Task<(List<YoloResult> Results, string UsedModelName, string[] UsedModelLabels, bool WasFallback)> RunInferenceAsync(
-            Bitmap image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal)
+            Bitmap image,
+            float confidence,
+            float iouThreshold,
+            InspectionFallbackGoal? fallbackGoal,
+            MultiModelCandidateEvaluator? candidateEvaluator)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
@@ -433,7 +439,8 @@ namespace ClearFrost.Services
                     false,
                     1,
                     fallbackGoal?.TargetLabel,
-                    fallbackGoal?.TargetCount ?? 0);
+                    fallbackGoal?.TargetCount ?? 0,
+                    candidateEvaluator);
                 if (inferenceResult.HasError)
                 {
                     throw new InvalidOperationException(inferenceResult.ErrorMessage);
@@ -453,7 +460,11 @@ namespace ClearFrost.Services
         }
 
         private async Task<(List<YoloResult> Results, string UsedModelName, string[] UsedModelLabels, bool WasFallback)> RunInferenceAsync(
-            Mat image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal)
+            Mat image,
+            float confidence,
+            float iouThreshold,
+            InspectionFallbackGoal? fallbackGoal,
+            MultiModelCandidateEvaluator? candidateEvaluator)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
@@ -464,7 +475,8 @@ namespace ClearFrost.Services
                     false,
                     1,
                     fallbackGoal?.TargetLabel,
-                    fallbackGoal?.TargetCount ?? 0);
+                    fallbackGoal?.TargetCount ?? 0,
+                    candidateEvaluator);
                 if (inferenceResult.HasError)
                 {
                     throw new InvalidOperationException(inferenceResult.ErrorMessage);

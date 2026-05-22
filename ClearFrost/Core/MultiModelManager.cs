@@ -70,6 +70,24 @@ namespace ClearFrost.Yolo
         public int DetectionCount => Results.Count;
     }
 
+    public sealed class MultiModelCandidate
+    {
+        public IReadOnlyList<YoloResult> Results { get; init; } = Array.Empty<YoloResult>();
+        public string[] Labels { get; init; } = Array.Empty<string>();
+        public ModelRole ModelRole { get; init; } = ModelRole.None;
+        public string ModelName { get; init; } = string.Empty;
+        public bool WasFallback { get; init; }
+    }
+
+    public sealed class MultiModelCandidateEvaluation
+    {
+        public bool IsMatch { get; init; }
+        public int Score { get; init; }
+        public string Summary { get; init; } = string.Empty;
+    }
+
+    public delegate MultiModelCandidateEvaluation MultiModelCandidateEvaluator(MultiModelCandidate candidate);
+
     /// <summary>
     /// 
     /// </summary>
@@ -503,6 +521,76 @@ namespace ClearFrost.Yolo
             return candidateResults.Count > currentBestResults.Count;
         }
 
+        private static bool ShouldReplaceEvaluatedResult(
+            MultiModelCandidateEvaluation candidateEvaluation,
+            IReadOnlyList<YoloResult> candidateResults,
+            string[] candidateLabels,
+            MultiModelCandidateEvaluation? currentEvaluation,
+            IReadOnlyList<YoloResult>? currentBestResults,
+            string[] currentBestLabels,
+            string? targetLabel,
+            int targetCount)
+        {
+            if (currentEvaluation == null || currentBestResults == null)
+            {
+                return true;
+            }
+
+            if (candidateEvaluation.IsMatch != currentEvaluation.IsMatch)
+            {
+                return candidateEvaluation.IsMatch;
+            }
+
+            if (candidateEvaluation.Score != currentEvaluation.Score)
+            {
+                return candidateEvaluation.Score > currentEvaluation.Score;
+            }
+
+            return ShouldReplaceBestResult(
+                candidateResults,
+                candidateLabels,
+                currentBestResults,
+                currentBestLabels,
+                targetLabel,
+                targetCount);
+        }
+
+        private void RecordModelHit(ModelRole role)
+        {
+            lock (_lock)
+            {
+                switch (role)
+                {
+                    case ModelRole.Primary:
+                        PrimaryHitCount++;
+                        break;
+                    case ModelRole.Auxiliary1:
+                        Auxiliary1HitCount++;
+                        break;
+                    case ModelRole.Auxiliary2:
+                        Auxiliary2HitCount++;
+                        break;
+                }
+
+                LastUsedModel = role;
+            }
+        }
+
+        private static void PopulateInferenceResult(
+            MultiModelInferenceResult result,
+            List<YoloResult> detections,
+            ModelRole modelRole,
+            string modelPath,
+            string[] labels,
+            bool wasFallback)
+        {
+            result.Results = detections;
+            result.UsedModel = modelRole;
+            result.UsedModelName = System.IO.Path.GetFileName(modelPath);
+            result.UsedModelLabels = labels;
+            result.WasFallback = wasFallback;
+        }
+
         /// <summary>
         /// 执行多模型推理，支持自动切换到辅助模型
         /// </summary>
@@ -514,7 +602,8 @@ namespace ClearFrost.Yolo
             bool globalIou = false,
             int preprocessingMode = 1,
             string? targetLabel = null,
-            int targetCount = 0)
+            int targetCount = 0,
+            MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
             _modelLock.EnterReadLock();
             try
@@ -534,6 +623,7 @@ namespace ClearFrost.Yolo
             string bestModelName = string.Empty;
             string[] bestModelLabels = Array.Empty<string>();
             bool bestWasFallback = false;
+            MultiModelCandidateEvaluation? bestEvaluation = null;
             int attemptedModelCount = 0;
             int successfulInferenceCount = 0;
             List<string> inferenceErrors = new List<string>();
@@ -556,6 +646,79 @@ namespace ClearFrost.Yolo
                 bestModelName = System.IO.Path.GetFileName(modelPath);
                 bestModelLabels = labels;
                 bestWasFallback = wasFallback;
+            }
+
+            bool CaptureEvaluatedResult(
+                List<YoloResult> detections,
+                ModelRole modelRole,
+                string modelPath,
+                string[] labels,
+                bool wasFallback,
+                MultiModelCandidateEvaluation evaluation)
+            {
+                if (bestResults != null &&
+                    !ShouldReplaceEvaluatedResult(
+                        evaluation,
+                        detections,
+                        labels,
+                        bestEvaluation,
+                        bestResults,
+                        bestModelLabels,
+                        targetLabel,
+                        targetCount))
+                {
+                    return false;
+                }
+
+                bestResults = detections;
+                bestModelRole = modelRole;
+                bestModelName = System.IO.Path.GetFileName(modelPath);
+                bestModelLabels = labels;
+                bestWasFallback = wasFallback;
+                bestEvaluation = evaluation;
+                return true;
+            }
+
+            bool TryAcceptCandidate(
+                List<YoloResult> detections,
+                ModelRole modelRole,
+                string modelPath,
+                string[] labels,
+                bool wasFallback)
+            {
+                string modelName = System.IO.Path.GetFileName(modelPath);
+                if (candidateEvaluator != null)
+                {
+                    MultiModelCandidateEvaluation evaluation = candidateEvaluator(new MultiModelCandidate
+                    {
+                        Results = detections,
+                        Labels = labels,
+                        ModelRole = modelRole,
+                        ModelName = modelName,
+                        WasFallback = wasFallback
+                    });
+                    CaptureEvaluatedResult(detections, modelRole, modelPath, labels, wasFallback, evaluation);
+                    if (!evaluation.IsMatch)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[MultiModelManager] {modelRole} 规则未满足，继续评估候选模型: {evaluation.Summary}");
+                        return false;
+                    }
+
+                    RecordModelHit(modelRole);
+                    PopulateInferenceResult(result, detections, modelRole, modelPath, labels, wasFallback);
+                    return true;
+                }
+
+                CaptureBestResult(detections, modelRole, modelPath, labels, wasFallback);
+                if (!IsTargetSatisfied(detections, labels, targetLabel, targetCount))
+                {
+                    return false;
+                }
+
+                RecordModelHit(modelRole);
+                PopulateInferenceResult(result, detections, modelRole, modelPath, labels, wasFallback);
+                return true;
             }
 
             // 仅保护模型引用读取，推理本身在锁外执行。
@@ -581,23 +744,10 @@ namespace ClearFrost.Yolo
                     var primaryResults = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
                     successfulInferenceCount++;
                     var primaryLabels = primaryModel.Labels ?? Array.Empty<string>();
-                    CaptureBestResult(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false);
-                    bool primaryHit = IsTargetSatisfied(primaryResults, primaryLabels, targetLabel, targetCount);
 
                     // 目标标签命中（或未配置目标标签时任意命中）才停止切换
-                    if (primaryHit)
+                    if (TryAcceptCandidate(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false))
                     {
-                        lock (_lock)
-                        {
-                            PrimaryHitCount++;
-                            LastUsedModel = ModelRole.Primary;
-                        }
-
-                        result.Results = primaryResults;
-                        result.UsedModel = ModelRole.Primary;
-                        result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
-                        result.UsedModelLabels = primaryLabels;
-                        result.WasFallback = false;
                         return result;
                     }
 
@@ -652,22 +802,9 @@ namespace ClearFrost.Yolo
                     var aux1Results = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
                     successfulInferenceCount++;
                     var aux1Labels = auxiliary1Model.Labels ?? Array.Empty<string>();
-                    CaptureBestResult(aux1Results, ModelRole.Auxiliary1, auxiliary1ModelPath, aux1Labels, true);
-                    bool aux1Hit = IsTargetSatisfied(aux1Results, aux1Labels, targetLabel, targetCount);
 
-                    if (aux1Hit)
+                    if (TryAcceptCandidate(aux1Results, ModelRole.Auxiliary1, auxiliary1ModelPath, aux1Labels, true))
                     {
-                        lock (_lock)
-                        {
-                            Auxiliary1HitCount++;
-                            LastUsedModel = ModelRole.Auxiliary1;
-                        }
-
-                        result.Results = aux1Results;
-                        result.UsedModel = ModelRole.Auxiliary1;
-                        result.UsedModelName = System.IO.Path.GetFileName(auxiliary1ModelPath);
-                        result.UsedModelLabels = aux1Labels;
-                        result.WasFallback = true;
                         System.Diagnostics.Debug.WriteLine("[MultiModelManager] 辅助模型1命中!");
                         return result;
                     }
@@ -694,22 +831,9 @@ namespace ClearFrost.Yolo
                     var aux2Results = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
                     successfulInferenceCount++;
                     var aux2Labels = auxiliary2Model.Labels ?? Array.Empty<string>();
-                    CaptureBestResult(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true);
-                    bool aux2Hit = IsTargetSatisfied(aux2Results, aux2Labels, targetLabel, targetCount);
 
-                    if (aux2Hit)
+                    if (TryAcceptCandidate(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true))
                     {
-                        lock (_lock)
-                        {
-                            Auxiliary2HitCount++;
-                            LastUsedModel = ModelRole.Auxiliary2;
-                        }
-
-                        result.Results = aux2Results;
-                        result.UsedModel = ModelRole.Auxiliary2;
-                        result.UsedModelName = System.IO.Path.GetFileName(auxiliary2ModelPath);
-                        result.UsedModelLabels = aux2Labels;
-                        result.WasFallback = true;
                         return result;
                     }
 
@@ -776,13 +900,14 @@ namespace ClearFrost.Yolo
             int preprocessingMode = 1,
             string? targetLabel = null,
             int targetCount = 0,
+            MultiModelCandidateEvaluator? candidateEvaluator = null,
             CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
             cancellationToken.ThrowIfCancellationRequested();
 
             // 异步执行推理
-            return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode, targetLabel, targetCount), cancellationToken);
+            return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode, targetLabel, targetCount, candidateEvaluator), cancellationToken);
         }
 
         /// <summary>
@@ -796,7 +921,8 @@ namespace ClearFrost.Yolo
             bool globalIou = false,
             int preprocessingMode = 1,
             string? targetLabel = null,
-            int targetCount = 0)
+            int targetCount = 0,
+            MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
             _modelLock.EnterReadLock();
             try
@@ -816,6 +942,7 @@ namespace ClearFrost.Yolo
             string bestModelName = string.Empty;
             string[] bestModelLabels = Array.Empty<string>();
             bool bestWasFallback = false;
+            MultiModelCandidateEvaluation? bestEvaluation = null;
             int attemptedModelCount = 0;
             int successfulInferenceCount = 0;
             List<string> inferenceErrors = new List<string>();
@@ -840,6 +967,79 @@ namespace ClearFrost.Yolo
                 bestWasFallback = wasFallback;
             }
 
+            bool CaptureEvaluatedResult(
+                List<YoloResult> detections,
+                ModelRole modelRole,
+                string modelPath,
+                string[] labels,
+                bool wasFallback,
+                MultiModelCandidateEvaluation evaluation)
+            {
+                if (bestResults != null &&
+                    !ShouldReplaceEvaluatedResult(
+                        evaluation,
+                        detections,
+                        labels,
+                        bestEvaluation,
+                        bestResults,
+                        bestModelLabels,
+                        targetLabel,
+                        targetCount))
+                {
+                    return false;
+                }
+
+                bestResults = detections;
+                bestModelRole = modelRole;
+                bestModelName = System.IO.Path.GetFileName(modelPath);
+                bestModelLabels = labels;
+                bestWasFallback = wasFallback;
+                bestEvaluation = evaluation;
+                return true;
+            }
+
+            bool TryAcceptCandidate(
+                List<YoloResult> detections,
+                ModelRole modelRole,
+                string modelPath,
+                string[] labels,
+                bool wasFallback)
+            {
+                string modelName = System.IO.Path.GetFileName(modelPath);
+                if (candidateEvaluator != null)
+                {
+                    MultiModelCandidateEvaluation evaluation = candidateEvaluator(new MultiModelCandidate
+                    {
+                        Results = detections,
+                        Labels = labels,
+                        ModelRole = modelRole,
+                        ModelName = modelName,
+                        WasFallback = wasFallback
+                    });
+                    CaptureEvaluatedResult(detections, modelRole, modelPath, labels, wasFallback, evaluation);
+                    if (!evaluation.IsMatch)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[MultiModelManager] {modelRole} 规则未满足，继续评估候选模型: {evaluation.Summary}");
+                        return false;
+                    }
+
+                    RecordModelHit(modelRole);
+                    PopulateInferenceResult(result, detections, modelRole, modelPath, labels, wasFallback);
+                    return true;
+                }
+
+                CaptureBestResult(detections, modelRole, modelPath, labels, wasFallback);
+                if (!IsTargetSatisfied(detections, labels, targetLabel, targetCount))
+                {
+                    return false;
+                }
+
+                RecordModelHit(modelRole);
+                PopulateInferenceResult(result, detections, modelRole, modelPath, labels, wasFallback);
+                return true;
+            }
+
             lock (_lock)
             {
                 TotalInferenceCount++;
@@ -861,22 +1061,9 @@ namespace ClearFrost.Yolo
                     var primaryResults = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
                     successfulInferenceCount++;
                     var primaryLabels = primaryModel.Labels ?? Array.Empty<string>();
-                    CaptureBestResult(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false);
-                    bool primaryHit = IsTargetSatisfied(primaryResults, primaryLabels, targetLabel, targetCount);
 
-                    if (primaryHit)
+                    if (TryAcceptCandidate(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false))
                     {
-                        lock (_lock)
-                        {
-                            PrimaryHitCount++;
-                            LastUsedModel = ModelRole.Primary;
-                        }
-
-                        result.Results = primaryResults;
-                        result.UsedModel = ModelRole.Primary;
-                        result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
-                        result.UsedModelLabels = primaryLabels;
-                        result.WasFallback = false;
                         return result;
                     }
 
@@ -930,22 +1117,9 @@ namespace ClearFrost.Yolo
                     var aux1Results = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
                     successfulInferenceCount++;
                     var aux1Labels = auxiliary1Model.Labels ?? Array.Empty<string>();
-                    CaptureBestResult(aux1Results, ModelRole.Auxiliary1, auxiliary1ModelPath, aux1Labels, true);
-                    bool aux1Hit = IsTargetSatisfied(aux1Results, aux1Labels, targetLabel, targetCount);
 
-                    if (aux1Hit)
+                    if (TryAcceptCandidate(aux1Results, ModelRole.Auxiliary1, auxiliary1ModelPath, aux1Labels, true))
                     {
-                        lock (_lock)
-                        {
-                            Auxiliary1HitCount++;
-                            LastUsedModel = ModelRole.Auxiliary1;
-                        }
-
-                        result.Results = aux1Results;
-                        result.UsedModel = ModelRole.Auxiliary1;
-                        result.UsedModelName = System.IO.Path.GetFileName(auxiliary1ModelPath);
-                        result.UsedModelLabels = aux1Labels;
-                        result.WasFallback = true;
                         System.Diagnostics.Debug.WriteLine("[MultiModelManager] 辅助模型1命中!");
                         return result;
                     }
@@ -971,22 +1145,9 @@ namespace ClearFrost.Yolo
                     var aux2Results = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
                     successfulInferenceCount++;
                     var aux2Labels = auxiliary2Model.Labels ?? Array.Empty<string>();
-                    CaptureBestResult(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true);
-                    bool aux2Hit = IsTargetSatisfied(aux2Results, aux2Labels, targetLabel, targetCount);
 
-                    if (aux2Hit)
+                    if (TryAcceptCandidate(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true))
                     {
-                        lock (_lock)
-                        {
-                            Auxiliary2HitCount++;
-                            LastUsedModel = ModelRole.Auxiliary2;
-                        }
-
-                        result.Results = aux2Results;
-                        result.UsedModel = ModelRole.Auxiliary2;
-                        result.UsedModelName = System.IO.Path.GetFileName(auxiliary2ModelPath);
-                        result.UsedModelLabels = aux2Labels;
-                        result.WasFallback = true;
                         return result;
                     }
 
@@ -1038,12 +1199,13 @@ namespace ClearFrost.Yolo
             int preprocessingMode = 1,
             string? targetLabel = null,
             int targetCount = 0,
+            MultiModelCandidateEvaluator? candidateEvaluator = null,
             CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
             cancellationToken.ThrowIfCancellationRequested();
 
-            return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode, targetLabel, targetCount), cancellationToken);
+            return await Task.Run(() => InferenceWithFallback(image, confidence, iouThreshold, globalIou, preprocessingMode, targetLabel, targetCount, candidateEvaluator), cancellationToken);
         }
 
         /// <summary>

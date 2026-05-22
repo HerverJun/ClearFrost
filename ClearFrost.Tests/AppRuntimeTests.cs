@@ -213,9 +213,19 @@ namespace ClearFrost.Tests
             public Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
             public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
             public Task<bool> SwitchModelAsync(string modelName) => Task.FromResult(true);
-            public Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal = null)
+            public Task<DetectionResultData> DetectAsync(
+                Mat image,
+                float confidence,
+                float iouThreshold,
+                InspectionFallbackGoal? fallbackGoal = null,
+                MultiModelCandidateEvaluator? candidateEvaluator = null)
                 => Task.FromResult(new DetectionResultData());
-            public Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal = null)
+            public Task<DetectionResultData> DetectAsync(
+                Bitmap image,
+                float confidence,
+                float iouThreshold,
+                InspectionFallbackGoal? fallbackGoal = null,
+                MultiModelCandidateEvaluator? candidateEvaluator = null)
                 => Task.FromResult(new DetectionResultData());
             public Bitmap GenerateResultImage(Bitmap original, List<YoloResult> results, string[] labels) => new Bitmap(original);
             public void SetTaskMode(int taskType) { }
