@@ -56,7 +56,6 @@
 
             const activeCamera = cameras.find((camera) => camera.id === activeId);
             setCameraForm(activeCamera);
-            window.addLog?.(`已更新相机列表 (${cameras.length} 台)`, "info");
         } catch (error) {
             console.error("receiveCameraList error:", error);
         }
@@ -103,7 +102,7 @@
         bridge.sendCommand("delete_camera", select.value);
     }
 
-    function superSearchCameras() {
+    function searchCamerasHuaray() {
         const modal = byId("super-search-modal");
         const loading = byId("super-search-loading");
         const results = byId("super-search-results");
@@ -115,8 +114,10 @@
         results?.classList.add("hidden");
         empty?.classList.add("hidden");
         if (results) results.innerHTML = "";
-        bridge.sendCommand("super_search_cameras");
+        bridge.sendCommand("search_huaray_cameras");
     }
+
+    const superSearchCameras = searchCamerasHuaray;
 
     function closeSuperSearchModal() {
         byId("super-search-modal")?.classList.add("hidden");
@@ -266,6 +267,7 @@
         receiveCameraList,
         receiveCameraPreviewFrame,
         receiveSuperSearchResult,
+        searchCamerasHuaray,
         searchCamerasHik,
         setCameraPreviewStatus,
         superSearchCameras,

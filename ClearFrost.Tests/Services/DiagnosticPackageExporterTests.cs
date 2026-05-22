@@ -10,7 +10,7 @@ namespace ClearFrost.Tests.Services;
 public class DiagnosticPackageExporterTests
 {
     [Fact]
-    public async Task ExportAsync_导出诊断包并脱敏密码且不包含模型或大图()
+    public async Task ExportAsync_导出诊断包且不包含模型或大图()
     {
         string tempDir = CreateTempDirectory();
         try
@@ -27,7 +27,7 @@ public class DiagnosticPackageExporterTests
             {
                 OutputDirectory = outputDir,
                 LogsDirectory = logsDir,
-                AppConfig = new AppConfig { AdminPassword = "secret-password", StoragePath = tempDir },
+                AppConfig = new AppConfig { StoragePath = tempDir },
                 Recipe = new Recipe { RecipeId = "default", Version = "v1" },
                 HealthSnapshot = new HealthSnapshot { HealthLevel = HealthLevel.Ok },
                 RecentRecords = new List<DetectionRecord>
@@ -50,11 +50,6 @@ public class DiagnosticPackageExporterTests
             zip.Entries.Select(e => e.FullName).Should().NotContain(e => e.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase));
             zip.Entries.Select(e => e.FullName).Should().NotContain(e => e.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase));
 
-            ZipArchiveEntry configEntry = zip.GetEntry("config.sanitized.json")!;
-            using var reader = new StreamReader(configEntry.Open());
-            string configJson = await reader.ReadToEndAsync();
-            configJson.Should().Contain("\"AdminPassword\": \"***\"");
-            configJson.Should().NotContain("secret-password");
         }
         finally
         {

@@ -139,7 +139,6 @@ namespace ClearFrost.Config
         public double GainRaw { get; set; } = 1.1;
 
         // ================== System Settings ==================
-        public string AdminPassword { get; set; } = "xxgcb";
         public string StoragePath { get; set; } = @"C:\GreeVisionData";
         public bool IsDebugMode { get; set; } = false;
 

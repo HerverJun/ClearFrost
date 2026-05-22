@@ -72,11 +72,6 @@ namespace ClearFrost.Services
         private static string BuildSanitizedConfigJson(AppConfig config)
         {
             JsonNode? node = JsonSerializer.SerializeToNode(config, JsonOptions);
-            if (node is JsonObject obj)
-            {
-                obj["AdminPassword"] = "***";
-            }
-
             return node?.ToJsonString(JsonOptions) ?? "{}";
         }
 

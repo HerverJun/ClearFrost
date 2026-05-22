@@ -1,4 +1,4 @@
-using ClearFrost.Config;
+﻿using ClearFrost.Config;
 using ClearFrost.Models;
 // ============================================================================
 // 文件名: WebUIController.cs
@@ -12,7 +12,7 @@ using ClearFrost.Models;
 //
 // 事件定义:
 //   - OnOpenCamera, OnManualDetect, OnConnectPlc, ...  (操作事件)
-//   - OnSaveSettings, OnVerifyPassword, ...           (配置事件)
+//   - OnSaveSettings, OnSaveProjectPreset, ...        (配置事件)
 //
 // 前端通信:
 //   - 发送: UpdateUI(), UpdateImage(), LogToFrontend(), SendCameraList(), ...
@@ -82,7 +82,6 @@ namespace ClearFrost
         public event EventHandler<float>? OnSetConfidence;
         public event EventHandler<float>? OnSetIou;
         public event EventHandler<int>? OnSetTaskType;  // YOLO任务类型设置事件
-        public event EventHandler<string>? OnVerifyPassword;
         public event EventHandler<string>? OnSaveSettings;
         public event EventHandler<string>? OnSaveProjectPreset;
         public event EventHandler<string>? OnDeleteProjectPreset;
@@ -98,7 +97,7 @@ namespace ClearFrost
         public event EventHandler<string>? OnSwitchCamera;
         public event EventHandler<string>? OnAddCamera;  // JSON格式的相机数据
         public event EventHandler<string>? OnDeleteCamera;  // 相机ID
-        public event EventHandler? OnSuperSearchCameras;  // 相机超级搜索
+        public event EventHandler? OnSuperSearchCameras;  // 华睿/超级搜索（同一实现）
         public event EventHandler? OnSuperSearchCamerasHik;  // 相机超级搜索 (海康)
         public event EventHandler<string>? OnDirectConnectCamera;  // 直接连接相机（JSON格式）
 
@@ -124,11 +123,40 @@ namespace ClearFrost
         /// </summary>
         public void SetImageMapping(string localPath)
         {
-            if (_webView?.CoreWebView2 != null && Directory.Exists(localPath))
+            WebView2? webView = _webView;
+            if (!IsWebViewControlUsable(webView) || !Directory.Exists(localPath))
             {
-                // Map http://ng-images.local/ to the local folder
-                _webView.CoreWebView2.SetVirtualHostNameToFolderMapping("ng-images.local", localPath, CoreWebView2HostResourceAccessKind.Allow);
+                return;
             }
+
+            void SetMapping()
+            {
+                if (!IsWebViewReadyOnUiThread(webView))
+                {
+                    return;
+                }
+
+                // Map http://ng-images.local/ to the local folder
+                webView!.CoreWebView2!.SetVirtualHostNameToFolderMapping(
+                    "ng-images.local",
+                    localPath,
+                    CoreWebView2HostResourceAccessKind.Allow);
+            }
+
+            if (webView!.InvokeRequired)
+            {
+                try
+                {
+                    webView.BeginInvoke(new Action(SetMapping));
+                }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
+                {
+                    Debug.WriteLine($"[WebUIController] SetImageMapping BeginInvoke skipped: {ex.Message}");
+                }
+                return;
+            }
+
+            SetMapping();
         }
 
         /// <summary>
@@ -279,7 +307,7 @@ namespace ClearFrost
         /// </summary>
         public async Task UpdateImage(string base64Image)
         {
-            if (!IsWebViewReady(_webView)) return;
+            if (!IsWebViewControlUsable(_webView)) return;
             PostMessage("previewFrame", new
             {
                 base64 = base64Image,
@@ -289,7 +317,7 @@ namespace ClearFrost
 
         public Task UpdateImageUrl(string url)
         {
-            if (!IsWebViewReady(_webView)) return Task.CompletedTask;
+            if (!IsWebViewControlUsable(_webView)) return Task.CompletedTask;
 
             PostMessage("previewFrame", new
             {
@@ -304,7 +332,7 @@ namespace ClearFrost
         /// </summary>
         public async Task UpdateImage(Mat image, int targetWidth = 960, int targetHeight = 540, int jpegQuality = 60)
         {
-            if (!IsWebViewReady(_webView) || image == null || image.Empty())
+            if (!IsWebViewControlUsable(_webView) || image == null || image.Empty())
             {
                 return;
             }
@@ -357,7 +385,7 @@ namespace ClearFrost
         /// </summary>
         public Task SendCameraPreviewFrame(Mat image, int targetWidth = 640, int targetHeight = 360, int jpegQuality = 70)
         {
-            if (!IsWebViewReady(_webView) || image == null || image.Empty())
+            if (!IsWebViewControlUsable(_webView) || image == null || image.Empty())
             {
                 return Task.CompletedTask;
             }
@@ -445,8 +473,8 @@ namespace ClearFrost
         }
 
         /// <summary>
-        /// Flashes the PLC trigger indicator on the frontend.
-        /// Called when a trigger signal is received from PLC.
+        /// Flashes the trigger-photo indicator on the frontend.
+        /// Called when a trigger signal is received from PLC or serial photoelectric input.
         /// </summary>
         public Task FlashPlcTrigger()
         {
@@ -474,14 +502,13 @@ namespace ClearFrost
         /// </summary>
         public async Task ExecuteScriptAsync(string script)
         {
-            if (_webView?.CoreWebView2 == null) return;
             await ExecuteScriptOnUiThreadAsync(script);
         }
 
         private Task ExecuteScriptOnUiThreadAsync(string script)
         {
             WebView2? webView = _webView;
-            if (!IsWebViewReady(webView))
+            if (!IsWebViewControlUsable(webView))
             {
                 return Task.CompletedTask;
             }
@@ -511,7 +538,7 @@ namespace ClearFrost
         private void PostMessage(string type, object? data = null)
         {
             WebView2? webView = _webView;
-            if (!IsWebViewReady(webView)) return;
+            if (!IsWebViewControlUsable(webView)) return;
 
             string json = JsonSerializer.Serialize(new
             {
@@ -525,7 +552,7 @@ namespace ClearFrost
             {
                 try
                 {
-                    if (IsWebViewReady(webView))
+                    if (IsWebViewReadyOnUiThread(webView))
                     {
                         webView!.CoreWebView2!.PostWebMessageAsJson(json);
                     }
@@ -552,20 +579,25 @@ namespace ClearFrost
             PostCoreMessage();
         }
 
-        private static bool IsWebViewReady(WebView2? webView)
+        private static bool IsWebViewControlUsable(WebView2? webView)
         {
             return webView != null &&
                    !webView.IsDisposed &&
                    !webView.Disposing &&
-                   webView.IsHandleCreated &&
-                   webView.CoreWebView2 != null;
+                   webView.IsHandleCreated;
+        }
+
+        private static bool IsWebViewReadyOnUiThread(WebView2? webView)
+        {
+            return IsWebViewControlUsable(webView) &&
+                   webView!.CoreWebView2 != null;
         }
 
         private static async Task ExecuteScriptCoreAsync(WebView2 webView, string script, TaskCompletionSource<bool>? completion = null)
         {
             try
             {
-                if (!IsWebViewReady(webView))
+                if (!IsWebViewReadyOnUiThread(webView))
                 {
                     completion?.TrySetResult(false);
                     return;
@@ -749,12 +781,6 @@ namespace ClearFrost
 #endif
                                 }
                                 break;
-                            case "verify_password":
-                                if (root.TryGetProperty("value", out JsonElement pwdElement))
-                                {
-                                    OnVerifyPassword?.Invoke(this, pwdElement.GetString() ?? "");
-                                }
-                                break;
                             case "save_settings":
                                 if (root.TryGetProperty("value", out JsonElement settingsElement))
                                 {
@@ -841,7 +867,8 @@ namespace ClearFrost
                                 }
                                 break;
                             case "super_search_cameras":
-                                System.Diagnostics.Debug.WriteLine("[WebUIController] 收到 super_search_cameras 命令");
+                            case "search_huaray_cameras":
+                                System.Diagnostics.Debug.WriteLine("[WebUIController] 收到华睿相机搜索命令");
                                 OnSuperSearchCameras?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "super_search_cameras_hik":
@@ -927,8 +954,6 @@ namespace ClearFrost
 
         public Task LogToFrontend(string message, string type = "normal")
         {
-            if (_webView?.CoreWebView2 == null) return Task.CompletedTask;
-
             if (string.Equals(type, "normal", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(type, "info", StringComparison.OrdinalIgnoreCase))
             {
@@ -966,7 +991,7 @@ namespace ClearFrost
             bool? barcodeReadSucceeded = null,
             string? barcodeError = null)
         {
-            if (_webView?.CoreWebView2 == null || image == null || image.Empty())
+            if (!IsWebViewControlUsable(_webView) || image == null || image.Empty())
             {
                 return;
             }
@@ -1184,7 +1209,7 @@ namespace ClearFrost
         /// </summary>
         public async Task SendDetectionLogs(int maxCount = 100)
         {
-            if (string.IsNullOrEmpty(LogBasePath) || _webView?.CoreWebView2 == null) return;
+            if (string.IsNullOrEmpty(LogBasePath) || !IsWebViewControlUsable(_webView)) return;
             try
             {
                 string logsDir = Path.Combine(LogBasePath, "DetectionLogs");
@@ -1278,7 +1303,7 @@ namespace ClearFrost
         /// </summary>
         public async Task SendStatisticsHistory(StatisticsHistory history, DetectionStatistics current)
         {
-            if (_webView?.CoreWebView2 == null) return;
+            if (!IsWebViewControlUsable(_webView)) return;
 
             try
             {
@@ -1342,16 +1367,37 @@ namespace ClearFrost
 
             try
             {
-                if (_webView?.CoreWebView2 != null)
+                WebView2? webView = _webView;
+                var webMessageReceivedHandler = _webMessageReceivedHandler;
+                var navigationCompletedHandler = _navigationCompletedHandler;
+
+                void Unsubscribe()
                 {
-                    if (_webMessageReceivedHandler != null)
+                    if (!IsWebViewReadyOnUiThread(webView))
                     {
-                        _webView.CoreWebView2.WebMessageReceived -= _webMessageReceivedHandler;
+                        return;
                     }
 
-                    if (_navigationCompletedHandler != null)
+                    if (webMessageReceivedHandler != null)
                     {
-                        _webView.CoreWebView2.NavigationCompleted -= _navigationCompletedHandler;
+                        webView!.CoreWebView2!.WebMessageReceived -= webMessageReceivedHandler;
+                    }
+
+                    if (navigationCompletedHandler != null)
+                    {
+                        webView!.CoreWebView2!.NavigationCompleted -= navigationCompletedHandler;
+                    }
+                }
+
+                if (IsWebViewControlUsable(webView))
+                {
+                    if (webView!.InvokeRequired)
+                    {
+                        webView.BeginInvoke(new Action(Unsubscribe));
+                    }
+                    else
+                    {
+                        Unsubscribe();
                     }
                 }
             }
@@ -1382,7 +1428,6 @@ namespace ClearFrost
                 OnSetConfidence = null;
                 OnSetIou = null;
                 OnSetTaskType = null;
-                OnVerifyPassword = null;
                 OnSaveSettings = null;
                 OnSaveProjectPreset = null;
                 OnDeleteProjectPreset = null;

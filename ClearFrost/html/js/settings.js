@@ -782,20 +782,6 @@
         const triggerSource = byId("cfg-trigger-source")?.value || "PLC";
         const serialSection = byId("cfg-serial-trigger-section");
         if (serialSection) serialSection.classList.toggle("hidden", triggerSource !== "SerialPhotoelectric");
-
-        const serialStatus = byId("status-serial-trigger");
-        const serialText = byId("status-serial-trigger-text");
-        const serialDot = byId("status-serial-trigger-dot");
-        if (serialStatus && triggerSource !== "SerialPhotoelectric") {
-            serialStatus.classList.remove("is-connected");
-            serialStatus.title = "串口光电未启用";
-            serialStatus.setAttribute("aria-label", "串口光电: 未启用");
-            if (serialText) serialText.textContent = "未启用";
-            if (serialDot) {
-                serialDot.classList.remove("status-on", "status-warn");
-                serialDot.classList.add("status-off");
-            }
-        }
     }
 
     function normalizeSerialPortName(value) {
@@ -1609,26 +1595,6 @@
         window.addLog?.(`已加载预设: ${getPresetDisplayName(presetId, preset)}`, "success");
     }
 
-    function openPasswordModal() {
-        byId("password-modal")?.classList.remove("hidden");
-        const input = byId("admin-password");
-        if (input) {
-            input.value = "";
-            input.focus();
-        }
-    }
-
-    function closePasswordModal() {
-        byId("password-modal")?.classList.add("hidden");
-    }
-
-    function verifyPassword() {
-        const input = byId("admin-password");
-        const pwd = input?.value || "";
-        bridge.sendCommand("verify_password", pwd);
-        if (input) input.value = "";
-    }
-
     function handleConfigSnapshot(data) {
         const config = data?.config || data?.Config || data;
         if (data?.storagePath || data?.StoragePath) updateStoragePath(data.storagePath || data.StoragePath);
@@ -1644,7 +1610,10 @@
         if (Array.isArray(models)) initModelList(models, false);
         const cameras = data?.cameras || data?.Cameras;
         if (Array.isArray(cameras) && typeof window.receiveCameraList === "function") {
-            window.receiveCameraList({ cameras, activeId: data.activeCameraId || data.ActiveCameraId || "" });
+            window.receiveCameraList({
+                cameras,
+                activeId: data.activeCameraId || data.ActiveCameraId || "",
+            });
         }
     }
 
@@ -1681,7 +1650,6 @@
     Object.assign(window, {
         activateSettingsTab,
         applyMultiModelUiState,
-        closePasswordModal,
         closeSettingsModal,
         deleteSelectedProjectPreset,
         handleProjectPresets,
@@ -1689,12 +1657,10 @@
         initSettings,
         loadProjectPreset,
         moveVisionControlsToSettings,
-        openPasswordModal,
         openSettingsModal,
         populateSettings,
         saveSettings,
         saveProjectPresetAsNew,
-        showPasswordModal: openPasswordModal,
         syncDriverProviderOptions,
         syncProjectPresetName,
         toggleMultiModel,
@@ -1712,7 +1678,6 @@
         updateSiemensRackSlotVisibility,
         updateStoragePath,
         updateTaskType,
-        verifyPassword,
         collectDataset,
         handleDatasetCollectResult,
         handleSerialPortsDetected,

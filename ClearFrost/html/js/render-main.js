@@ -413,9 +413,7 @@
                 ? { root: "status-cam", dot: "status-cam-dot", text: "status-cam-text", label: "相机" }
                 : normalizedType === "plc"
                     ? { root: "status-plc", dot: "status-plc-dot", text: "status-plc-text", label: "PLC" }
-                    : normalizedType === "serialtrigger"
-                        ? { root: "status-serial-trigger", dot: "status-serial-trigger-dot", text: "status-serial-trigger-text", label: "串口" }
-                        : null;
+                    : null;
 
         if (indicator) {
             const connected = Boolean(isConnected);
@@ -578,8 +576,8 @@
         if (root) root.classList.add("is-triggering");
         setText("status-plc-trigger-text", "触发");
         if (root) {
-            root.setAttribute("aria-label", "PLC触发拍照: 已触发");
-            root.title = "PLC触发拍照已触发";
+            root.setAttribute("aria-label", "触发拍照: 已触发");
+            root.title = "触发拍照已触发";
         }
 
         plcTriggerResetTimer = window.setTimeout(() => {
@@ -589,8 +587,8 @@
             if (root) root.classList.remove("is-triggering");
             setText("status-plc-trigger-text", "待触发");
             if (root) {
-                root.setAttribute("aria-label", "PLC触发拍照: 待触发");
-                root.title = "PLC触发拍照待触发";
+                root.setAttribute("aria-label", "触发拍照: 待触发");
+                root.title = "触发拍照待触发";
             }
             plcTriggerResetTimer = null;
         }, 650);
@@ -612,12 +610,6 @@
                 break;
             case "cameraPreviewStatus":
                 window.setCameraPreviewStatus?.(payload);
-                break;
-            case "showPasswordModal":
-                window.showPasswordModal?.();
-                break;
-            case "closePasswordModal":
-                window.closePasswordModal?.();
                 break;
             case "showSettingsModal":
                 window.openSettingsModal?.(payload.config || payload.Config || null);

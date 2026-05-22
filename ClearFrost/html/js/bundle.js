@@ -714,9 +714,7 @@
                 ? { root: "status-cam", dot: "status-cam-dot", text: "status-cam-text", label: "相机" }
                 : normalizedType === "plc"
                     ? { root: "status-plc", dot: "status-plc-dot", text: "status-plc-text", label: "PLC" }
-                    : normalizedType === "serialtrigger"
-                        ? { root: "status-serial-trigger", dot: "status-serial-trigger-dot", text: "status-serial-trigger-text", label: "串口" }
-                        : null;
+                    : null;
 
         if (indicator) {
             const connected = Boolean(isConnected);
@@ -879,8 +877,8 @@
         if (root) root.classList.add("is-triggering");
         setText("status-plc-trigger-text", "触发");
         if (root) {
-            root.setAttribute("aria-label", "PLC触发拍照: 已触发");
-            root.title = "PLC触发拍照已触发";
+            root.setAttribute("aria-label", "触发拍照: 已触发");
+            root.title = "触发拍照已触发";
         }
 
         plcTriggerResetTimer = window.setTimeout(() => {
@@ -890,8 +888,8 @@
             if (root) root.classList.remove("is-triggering");
             setText("status-plc-trigger-text", "待触发");
             if (root) {
-                root.setAttribute("aria-label", "PLC触发拍照: 待触发");
-                root.title = "PLC触发拍照待触发";
+                root.setAttribute("aria-label", "触发拍照: 待触发");
+                root.title = "触发拍照待触发";
             }
             plcTriggerResetTimer = null;
         }, 650);
@@ -913,12 +911,6 @@
                 break;
             case "cameraPreviewStatus":
                 window.setCameraPreviewStatus?.(payload);
-                break;
-            case "showPasswordModal":
-                window.showPasswordModal?.();
-                break;
-            case "closePasswordModal":
-                window.closePasswordModal?.();
                 break;
             case "showSettingsModal":
                 window.openSettingsModal?.(payload.config || payload.Config || null);
@@ -1795,20 +1787,6 @@
         const triggerSource = byId("cfg-trigger-source")?.value || "PLC";
         const serialSection = byId("cfg-serial-trigger-section");
         if (serialSection) serialSection.classList.toggle("hidden", triggerSource !== "SerialPhotoelectric");
-
-        const serialStatus = byId("status-serial-trigger");
-        const serialText = byId("status-serial-trigger-text");
-        const serialDot = byId("status-serial-trigger-dot");
-        if (serialStatus && triggerSource !== "SerialPhotoelectric") {
-            serialStatus.classList.remove("is-connected");
-            serialStatus.title = "串口光电未启用";
-            serialStatus.setAttribute("aria-label", "串口光电: 未启用");
-            if (serialText) serialText.textContent = "未启用";
-            if (serialDot) {
-                serialDot.classList.remove("status-on", "status-warn");
-                serialDot.classList.add("status-off");
-            }
-        }
     }
 
     function normalizeSerialPortName(value) {
@@ -2622,26 +2600,6 @@
         window.addLog?.(`已加载预设: ${getPresetDisplayName(presetId, preset)}`, "success");
     }
 
-    function openPasswordModal() {
-        byId("password-modal")?.classList.remove("hidden");
-        const input = byId("admin-password");
-        if (input) {
-            input.value = "";
-            input.focus();
-        }
-    }
-
-    function closePasswordModal() {
-        byId("password-modal")?.classList.add("hidden");
-    }
-
-    function verifyPassword() {
-        const input = byId("admin-password");
-        const pwd = input?.value || "";
-        bridge.sendCommand("verify_password", pwd);
-        if (input) input.value = "";
-    }
-
     function handleConfigSnapshot(data) {
         const config = data?.config || data?.Config || data;
         if (data?.storagePath || data?.StoragePath) updateStoragePath(data.storagePath || data.StoragePath);
@@ -2657,7 +2615,10 @@
         if (Array.isArray(models)) initModelList(models, false);
         const cameras = data?.cameras || data?.Cameras;
         if (Array.isArray(cameras) && typeof window.receiveCameraList === "function") {
-            window.receiveCameraList({ cameras, activeId: data.activeCameraId || data.ActiveCameraId || "" });
+            window.receiveCameraList({
+                cameras,
+                activeId: data.activeCameraId || data.ActiveCameraId || "",
+            });
         }
     }
 
@@ -2694,7 +2655,6 @@
     Object.assign(window, {
         activateSettingsTab,
         applyMultiModelUiState,
-        closePasswordModal,
         closeSettingsModal,
         deleteSelectedProjectPreset,
         handleProjectPresets,
@@ -2702,12 +2662,10 @@
         initSettings,
         loadProjectPreset,
         moveVisionControlsToSettings,
-        openPasswordModal,
         openSettingsModal,
         populateSettings,
         saveSettings,
         saveProjectPresetAsNew,
-        showPasswordModal: openPasswordModal,
         syncDriverProviderOptions,
         syncProjectPresetName,
         toggleMultiModel,
@@ -2725,7 +2683,6 @@
         updateSiemensRackSlotVisibility,
         updateStoragePath,
         updateTaskType,
-        verifyPassword,
         collectDataset,
         handleDatasetCollectResult,
         handleSerialPortsDetected,
@@ -2802,7 +2759,6 @@
 
             const activeCamera = cameras.find((camera) => camera.id === activeId);
             setCameraForm(activeCamera);
-            window.addLog?.(`已更新相机列表 (${cameras.length} 台)`, "info");
         } catch (error) {
             console.error("receiveCameraList error:", error);
         }
@@ -2849,7 +2805,7 @@
         bridge.sendCommand("delete_camera", select.value);
     }
 
-    function superSearchCameras() {
+    function searchCamerasHuaray() {
         const modal = byId("super-search-modal");
         const loading = byId("super-search-loading");
         const results = byId("super-search-results");
@@ -2861,8 +2817,10 @@
         results?.classList.add("hidden");
         empty?.classList.add("hidden");
         if (results) results.innerHTML = "";
-        bridge.sendCommand("super_search_cameras");
+        bridge.sendCommand("search_huaray_cameras");
     }
+
+    const superSearchCameras = searchCamerasHuaray;
 
     function closeSuperSearchModal() {
         byId("super-search-modal")?.classList.add("hidden");
@@ -3012,6 +2970,7 @@
         receiveCameraList,
         receiveCameraPreviewFrame,
         receiveSuperSearchResult,
+        searchCamerasHuaray,
         searchCamerasHik,
         setCameraPreviewStatus,
         superSearchCameras,

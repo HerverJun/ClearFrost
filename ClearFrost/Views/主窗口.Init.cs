@@ -267,6 +267,7 @@ namespace ClearFrost
                         type = "info",
                         durationMs = 1200
                     }), "串口模拟触发提示");
+                    SafeFireAndForget(_uiController.FlashPlcTrigger(), "串口模拟触发指示灯");
                     SafeFireAndForget(btnCapture_LogicAsync("串口光电模拟"), "串口光电模拟触发检测");
                 });
             };
@@ -461,21 +462,21 @@ namespace ClearFrost
                 }
             };
 
-            // 相机超级搜索 - 发现局域网中所有相机（复用 CameraManager.AddCamera 的枚举逻辑）
+            // 华睿搜索/超级搜索共用同一实现：通过华睿 SDK 枚举在线设备。
             _uiController.OnSuperSearchCameras += async (s, e) =>
             {
                 var cameraList = new List<Dictionary<string, string>>();
 
                 try
                 {
-                    Debug.WriteLine("[超级搜索] 事件触发开始");
-                    await _uiController.LogToFrontend("正在搜索局域网中的所有相机...");
+                    Debug.WriteLine("[华睿搜索] 事件触发开始");
+                    await _uiController.LogToFrontend("正在通过华睿SDK搜索局域网相机...");
 
-                    // 直接调用 SDK（与 CameraManager.AddCamera 完全一致的调用方式）
+                    // 直接调用华睿 SDK（与 CameraManager.AddCamera 完全一致的调用方式）
                     var deviceList = new IMVDefine.IMV_DeviceList();
                     int res = MyCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
 
-                    Debug.WriteLine($"[超级搜索] IMV_EnumDevices 返回码: {res}, 设备数: {deviceList.nDevNum}");
+                    Debug.WriteLine($"[华睿搜索] IMV_EnumDevices 返回码: {res}, 设备数: {deviceList.nDevNum}");
 
                     if (res == IMVDefine.IMV_OK && deviceList.nDevNum > 0)
                     {
@@ -489,7 +490,7 @@ namespace ClearFrost
                                     typeof(IMVDefine.IMV_DeviceInfo))!;
 
                                 string sn = info.serialNumber?.Trim() ?? "";
-                                Debug.WriteLine($"[超级搜索] 发现设备[{i}]: SN='{sn}'");
+                                Debug.WriteLine($"[华睿搜索] 发现设备[{i}]: SN='{sn}'");
 
                                 if (!string.IsNullOrEmpty(sn))
                                 {
@@ -505,31 +506,31 @@ namespace ClearFrost
                             }
                             catch (Exception innerEx)
                             {
-                                Debug.WriteLine($"[超级搜索] 解析设备[{i}]失败: {innerEx.Message}");
+                                Debug.WriteLine($"[华睿搜索] 解析设备[{i}]失败: {innerEx.Message}");
                             }
                         }
                     }
                     else if (res != IMVDefine.IMV_OK)
                     {
-                        Debug.WriteLine($"[超级搜索] SDK 枚举失败，错误码: {res}");
+                        Debug.WriteLine($"[华睿搜索] SDK 枚举失败，错误码: {res}");
                     }
                     else
                     {
-                        Debug.WriteLine("[超级搜索] 未发现任何设备");
+                        Debug.WriteLine("[华睿搜索] 未发现任何设备");
                     }
 
-                    await _uiController.LogToFrontend($"发现 {cameraList.Count} 台相机", cameraList.Count > 0 ? "success" : "warning");
+                    await _uiController.LogToFrontend($"华睿SDK发现 {cameraList.Count} 台相机", cameraList.Count > 0 ? "success" : "warning");
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[超级搜索] 异常: {ex}");
-                    await _uiController.LogToFrontend($"相机搜索失败: {ex.Message}", "error");
+                    Debug.WriteLine($"[华睿搜索] 异常: {ex}");
+                    await _uiController.LogToFrontend($"华睿搜索失败: {ex.Message}", "error");
                 }
 
                 // 无论成功失败，必须通知前端结束加载状态
-                Debug.WriteLine($"[超级搜索] 准备发送 {cameraList.Count} 个结果到前端");
+                Debug.WriteLine($"[华睿搜索] 准备发送 {cameraList.Count} 个结果到前端");
                 await _uiController.SendDiscoveredCameras(cameraList);
-                Debug.WriteLine("[超级搜索] 完成");
+                Debug.WriteLine("[华睿搜索] 完成");
             };
 
             // 相机超级搜索 (海康) - 使用海康SDK发现所有相机
@@ -826,24 +827,6 @@ namespace ClearFrost
                 _detectionService.SetEnableFallback(enabled);
                 _appConfig.Save();
                 await _uiController.LogToFrontend(enabled ? "? 多模型自动切换已启用" : "多模型自动切换已禁用");
-            };
-
-            // 订阅密码验证事件
-            _uiController.OnVerifyPassword += async (sender, password) =>
-            {
-                if (password == _appConfig.AdminPassword)
-                {
-                    // 密码正确,关闭密码框并发送配置到前端打开设置界面
-                    await _uiController.SendUiCommand("closePasswordModal");
-                    await _uiController.SendProjectPresets(ProjectPresetStore.Load());
-                    await _uiController.SendCurrentConfig(_appConfig);
-                }
-                else
-                {
-                    // 密码错误
-                    await _uiController.SendUiCommand("alert", new { message = "密码错误" });
-                    await _uiController.SendUiCommand("closePasswordModal");
-                }
             };
 
             // 订阅项目预设维护事件

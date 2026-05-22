@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
@@ -47,13 +47,6 @@
                         <span>PLC</span>
                     </span>
                     <strong id="status-plc-text">未连接</strong>
-                </div>
-                <div id="status-serial-trigger" class="stitch-status-light" title="串口光电未启用" aria-label="串口光电: 未启用">
-                    <span class="stitch-status-label">
-                        <span id="status-serial-trigger-dot" class="status-dot status-off" aria-hidden="true"></span>
-                        <span>串口</span>
-                    </span>
-                    <strong id="status-serial-trigger-text">未启用</strong>
                 </div>
                 <div id="status-plc-trigger" class="stitch-status-light" title="触发拍照待触发" aria-label="触发拍照: 待触发">
                     <span class="stitch-status-label">
@@ -852,7 +845,7 @@
                                 </svg>
                                 添加/更新
                             </button>
-                            <button data-action="superSearchCameras"
+                            <button data-action="searchCamerasHuaray"
                                 class="py-2 bg-celadon-500 hover:bg-celadon-600 text-white rounded-lg transition-[background-color,color,box-shadow] text-[10px] font-bold flex items-center justify-center gap-1">
                                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -924,7 +917,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
-                    相机超级搜索结果
+                    华睿搜索结果
                 </h3>
                 <button data-action="closeSuperSearchModal" class="text-slate-400 hover:text-slate-600 transition-colors">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
@@ -955,31 +948,6 @@
                 </svg>
                 <p class="text-lg font-semibold">未发现任何相机</p>
                 <p class="text-sm">请检查相机是否已连接到局域网</p>
-            </div>
-        </div>
-    </div>
-
-    <!-- Password Modal -->
-    <div id="password-modal"
-        class="fixed inset-0 bg-ink-900/60 z-[100] hidden flex items-center justify-center">
-        <div class="glass-panel-lite w-80 rounded-2xl p-6 shadow-2xl flex flex-col items-center">
-            <div class="w-12 h-12 bg-celadon-50 rounded-full flex items-center justify-center text-celadon-600 mb-4">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 00-2 2zm10-10V7a4 4 0 00-8 0v4h8z">
-                    </path>
-                </svg>
-            </div>
-            <h3 class="text-sm font-bold text-ink-800 mb-1">权限验证</h3>
-            <p class="text-[11px] text-ink-400 mb-6 text-center italic">需要管理员权限</p>
-            <input type="password" id="admin-password"
-                class="w-full tech-input rounded-xl py-3 px-4 text-center text-lg tracking-[0.8em] mb-4 focus:ring-4 focus:ring-celadon-100"
-                autofocus data-key="Enter" data-key-action="verifyPassword">
-            <div class="flex w-full gap-2 mt-2">
-                <button data-action="closePasswordModal"
-                    class="flex-1 py-2.5 text-xs font-bold text-ink-400 hover:bg-slate-50 rounded-xl transition-[background-color,color]">取消</button>
-                <button data-action="verifyPassword"
-                    class="flex-1 py-2.5 bg-ink-800 text-white text-xs font-bold rounded-xl shadow-lg shadow-black/10 hover:bg-ink-950 transition-[background-color,color,box-shadow]">验证许可</button>
             </div>
         </div>
     </div>
