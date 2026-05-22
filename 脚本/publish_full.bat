@@ -1,83 +1,10 @@
 @echo off
 chcp 65001 >nul 2>&1
-setlocal EnableExtensions
 
-REM 切换到项目根目录（脚本所在目录的父目录）
-cd /d "%~dp0.." || (
-    echo Failed to locate project root.
-    pause
-    exit /b 1
-)
-echo ========================================
-echo   ClearFrost Full Publish
-echo   Self-contained Win-x64 package
-echo ========================================
-echo.
-
-set "OUTPUT_DIR=ClearFrost_Full"
-set "PROJECT_PATH=ClearFrost\ClearFrost.csproj"
-set "VERIFY_FAILED=0"
-
-echo [1/6] Cleaning output directory...
-if exist "%OUTPUT_DIR%" rmdir /s /q "%OUTPUT_DIR%"
-mkdir "%OUTPUT_DIR%"
-
-echo [2/6] Publishing project...
-dotnet publish "%PROJECT_PATH%" -c Release -r win-x64 --self-contained true -o "%OUTPUT_DIR%" -p:Platform=x64 /p:PublishSingleFile=false /p:DebugType=None /p:DebugSymbols=false /p:RestoreIgnoreFailedSources=true /p:NuGetAudit=false
-if errorlevel 1 (
-    echo Publish failed.
-    pause
-    exit /b 1
-)
-
-echo [3/6] Preserving ONNX models...
-if exist "%OUTPUT_DIR%\ONNX\*.onnx" (
-    echo [OK] ONNX models preserved.
+if "%~1"=="" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0publish.ps1" -Mode Full
 ) else (
-    echo [WARN] No ONNX models found in publish output.
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0publish.ps1" -Mode Full -Version "%~1" %2 %3 %4 %5 %6 %7 %8 %9
 )
 
-echo [4/6] Removing debug symbols...
-del /q "%OUTPUT_DIR%\*.pdb" 2>nul
-del /q "%OUTPUT_DIR%\*.xml" 2>nul
-
-echo [5/6] Verifying publish output...
-if not exist "%OUTPUT_DIR%\html\index.html" (
-    echo [ERROR] html\index.html is missing.
-    set "VERIFY_FAILED=1"
-) else (
-    echo [OK] html assets found.
-)
-
-if not exist "%OUTPUT_DIR%\HslCommunication.dll" (
-    echo [ERROR] HslCommunication.dll is missing.
-    set "VERIFY_FAILED=1"
-) else (
-    echo [OK] HslCommunication.dll found.
-)
-
-if not exist "%OUTPUT_DIR%\McpXLib.dll" (
-    echo [ERROR] McpXLib.dll is missing.
-    set "VERIFY_FAILED=1"
-) else (
-    echo [OK] McpXLib.dll found.
-)
-
-if not exist "%OUTPUT_DIR%\MVSDKmd.dll" (
-    echo [WARN] MVSDKmd.dll is missing.
-) else (
-    echo [OK] MVSDKmd.dll found.
-)
-
-copy /y "check_env.bat" "%OUTPUT_DIR%\" >nul 2>&1
-
-if "%VERIFY_FAILED%"=="1" (
-    echo Publish verification failed.
-    pause
-    exit /b 1
-)
-
-echo [6/6] Done.
-echo Output: %OUTPUT_DIR%
-echo.
-pause
+exit /b %ERRORLEVEL%
