@@ -66,6 +66,9 @@ namespace ClearFrost.Interfaces
         public string CameraId { get; set; } = "";
         public string ImagePath { get; set; } = "";
         public string RenderedImagePath { get; set; } = "";
+        public string ErrorStage { get; set; } = "";
+        public string ErrorCode { get; set; } = "";
+        public string ErrorMessage { get; set; } = "";
     }
 
     /// <summary>

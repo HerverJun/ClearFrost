@@ -791,7 +791,10 @@ namespace ClearFrost.Services
                         ModelName,
                         CameraId,
                         ImagePath,
-                        RenderedImagePath
+                        RenderedImagePath,
+                        ErrorStage,
+                        ErrorCode,
+                        ErrorMessage
                     FROM DetectionRecords
                     {whereClause}
                     ORDER BY Timestamp DESC, Id DESC
@@ -823,7 +826,10 @@ namespace ClearFrost.Services
                         ModelName = GetStringOrDefault(reader, "ModelName"),
                         CameraId = GetStringOrDefault(reader, "CameraId"),
                         ImagePath = GetStringOrDefault(reader, "ImagePath"),
-                        RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath")
+                        RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
+                        ErrorStage = GetStringOrDefault(reader, "ErrorStage"),
+                        ErrorCode = GetStringOrDefault(reader, "ErrorCode"),
+                        ErrorMessage = GetStringOrDefault(reader, "ErrorMessage")
                     });
                     lastTimestamp = timestampText;
                     lastId = id;

@@ -254,6 +254,9 @@ public class SqliteDatabaseServiceTests
                 ModelVersion = "v2",
                 ModelName = "model-b",
                 CameraId = "cam-02",
+                ErrorStage = "Barcode",
+                ErrorCode = "NoBarcode",
+                ErrorMessage = "PLC 条码为空",
                 ImagePath = @"C:\Trace\FAIL_2.jpg",
                 RenderedImagePath = @"C:\Trace\Rendered\FAIL_2_rendered.jpg"
             });
@@ -285,6 +288,9 @@ public class SqliteDatabaseServiceTests
             records[0].InspectionId.Should().Be("CF-20260504-143000-BBB");
             records[0].ProductBarcode.Should().Be("SN-002");
             records[0].IsQualified.Should().BeFalse();
+            records[0].ErrorStage.Should().Be("Barcode");
+            records[0].ErrorCode.Should().Be("NoBarcode");
+            records[0].ErrorMessage.Should().Be("PLC 条码为空");
 
             List<DetectionTraceRecord> topRecords = await service.GetTraceRecordsAsync(new DetectionTraceQuery
             {
