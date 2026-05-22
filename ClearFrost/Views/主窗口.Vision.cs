@@ -16,6 +16,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using ClearFrost.Core.Inspection;
 using ClearFrost.Core.Models;
+using ClearFrost.Core.Recipes;
 using ClearFrost.Core.Rules;
 using ClearFrost.Hardware;
 using ClearFrost.Interfaces;
@@ -81,7 +82,10 @@ namespace ClearFrost
                         if (!string.Equals(_appConfig.CurrentModelFileName, 模型名, StringComparison.OrdinalIgnoreCase))
                         {
                             _appConfig.CurrentModelFileName = 模型名;
-                            _appConfig.Save();
+                            if (_appConfig.Save())
+                            {
+                                TrySaveCurrentRecipeSnapshot("主模型初始化");
+                            }
                         }
 
                         await _uiController.LogToFrontend(BuildModelLoadStatusMessage($"模型加载成功: {模型名}"), "success");
@@ -592,7 +596,10 @@ namespace ClearFrost
                 {
                     模型名 = modelFileName;
                     _appConfig.CurrentModelFileName = modelFileName;
-                    _appConfig.Save();
+                    if (_appConfig.Save())
+                    {
+                        TrySaveCurrentRecipeSnapshot("主模型切换");
+                    }
                     await _uiController.LogToFrontend(BuildModelLoadStatusMessage($"模型切换成功: {modelFileName}"), "success");
                 }
                 else
@@ -677,18 +684,6 @@ namespace ClearFrost
             return judgeResult.IsQualified ? score + 1_000_000 : score;
         }
 
-        private readonly record struct DetectionCycleRequest(
-            string TriggerSource,
-            string InspectionId,
-            int? TriggerSeq,
-            InspectionContext Context);
-
-        private readonly record struct BarcodeReadResult(
-            string? ProductBarcode,
-            bool? ReadSucceeded,
-            string? ErrorCode,
-            string? Message);
-
         private async Task btnCapture_LogicAsync(string triggerSource = "手动", int? triggerSeq = null)
         {
             if (!await EnsureStartupReadyForProductionAsync("检测"))
@@ -720,18 +715,12 @@ namespace ClearFrost
             };
 
             DiagLog($"▶ [{triggerSource}] [{inspectionId}] btnCapture_LogicAsync 进入, 线程ID={Thread.CurrentThread.ManagedThreadId}");
-            DetectionCycleRequest request = new DetectionCycleRequest(triggerSource, inspectionId, triggerSeq, context);
+            InspectionPipelineRequest request = new InspectionPipelineRequest(triggerSource, inspectionId, triggerSeq, context);
             var totalSw = Stopwatch.StartNew();
-            long captureMs = 0;
-            long inferenceMs = 0;
-            long roiFilterMs = 0;
-            long plcWriteMs = 0;
-            long renderToUiMs = 0;
-            long saveQueueMs = 0;
-            long dbWriteMs = 0;
             bool finalQualified = false;
             int finalResultCount = 0;
             int finalAttemptCount = 1;
+            InspectionPipelineResult? pipelineResult = null;
 
             try
             {
@@ -741,8 +730,15 @@ namespace ClearFrost
                     usedModelName: _detectionService.CurrentModelName,
                     barcodeEnabled: _appConfig.BarcodeEnabled);
 
-                (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, finalQualified, finalResultCount, finalAttemptCount) =
-                    await ExecuteDetectionCycleAsync(request, _appShutdownCts.Token);
+                pipelineResult = await _inspectionPipelineService.ExecuteAsync(
+                    request,
+                    _appShutdownCts.Token,
+                    OnInspectionPipelineProgressAsync);
+                await PresentInspectionPipelineResultAsync(pipelineResult);
+
+                finalQualified = pipelineResult.FinalQualified;
+                finalResultCount = pipelineResult.FinalResultCount;
+                finalAttemptCount = pipelineResult.AttemptCount;
             }
             catch (Exception ex)
             {
@@ -762,9 +758,17 @@ namespace ClearFrost
             {
                 totalSw.Stop();
                 context.TotalMs = totalSw.ElapsedMilliseconds;
-                await WriteHandshakeDetectionCompletedAsync(context, finalQualified);
                 _healthMonitor.RecordInspection(context);
+
                 await SendHealthSnapshotToFrontendAsync();
+
+                long captureMs = pipelineResult?.Timings.CaptureMs ?? 0;
+                long inferenceMs = pipelineResult?.Timings.InferenceMs ?? 0;
+                long roiFilterMs = pipelineResult?.Timings.RoiFilterMs ?? 0;
+                long plcWriteMs = pipelineResult?.Timings.PlcWriteMs ?? 0;
+                long renderToUiMs = pipelineResult?.Timings.RenderToUiMs ?? 0;
+                long saveQueueMs = pipelineResult?.Timings.SaveQueueMs ?? 0;
+                long dbWriteMs = pipelineResult?.Timings.DbWriteMs ?? 0;
                 if (captureMs > 0 || inferenceMs > 0 || roiFilterMs > 0 || plcWriteMs > 0 || renderToUiMs > 0 || saveQueueMs > 0 || dbWriteMs > 0)
                 {
                     WritePerformanceProfileLog(
@@ -783,9 +787,88 @@ namespace ClearFrost
                         _detectionGate.GetSnapshot());
                 }
 
+                pipelineResult?.Dispose();
                 _detectionGate.Release();
                 DiagLog($"✅ [{triggerSource}] [{inspectionId}] btnCapture_LogicAsync 完成, 信号量已释放");
             }
+        }
+
+        private async Task OnInspectionPipelineProgressAsync(InspectionPipelineProgress progress)
+        {
+            if (progress.Kind == InspectionPipelineProgressKind.Log)
+            {
+                await _uiController.LogToFrontend(progress.Message, progress.Level);
+                return;
+            }
+
+            await _uiController.SendInspectionUpdate(
+                progress.Context,
+                progress.IsOk,
+                progress.Message,
+                progress.ActualCount,
+                progress.UsedModelName,
+                progress.WasFallback,
+                progress.BarcodeEnabled,
+                progress.ProductBarcode,
+                progress.BarcodeReadSucceeded,
+                progress.BarcodeError);
+        }
+
+        private async Task PresentInspectionPipelineResultAsync(InspectionPipelineResult result)
+        {
+            InspectionContext context = result.Context;
+            if (result.HasFrame)
+            {
+                context.CurrentStage = InspectionStage.RenderToUi;
+                var renderSw = Stopwatch.StartNew();
+                await _uiController.SendDetectionFrame(
+                    result.RenderedFrame ?? result.Frame!,
+                    result.FinalQualified,
+                    _statisticsService.Current,
+                    result.StatusMessage,
+                    result.StatusLevel,
+                    result.DetectionMetrics ?? _detectionService.GetLastMetrics(),
+                    context,
+                    result.FinalResultCount,
+                    result.UsedModelName,
+                    result.WasFallback,
+                    context.TotalMs,
+                    null,
+                    result.BarcodeEnabled,
+                    result.ProductBarcode,
+                    result.BarcodeReadSucceeded,
+                    result.BarcodeError);
+                renderSw.Stop();
+                result.Timings.RenderToUiMs = renderSw.ElapsedMilliseconds;
+                context.RenderToUiMs = result.Timings.RenderToUiMs;
+                context.TotalMs += result.Timings.RenderToUiMs;
+                context.CurrentStage = InspectionStage.Completed;
+
+                await _uiController.SendInspectionUpdate(
+                    context,
+                    result.FinalQualified,
+                    null,
+                    result.FinalResultCount,
+                    result.UsedModelName,
+                    result.WasFallback,
+                    result.BarcodeEnabled,
+                    result.ProductBarcode,
+                    result.BarcodeReadSucceeded,
+                    result.BarcodeError);
+                return;
+            }
+
+            await _uiController.SendInspectionUpdate(
+                context,
+                result.FinalQualified,
+                string.IsNullOrWhiteSpace(result.StatusMessage) ? context.ErrorMessage : result.StatusMessage,
+                result.FinalResultCount,
+                result.UsedModelName,
+                result.WasFallback,
+                result.BarcodeEnabled,
+                result.ProductBarcode,
+                result.BarcodeReadSucceeded,
+                result.BarcodeError);
         }
 
         private async Task<DetectionTriggerDecision> TryStartDetectionCycleAsync(string triggerSource, string? inspectionId)
@@ -900,463 +983,6 @@ namespace ClearFrost
             return string.IsNullOrWhiteSpace(triggerSource)
                 || triggerSource.Contains("手动", StringComparison.OrdinalIgnoreCase)
                 || triggerSource.Contains("MANUAL", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private async Task<(long CaptureMs, long InferenceMs, long RoiFilterMs, long PlcWriteMs, long RenderToUiMs, long SaveQueueMs, long DbWriteMs, bool FinalQualified, int FinalResultCount, int AttemptCount)> ExecuteDetectionCycleAsync(
-            DetectionCycleRequest request,
-            CancellationToken cancellationToken)
-        {
-            InspectionContext context = request.Context;
-            bool isManualTrigger = IsManualTriggerSource(request.TriggerSource);
-            if (isManualTrigger)
-            {
-                await _uiController.LogToFrontend($"开始检测... ({request.TriggerSource}触发, ID: {request.InspectionId})", "info");
-            }
-            await WriteHandshakeDetectionStartedAsync(context);
-
-            long captureMs = 0;
-            long inferenceMs = 0;
-            long roiFilterMs = 0;
-            long plcWriteMs = 0;
-            long renderToUiMs = 0;
-            long saveQueueMs = 0;
-            long dbWriteMs = 0;
-            bool finalQualified = false;
-            int finalResultCount = 0;
-            int attemptCount = 0;
-            List<ImageSavePayload>? imagePayloads = null;
-            DetectionPersistencePayload? persistencePayload = null;
-            string? productBarcode = null;
-            bool? barcodeReadSucceeded = null;
-            string? barcodeError = null;
-            string? usedModelNameForUi = _detectionService.CurrentModelName;
-            bool wasFallbackForUi = false;
-
-            Mat? frameToProcess = null;
-
-            var captureSw = new Stopwatch();
-            try
-            {
-                await _uiController.SendInspectionUpdate(
-                    context,
-                    message: "检测流程启动",
-                    usedModelName: usedModelNameForUi,
-                    barcodeEnabled: _appConfig.BarcodeEnabled);
-
-                if (_appConfig.BarcodeEnabled)
-                {
-                    context.CurrentStage = InspectionStage.Barcode;
-                    await _uiController.SendInspectionUpdate(
-                        context,
-                        message: "读取 PLC 条码",
-                        usedModelName: usedModelNameForUi,
-                        barcodeEnabled: true);
-
-                    BarcodeReadResult barcode = await ReadBarcodeForInspectionAsync(context);
-                    productBarcode = barcode.ProductBarcode;
-                    barcodeReadSucceeded = barcode.ReadSucceeded;
-                    barcodeError = barcode.ErrorCode;
-                    if (barcodeReadSucceeded == true && string.IsNullOrWhiteSpace(productBarcode))
-                    {
-                        barcodeReadSucceeded = false;
-                        barcodeError = "NoBarcode";
-                    }
-
-                    context.ProductBarcode = productBarcode;
-                    context.BarcodeReadSucceeded = barcodeReadSucceeded;
-                    context.BarcodeError = barcodeError;
-
-                    bool barcodeFailed = barcodeReadSucceeded == false || string.IsNullOrWhiteSpace(productBarcode);
-                    string barcodeMessage = barcodeFailed
-                        ? (barcodeError == "NoBarcode" ? "PLC 条码为空" : barcode.Message ?? "PLC 条码读取失败")
-                        : "PLC 条码读取成功";
-                    await _uiController.SendInspectionUpdate(
-                        context,
-                        isOk: barcodeFailed && _appConfig.BarcodeRequired ? false : null,
-                        message: barcodeMessage,
-                        usedModelName: usedModelNameForUi,
-                        barcodeEnabled: true,
-                        productBarcode: productBarcode,
-                        barcodeReadSucceeded: barcodeReadSucceeded,
-                        barcodeError: barcodeError);
-
-                    if (_appConfig.BarcodeRequired && barcodeFailed)
-                    {
-                        string errorCode = barcodeError ?? "NoBarcode";
-                        string detail = errorCode == "NoBarcode"
-                            ? "PLC 条码为空，已按 NG 处理"
-                            : "PLC 条码读取失败，已按 NG 处理";
-                        context.MarkFailed(InspectionStage.Barcode, errorCode, detail);
-
-                        var plcSw = Stopwatch.StartNew();
-                        await WriteDetectionResultToPlc(false, context);
-                        plcSw.Stop();
-                        plcWriteMs = plcSw.ElapsedMilliseconds;
-                        context.PlcWriteMs = plcWriteMs;
-
-                        _statisticsService.RecordDetection(false);
-                        _storageService.WriteDetectionLog(
-                            $"InspectionId: {request.InspectionId}{Environment.NewLine}{detail}",
-                            false);
-
-                        context.TotalMs = plcWriteMs;
-                        var barcodeFailurePayload = BuildDetectionPersistencePayload(
-                            context,
-                            null,
-                            new List<YoloResult>(),
-                            0,
-                            false,
-                            JsonSerializer.Serialize(new { Error = detail, Stage = "Barcode", context.InspectionId, ProductBarcode = productBarcode ?? string.Empty }));
-                        dbWriteMs = await EnqueueDetectionRecordAsync(context, barcodeFailurePayload, imageQueued: false);
-                        context.CurrentStage = InspectionStage.Failed;
-                        await _uiController.SendInspectionUpdate(
-                            context,
-                            false,
-                            detail,
-                            0,
-                            usedModelNameForUi,
-                            wasFallbackForUi,
-                            true,
-                            productBarcode,
-                            barcodeReadSucceeded,
-                            barcodeError);
-
-                        return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, false, 0, Math.Max(1, attemptCount));
-                    }
-                }
-
-                context.CurrentStage = InspectionStage.Capture;
-                captureSw.Start();
-                int maxRetryCount = Math.Clamp(_appConfig.MaxRetryCount, 0, 5);
-                int totalAttempts = maxRetryCount + 1;
-                int retryDelayMs = Math.Max(0, _appConfig.RetryIntervalMs);
-
-                for (int attempt = 1; attempt <= totalAttempts; attempt++)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    attemptCount = attempt;
-                    frameToProcess = _cameraService.CaptureFrame(3000);
-                    DiagLog($"📷 [{request.TriggerSource}] [{request.InspectionId}] CaptureFrame 尝试 {attempt}/{totalAttempts}: {(frameToProcess != null ? "OK" : "FAIL")}");
-
-                    if (frameToProcess != null)
-                    {
-                        break;
-                    }
-
-                    if (attempt < totalAttempts)
-                    {
-                        string retryDetail = string.IsNullOrWhiteSpace(_cameraService.LastError)
-                            ? "取图失败"
-                            : _cameraService.LastError;
-                        await _uiController.LogToFrontend(
-                            $"拍照失败，准备重试 {attempt}/{maxRetryCount}: {retryDetail}",
-                            "warning");
-
-                        if (retryDelayMs > 0)
-                        {
-                            await Task.Delay(retryDelayMs, cancellationToken);
-                        }
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                DiagLog($"❌ [{request.TriggerSource}] [{request.InspectionId}] CaptureFrame 异常: {ex.Message}");
-                Debug.WriteLine($"[手动检测] 触发拍照失败: {ex.Message}");
-            }
-
-            captureSw.Stop();
-            captureMs = captureSw.ElapsedMilliseconds;
-            context.CaptureMs = captureMs;
-
-            if (frameToProcess == null)
-            {
-                string detail = string.IsNullOrWhiteSpace(_cameraService.LastError)
-                    ? "无可用图像进行检测，请先打开相机"
-                    : $"相机拍照失败: {_cameraService.LastError}";
-                context.MarkFailed(InspectionStage.Capture, "CaptureFrameFailed", detail);
-                await _uiController.LogToFrontend($"{detail} (ID: {request.InspectionId})", "error");
-
-                var plcSw = Stopwatch.StartNew();
-                await WriteDetectionResultToPlc(false, context);
-                plcSw.Stop();
-                plcWriteMs = plcSw.ElapsedMilliseconds;
-                context.PlcWriteMs = plcWriteMs;
-
-                _statisticsService.RecordDetection(false);
-                _storageService.WriteDetectionLog($"InspectionId: {request.InspectionId}{Environment.NewLine}{detail}", false);
-
-                context.TotalMs = captureMs + plcWriteMs;
-                var captureFailurePayload = BuildDetectionPersistencePayload(
-                    context,
-                    null,
-                    new List<YoloResult>(),
-                    0,
-                    false,
-                    JsonSerializer.Serialize(new { Error = detail, Stage = "Capture", context.InspectionId }));
-                dbWriteMs = await EnqueueDetectionRecordAsync(context, captureFailurePayload, imageQueued: false);
-                context.CurrentStage = InspectionStage.Failed;
-                await _uiController.SendInspectionUpdate(
-                    context,
-                    false,
-                    detail,
-                    0,
-                    usedModelNameForUi,
-                    wasFallbackForUi,
-                    _appConfig.BarcodeEnabled,
-                    productBarcode,
-                    barcodeReadSucceeded,
-                    barcodeError);
-
-                return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, finalQualified, finalResultCount, Math.Max(1, attemptCount));
-            }
-
-            using (frameToProcess)
-            {
-                try
-                {
-                    context.CurrentStage = InspectionStage.Inference;
-                    var inferSw = Stopwatch.StartNew();
-                    InspectionRuleSet ruleSet = _appConfig.GetInspectionRuleSet();
-                    string ruleSetJson = InspectionRuleSetSerializer.Serialize(ruleSet);
-                    InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
-                    float[]? roiSnapshot = SnapshotCurrentROI();
-                    MultiModelCandidateEvaluator candidateEvaluator = CreateRuleCandidateEvaluator(
-                        ruleSet,
-                        frameToProcess.Width,
-                        frameToProcess.Height,
-                        roiSnapshot);
-                    DetectionResultData result = await _detectionService.DetectAsync(
-                        frameToProcess,
-                        _appConfig.Confidence,
-                        _appConfig.IouThreshold,
-                        fallbackGoal,
-                        candidateEvaluator);
-                    ApplyRuleTraceSnapshot(result, ruleSetJson, fallbackGoal);
-                    inferSw.Stop();
-                    inferenceMs = inferSw.ElapsedMilliseconds;
-                    context.InferenceMs = inferenceMs;
-
-                    bool isQualified = result.IsQualified;
-                    List<YoloResult> results = result.Results ?? new List<YoloResult>();
-                    bool detectionFailed = result.HasError;
-                    usedModelNameForUi = string.IsNullOrWhiteSpace(result.UsedModelName)
-                        ? _detectionService.CurrentModelName
-                        : result.UsedModelName;
-                    wasFallbackForUi = result.WasFallback;
-
-                    context.CurrentStage = InspectionStage.RoiFilter;
-                    var roiSw = Stopwatch.StartNew();
-                    results = FilterResultsByROI(results, frameToProcess.Width, frameToProcess.Height, roiSnapshot);
-                    roiSw.Stop();
-                    roiFilterMs = roiSw.ElapsedMilliseconds;
-                    context.RoiMs = roiFilterMs;
-                    finalResultCount = results.Count;
-
-                    string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
-                    if (detectionFailed)
-                    {
-                        isQualified = false;
-                        if (string.IsNullOrWhiteSpace(context.ErrorCode))
-                        {
-                            context.SetError(InspectionStage.Inference, "DetectionServiceError", result.ErrorMessage);
-                        }
-
-                        await _uiController.LogToFrontend($"检测失败({request.InspectionId})，已强制判定为不合格: {result.ErrorMessage}", "error");
-                    }
-                    else
-                    {
-                        InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(ruleSet, results, labels);
-                        result.JudgeResult = judgeResult;
-                        result.IsRuleEvaluated = true;
-                        result.IsQualified = judgeResult.IsQualified;
-                        isQualified = judgeResult.IsQualified;
-                        string judgeMessage = $"规则判定({request.InspectionId}): {(judgeResult.IsQualified ? "OK" : "NG")} | {judgeResult.Summary}";
-                        DiagLog(judgeMessage);
-                        if (isManualTrigger)
-                        {
-                            await _uiController.LogToFrontend(
-                                judgeMessage,
-                                judgeResult.IsQualified ? "info" : "warning");
-                        }
-                    }
-                    finalQualified = isQualified;
-                    context.ResultSeq = context.TriggerSeq;
-
-                    context.CurrentStage = InspectionStage.PlcWrite;
-                    var plcSw = Stopwatch.StartNew();
-                    await WriteDetectionResultToPlc(isQualified, context);
-                    plcSw.Stop();
-                    plcWriteMs = plcSw.ElapsedMilliseconds;
-                    context.PlcWriteMs = plcWriteMs;
-
-                    using (Mat? renderedMat = TryRenderDetectionMat(frameToProcess, results, labels))
-                    {
-                        _statisticsService.RecordDetection(isQualified);
-
-                        context.CurrentStage = InspectionStage.RenderToUi;
-                        var renderSw = Stopwatch.StartNew();
-                        string objDesc = GetDetailedDetectionLog(results, labels);
-                        string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
-                        string ruleInfo = BuildRuleStatus(result.JudgeResult);
-                        string statusMessage = detectionFailed
-                            ? $"[{request.TriggerSource}] ID {request.InspectionId} 检测失败，已判定为不合格: {result.ErrorMessage} | {inferenceMs}ms"
-                            : $"[{request.TriggerSource}] ID {request.InspectionId} 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc}{ruleInfo} | {inferenceMs}ms{modelInfo}";
-                        await _uiController.SendDetectionFrame(
-                            renderedMat ?? frameToProcess,
-                            isQualified,
-                            _statisticsService.Current,
-                            statusMessage,
-                            isQualified && !detectionFailed ? "success" : "error",
-                            (_detectionService as DetectionService)?.GetLastMetrics(),
-                            context,
-                            finalResultCount,
-                            usedModelNameForUi,
-                            wasFallbackForUi,
-                            context.TotalMs,
-                            null,
-                            _appConfig.BarcodeEnabled,
-                            productBarcode,
-                            barcodeReadSucceeded,
-                            barcodeError);
-                        renderSw.Stop();
-                        renderToUiMs = renderSw.ElapsedMilliseconds;
-                        context.RenderToUiMs = renderToUiMs;
-
-                        imagePayloads = CreateImageSavePayloads(
-                            context,
-                            frameToProcess,
-                            isQualified,
-                            renderedMat);
-                        context.TotalMs = captureMs + inferenceMs + roiFilterMs + plcWriteMs + renderToUiMs;
-                        persistencePayload = BuildDetectionPersistencePayload(context, result, results, finalResultCount, isQualified);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    InspectionStage failedStage = context.CurrentStage == InspectionStage.Unknown
-                        ? InspectionStage.Inference
-                        : context.CurrentStage;
-                    context.MarkFailed(failedStage, "DetectionCycleException", ex.Message);
-                    DiagLog($"❌ [{request.TriggerSource}] [{request.InspectionId}] 检测流程异常: {ex.Message}");
-                    await _uiController.LogToFrontend($"检测异常({request.InspectionId}): {ex.Message}", "error");
-
-                    if (failedStage is InspectionStage.Inference or InspectionStage.RoiFilter)
-                    {
-                        var plcSw = Stopwatch.StartNew();
-                        await WriteDetectionResultToPlc(false, context);
-                        plcSw.Stop();
-                        plcWriteMs = plcSw.ElapsedMilliseconds;
-                        context.PlcWriteMs = plcWriteMs;
-                    }
-
-                    _statisticsService.RecordDetection(false);
-                    _storageService.WriteDetectionLog(
-                        $"InspectionId: {request.InspectionId}{Environment.NewLine}检测流程异常: {ex.Message}",
-                        false);
-
-                    imagePayloads = CreateImageSavePayloads(
-                        context,
-                        frameToProcess,
-                        false);
-                    (bool errorImageQueued, saveQueueMs) = await EnqueueImagePayloadsAsync(context, imagePayloads);
-                    context.TotalMs = captureMs + inferenceMs + roiFilterMs + plcWriteMs + renderToUiMs + saveQueueMs;
-                    var errorPayload = BuildDetectionPersistencePayload(
-                        context,
-                        null,
-                        new List<YoloResult>(),
-                        0,
-                        false,
-                        JsonSerializer.Serialize(new { Error = ex.Message, Stage = failedStage.ToString(), context.InspectionId }));
-                    dbWriteMs = await EnqueueDetectionRecordAsync(context, errorPayload, errorImageQueued);
-                    context.CurrentStage = InspectionStage.Failed;
-                    await _uiController.SendInspectionUpdate(
-                        context,
-                        false,
-                        ex.Message,
-                        0,
-                        usedModelNameForUi,
-                        wasFallbackForUi,
-                        _appConfig.BarcodeEnabled,
-                        productBarcode,
-                        barcodeReadSucceeded,
-                        barcodeError);
-
-                    return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, false, 0, Math.Max(1, attemptCount));
-                }
-            }
-
-            bool imageQueuedForRecord;
-            (imageQueuedForRecord, saveQueueMs) = await EnqueueImagePayloadsAsync(context, imagePayloads);
-
-            context.TotalMs = captureMs + inferenceMs + roiFilterMs + plcWriteMs + renderToUiMs + saveQueueMs;
-            if (persistencePayload != null)
-            {
-                persistencePayload.TotalMs = context.TotalMs;
-                persistencePayload.SaveImageMs = context.SaveImageMs;
-                dbWriteMs = await EnqueueDetectionRecordAsync(context, persistencePayload, imageQueuedForRecord);
-            }
-            else
-            {
-                context.TraceStatus = ResolveTraceStatus(imageQueuedForRecord, recordQueued: false);
-                await _uiController.LogToFrontend($"检测记录构造失败({request.InspectionId})", "error");
-                DiagLog($"❌ [{request.TriggerSource}] [{request.InspectionId}] 检测记录构造失败");
-            }
-
-            context.CurrentStage = InspectionStage.Completed;
-            await _uiController.SendInspectionUpdate(
-                context,
-                finalQualified,
-                null,
-                finalResultCount,
-                usedModelNameForUi,
-                wasFallbackForUi,
-                _appConfig.BarcodeEnabled,
-                productBarcode,
-                barcodeReadSucceeded,
-                barcodeError);
-
-            return (captureMs, inferenceMs, roiFilterMs, plcWriteMs, renderToUiMs, saveQueueMs, dbWriteMs, finalQualified, finalResultCount, Math.Max(1, attemptCount));
-        }
-
-        private async Task<BarcodeReadResult> ReadBarcodeForInspectionAsync(InspectionContext context)
-        {
-            try
-            {
-                var (success, value) = await _plcService.ReadStringAsync(
-                    _appConfig.BarcodeAddress,
-                    _appConfig.BarcodeWordLength,
-                    _appConfig.BarcodeEncoding);
-                string barcode = value?.Trim() ?? string.Empty;
-                if (!success)
-                {
-                    string message = string.IsNullOrWhiteSpace(_plcService.LastError)
-                        ? "PLC 条码读取失败"
-                        : _plcService.LastError!;
-                    RecordHealthError("PLC.Barcode", message, context.InspectionId);
-                    return new BarcodeReadResult(null, false, "BarcodeReadFailed", message);
-                }
-
-                if (string.IsNullOrWhiteSpace(barcode))
-                {
-                    return new BarcodeReadResult(string.Empty, false, "NoBarcode", "PLC 条码为空");
-                }
-
-                return new BarcodeReadResult(barcode, true, null, "PLC 条码读取成功");
-            }
-            catch (Exception ex)
-            {
-                RecordHealthError("PLC.Barcode", $"PLC 条码读取异常: {ex.Message}", context.InspectionId);
-                return new BarcodeReadResult(null, false, "BarcodeReadFailed", ex.Message);
-            }
         }
 
         private Mat? TryRenderDetectionMat(Mat sourceImage, List<YoloResult> results, string[] labels)
@@ -1524,96 +1150,6 @@ namespace ClearFrost
             return originalPath;
         }
 
-        private async Task<(bool Queued, long ElapsedMs)> EnqueueImagePayloadsAsync(InspectionContext context, List<ImageSavePayload>? payloads)
-        {
-            context.CurrentStage = InspectionStage.SaveImage;
-            var saveSw = Stopwatch.StartNew();
-
-            if (payloads == null || payloads.Count == 0)
-            {
-                saveSw.Stop();
-                context.SaveImageMs = saveSw.ElapsedMilliseconds;
-                if (string.IsNullOrWhiteSpace(context.ErrorCode))
-                {
-                    context.SetError(InspectionStage.SaveImage, "ImagePayloadMissing", "图像保存载荷为空");
-                }
-
-                RecordHealthError("ImageSaveQueue", "图像保存入队失败: 载荷为空", context.InspectionId);
-                await _uiController.LogToFrontend($"图像保存入队失败({context.InspectionId}): 载荷为空", "error");
-                DiagLog($"❌ [{context.TriggerSource}] [{context.InspectionId}] 图像保存入队失败: 载荷为空");
-                return (false, context.SaveImageMs);
-            }
-
-            bool imageQueued = true;
-            foreach (ImageSavePayload payload in payloads)
-            {
-                if (!_imageSaveQueue.Enqueue(payload))
-                {
-                    payload.Dispose();
-                    imageQueued = false;
-                }
-            }
-
-            saveSw.Stop();
-            context.SaveImageMs = saveSw.ElapsedMilliseconds;
-
-            if (!imageQueued)
-            {
-                if (string.IsNullOrWhiteSpace(context.ErrorCode))
-                {
-                    context.SetError(InspectionStage.SaveImage, "ImageQueueFull", "图像保存队列入队失败");
-                }
-
-                Debug.WriteLine("[主窗口] 图像保存入队失败");
-                DiagLog($"❌ [{context.TriggerSource}] [{context.InspectionId}] 图像保存入队失败");
-                RecordHealthError("ImageSaveQueue", "图像保存队列入队失败", context.InspectionId);
-                await _uiController.LogToFrontend($"图像保存入队失败({context.InspectionId})", "error");
-            }
-
-            return (imageQueued, context.SaveImageMs);
-        }
-
-        private async Task<long> EnqueueDetectionRecordAsync(InspectionContext context, DetectionPersistencePayload payload, bool imageQueued)
-        {
-            context.CurrentStage = InspectionStage.SaveRecord;
-            payload.ImagePath = context.ImagePath ?? string.Empty;
-            payload.RenderedImagePath = context.RenderedImagePath ?? string.Empty;
-            payload.ErrorStage = context.ErrorStage ?? string.Empty;
-            payload.ErrorCode = context.ErrorCode ?? string.Empty;
-            payload.ErrorMessage = context.ErrorMessage ?? string.Empty;
-            payload.TotalMs = context.TotalMs;
-            payload.SaveImageMs = context.SaveImageMs;
-            payload.TraceStatus = ResolveTraceStatus(imageQueued, recordQueued: true);
-
-            var dbSw = Stopwatch.StartNew();
-            bool dbQueued = _detectionRecordQueue.Enqueue(payload);
-            dbSw.Stop();
-            context.SaveRecordMs = dbSw.ElapsedMilliseconds;
-            payload.SaveRecordMs = context.SaveRecordMs;
-            context.TraceStatus = ResolveTraceStatus(imageQueued, dbQueued);
-
-            if (!dbQueued)
-            {
-                Debug.WriteLine("[主窗口] 检测记录入队失败");
-                DiagLog($"❌ [{context.TriggerSource}] [{context.InspectionId}] 检测记录入队失败");
-                RecordHealthError("DetectionRecordQueue", "检测记录队列入队失败", context.InspectionId);
-                await _uiController.LogToFrontend($"检测记录入队失败({context.InspectionId})", "error");
-            }
-
-            return context.SaveRecordMs;
-        }
-
-        private static TraceStatus ResolveTraceStatus(bool imageQueued, bool recordQueued)
-        {
-            return (imageQueued, recordQueued) switch
-            {
-                (true, true) => TraceStatus.Queued,
-                (true, false) => TraceStatus.Partial,
-                (false, true) => TraceStatus.Partial,
-                _ => TraceStatus.Failed
-            };
-        }
-
         private void RecordHealthError(string source, string message, string? inspectionId = null)
         {
             try
@@ -1666,128 +1202,6 @@ namespace ClearFrost
                 : $"{prefix}，当前使用 CPU";
         }
 
-        private DetectionPersistencePayload BuildDetectionPersistencePayload(
-            InspectionContext context,
-            DetectionResultData? result,
-            List<YoloResult> results,
-            int actualCount,
-            bool isQualified,
-            string? resultJsonOverride = null)
-        {
-            string usedModelName = result?.UsedModelName ?? _detectionService.CurrentModelName;
-            ModelRegistryEntry? modelEntry = _modelRegistry.Resolve(usedModelName);
-            string fallbackModelId = string.IsNullOrWhiteSpace(usedModelName)
-                ? string.Empty
-                : Path.GetFileNameWithoutExtension(usedModelName);
-            string recipeId = _recipeManager.CurrentRecipe?.RecipeId ?? "default";
-            string recipeVersion = _recipeManager.CurrentRecipe?.Version ?? string.Empty;
-            InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(_appConfig.GetInspectionRuleSet());
-            string traceTargetLabel = !string.IsNullOrWhiteSpace(result?.TargetLabel)
-                ? result!.TargetLabel
-                : fallbackGoal?.TargetLabel ?? string.Empty;
-            int traceExpectedCount = result != null &&
-                (!string.IsNullOrWhiteSpace(result.TargetLabel) || result.ExpectedCount > 0)
-                    ? result.ExpectedCount
-                    : fallbackGoal?.TargetCount ?? 0;
-            string ruleSetJson = !string.IsNullOrWhiteSpace(result?.RuleSetJson)
-                ? result!.RuleSetJson
-                : _appConfig.InspectionRuleSetJson ?? string.Empty;
-
-            return new DetectionPersistencePayload
-            {
-                Timestamp = context.TriggerTime.LocalDateTime,
-                IsQualified = isQualified,
-                InspectionId = context.InspectionId,
-                TriggerSource = context.TriggerSource,
-                TriggerSeq = context.TriggerSeq,
-                ResultSeq = context.ResultSeq,
-                ProductBarcode = context.ProductBarcode ?? string.Empty,
-                BarcodeReadSucceeded = context.BarcodeReadSucceeded,
-                BarcodeError = context.BarcodeError ?? string.Empty,
-                TraceStatus = context.TraceStatus,
-                ImagePath = context.ImagePath ?? string.Empty,
-                RenderedImagePath = context.RenderedImagePath ?? string.Empty,
-                ErrorStage = context.ErrorStage ?? string.Empty,
-                ErrorCode = context.ErrorCode ?? string.Empty,
-                ErrorMessage = context.ErrorMessage ?? string.Empty,
-                TotalMs = context.TotalMs,
-                CaptureMs = context.CaptureMs,
-                RoiMs = context.RoiMs,
-                PlcWriteMs = context.PlcWriteMs,
-                SaveImageMs = context.SaveImageMs,
-                SaveRecordMs = context.SaveRecordMs,
-                RecipeId = recipeId,
-                RecipeVersion = recipeVersion,
-                ModelId = modelEntry?.ModelId ?? fallbackModelId,
-                ModelVersion = modelEntry?.Version ?? _appConfig.ModelVersion.ToString(CultureInfo.InvariantCulture),
-                ModelHash = modelEntry?.ModelHash ?? string.Empty,
-                WasFallback = result?.WasFallback ?? false,
-                UsedModelName = usedModelName,
-                ModelName = usedModelName,
-                InferenceMs = ClampLongToInt(context.InferenceMs),
-                TargetLabel = traceTargetLabel,
-                ExpectedCount = traceExpectedCount,
-                ActualCount = actualCount,
-                CameraId = _cameraManager.ActiveCameraId ?? string.Empty,
-                RuleSummary = result?.JudgeResult?.Summary ?? string.Empty,
-                RuleResultJson = SerializeRuleResults(result?.JudgeResult),
-                RuleSetJson = ruleSetJson,
-                ResultJson = resultJsonOverride ?? SerializeDetectionResults(results)
-            };
-        }
-
-        private static int ClampLongToInt(long value)
-        {
-            if (value > int.MaxValue)
-            {
-                return int.MaxValue;
-            }
-
-            if (value < int.MinValue)
-            {
-                return int.MinValue;
-            }
-
-            return (int)value;
-        }
-
-        private static string SerializeDetectionResults(IEnumerable<YoloResult> results)
-        {
-            List<YoloResult> resultList = results?.ToList() ?? new List<YoloResult>();
-            if (resultList.Count == 0)
-            {
-                return string.Empty;
-            }
-
-            return JsonSerializer.Serialize(resultList.Select(r => new
-            {
-                r.ClassId,
-                r.Confidence,
-                BoundingBox = new
-                {
-                    X = r.BoundingBox.X,
-                    Y = r.BoundingBox.Y,
-                    Width = r.BoundingBox.Width,
-                    Height = r.BoundingBox.Height
-                }
-            }));
-        }
-
-        private static string SerializeRuleResults(InspectionJudgeResult? judgeResult)
-        {
-            if (judgeResult == null || judgeResult.RuleResults.Count == 0)
-            {
-                return string.Empty;
-            }
-
-            return JsonSerializer.Serialize(new
-            {
-                judgeResult.IsQualified,
-                judgeResult.Summary,
-                Rules = judgeResult.RuleResults
-            });
-        }
-
         private void WritePerformanceProfileLog(
             InspectionContext context,
             bool isQualified,
@@ -1835,198 +1249,6 @@ namespace ClearFrost
             }
         }
 
-        private async Task WriteHandshakeDetectionStartedAsync(InspectionContext context)
-        {
-            if (_appConfig.TriggerSource != TriggerSource.PLC)
-            {
-                return;
-            }
-
-            if (_appConfig.PlcProtocolMode != PlcProtocolMode.HandshakeV1)
-            {
-                return;
-            }
-
-            await WriteHandshakeWordAsync(_appConfig.PlcVisionOnlineAddress, 1, "VisionOnline", context);
-            await WriteHandshakeWordAsync(_appConfig.PlcVisionReadyAddress, 1, "VisionReady", context);
-            await WriteHandshakeWordAsync(_appConfig.PlcVisionBusyAddress, 1, "VisionBusy", context);
-            await WriteHandshakeWordAsync(_appConfig.PlcInspectionDoneAddress, 0, "InspectionDone", context);
-            await WriteHandshakeWordAsync(_appConfig.PlcTraceSavedAddress, 0, "TraceSaved", context);
-            await WriteHandshakeWordAsync(_appConfig.PlcErrorCodeAddress, 0, "ErrorCode", context);
-            await WriteHandshakeWordAsync(_appConfig.PlcHeartbeatAddress, 1, "Heartbeat", context);
-        }
-
-        private async Task WriteHandshakeDetectionCompletedAsync(InspectionContext context, bool isQualified)
-        {
-            if (_appConfig.TriggerSource != TriggerSource.PLC)
-            {
-                return;
-            }
-
-            if (_appConfig.PlcProtocolMode != PlcProtocolMode.HandshakeV1)
-            {
-                return;
-            }
-
-            if (!context.ResultSeq.HasValue && context.TriggerSeq.HasValue)
-            {
-                context.ResultSeq = context.TriggerSeq;
-            }
-
-            short errorCode = MapHandshakeErrorCode(context);
-            short traceSaved = context.TraceStatus is TraceStatus.Queued or TraceStatus.Full ? (short)1 : (short)0;
-
-            await WriteHandshakeWordAsync(_appConfig.PlcVisionBusyAddress, 0, "VisionBusy", context);
-            if (context.ResultSeq.HasValue)
-            {
-                await WriteHandshakeWordAsync(
-                    _appConfig.PlcResultSeqAddress,
-                    ClampIntToShort(context.ResultSeq.Value),
-                    "ResultSeq",
-                    context);
-            }
-
-            await WriteHandshakeWordAsync(_appConfig.PlcErrorCodeAddress, errorCode, "ErrorCode", context);
-            await WriteHandshakeWordAsync(_appConfig.PlcTraceSavedAddress, traceSaved, "TraceSaved", context);
-            await WriteHandshakeWordAsync(_appConfig.PlcInspectionDoneAddress, 1, "InspectionDone", context);
-            await WriteHandshakeWordAsync(_appConfig.PlcHeartbeatAddress, 1, "Heartbeat", context);
-
-            DiagLog($"HandshakeV1完成[{context.InspectionId}]: Result={(isQualified ? "OK" : "NG")}, ResultSeq={context.ResultSeq?.ToString() ?? "-"}, TraceSaved={traceSaved}, ErrorCode={errorCode}");
-        }
-
-        private async Task<bool> WriteHandshakeWordAsync(
-            string address,
-            short value,
-            string signalName,
-            InspectionContext context)
-        {
-            if (string.IsNullOrWhiteSpace(address))
-            {
-                return false;
-            }
-
-            bool success = await _plcService.WriteResultAsync(address, value);
-            if (!success)
-            {
-                string message = $"HandshakeV1写入失败: {signalName}@{address}={value}";
-                DiagLog($"❌ [{context.TriggerSource}] [{context.InspectionId}] {message}");
-                RecordHealthError("PLC.HandshakeV1", message, context.InspectionId);
-            }
-
-            return success;
-        }
-
-        private static short MapHandshakeErrorCode(InspectionContext context)
-        {
-            if (string.IsNullOrWhiteSpace(context.ErrorCode))
-            {
-                return 0;
-            }
-
-            string stage = context.ErrorStage ?? string.Empty;
-            if (stage.Contains(nameof(InspectionStage.Capture), StringComparison.OrdinalIgnoreCase))
-            {
-                return 100;
-            }
-
-            if (stage.Contains(nameof(InspectionStage.Barcode), StringComparison.OrdinalIgnoreCase))
-            {
-                return 150;
-            }
-
-            if (stage.Contains(nameof(InspectionStage.Inference), StringComparison.OrdinalIgnoreCase))
-            {
-                return 200;
-            }
-
-            if (stage.Contains(nameof(InspectionStage.RoiFilter), StringComparison.OrdinalIgnoreCase))
-            {
-                return 250;
-            }
-
-            if (stage.Contains(nameof(InspectionStage.PlcWrite), StringComparison.OrdinalIgnoreCase))
-            {
-                return 300;
-            }
-
-            if (stage.Contains(nameof(InspectionStage.SaveImage), StringComparison.OrdinalIgnoreCase))
-            {
-                return 400;
-            }
-
-            if (stage.Contains(nameof(InspectionStage.SaveRecord), StringComparison.OrdinalIgnoreCase))
-            {
-                return 500;
-            }
-
-            return 900;
-        }
-
-        private static short ClampIntToShort(int value)
-        {
-            if (value > short.MaxValue)
-            {
-                return short.MaxValue;
-            }
-
-            if (value < short.MinValue)
-            {
-                return short.MinValue;
-            }
-
-            return (short)value;
-        }
-
-        private async Task<bool> WriteDetectionResultToPlc(bool isQualified, InspectionContext? context = null)
-        {
-            if (!_plcService.IsConnected)
-            {
-                if (context != null && string.IsNullOrWhiteSpace(context.ErrorCode))
-                {
-                    context.SetError(InspectionStage.PlcWrite, "PlcNotConnected", "PLC未连接，检测结果未写入");
-                }
-
-                string suffix = context == null ? "" : $"({context.InspectionId})";
-                RecordHealthError("PLC", "PLC未连接，检测结果未写入", context?.InspectionId);
-                await _uiController.LogToFrontend($"PLC未连接，检测结果未写入{suffix}", "error");
-                return false;
-            }
-
-            try
-            {
-                short writeValue = isQualified ? _appConfig.PlcOkValue : _appConfig.PlcNgValue;
-                bool success = await _plcService.WriteResultAsync(_appConfig.PlcResultAddress, writeValue);
-                string inspectionId = context?.InspectionId ?? "-";
-                DiagLog($"PLC结果写入[{inspectionId}]: 地址={_appConfig.PlcResultAddress}, 值={writeValue}, 判定={(isQualified ? "OK" : "NG")}, 结果={(success ? "成功" : "失败")}");
-                if (!success)
-                {
-                    if (context != null && string.IsNullOrWhiteSpace(context.ErrorCode))
-                    {
-                        context.SetError(InspectionStage.PlcWrite, "PlcWriteFailed", "PLC写入失败: 结果未成功落地");
-                    }
-
-                    string message = "PLC写入失败: 结果未成功落地";
-                    RecordHealthError("PLC", message, context?.InspectionId);
-                    await _uiController.LogToFrontend($"PLC写入失败({inspectionId}): 结果未成功落地", "error");
-                }
-
-                return success;
-            }
-            catch (Exception ex)
-            {
-                if (context != null && string.IsNullOrWhiteSpace(context.ErrorCode))
-                {
-                    context.SetError(InspectionStage.PlcWrite, "PlcWriteException", ex.Message);
-                }
-
-                string suffix = context == null ? "" : $"({context.InspectionId})";
-                RecordHealthError("PLC", $"PLC写入异常: {ex.Message}", context?.InspectionId);
-                await _uiController.LogToFrontend($"PLC写入失败{suffix}: {ex.Message}", "error");
-                return false;
-            }
-        }
-
-
         private void btnSettings_Logic()
         {
             // 打开设置对话框
@@ -2050,7 +1272,29 @@ namespace ClearFrost
         {
             return _currentROI == null || _currentROI.Length != 4
                 ? null
-                : (float[])_currentROI.Clone();
+                : Recipe.NormalizeRoi(_currentROI);
+        }
+
+        private Recipe SaveCurrentRecipeSnapshot()
+        {
+            Recipe recipe = _recipeManager.GenerateDefault(_appConfig, SnapshotCurrentROI());
+            _recipeManager.Save(recipe);
+            return recipe;
+        }
+
+        private void TrySaveCurrentRecipeSnapshot(string operation)
+        {
+            try
+            {
+                SaveCurrentRecipeSnapshot();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Recipe] {operation} 保存配方快照失败: {ex.Message}");
+                SafeFireAndForget(
+                    _uiController.LogToFrontend($"{operation} 已保存，但配方快照更新失败: {ex.Message}", "error"),
+                    "配方快照保存失败");
+            }
         }
 
         private static List<YoloResult> FilterResultsByROI(

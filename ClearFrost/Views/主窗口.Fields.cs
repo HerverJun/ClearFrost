@@ -39,6 +39,7 @@ namespace ClearFrost
         private readonly ICameraService _cameraService;
         private readonly ImageSaveQueue _imageSaveQueue;
         private readonly DetectionRecordQueue _detectionRecordQueue;
+        private readonly InspectionPipelineService _inspectionPipelineService;
         private readonly RecipeManager _recipeManager;
         private readonly ModelRegistry _modelRegistry;
         private readonly HealthMonitor _healthMonitor;

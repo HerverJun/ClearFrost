@@ -70,9 +70,25 @@ namespace ClearFrost
             _imageSaveQueue = _appRuntime.ImageSaveQueue;
             _detectionRecordQueue = _appRuntime.DetectionRecordQueue;
             _recipeManager = _appRuntime.RecipeManager;
+            _currentROI = _recipeManager.CurrentRecipe.GetRoiSnapshot();
             _modelRegistry = _appRuntime.ModelRegistry;
             _healthMonitor = _appRuntime.HealthMonitor;
             _startupDiagnostics = _appRuntime.StartupDiagnostics;
+            _inspectionPipelineService = new InspectionPipelineService(
+                _appConfig,
+                _cameraService,
+                _detectionService,
+                _plcService,
+                _storageService,
+                _statisticsService,
+                _imageSaveQueue,
+                _detectionRecordQueue,
+                _recipeManager,
+                _modelRegistry,
+                _healthMonitor,
+                SnapshotCurrentROI,
+                () => _cameraManager.ActiveCameraId ?? string.Empty,
+                DiagLog);
             _serialTriggerService = new SerialPhotoelectricTriggerService();
             LogStartupDiagnostics();
 

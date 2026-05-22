@@ -17,6 +17,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using ClearFrost.Core.Recipes;
 using ClearFrost.Core.Rules;
 using ClearFrost.Yolo;
 using ClearFrost.Helpers;
@@ -200,7 +201,10 @@ namespace ClearFrost
             _uiController.OnThresholdChanged += (s, val) =>
             {
                 _appConfig.IouThreshold = Math.Clamp(val / 100f, 0f, 1f);
-                _appConfig.Save();
+                if (_appConfig.Save())
+                {
+                    TrySaveCurrentRecipeSnapshot("IOU阈值更新");
+                }
             };
             _uiController.OnGetStatisticsHistory += async (s, e) =>
             {
@@ -323,7 +327,10 @@ namespace ClearFrost
                         }
 
                         _cameraManager.SaveToConfig(_appConfig);
-                        _appConfig.Save();
+                        if (_appConfig.Save())
+                        {
+                            TrySaveCurrentRecipeSnapshot("相机切换");
+                        }
                     }
                     else
                     {
@@ -332,7 +339,10 @@ namespace ClearFrost
                         if (cfgCam != null)
                         {
                             _appConfig.ActiveCameraId = cameraId;
-                            _appConfig.Save();
+                            if (_appConfig.Save())
+                            {
+                                TrySaveCurrentRecipeSnapshot("相机切换");
+                            }
                             // 虽然离线，但更新了配置，后续点击"连接相机"时会尝试连接此相机
                             await _uiController.LogToFrontend($"ℹ️ 已切换到相机 (未连接): {cfgCam.DisplayName}", "warning");
                         }
@@ -406,7 +416,10 @@ namespace ClearFrost
                         }
                     }
 
-                    _appConfig.Save();
+                    if (_appConfig.Save())
+                    {
+                        TrySaveCurrentRecipeSnapshot("相机配置更新");
+                    }
 
                     // 刷新前端列表
                     var cameras = _appConfig.Cameras.Select(c => new
@@ -440,7 +453,10 @@ namespace ClearFrost
 
                     _cameraManager.RemoveCamera(cameraId);
                     _appConfig.Cameras.Remove(camToRemove);
-                    _appConfig.Save();
+                    if (_appConfig.Save())
+                    {
+                        TrySaveCurrentRecipeSnapshot("相机配置删除");
+                    }
 
                     await _uiController.LogToFrontend($"? 已删除相机: {camToRemove.DisplayName}");
 
@@ -593,7 +609,10 @@ namespace ClearFrost
                         _appConfig.Cameras.Add(newConfig);
                         _appConfig.ActiveCameraId = newConfig.Id;
                         _cameraManager.ActiveCameraId = newConfig.Id;
-                        _appConfig.Save();
+                        if (_appConfig.Save())
+                        {
+                            TrySaveCurrentRecipeSnapshot("相机直连配置");
+                        }
 
                         // 刷新前端相机列表
                         var cameras = _appConfig.Cameras.Select(c => new
@@ -677,6 +696,7 @@ namespace ClearFrost
                         currentStats,
                         _healthMonitor.GetSnapshot(),
                         _appConfig.StoragePath);
+                    await _uiController.SendUiCommand("setRoi", new { rect = SnapshotCurrentROI() });
                     await _uiController.SendModelLabels(_detectionService.GetLabels());
                     await _uiController.SendProjectPresets(ProjectPresetStore.Load());
 
@@ -697,27 +717,37 @@ namespace ClearFrost
             // 订阅ROI更新事件
             _uiController.OnUpdateROI += (sender, normalizedRect) =>
             {
-                _currentROI = normalizedRect;
+                _currentROI = Recipe.NormalizeRoi(normalizedRect);
+                TrySaveCurrentRecipeSnapshot("ROI更新");
             };
 
             // 订阅YOLO参数修改事件
             _uiController.OnSetConfidence += (sender, conf) =>
             {
                 _appConfig.Confidence = conf;
-                _appConfig.Save();
+                if (_appConfig.Save())
+                {
+                    TrySaveCurrentRecipeSnapshot("置信度更新");
+                }
             };
 
             _uiController.OnSetIou += (sender, iou) =>
             {
                 _appConfig.IouThreshold = Math.Clamp(iou, 0f, 1f);
-                _appConfig.Save();
+                if (_appConfig.Save())
+                {
+                    TrySaveCurrentRecipeSnapshot("IOU阈值更新");
+                }
             };
 
             // 订阅任务类型修改事件
             _uiController.OnSetTaskType += (sender, taskType) =>
             {
                 _appConfig.TaskType = taskType;
-                _appConfig.Save();
+                if (_appConfig.Save())
+                {
+                    TrySaveCurrentRecipeSnapshot("任务类型更新");
+                }
                 // 使用检测服务更新任务类型
                 _detectionService.SetTaskMode(taskType);
             };
@@ -730,6 +760,10 @@ namespace ClearFrost
                     {
                         _detectionService.UnloadAuxiliary1Model();
                         _appConfig.Auxiliary1ModelPath = "";
+                        if (_appConfig.Save())
+                        {
+                            TrySaveCurrentRecipeSnapshot("辅助模型1更新");
+                        }
                         await _uiController.LogToFrontend("辅助模型1已卸载");
                     }
                     else
@@ -752,7 +786,10 @@ namespace ClearFrost
                             if (ok)
                             {
                                 _appConfig.Auxiliary1ModelPath = modelName;
-                                _appConfig.Save();
+                                if (_appConfig.Save())
+                                {
+                                    TrySaveCurrentRecipeSnapshot("辅助模型1更新");
+                                }
                                 await _uiController.LogToFrontend($"? 辅助模型1已加载: {modelName}");
                             }
                             else
@@ -780,6 +817,10 @@ namespace ClearFrost
                     {
                         _detectionService.UnloadAuxiliary2Model();
                         _appConfig.Auxiliary2ModelPath = "";
+                        if (_appConfig.Save())
+                        {
+                            TrySaveCurrentRecipeSnapshot("辅助模型2更新");
+                        }
                         await _uiController.LogToFrontend("辅助模型2已卸载");
                     }
                     else
@@ -802,7 +843,10 @@ namespace ClearFrost
                             if (ok)
                             {
                                 _appConfig.Auxiliary2ModelPath = modelName;
-                                _appConfig.Save();
+                                if (_appConfig.Save())
+                                {
+                                    TrySaveCurrentRecipeSnapshot("辅助模型2更新");
+                                }
                                 await _uiController.LogToFrontend($"? 辅助模型2已加载: {modelName}");
                             }
                             else
@@ -826,7 +870,10 @@ namespace ClearFrost
             {
                 _appConfig.EnableMultiModelFallback = enabled;
                 _detectionService.SetEnableFallback(enabled);
-                _appConfig.Save();
+                if (_appConfig.Save())
+                {
+                    TrySaveCurrentRecipeSnapshot("多模型策略更新");
+                }
                 await _uiController.LogToFrontend(enabled ? "? 多模型自动切换已启用" : "多模型自动切换已禁用");
             };
 
@@ -1138,7 +1185,7 @@ namespace ClearFrost
                         {
                             throw new InvalidOperationException(_appConfig.LastError ?? "配置保存失败");
                         }
-                        _recipeManager.Save(_recipeManager.GenerateDefault(_appConfig));
+                        SaveCurrentRecipeSnapshot();
 
                         // 更新相关路径
                         _uiController.ImageBasePath = Path_Images;
@@ -1370,7 +1417,7 @@ namespace ClearFrost
                 CameraInstance? activeCamera = _cameraManager.ActiveCamera;
                 cam = activeCamera?.Camera ?? new RealCamera();
 
-                _recipeManager.Save(_recipeManager.GenerateDefault(_appConfig));
+                SaveCurrentRecipeSnapshot();
                 YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
                 _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
                 _detectionService.SetTaskMode(_appConfig.TaskType);
