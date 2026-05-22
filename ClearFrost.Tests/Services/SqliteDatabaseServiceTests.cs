@@ -221,6 +221,87 @@ public class SqliteDatabaseServiceTests
         }
     }
 
+    [Fact]
+    public async Task GetTraceRecordsAsync_按条码和时间范围过滤并优先返回最新记录()
+    {
+        string tempDir = CreateTempDirectory();
+
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "runtime", "detection.db");
+            using var service = new SqliteDatabaseService(dbPath);
+            await service.InitializeAsync();
+
+            await service.SaveDetectionRecordAsync(new DetectionRecord
+            {
+                Timestamp = new DateTime(2026, 5, 4, 14, 0, 0),
+                IsQualified = false,
+                InspectionId = "CF-20260504-140000-AAA",
+                ProductBarcode = "SN-001",
+                ModelVersion = "v1",
+                ModelName = "model-a",
+                CameraId = "cam-01",
+                ImagePath = @"C:\Trace\FAIL_1.jpg",
+                RenderedImagePath = @"C:\Trace\Rendered\FAIL_1_rendered.jpg"
+            });
+
+            await service.SaveDetectionRecordAsync(new DetectionRecord
+            {
+                Timestamp = new DateTime(2026, 5, 4, 14, 30, 0),
+                IsQualified = false,
+                InspectionId = "CF-20260504-143000-BBB",
+                ProductBarcode = "SN-002",
+                ModelVersion = "v2",
+                ModelName = "model-b",
+                CameraId = "cam-02",
+                ImagePath = @"C:\Trace\FAIL_2.jpg",
+                RenderedImagePath = @"C:\Trace\Rendered\FAIL_2_rendered.jpg"
+            });
+
+            await service.SaveDetectionRecordAsync(new DetectionRecord
+            {
+                Timestamp = new DateTime(2026, 5, 4, 14, 45, 0),
+                IsQualified = true,
+                InspectionId = "CF-20260504-144500-CCC",
+                ProductBarcode = "SN-002",
+                ModelVersion = "v2",
+                ModelName = "model-b",
+                CameraId = "cam-02",
+                ImagePath = @"C:\Trace\PASS_3.jpg",
+                RenderedImagePath = @"C:\Trace\Rendered\PASS_3_rendered.jpg"
+            });
+
+            List<DetectionTraceRecord> records = await service.GetTraceRecordsAsync(new DetectionTraceQuery
+            {
+                ProductBarcode = "SN-002",
+                InspectionId = "CF-20260504-143000-BBB",
+                IsQualified = false,
+                StartTime = new DateTime(2026, 5, 4, 14, 0, 0),
+                EndTime = new DateTime(2026, 5, 4, 14, 59, 59, 999),
+                Limit = 300
+            });
+
+            records.Should().HaveCount(1);
+            records[0].InspectionId.Should().Be("CF-20260504-143000-BBB");
+            records[0].ProductBarcode.Should().Be("SN-002");
+            records[0].IsQualified.Should().BeFalse();
+
+            List<DetectionTraceRecord> topRecords = await service.GetTraceRecordsAsync(new DetectionTraceQuery
+            {
+                ProductBarcode = "SN-002",
+                Limit = 2
+            });
+
+            topRecords.Should().HaveCount(2);
+            topRecords[0].InspectionId.Should().Be("CF-20260504-144500-CCC");
+            topRecords[1].InspectionId.Should().Be("CF-20260504-143000-BBB");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static void CreateMinimalDatabaseWithRows(string dbPath, params string[] timestamps)
     {
         string directory = Path.GetDirectoryName(dbPath) ?? string.Empty;

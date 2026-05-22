@@ -182,7 +182,7 @@
         }
 
         if (!hours.length) {
-            if (hourSelect) hourSelect.innerHTML = '<option value="">08:00 - 09:00</option>';
+            if (hourSelect) hourSelect.innerHTML = '<option value="">全部时段</option>';
             list.innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 font-serif opacity-50">无时段数据</div>';
             return;
         }
@@ -223,53 +223,146 @@
     function searchTraceImages() {
         syncTraceControls();
         const date = byId("gallery-date-picker")?.value || window.currentNGDate;
-        const hour = byId("trace-hour-select")?.value || window.currentNGHour || "08";
+        const hour = byId("trace-hour-select")?.value || window.currentNGHour || "";
         if (date) window.currentNGDate = date;
         window.currentNGHour = hour;
         bridge.sendCommand("get_ng_images", { date: window.currentNGDate, hour: window.currentNGHour });
     }
 
+    function pickTraceValue(source, ...keys) {
+        if (!source) return "";
+        for (const key of keys) {
+            if (source[key] !== undefined && source[key] !== null) return source[key];
+        }
+        return "";
+    }
+
+    function normalizeTraceRecord(item) {
+        if (typeof item === "string") {
+            const baseUrl = `http://ng-images.local/Unqualified/${window.currentNGDate}/${window.currentNGHour}/`;
+            const url = baseUrl + encodeURIComponent(item);
+            return {
+                filename: item,
+                inspectionId: String(item).replace(/\.[^.]+$/, ""),
+                timestamp: `${window.currentNGDate || "-"} ${window.currentNGHour ? `${window.currentNGHour}:00` : "--:--"}`,
+                isQualified: false,
+                imageUrl: url,
+                renderedImageUrl: "",
+                thumbnailUrl: url,
+                displayImageUrl: url,
+                hasRenderedImage: false,
+                missingRenderedImage: true,
+            };
+        }
+
+        const record = item || {};
+        const imageUrl = pickTraceValue(record, "imageUrl", "ImageUrl");
+        const renderedImageUrl = pickTraceValue(record, "renderedImageUrl", "RenderedImageUrl");
+        return {
+            inspectionId: pickTraceValue(record, "inspectionId", "InspectionId") || "-",
+            productBarcode: pickTraceValue(record, "productBarcode", "ProductBarcode") || "-",
+            timestamp: pickTraceValue(record, "timestamp", "Timestamp") || "-",
+            isQualified: Boolean(pickTraceValue(record, "isQualified", "IsQualified")),
+            modelVersion: pickTraceValue(record, "modelVersion", "ModelVersion") || "",
+            modelName: pickTraceValue(record, "modelName", "ModelName") || "-",
+            cameraId: pickTraceValue(record, "cameraId", "CameraId") || "-",
+            imagePath: pickTraceValue(record, "imagePath", "ImagePath") || "",
+            renderedImagePath: pickTraceValue(record, "renderedImagePath", "RenderedImagePath") || "",
+            imageUrl,
+            renderedImageUrl,
+            thumbnailUrl: pickTraceValue(record, "thumbnailUrl", "ThumbnailUrl") || renderedImageUrl || imageUrl,
+            displayImageUrl: pickTraceValue(record, "displayImageUrl", "DisplayImageUrl") || renderedImageUrl || imageUrl,
+            hasRenderedImage: !!renderedImageUrl && pickTraceValue(record, "missingRenderedImage", "MissingRenderedImage") !== true,
+            missingRenderedImage: Boolean(pickTraceValue(record, "missingRenderedImage", "MissingRenderedImage")) || !renderedImageUrl,
+        };
+    }
+
+    function openTraceViewer(record, mode = "rendered") {
+        const normalized = normalizeTraceRecord(record);
+        const viewer = byId("image-viewer");
+        const img = byId("viewer-img");
+        const info = byId("viewer-info");
+        const reviewUrl = normalized.renderedImageUrl || "";
+        const originalUrl = normalized.imageUrl || "";
+        const activeMode = mode === "original" && originalUrl ? "original" : (reviewUrl ? "rendered" : "original");
+        const activeUrl = activeMode === "original" ? originalUrl : (reviewUrl || originalUrl);
+
+        if (img) {
+            img.src = activeUrl;
+            img.alt = normalized.inspectionId || "trace image";
+        }
+
+        if (info) {
+            const statusText = normalized.hasRenderedImage ? "复查图" : "无复查图";
+            info.innerHTML = `
+                <div class="cf-trace-viewer-meta">
+                    <strong>${escapeHtml(normalized.inspectionId)}</strong>
+                    <span>${escapeHtml(normalized.timestamp)}</span>
+                    <em>${escapeHtml(statusText)}</em>
+                </div>
+                <div class="cf-trace-viewer-actions">
+                    <button type="button" data-trace-mode="rendered" ${reviewUrl ? "" : "disabled"} class="${activeMode === "rendered" ? "active" : ""}">复查图</button>
+                    <button type="button" data-trace-mode="original" ${originalUrl ? "" : "disabled"} class="${activeMode === "original" ? "active" : ""}">训练原图</button>
+                </div>`;
+
+            info.querySelector('[data-trace-mode="rendered"]')?.addEventListener("click", (event) => {
+                event.stopPropagation();
+                openTraceViewer(normalized, "rendered");
+            });
+            info.querySelector('[data-trace-mode="original"]')?.addEventListener("click", (event) => {
+                event.stopPropagation();
+                openTraceViewer(normalized, "original");
+            });
+        }
+
+        viewer?.classList.remove("hidden");
+    }
+
     function updateNGImages(data) {
-        const images = Array.isArray(data) ? data : (data?.images || data?.Images || []);
+        const rawRecords = Array.isArray(data) ? data : (data?.records || data?.Records || data?.images || data?.Images || []);
+        const records = rawRecords.map(normalizeTraceRecord);
         const grid = byId("ng-image-grid");
         const badge = byId("gallery-count");
-        if (badge) badge.textContent = `${images.length} 张`;
+        if (badge) badge.textContent = `${records.length} 条`;
         if (!grid) return;
         grid.innerHTML = "";
 
-        if (!images.length) {
+        if (!records.length) {
             grid.innerHTML = '<div class="cf-trace-empty">此时间段未发现异常图片记录</div>';
             return;
         }
 
-        const baseUrl = `http://ng-images.local/Unqualified/${window.currentNGDate}/${window.currentNGHour}/`;
-        images.slice(0, 300).forEach((filename) => {
-            const url = baseUrl + encodeURIComponent(filename);
+        records.slice(0, 300).forEach((record) => {
+            const url = record.thumbnailUrl || record.displayImageUrl || "";
             const card = document.createElement("div");
-            const traceName = String(filename).replace(/\.[^.]+$/, "") || "-";
-            const date = window.currentNGDate || "-";
-            const hour = window.currentNGHour ? `${window.currentNGHour}:00` : "--:--";
+            const resultText = record.isQualified ? "OK" : "NG";
+            const resultClass = record.isQualified ? "ok" : "ng";
+            const reviewLabel = record.hasRenderedImage ? "复查图" : "无复查图";
+            const model = record.modelVersion || record.modelName || "-";
+            const imageMarkup = url
+                ? `<img src="${url}" loading="lazy" alt="${escapeHtml(record.inspectionId)}">`
+                : `<div class="cf-trace-thumb-missing">无图像</div>`;
             card.className = "cf-trace-card";
             card.innerHTML = `<div class="cf-trace-thumb">
-                    <img src="${url}" loading="lazy" alt="${escapeHtml(filename)}">
-                    <span>NG</span>
+                    ${imageMarkup}
+                    <span class="${resultClass}">${escapeHtml(resultText)}</span>
+                    <em>${escapeHtml(reviewLabel)}</em>
                 </div>
                 <div class="cf-trace-card-body">
                     <div>
-                        <p>文件: ${escapeHtml(traceName)}</p>
-                        <p>${escapeHtml(date)} ${escapeHtml(hour)}</p>
+                        <p>${escapeHtml(record.productBarcode || "-")}</p>
+                        <p>${escapeHtml(record.timestamp || "-")}</p>
+                        <p>ID: ${escapeHtml(record.inspectionId || "-")}</p>
+                        <p>模型: ${escapeHtml(model)}</p>
+                        <p>相机: ${escapeHtml(record.cameraId || "-")}</p>
                     </div>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
                             d="M12 3 2.7 20h18.6L12 3Zm0 6v5m0 3h.01" />
                     </svg>
                 </div>
-                <button type="button">View Details -></button>`;
-            card.onclick = () => {
-                if (byId("viewer-img")) byId("viewer-img").src = url;
-                if (byId("viewer-info")) byId("viewer-info").innerText = filename;
-                byId("image-viewer")?.classList.remove("hidden");
-            };
+                <button type="button">查看详情</button>`;
+            card.onclick = () => openTraceViewer(record, "rendered");
             grid.appendChild(card);
         });
     }

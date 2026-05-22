@@ -65,6 +65,7 @@ namespace ClearFrost
             _storageService = _appRuntime.StorageService;
             _statisticsService = _appRuntime.StatisticsService;
             _databaseService = _appRuntime.DatabaseService;
+            _uiController.DatabaseService = _databaseService;
             SafeFireAndForget(_databaseService.InitializeAsync(), "数据库初始化");
             _imageSaveQueue = _appRuntime.ImageSaveQueue;
             _detectionRecordQueue = _appRuntime.DetectionRecordQueue;

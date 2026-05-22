@@ -25,6 +25,13 @@ namespace ClearFrost.Services
         bool Accepted,
         DetectionDropReason? DropReason);
 
+    public enum ImageSavePurpose
+    {
+        General,
+        TraceOriginal,
+        TraceRendered
+    }
+
     internal sealed class DetectionTriggerGate : IDisposable
     {
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
@@ -194,20 +201,34 @@ namespace ClearFrost.Services
 
     internal sealed class ImageSavePayload : IDisposable
     {
-        public ImageSavePayload(Mat image, string path)
+        public ImageSavePayload(
+            Mat image,
+            string path,
+            int? jpegQuality = null,
+            ImageSavePurpose purpose = ImageSavePurpose.General)
         {
             Image = image ?? throw new ArgumentNullException(nameof(image));
             Path = path ?? throw new ArgumentNullException(nameof(path));
+            JpegQuality = jpegQuality.HasValue ? Math.Clamp(jpegQuality.Value, 1, 100) : null;
+            Purpose = purpose;
         }
 
         public Mat Image { get; }
 
         public string Path { get; }
 
-        public static ImageSavePayload Create(Mat image, string path)
+        public int? JpegQuality { get; }
+
+        public ImageSavePurpose Purpose { get; }
+
+        public static ImageSavePayload Create(
+            Mat image,
+            string path,
+            int? jpegQuality = null,
+            ImageSavePurpose purpose = ImageSavePurpose.General)
         {
             if (image == null) throw new ArgumentNullException(nameof(image));
-            return new ImageSavePayload(image.Clone(), path);
+            return new ImageSavePayload(image.Clone(), path, jpegQuality, purpose);
         }
 
         public void Dispose()

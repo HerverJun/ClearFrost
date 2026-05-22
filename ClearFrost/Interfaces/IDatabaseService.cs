@@ -52,6 +52,39 @@ namespace ClearFrost.Interfaces
     }
 
     /// <summary>
+    /// 追溯页轻量记录模型，仅包含列表与图片定位所需字段。
+    /// </summary>
+    public class DetectionTraceRecord
+    {
+        public long Id { get; set; }
+        public DateTime Timestamp { get; set; }
+        public bool IsQualified { get; set; }
+        public string InspectionId { get; set; } = "";
+        public string ProductBarcode { get; set; } = "";
+        public string ModelVersion { get; set; } = "";
+        public string ModelName { get; set; } = "";
+        public string CameraId { get; set; } = "";
+        public string ImagePath { get; set; } = "";
+        public string RenderedImagePath { get; set; } = "";
+    }
+
+    /// <summary>
+    /// 追溯页查询条件。
+    /// </summary>
+    public class DetectionTraceQuery
+    {
+        public string? InspectionId { get; set; }
+        public string? ProductBarcode { get; set; }
+        public string? ModelVersion { get; set; }
+        public string? ModelName { get; set; }
+        public string? CameraId { get; set; }
+        public bool? IsQualified { get; set; }
+        public DateTime? StartTime { get; set; }
+        public DateTime? EndTime { get; set; }
+        public int Limit { get; set; } = 100;
+    }
+
+    /// <summary>
     /// 数据库服务接口
     /// </summary>
     public interface IDatabaseService : IDisposable
@@ -74,6 +107,21 @@ namespace ClearFrost.Interfaces
         /// <param name="isQualified">是否合格（可选筛选）</param>
         /// <param name="limit">返回记录数限制</param>
         Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100);
+
+        /// <summary>
+        /// 查询追溯页轻量记录。
+        /// </summary>
+        Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query);
+
+        /// <summary>
+        /// 查询追溯页可用日期键（yyyy-MM-dd）。
+        /// </summary>
+        Task<List<string>> GetTraceDateKeysAsync(bool? isQualified = null, int limit = 60);
+
+        /// <summary>
+        /// 查询追溯页指定日期可用小时键（HH）。
+        /// </summary>
+        Task<List<string>> GetTraceHourKeysAsync(DateTime date, bool? isQualified = null);
 
         /// <summary>
         /// 获取统计数据

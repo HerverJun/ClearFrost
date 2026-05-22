@@ -1062,7 +1062,11 @@ namespace ClearFrost
                 string fileName = BuildTraceImageFileName(isQualified, safeInspectionId, context.ProductBarcode);
                 string filePath = Path.Combine(directory, fileName);
                 context.ImagePath = filePath;
-                payloads.Add(ImageSavePayload.Create(image, filePath));
+                payloads.Add(ImageSavePayload.Create(
+                    image,
+                    filePath,
+                    jpegQuality: 70,
+                    purpose: ImageSavePurpose.TraceOriginal));
 
                 if (renderedImage != null && !renderedImage.Empty())
                 {
@@ -1072,7 +1076,11 @@ namespace ClearFrost
                     string renderedFileName = AddFileNameSuffix(fileName, "_rendered");
                     string renderedPath = Path.Combine(renderedDirectory, renderedFileName);
                     context.RenderedImagePath = renderedPath;
-                    payloads.Add(ImageSavePayload.Create(renderedImage, renderedPath));
+                    payloads.Add(ImageSavePayload.Create(
+                        renderedImage,
+                        renderedPath,
+                        jpegQuality: 95,
+                        purpose: ImageSavePurpose.TraceRendered));
                 }
 
                 return payloads;

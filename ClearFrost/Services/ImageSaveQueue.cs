@@ -61,14 +61,18 @@ namespace ClearFrost.Services
         /// <summary>
         /// 将图像入队。内部会 clone 一份，调用方可立即释放原 Mat。
         /// </summary>
-        public bool Enqueue(Mat image, string path)
+        public bool Enqueue(
+            Mat image,
+            string path,
+            int? jpegQuality = null,
+            ImageSavePurpose purpose = ImageSavePurpose.General)
         {
             if (_disposed || image == null || image.Empty() || string.IsNullOrWhiteSpace(path))
             {
                 return false;
             }
 
-            ImageSavePayload payload = ImageSavePayload.Create(image, path);
+            ImageSavePayload payload = ImageSavePayload.Create(image, path, jpegQuality, purpose);
             if (Enqueue(payload))
             {
                 return true;
@@ -149,7 +153,12 @@ namespace ClearFrost.Services
                                 Directory.CreateDirectory(dir);
                             }
 
-                            Cv2.ImWrite(item.Path, item.Image);
+                            bool written = Cv2.ImWrite(item.Path, item.Image, BuildEncodingParams(item));
+                            if (!written)
+                            {
+                                throw new IOException($"OpenCV returned false for {item.Path}");
+                            }
+
                             Interlocked.Increment(ref _savedCount);
                         }
                         catch (Exception ex)
@@ -205,6 +214,26 @@ namespace ClearFrost.Services
             {
                 _cts.Dispose();
             }
+        }
+
+        internal static ImageEncodingParam[] BuildEncodingParams(ImageSavePayload payload)
+        {
+            if (payload.JpegQuality.HasValue && IsJpegPath(payload.Path))
+            {
+                return new[]
+                {
+                    new ImageEncodingParam(ImwriteFlags.JpegQuality, payload.JpegQuality.Value)
+                };
+            }
+
+            return Array.Empty<ImageEncodingParam>();
+        }
+
+        private static bool IsJpegPath(string path)
+        {
+            string extension = Path.GetExtension(path);
+            return string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(extension, ".jpeg", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

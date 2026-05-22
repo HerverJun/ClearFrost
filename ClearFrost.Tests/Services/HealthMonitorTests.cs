@@ -175,6 +175,12 @@ public class HealthMonitorTests
         public Task SaveDetectionRecordAsync(DetectionRecord record) => Task.CompletedTask;
         public Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100)
             => Task.FromResult(new List<DetectionRecord>());
+        public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
+            => Task.FromResult(new List<DetectionTraceRecord>());
+        public Task<List<string>> GetTraceDateKeysAsync(bool? isQualified = null, int limit = 60)
+            => Task.FromResult(new List<string>());
+        public Task<List<string>> GetTraceHourKeysAsync(DateTime date, bool? isQualified = null)
+            => Task.FromResult(new List<string>());
         public Task<(int total, int pass, int fail)> GetStatisticsAsync(DateTime date) => Task.FromResult((0, 0, 0));
         public Task<int> CleanupOldRecordsAsync(int daysToKeep) => Task.FromResult(0);
         public void Dispose() { }

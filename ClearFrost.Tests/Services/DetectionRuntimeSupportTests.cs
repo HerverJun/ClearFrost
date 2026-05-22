@@ -65,6 +65,54 @@ namespace ClearFrost.Tests.Services
         }
 
         [Fact]
+        public void ImageSavePayload_Create会携带JPEG质量和用途()
+        {
+            using var source = new Mat(2, 2, MatType.CV_8UC3, Scalar.All(42));
+            using ImageSavePayload payload = ImageSavePayload.Create(
+                source,
+                "trace.jpg",
+                jpegQuality: 70,
+                purpose: ImageSavePurpose.TraceOriginal);
+
+            payload.JpegQuality.Should().Be(70);
+            payload.Purpose.Should().Be(ImageSavePurpose.TraceOriginal);
+
+            ImageEncodingParam[] parameters = ImageSaveQueue.BuildEncodingParams(payload);
+            parameters.Should().ContainSingle();
+            parameters[0].EncodingId.Should().Be(ImwriteFlags.JpegQuality);
+            parameters[0].Value.Should().Be(70);
+        }
+
+        [Fact]
+        public void DetectionTraceImageResolver_优先使用带框图并在缺失时回退原图()
+        {
+            const string imagePath = @"C:\Trace\FAIL_CF-1.jpg";
+            const string renderedPath = @"C:\Trace\Rendered\FAIL_CF-1_rendered.jpg";
+
+            var record = new DetectionTraceRecord
+            {
+                ImagePath = imagePath,
+                RenderedImagePath = renderedPath
+            };
+
+            DetectionTraceImageResolution resolved = DetectionTraceImageResolver.Resolve(
+                record,
+                path => string.Equals(path, renderedPath, StringComparison.OrdinalIgnoreCase));
+
+            resolved.HasRenderedImage.Should().BeTrue();
+            resolved.RenderedImagePath.Should().Be(renderedPath);
+            resolved.DisplayImagePath.Should().Be(renderedPath);
+
+            DetectionTraceImageResolution fallback = DetectionTraceImageResolver.Resolve(
+                new DetectionTraceRecord { ImagePath = imagePath },
+                path => string.Equals(path, imagePath, StringComparison.OrdinalIgnoreCase));
+
+            fallback.HasRenderedImage.Should().BeFalse();
+            fallback.DisplayImagePath.Should().Be(imagePath);
+            fallback.MissingRenderedImage.Should().BeTrue();
+        }
+
+        [Fact]
         public void BuildTraceImageFileName_包含安全化条码()
         {
             MethodInfo? method = typeof(global::ClearFrost.主窗口).GetMethod(
@@ -129,6 +177,15 @@ namespace ClearFrost.Tests.Services
 
             public Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100)
                 => Task.FromResult(new List<DetectionRecord>());
+
+            public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
+                => Task.FromResult(new List<DetectionTraceRecord>());
+
+            public Task<List<string>> GetTraceDateKeysAsync(bool? isQualified = null, int limit = 60)
+                => Task.FromResult(new List<string>());
+
+            public Task<List<string>> GetTraceHourKeysAsync(DateTime date, bool? isQualified = null)
+                => Task.FromResult(new List<string>());
 
             public Task<(int total, int pass, int fail)> GetStatisticsAsync(DateTime date)
                 => Task.FromResult((0, 0, 0));

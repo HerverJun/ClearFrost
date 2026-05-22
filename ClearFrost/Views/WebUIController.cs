@@ -36,6 +36,7 @@ using System.Threading;
 using OpenCvSharp;
 using ClearFrost.Core.Inspection;
 using ClearFrost.Interfaces;
+using ClearFrost.Services;
 
 namespace ClearFrost
 {
@@ -45,6 +46,7 @@ namespace ClearFrost
     public partial class WebUIController : IDisposable
     {
         private const string PreviewHostName = "preview.local";
+        private const string ImageHostName = "ng-images.local";
 
         private WebView2? _webView;
         private readonly object _logThrottleLock = new object();
@@ -119,6 +121,7 @@ namespace ClearFrost
 
         public string ImageBasePath { get; set; } = "";
         public bool UseFileBackedImageTransport { get; set; }
+        public IDatabaseService? DatabaseService { get; set; }
 
         /// <summary>
         /// Maps the image folder to a virtual host for direct access.
@@ -140,7 +143,7 @@ namespace ClearFrost
 
                 // Map http://ng-images.local/ to the local folder
                 webView!.CoreWebView2!.SetVirtualHostNameToFolderMapping(
-                    "ng-images.local",
+                    ImageHostName,
                     localPath,
                     CoreWebView2HostResourceAccessKind.Allow);
             }
@@ -1139,72 +1142,167 @@ namespace ClearFrost
 
         private async Task SendNGDates()
         {
-            if (string.IsNullOrEmpty(ImageBasePath) || _webView == null) return;
+            if (_webView == null) return;
             try
             {
-                string path = Path.Combine(ImageBasePath, "Unqualified");
-                if (Directory.Exists(path))
-                {
-                    var dates = Directory.GetDirectories(path)
-                        .Select(Path.GetFileName)
-                        .OrderByDescending(d => d) // Newest first
-                        .ToArray();
-                    PostMessage("historyDates", dates);
-                }
-                else
+                if (DatabaseService == null)
                 {
                     PostMessage("historyDates", Array.Empty<string>());
+                    return;
                 }
+
+                List<string> dates = await DatabaseService.GetTraceDateKeysAsync(isQualified: false);
+                PostMessage("historyDates", dates);
             }
             catch (Exception ex)
             {
                 await LogToFrontend($"获取日期列表失败: {ex.Message}", "error");
+                PostMessage("historyDates", Array.Empty<string>());
             }
         }
 
         private async Task SendNGHours(string? date)
         {
-            if (string.IsNullOrEmpty(ImageBasePath) || string.IsNullOrEmpty(date) || _webView == null) return;
+            if (string.IsNullOrEmpty(date) || _webView == null) return;
             try
             {
-                string path = Path.Combine(ImageBasePath, "Unqualified", date);
-                if (Directory.Exists(path))
-                {
-                    var hours = Directory.GetDirectories(path)
-                        .Select(Path.GetFileName)
-                        .OrderByDescending(h => h)
-                        .ToArray();
-                    PostMessage("historyHours", hours);
-                }
-                else
+                if (DatabaseService == null || !TryParseTraceDate(date, out DateTime traceDate))
                 {
                     PostMessage("historyHours", Array.Empty<string>());
+                    return;
                 }
+
+                List<string> hours = await DatabaseService.GetTraceHourKeysAsync(traceDate, isQualified: false);
+                PostMessage("historyHours", hours);
             }
             catch { PostMessage("historyHours", Array.Empty<string>()); }
         }
 
         private async Task SendNGImages(string date, string hour)
         {
-            if (string.IsNullOrEmpty(ImageBasePath) || string.IsNullOrEmpty(date) || string.IsNullOrEmpty(hour) || _webView == null) return;
+            if (string.IsNullOrEmpty(date) || _webView == null) return;
             try
             {
-                string path = Path.Combine(ImageBasePath, "Unqualified", date, hour);
-                if (Directory.Exists(path))
+                if (DatabaseService == null || !TryParseTraceDate(date, out DateTime traceDate))
                 {
-                    var images = Directory.GetFiles(path, "*.*")
-                        .Where(s => s.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || s.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
-                        .Select(Path.GetFileName)
-                        .OrderByDescending(f => f)
-                        .ToArray();
-                    PostMessage("historyImages", images);
+                    PostMessage("historyImages", Array.Empty<object>());
+                    return;
                 }
-                else
+
+                var query = new DetectionTraceQuery
                 {
-                    PostMessage("historyImages", Array.Empty<string>());
+                    IsQualified = false,
+                    StartTime = traceDate.Date,
+                    EndTime = traceDate.Date.AddDays(1).AddMilliseconds(-1),
+                    Limit = 300
+                };
+
+                if (TryParseTraceHour(hour, out int traceHour))
+                {
+                    DateTime start = traceDate.Date.AddHours(traceHour);
+                    query.StartTime = start;
+                    query.EndTime = start.AddHours(1).AddMilliseconds(-1);
                 }
+
+                List<DetectionTraceRecord> records = await DatabaseService.GetTraceRecordsAsync(query);
+                object[] payload = records.Select(BuildTraceRecordPayload).ToArray();
+                PostMessage("historyImages", new { records = payload, images = payload });
             }
             catch { PostMessage("historyImages", Array.Empty<string>()); }
+        }
+
+        private object BuildTraceRecordPayload(DetectionTraceRecord record)
+        {
+            var resolution = DetectionTraceImageResolver.Resolve(record);
+            string? imageUrl = TryCreateImageUrl(resolution.ImagePath);
+            string? renderedImageUrl = TryCreateImageUrl(resolution.RenderedImagePath);
+            bool hasRenderedImage = !string.IsNullOrWhiteSpace(renderedImageUrl);
+            bool hasImage = !string.IsNullOrWhiteSpace(imageUrl);
+
+            return new
+            {
+                id = record.Id,
+                inspectionId = record.InspectionId,
+                productBarcode = record.ProductBarcode,
+                timestamp = record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"),
+                isQualified = record.IsQualified,
+                modelVersion = record.ModelVersion,
+                modelName = record.ModelName,
+                cameraId = record.CameraId,
+                imagePath = resolution.ImagePath,
+                renderedImagePath = resolution.RenderedImagePath,
+                imageUrl = imageUrl,
+                renderedImageUrl = renderedImageUrl,
+                thumbnailUrl = renderedImageUrl ?? imageUrl,
+                displayImageUrl = renderedImageUrl ?? imageUrl,
+                hasImage = hasImage,
+                hasRenderedImage = hasRenderedImage,
+                missingRenderedImage = !hasRenderedImage,
+                usedDerivedRenderedPath = resolution.UsedDerivedRenderedPath
+            };
+        }
+
+        private string? TryCreateImageUrl(string path)
+        {
+            if (string.IsNullOrWhiteSpace(ImageBasePath) || string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    return null;
+                }
+
+                string basePath = Path.GetFullPath(ImageBasePath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string fullPath = Path.GetFullPath(path);
+                string relativePath = Path.GetRelativePath(basePath, fullPath);
+
+                if (relativePath.StartsWith("..", StringComparison.Ordinal) ||
+                    Path.IsPathRooted(relativePath))
+                {
+                    return null;
+                }
+
+                string[] segments = relativePath
+                    .Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+                string encodedPath = string.Join("/", segments.Select(Uri.EscapeDataString));
+                return $"http://{ImageHostName}/{encodedPath}";
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool TryParseTraceDate(string value, out DateTime date)
+        {
+            if (DateTime.TryParse(value, out date))
+            {
+                date = date.Date;
+                return true;
+            }
+
+            return DateTime.TryParseExact(
+                value,
+                "yyyy年MM月dd日",
+                null,
+                System.Globalization.DateTimeStyles.None,
+                out date);
+        }
+
+        private static bool TryParseTraceHour(string value, out int hour)
+        {
+            if (int.TryParse(value, out hour) && hour >= 0 && hour <= 23)
+            {
+                return true;
+            }
+
+            hour = 0;
+            return false;
         }
 
         /// <summary>

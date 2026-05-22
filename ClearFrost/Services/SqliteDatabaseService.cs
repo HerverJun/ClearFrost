@@ -2,6 +2,7 @@
 using System.IO;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
@@ -17,6 +18,8 @@ namespace ClearFrost.Services
     public class SqliteDatabaseService : IDatabaseService
     {
         private const int BusyTimeoutMs = 5000;
+        private const int DefaultTraceLimit = 100;
+        private const int MaxTraceLimit = 300;
         private static readonly string[] DetectionRecordColumns =
         {
             "Timestamp",
@@ -380,6 +383,12 @@ namespace ClearFrost.Services
             indexCommand.CommandText = @"
                 CREATE INDEX IF NOT EXISTS idx_inspection_id ON DetectionRecords(InspectionId);
                 CREATE INDEX IF NOT EXISTS idx_product_barcode ON DetectionRecords(ProductBarcode);
+                CREATE INDEX IF NOT EXISTS idx_trace_time_result
+                    ON DetectionRecords(Timestamp DESC, IsQualified, Id DESC);
+                CREATE INDEX IF NOT EXISTS idx_trace_model_camera_time
+                    ON DetectionRecords(ModelVersion, CameraId, Timestamp DESC, Id DESC);
+                CREATE INDEX IF NOT EXISTS idx_trace_model_name_time
+                    ON DetectionRecords(ModelName, Timestamp DESC, Id DESC);
             ";
             indexCommand.ExecuteNonQuery();
         }
@@ -709,6 +718,222 @@ namespace ClearFrost.Services
             }
 
             return records;
+        }
+
+        public async Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
+        {
+            if (!_initialized) await InitializeAsync();
+
+            query ??= new DetectionTraceQuery();
+            var records = new List<DetectionTraceRecord>();
+
+            try
+            {
+                using var connection = await OpenConnectionAsync();
+
+                var conditions = new List<string>();
+                using var command = connection.CreateCommand();
+
+                AddTextFilter(command, conditions, "InspectionId", query.InspectionId);
+                AddTextFilter(command, conditions, "ProductBarcode", query.ProductBarcode);
+                AddTextFilter(command, conditions, "ModelVersion", query.ModelVersion);
+                AddTextFilter(command, conditions, "ModelName", query.ModelName);
+                AddTextFilter(command, conditions, "CameraId", query.CameraId);
+
+                if (query.IsQualified.HasValue)
+                {
+                    conditions.Add("IsQualified = @IsQualified");
+                    command.Parameters.AddWithValue("@IsQualified", query.IsQualified.Value ? 1 : 0);
+                }
+
+                if (query.StartTime.HasValue)
+                {
+                    conditions.Add("Timestamp >= @StartTime");
+                    command.Parameters.AddWithValue("@StartTime", FormatTimestamp(query.StartTime.Value));
+                }
+
+                if (query.EndTime.HasValue)
+                {
+                    conditions.Add("Timestamp <= @EndTime");
+                    command.Parameters.AddWithValue("@EndTime", FormatTimestamp(query.EndTime.Value));
+                }
+
+                string whereClause = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
+                command.CommandText = $@"
+                    SELECT
+                        Id,
+                        Timestamp,
+                        IsQualified,
+                        InspectionId,
+                        ProductBarcode,
+                        ModelVersion,
+                        ModelName,
+                        CameraId,
+                        ImagePath,
+                        RenderedImagePath
+                    FROM DetectionRecords
+                    {whereClause}
+                    ORDER BY Timestamp DESC, Id DESC
+                    LIMIT @Limit;
+                ";
+                command.Parameters.AddWithValue("@Limit", ClampTraceLimit(query.Limit));
+
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    records.Add(new DetectionTraceRecord
+                    {
+                        Id = GetInt64OrDefault(reader, "Id"),
+                        Timestamp = ParseTimestamp(GetStringOrDefault(reader, "Timestamp")),
+                        IsQualified = GetInt32OrDefault(reader, "IsQualified") == 1,
+                        InspectionId = GetStringOrDefault(reader, "InspectionId"),
+                        ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
+                        ModelVersion = GetStringOrDefault(reader, "ModelVersion"),
+                        ModelName = GetStringOrDefault(reader, "ModelName"),
+                        CameraId = GetStringOrDefault(reader, "CameraId"),
+                        ImagePath = GetStringOrDefault(reader, "ImagePath"),
+                        RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath")
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SqliteDatabaseService] Trace query error: {ex.Message}");
+            }
+
+            return records;
+        }
+
+        public async Task<List<string>> GetTraceDateKeysAsync(bool? isQualified = null, int limit = 60)
+        {
+            if (!_initialized) await InitializeAsync();
+
+            var dates = new List<string>();
+
+            try
+            {
+                using var connection = await OpenConnectionAsync();
+                using var command = connection.CreateCommand();
+
+                string whereClause = "";
+                if (isQualified.HasValue)
+                {
+                    whereClause = "WHERE IsQualified = @IsQualified";
+                    command.Parameters.AddWithValue("@IsQualified", isQualified.Value ? 1 : 0);
+                }
+
+                command.CommandText = $@"
+                    SELECT substr(Timestamp, 1, 10) AS DateKey
+                    FROM DetectionRecords
+                    {whereClause}
+                    GROUP BY DateKey
+                    ORDER BY DateKey DESC
+                    LIMIT @Limit;
+                ";
+                command.Parameters.AddWithValue("@Limit", Math.Clamp(limit <= 0 ? 60 : limit, 1, 365));
+
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    if (!reader.IsDBNull(0))
+                    {
+                        dates.Add(reader.GetString(0));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SqliteDatabaseService] Trace date query error: {ex.Message}");
+            }
+
+            return dates;
+        }
+
+        public async Task<List<string>> GetTraceHourKeysAsync(DateTime date, bool? isQualified = null)
+        {
+            if (!_initialized) await InitializeAsync();
+
+            var hours = new List<string>();
+
+            try
+            {
+                using var connection = await OpenConnectionAsync();
+                using var command = connection.CreateCommand();
+
+                var conditions = new List<string>
+                {
+                    "Timestamp >= @StartTime",
+                    "Timestamp <= @EndTime"
+                };
+                command.Parameters.AddWithValue("@StartTime", FormatTimestamp(date.Date));
+                command.Parameters.AddWithValue("@EndTime", FormatTimestamp(date.Date.AddDays(1).AddMilliseconds(-1)));
+
+                if (isQualified.HasValue)
+                {
+                    conditions.Add("IsQualified = @IsQualified");
+                    command.Parameters.AddWithValue("@IsQualified", isQualified.Value ? 1 : 0);
+                }
+
+                command.CommandText = $@"
+                    SELECT substr(Timestamp, 12, 2) AS HourKey
+                    FROM DetectionRecords
+                    WHERE {string.Join(" AND ", conditions)}
+                    GROUP BY HourKey
+                    ORDER BY HourKey DESC;
+                ";
+
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    if (!reader.IsDBNull(0))
+                    {
+                        hours.Add(reader.GetString(0));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SqliteDatabaseService] Trace hour query error: {ex.Message}");
+            }
+
+            return hours;
+        }
+
+        private static void AddTextFilter(
+            SqliteCommand command,
+            List<string> conditions,
+            string columnName,
+            string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return;
+            }
+
+            string parameterName = "@" + columnName;
+            conditions.Add($"{QuoteIdentifier(columnName)} = {parameterName}");
+            command.Parameters.AddWithValue(parameterName, value.Trim());
+        }
+
+        private static int ClampTraceLimit(int limit)
+        {
+            return Math.Clamp(limit <= 0 ? DefaultTraceLimit : limit, 1, MaxTraceLimit);
+        }
+
+        private static string FormatTimestamp(DateTime timestamp)
+        {
+            return timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+        }
+
+        private static DateTime ParseTimestamp(string timestamp)
+        {
+            return DateTime.TryParse(
+                timestamp,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeLocal,
+                out DateTime parsed)
+                    ? parsed
+                    : DateTime.MinValue;
         }
 
         private static string GetStringOrDefault(SqliteDataReader reader, string columnName)

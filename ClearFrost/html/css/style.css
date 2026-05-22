@@ -3541,7 +3541,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card {
-    height: 236px;
+    height: 284px;
     overflow: hidden;
     background: #ffffff;
     border: 1px solid #dde6f1;
@@ -3582,14 +3582,44 @@ input[type="range"]::-webkit-slider-runnable-track {
     font-weight: 800;
 }
 
+.cf-stitch-page #gallery-modal .cf-trace-thumb span.ok {
+    color: #047857;
+    background: #d1fae5;
+    border-color: #a7f3d0;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-thumb em {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    padding: 3px 8px;
+    color: #334155;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(203, 213, 225, 0.92);
+    border-radius: 999px;
+    font-size: 10px;
+    font-style: normal;
+    font-weight: 800;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-thumb-missing {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+}
+
 .cf-stitch-page #gallery-modal .cf-trace-card-body {
     display: flex;
     justify-content: space-between;
     gap: 10px;
-    padding: 12px 13px 4px;
+    padding: 10px 13px 2px;
     color: #334155;
     font-size: 11px;
-    line-height: 1.55;
+    line-height: 1.38;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card-body p {
@@ -3597,7 +3627,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card-body p:first-child {
-    max-width: 132px;
+    max-width: 148px;
     overflow: hidden;
     color: #0f172a;
     font-weight: 800;
@@ -3622,6 +3652,62 @@ input[type="range"]::-webkit-slider-runnable-track {
     border: 0;
     font-size: 11px;
     font-weight: 800;
+}
+
+.cf-stitch-page #gallery-modal #viewer-info {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    max-width: min(760px, calc(100vw - 56px));
+    padding: 10px 12px;
+    border-radius: 8px;
+    white-space: normal;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-viewer-meta {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+    text-align: left;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-viewer-meta strong,
+.cf-stitch-page #gallery-modal .cf-trace-viewer-meta span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-viewer-meta em {
+    color: #bfdbfe;
+    font-style: normal;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-viewer-actions {
+    flex: 0 0 auto;
+    display: inline-flex;
+    gap: 6px;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-viewer-actions button {
+    height: 30px;
+    padding: 0 10px;
+    color: #dbeafe;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-viewer-actions button.active {
+    color: #0f172a;
+    background: #ffffff;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-viewer-actions button:disabled {
+    opacity: 0.42;
+    cursor: not-allowed;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-empty {
