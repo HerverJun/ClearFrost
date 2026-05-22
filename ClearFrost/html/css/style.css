@@ -2912,6 +2912,354 @@ input[type="range"]::-webkit-slider-runnable-track {
     border: 0 !important;
 }
 
+/* Settings workspace refresh: align buttons with the main Stitch console. */
+.cf-stitch-page #settings-modal {
+    --settings-primary: #0b5cab;
+    --settings-primary-hover: #084c93;
+    --settings-primary-soft: #dcecff;
+    --settings-primary-soft-hover: #edf5ff;
+    --settings-border: #cfd9e6;
+    --settings-border-hover: #aec8e4;
+    --settings-danger: #b42318;
+    --settings-danger-soft: #fff1f0;
+    --settings-danger-border: #fecdca;
+    --settings-text: #39465a;
+}
+
+.cf-stitch-page #settings-modal .cf-settings-content {
+    padding: 30px 34px 32px !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section] {
+    border-color: #dbe3ee !important;
+    border-radius: 10px !important;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04) !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section] > h3 {
+    margin-bottom: 18px !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="preset"] {
+    display: grid;
+    gap: 18px;
+    padding: 30px 34px !important;
+    border: 1px solid #dbe3ee !important;
+    border-radius: 10px !important;
+    background: #ffffff !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="preset"] > div {
+    padding: 20px !important;
+    background: #ffffff !important;
+    border: 1px solid #dbe3ee !important;
+    border-radius: 8px !important;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04) !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="preset"] > div + div {
+    margin-top: 0 !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="preset"] label {
+    color: #475467 !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="preset"] code {
+    color: var(--settings-primary) !important;
+    background: var(--settings-primary-soft) !important;
+    border-radius: 4px !important;
+}
+
+.cf-stitch-page #settings-modal label {
+    margin-bottom: 7px !important;
+    color: #475467 !important;
+    font-weight: 700 !important;
+}
+
+.cf-stitch-page #settings-modal input:not([type="checkbox"]):not([type="range"]),
+.cf-stitch-page #settings-modal select,
+.cf-stitch-page #settings-modal .tech-input {
+    height: 36px !important;
+    min-height: 36px !important;
+    border-color: var(--settings-border) !important;
+    border-radius: 6px !important;
+    background: #ffffff !important;
+}
+
+.cf-stitch-page #settings-modal input:not([type="checkbox"]):not([type="range"]):focus,
+.cf-stitch-page #settings-modal select:focus,
+.cf-stitch-page #settings-modal .tech-input:focus {
+    border-color: var(--settings-primary) !important;
+    box-shadow: 0 0 0 3px rgba(11, 92, 171, 0.14) !important;
+}
+
+.cf-stitch-page #settings-modal button:not(.cf-settings-tab) {
+    min-height: 36px;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 0 14px !important;
+    color: var(--settings-text) !important;
+    background: #f7f9fc !important;
+    border: 1px solid var(--settings-border) !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    font-family: "Inter", "Microsoft YaHei", sans-serif !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    line-height: 1 !important;
+    letter-spacing: 0 !important;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+        color 0.16s ease,
+        background-color 0.16s ease,
+        border-color 0.16s ease,
+        box-shadow 0.16s ease;
+}
+
+.cf-stitch-page #settings-modal button:not(.cf-settings-tab):hover {
+    color: var(--settings-primary) !important;
+    background: #ffffff !important;
+    border-color: var(--settings-border-hover) !important;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06) !important;
+}
+
+.cf-stitch-page #settings-modal button:not(.cf-settings-tab):disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.cf-stitch-page #settings-modal button:not(.cf-settings-tab) svg {
+    width: 16px !important;
+    height: 16px !important;
+    flex: 0 0 auto;
+}
+
+.cf-stitch-page #settings-modal button[data-action="saveSettings"],
+.cf-stitch-page #settings-modal button[data-action="saveProjectPresetAsNew"],
+.cf-stitch-page #settings-modal button[data-action="updateSelectedProjectPreset"],
+.cf-stitch-page #settings-modal button[data-action="addInspectionRule"],
+.cf-stitch-page #settings-modal button[data-action="addNewCamera"],
+.cf-stitch-page #settings-modal button[data-cmd="test_yolo"],
+.cf-stitch-page #settings-modal #btn-collect-dataset,
+.cf-stitch-page #settings-modal #btn-camera-preview-frame {
+    color: #ffffff !important;
+    background: var(--settings-primary) !important;
+    border-color: var(--settings-primary) !important;
+    box-shadow: 0 3px 10px rgba(11, 92, 171, 0.18) !important;
+}
+
+.cf-stitch-page #settings-modal button[data-action="saveSettings"]:hover,
+.cf-stitch-page #settings-modal button[data-action="saveProjectPresetAsNew"]:hover,
+.cf-stitch-page #settings-modal button[data-action="updateSelectedProjectPreset"]:hover,
+.cf-stitch-page #settings-modal button[data-action="addInspectionRule"]:hover,
+.cf-stitch-page #settings-modal button[data-action="addNewCamera"]:hover,
+.cf-stitch-page #settings-modal button[data-cmd="test_yolo"]:hover,
+.cf-stitch-page #settings-modal #btn-collect-dataset:hover,
+.cf-stitch-page #settings-modal #btn-camera-preview-frame:hover {
+    color: #ffffff !important;
+    background: var(--settings-primary-hover) !important;
+    border-color: var(--settings-primary-hover) !important;
+    box-shadow: 0 5px 14px rgba(11, 92, 171, 0.22) !important;
+}
+
+.cf-stitch-page #settings-modal button[data-cmd="get_model_list"],
+.cf-stitch-page #settings-modal button[data-cmd="get_camera_list"],
+.cf-stitch-page #settings-modal button[data-cmd="serial_auto_detect_ports"],
+.cf-stitch-page #settings-modal button[data-cmd="serial_simulate_trigger"],
+.cf-stitch-page #settings-modal button[data-cmd="serial_test_trigger"],
+.cf-stitch-page #settings-modal button[data-action="searchCamerasHuaray"],
+.cf-stitch-page #settings-modal button[data-action="searchCamerasHik"],
+.cf-stitch-page #settings-modal button[data-action="duplicateInspectionRule"],
+.cf-stitch-page #settings-modal button[data-cmd="select_storage_folder"] {
+    color: var(--settings-primary) !important;
+    background: var(--settings-primary-soft) !important;
+    border-color: #b9d7f7 !important;
+}
+
+.cf-stitch-page #settings-modal button[data-cmd="get_model_list"]:hover,
+.cf-stitch-page #settings-modal button[data-cmd="get_camera_list"]:hover,
+.cf-stitch-page #settings-modal button[data-cmd="serial_auto_detect_ports"]:hover,
+.cf-stitch-page #settings-modal button[data-cmd="serial_simulate_trigger"]:hover,
+.cf-stitch-page #settings-modal button[data-cmd="serial_test_trigger"]:hover,
+.cf-stitch-page #settings-modal button[data-action="searchCamerasHuaray"]:hover,
+.cf-stitch-page #settings-modal button[data-action="searchCamerasHik"]:hover,
+.cf-stitch-page #settings-modal button[data-action="duplicateInspectionRule"]:hover,
+.cf-stitch-page #settings-modal button[data-cmd="select_storage_folder"]:hover {
+    color: var(--settings-primary-hover) !important;
+    background: var(--settings-primary-soft-hover) !important;
+    border-color: var(--settings-border-hover) !important;
+}
+
+.cf-stitch-page #settings-modal button[data-action="deleteSelectedProjectPreset"],
+.cf-stitch-page #settings-modal button[data-action="deleteCurrentCamera"],
+.cf-stitch-page #settings-modal button[data-action="removeInspectionRule"],
+.cf-stitch-page #settings-modal button[data-cmd="reset_statistics"] {
+    color: var(--settings-danger) !important;
+    background: var(--settings-danger-soft) !important;
+    border-color: var(--settings-danger-border) !important;
+}
+
+.cf-stitch-page #settings-modal button[data-action="deleteSelectedProjectPreset"]:hover,
+.cf-stitch-page #settings-modal button[data-action="deleteCurrentCamera"]:hover,
+.cf-stitch-page #settings-modal button[data-action="removeInspectionRule"]:hover,
+.cf-stitch-page #settings-modal button[data-cmd="reset_statistics"]:hover {
+    color: #ffffff !important;
+    background: var(--settings-danger) !important;
+    border-color: var(--settings-danger) !important;
+}
+
+.cf-stitch-page #settings-modal button[data-action="moveInspectionRule"] {
+    min-height: 30px;
+    padding: 0 10px !important;
+    color: #475467 !important;
+}
+
+.cf-stitch-page #settings-modal .cf-ornate-header button[data-action="closeSettingsModal"] {
+    min-height: 28px !important;
+    width: 28px !important;
+    height: 28px !important;
+    padding: 0 !important;
+    color: #64748b !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    font-size: 20px !important;
+}
+
+.cf-stitch-page #settings-modal .cf-ornate-header button[data-action="closeSettingsModal"]:hover {
+    color: var(--settings-danger) !important;
+    background: #fee4e2 !important;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal > div:last-child {
+    height: 60px !important;
+    gap: 10px !important;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal > div:last-child button {
+    height: 36px !important;
+    border-radius: 8px !important;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal > div:last-child button[data-action="closeSettingsModal"] {
+    min-width: 82px;
+    color: #475467 !important;
+    background: transparent !important;
+    border-color: transparent !important;
+}
+
+.cf-stitch-page #settings-modal > .cf-ornate-modal > div:last-child button[data-action="closeSettingsModal"]:hover {
+    color: #0f172a !important;
+    background: #f2f4f7 !important;
+    border-color: #e4e7ec !important;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-group,
+.cf-stitch-page #settings-modal .cf-camera-fields,
+.cf-stitch-page #settings-modal .cf-camera-preview-card {
+    background: #ffffff !important;
+    border-color: #dbe3ee !important;
+    border-radius: 8px !important;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04) !important;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-group-title {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom-color: #e6edf5 !important;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-group-title em {
+    color: #667085 !important;
+}
+
+.cf-stitch-page #settings-modal .cf-plc-toggle {
+    min-height: 36px;
+    background: #f8fafc !important;
+    border-color: #dbe3ee !important;
+    border-radius: 8px !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="camera"]:not(.hidden) {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 20px;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-preview-box {
+    height: 264px;
+    background: #dbe3ee !important;
+    border-radius: 8px !important;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-preview-box span {
+    top: 148px;
+    color: #475467;
+}
+
+.cf-stitch-page #settings-modal .cf-camera-preview-box button {
+    right: 12px;
+    bottom: 12px;
+    min-height: 32px !important;
+    border-radius: 6px !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="camera"] .grid.grid-cols-2.gap-2 {
+    gap: 10px !important;
+}
+
+.cf-stitch-page #settings-modal [data-settings-section="camera"] .grid.grid-cols-2.gap-2 button {
+    width: 100%;
+}
+
+.cf-stitch-page #inspection-rule-list {
+    display: grid;
+    gap: 12px;
+}
+
+.cf-stitch-page #inspection-rule-list article {
+    padding: 16px !important;
+    background: #ffffff !important;
+    border: 1px solid #dbe3ee !important;
+    border-radius: 8px !important;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04) !important;
+}
+
+.cf-stitch-page #inspection-rule-list article > div:first-child {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px !important;
+}
+
+.cf-stitch-page #inspection-rule-list article > div:first-child > div:first-child {
+    min-width: 0;
+}
+
+.cf-stitch-page #inspection-rule-list article > div:first-child > div:first-child input[type="text"],
+.cf-stitch-page #inspection-rule-list article > div:first-child > div:first-child input:not([type]) {
+    min-width: 180px;
+}
+
+.cf-stitch-page #inspection-rule-list article > div:first-child > div:first-child span {
+    color: var(--settings-primary) !important;
+    background: var(--settings-primary-soft) !important;
+    border: 1px solid #b9d7f7;
+    border-radius: 999px !important;
+}
+
+.cf-stitch-page #inspection-rule-list article > div:first-child > div:last-child {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
 /* Record trace workspace */
 .cf-stitch-page .stitch-nav-actions button[data-action="openGalleryModal"] svg {
     width: 21px;
