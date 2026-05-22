@@ -82,6 +82,20 @@ namespace ClearFrost.Interfaces
         public DateTime? StartTime { get; set; }
         public DateTime? EndTime { get; set; }
         public int Limit { get; set; } = 100;
+        public string? AfterTimestamp { get; set; }
+        public long? AfterId { get; set; }
+    }
+
+    /// <summary>
+    /// 追溯页分页结果。
+    /// </summary>
+    public class DetectionTracePage
+    {
+        public IReadOnlyList<DetectionTraceRecord> Records { get; set; } = Array.Empty<DetectionTraceRecord>();
+        public bool HasMore { get; set; }
+        public int PageSize { get; set; }
+        public string? NextCursorTimestamp { get; set; }
+        public long? NextCursorId { get; set; }
     }
 
     /// <summary>
@@ -112,6 +126,11 @@ namespace ClearFrost.Interfaces
         /// 查询追溯页轻量记录。
         /// </summary>
         Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query);
+
+        /// <summary>
+        /// 查询追溯页分页结果。
+        /// </summary>
+        Task<DetectionTracePage> GetTraceRecordPageAsync(DetectionTraceQuery query);
 
         /// <summary>
         /// 查询追溯页可用日期键（yyyy-MM-dd）。

@@ -2999,9 +2999,210 @@
 
     const bridge = window.CF_BRIDGE;
     const { escapeHtml } = window.CF_UTILS;
+    const TRACE_DEFAULT_PAGE_SIZE = 100;
+    let tracePagerState = createTracePagerState();
 
     function byId(id) {
         return document.getElementById(id);
+    }
+
+    function createTracePagerState() {
+        return {
+            pages: [],
+            pageIndex: -1,
+            pageSize: TRACE_DEFAULT_PAGE_SIZE,
+            pendingRequestId: "",
+            lastHandledRequestId: "",
+            pendingDirection: "",
+        };
+    }
+
+    function resetTracePagerState() {
+        tracePagerState = createTracePagerState();
+        updateTracePaginationUi();
+    }
+
+    function getActiveTracePage() {
+        if (tracePagerState.pageIndex < 0) return null;
+        return tracePagerState.pages[tracePagerState.pageIndex] || null;
+    }
+
+    function toBoolean(value) {
+        if (typeof value === "boolean") return value;
+        if (typeof value === "number") return value !== 0;
+        if (typeof value === "string") {
+            const normalized = value.trim().toLowerCase();
+            return normalized === "true" || normalized === "1";
+        }
+        return Boolean(value);
+    }
+
+    function toNullableNumber(value) {
+        if (value === undefined || value === null || value === "") return null;
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? numberValue : null;
+    }
+
+    function setTraceLoadingState(isLoading) {
+        const grid = byId("ng-image-grid");
+        const prevButton = byId("trace-prev-page");
+        const nextButton = byId("trace-next-page");
+
+        if (prevButton) prevButton.disabled = isLoading || tracePagerState.pageIndex <= 0;
+        if (nextButton) nextButton.disabled = isLoading || (!getActiveTracePage()?.hasMore && tracePagerState.pageIndex + 1 >= tracePagerState.pages.length);
+
+        if (!isLoading || !grid) return;
+        grid.innerHTML = `
+            <div class="cf-trace-empty">
+                <div class="flex flex-col items-center gap-3">
+                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-celadon-500"></div>
+                    <span>正在加载追溯页...</span>
+                </div>
+            </div>`;
+    }
+
+    function updateTracePaginationUi() {
+        const badge = byId("gallery-count");
+        const status = byId("trace-page-status");
+        const prevButton = byId("trace-prev-page");
+        const nextButton = byId("trace-next-page");
+        const activePage = getActiveTracePage();
+        const pageNumber = tracePagerState.pageIndex >= 0 ? tracePagerState.pageIndex + 1 : 0;
+        const recordCount = activePage?.records?.length || 0;
+        const cachedNextPage = tracePagerState.pageIndex + 1 < tracePagerState.pages.length;
+        const canGoPrev = tracePagerState.pageIndex > 0;
+        const canGoNext = cachedNextPage || Boolean(activePage?.hasMore);
+
+        if (badge) {
+            badge.textContent = pageNumber > 0 ? `${recordCount} 条 · 第 ${pageNumber} 页` : "0 条";
+        }
+
+        if (status) {
+            if (!activePage) {
+                status.textContent = "等待查询";
+            } else {
+                status.textContent = `第 ${pageNumber} 页 · ${recordCount} 条${activePage.hasMore ? " · 还有下一页" : cachedNextPage ? " · 已缓存下一页" : ""}`;
+            }
+        }
+
+        if (prevButton) prevButton.disabled = !canGoPrev;
+        if (nextButton) nextButton.disabled = !canGoNext;
+    }
+
+    function renderTracePage(page) {
+        const grid = byId("ng-image-grid");
+        if (!grid) return;
+
+        grid.innerHTML = "";
+        const activePage = page || getActiveTracePage();
+        const records = activePage?.records || [];
+        const pageNumber = tracePagerState.pageIndex >= 0 ? tracePagerState.pageIndex + 1 : 0;
+        const badge = byId("gallery-count");
+
+        if (badge) {
+            badge.textContent = pageNumber > 0 ? `${records.length} 条 · 第 ${pageNumber} 页` : "0 条";
+        }
+
+        if (!records.length) {
+            grid.innerHTML = '<div class="cf-trace-empty">此时间段未发现异常图片记录</div>';
+            updateTracePaginationUi();
+            return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        for (const record of records) {
+            const url = record.thumbnailUrl || record.displayImageUrl || "";
+            const card = document.createElement("div");
+            const resultText = record.isQualified ? "OK" : "NG";
+            const resultClass = record.isQualified ? "ok" : "ng";
+            const reviewLabel = record.hasRenderedImage ? "复查图" : "无复查图";
+            const model = record.modelVersion || record.modelName || "-";
+            const imageMarkup = url
+                ? `<img src="${url}" loading="lazy" decoding="async" alt="${escapeHtml(record.inspectionId)}">`
+                : `<div class="cf-trace-thumb-missing">无图像</div>`;
+            card.className = "cf-trace-card";
+            card.innerHTML = `<div class="cf-trace-thumb">
+                    ${imageMarkup}
+                    <span class="${resultClass}">${escapeHtml(resultText)}</span>
+                    <em>${escapeHtml(reviewLabel)}</em>
+                </div>
+                <div class="cf-trace-card-body">
+                    <div>
+                        <p>${escapeHtml(record.productBarcode || "-")}</p>
+                        <p>${escapeHtml(record.timestamp || "-")}</p>
+                        <p>ID: ${escapeHtml(record.inspectionId || "-")}</p>
+                        <p>模型: ${escapeHtml(model)}</p>
+                        <p>相机: ${escapeHtml(record.cameraId || "-")}</p>
+                    </div>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                            d="M12 3 2.7 20h18.6L12 3Zm0 6v5m0 3h.01" />
+                    </svg>
+                </div>
+                <button type="button">查看详情</button>`;
+            card.onclick = () => openTraceViewer(record, "rendered");
+            fragment.appendChild(card);
+        }
+
+        grid.appendChild(fragment);
+        updateTracePaginationUi();
+    }
+
+    function normalizeTracePage(data) {
+        const rawRecords = Array.isArray(data) ? data : (data?.records || data?.Records || data?.images || data?.Images || []);
+        return {
+            records: rawRecords.map(normalizeTraceRecord),
+            hasMore: toBoolean(pickTraceValue(data, "hasMore", "HasMore")),
+            pageSize: Number(pickTraceValue(data, "pageSize", "PageSize")) || TRACE_DEFAULT_PAGE_SIZE,
+            nextCursorTimestamp: pickTraceValue(data, "nextCursorTimestamp", "NextCursorTimestamp") || "",
+            nextCursorId: toNullableNumber(pickTraceValue(data, "nextCursorId", "NextCursorId")),
+        };
+    }
+
+    function requestTracePage(direction = "initial") {
+        syncTraceControls();
+        const date = byId("gallery-date-picker")?.value || window.currentNGDate;
+        const hour = byId("trace-hour-select")?.value || window.currentNGHour || "";
+        if (!date) return;
+
+        window.currentNGDate = date;
+        window.currentNGHour = hour;
+
+        const activePage = getActiveTracePage();
+        const payload = {
+            date,
+            hour,
+            pageSize: tracePagerState.pageSize,
+        };
+
+        if (direction === "next" && activePage?.nextCursorTimestamp && activePage?.nextCursorId !== null && activePage?.nextCursorId !== undefined) {
+            payload.afterTimestamp = activePage.nextCursorTimestamp;
+            payload.afterId = activePage.nextCursorId;
+        }
+
+        setTraceLoadingState(true);
+        tracePagerState.pendingDirection = direction;
+        tracePagerState.pendingRequestId = bridge.sendCommand("get_ng_images", payload);
+        updateTracePaginationUi();
+    }
+
+    function loadPreviousTracePage() {
+        if (tracePagerState.pageIndex <= 0) return;
+        tracePagerState.pageIndex -= 1;
+        renderTracePage();
+    }
+
+    function loadNextTracePage() {
+        const cachedNextPage = tracePagerState.pages[tracePagerState.pageIndex + 1];
+        if (cachedNextPage) {
+            tracePagerState.pageIndex += 1;
+            renderTracePage();
+            return;
+        }
+
+        const activePage = getActiveTracePage();
+        if (!activePage?.hasMore) return;
+        requestTracePage("next");
     }
 
     function syncLogHistoryChrome() {
@@ -3031,6 +3232,7 @@
     function openGalleryModal() {
         byId("gallery-modal")?.classList.remove("hidden");
         syncTraceControls();
+        resetTracePagerState();
         const badge = byId("gallery-count");
         if (badge) badge.textContent = "0 张";
         bridge.sendCommand("get_ng_dates");
@@ -3139,6 +3341,9 @@
 
         if (!dates.length) {
             list.innerHTML = '<div class="text-[10px] text-ink-300 p-4 text-center italic font-serif opacity-50">暂无历史存根</div>';
+            if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = "";
+            if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = '<div class="cf-trace-empty">此时间段未发现异常图片记录</div>';
+            resetTracePagerState();
             return;
         }
 
@@ -3153,6 +3358,7 @@
                 div.className = "p-2.5 bg-celadon-50 text-celadon-700 cursor-pointer rounded-xl text-[11px] font-black transition-[background-color,border-color,color,box-shadow] shadow-sm border border-celadon-200 mb-1";
                 window.currentNGDate = date;
                 window.currentNGHour = "";
+                resetTracePagerState();
                 if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
                 if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
                 bridge.sendCommand("get_ng_hours", date);
@@ -3177,6 +3383,8 @@
         if (!hours.length) {
             if (hourSelect) hourSelect.innerHTML = '<option value="">全部时段</option>';
             list.innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 font-serif opacity-50">无时段数据</div>';
+            if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = '<div class="cf-trace-empty">此时间段未发现异常图片记录</div>';
+            resetTracePagerState();
             return;
         }
 
@@ -3196,10 +3404,11 @@
                 });
                 div.className = "px-4 py-2 bg-celadon-600 border-celadon-600 text-white rounded-xl text-[11px] cursor-pointer transition-[background-color,border-color,color,box-shadow] font-bold shadow-md flex items-center justify-between";
                 window.currentNGHour = hour;
+                resetTracePagerState();
                 if (byId("ng-image-grid")) {
                     byId("ng-image-grid").innerHTML = '<div class="col-span-full h-full flex flex-col items-center justify-center py-20 text-ink-300 opacity-50"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-celadon-500 mb-4"></div><span class="text-xs font-serif italic">正在索引影像档案...</span></div>';
                 }
-                bridge.sendCommand("get_ng_images", { date: window.currentNGDate, hour });
+                requestTracePage("initial");
             };
             list.appendChild(div);
         });
@@ -3219,7 +3428,8 @@
         const hour = byId("trace-hour-select")?.value || window.currentNGHour || "";
         if (date) window.currentNGDate = date;
         window.currentNGHour = hour;
-        bridge.sendCommand("get_ng_images", { date: window.currentNGDate, hour: window.currentNGHour });
+        resetTracePagerState();
+        requestTracePage("initial");
     }
 
     function pickTraceValue(source, ...keys) {
@@ -3251,11 +3461,16 @@
         const record = item || {};
         const imageUrl = pickTraceValue(record, "imageUrl", "ImageUrl");
         const renderedImageUrl = pickTraceValue(record, "renderedImageUrl", "RenderedImageUrl");
+        const missingRenderedImageValue = pickTraceValue(record, "missingRenderedImage", "MissingRenderedImage");
+        const hasRenderedImageValue = pickTraceValue(record, "hasRenderedImage", "HasRenderedImage");
+        const hasRenderedImage = hasRenderedImageValue !== ""
+            ? toBoolean(hasRenderedImageValue)
+            : Boolean(renderedImageUrl) && !toBoolean(missingRenderedImageValue);
         return {
             inspectionId: pickTraceValue(record, "inspectionId", "InspectionId") || "-",
             productBarcode: pickTraceValue(record, "productBarcode", "ProductBarcode") || "-",
             timestamp: pickTraceValue(record, "timestamp", "Timestamp") || "-",
-            isQualified: Boolean(pickTraceValue(record, "isQualified", "IsQualified")),
+            isQualified: toBoolean(pickTraceValue(record, "isQualified", "IsQualified")),
             modelVersion: pickTraceValue(record, "modelVersion", "ModelVersion") || "",
             modelName: pickTraceValue(record, "modelName", "ModelName") || "-",
             cameraId: pickTraceValue(record, "cameraId", "CameraId") || "-",
@@ -3265,8 +3480,8 @@
             renderedImageUrl,
             thumbnailUrl: pickTraceValue(record, "thumbnailUrl", "ThumbnailUrl") || renderedImageUrl || imageUrl,
             displayImageUrl: pickTraceValue(record, "displayImageUrl", "DisplayImageUrl") || renderedImageUrl || imageUrl,
-            hasRenderedImage: !!renderedImageUrl && pickTraceValue(record, "missingRenderedImage", "MissingRenderedImage") !== true,
-            missingRenderedImage: Boolean(pickTraceValue(record, "missingRenderedImage", "MissingRenderedImage")) || !renderedImageUrl,
+            hasRenderedImage,
+            missingRenderedImage: hasRenderedImageValue !== "" ? !toBoolean(hasRenderedImageValue) : !renderedImageUrl || toBoolean(missingRenderedImageValue),
         };
     }
 
@@ -3311,53 +3526,32 @@
         viewer?.classList.remove("hidden");
     }
 
-    function updateNGImages(data) {
-        const rawRecords = Array.isArray(data) ? data : (data?.records || data?.Records || data?.images || data?.Images || []);
-        const records = rawRecords.map(normalizeTraceRecord);
-        const grid = byId("ng-image-grid");
-        const badge = byId("gallery-count");
-        if (badge) badge.textContent = `${records.length} 条`;
-        if (!grid) return;
-        grid.innerHTML = "";
-
-        if (!records.length) {
-            grid.innerHTML = '<div class="cf-trace-empty">此时间段未发现异常图片记录</div>';
+    function updateNGImages(data, message) {
+        const requestId = message?.requestId || data?.requestId || data?.RequestId || "";
+        if (
+            requestId &&
+            (
+                requestId !== tracePagerState.pendingRequestId ||
+                requestId === tracePagerState.lastHandledRequestId
+            )
+        ) {
             return;
         }
 
-        records.slice(0, 300).forEach((record) => {
-            const url = record.thumbnailUrl || record.displayImageUrl || "";
-            const card = document.createElement("div");
-            const resultText = record.isQualified ? "OK" : "NG";
-            const resultClass = record.isQualified ? "ok" : "ng";
-            const reviewLabel = record.hasRenderedImage ? "复查图" : "无复查图";
-            const model = record.modelVersion || record.modelName || "-";
-            const imageMarkup = url
-                ? `<img src="${url}" loading="lazy" alt="${escapeHtml(record.inspectionId)}">`
-                : `<div class="cf-trace-thumb-missing">无图像</div>`;
-            card.className = "cf-trace-card";
-            card.innerHTML = `<div class="cf-trace-thumb">
-                    ${imageMarkup}
-                    <span class="${resultClass}">${escapeHtml(resultText)}</span>
-                    <em>${escapeHtml(reviewLabel)}</em>
-                </div>
-                <div class="cf-trace-card-body">
-                    <div>
-                        <p>${escapeHtml(record.productBarcode || "-")}</p>
-                        <p>${escapeHtml(record.timestamp || "-")}</p>
-                        <p>ID: ${escapeHtml(record.inspectionId || "-")}</p>
-                        <p>模型: ${escapeHtml(model)}</p>
-                        <p>相机: ${escapeHtml(record.cameraId || "-")}</p>
-                    </div>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
-                            d="M12 3 2.7 20h18.6L12 3Zm0 6v5m0 3h.01" />
-                    </svg>
-                </div>
-                <button type="button">查看详情</button>`;
-            card.onclick = () => openTraceViewer(record, "rendered");
-            grid.appendChild(card);
-        });
+        const page = normalizeTracePage(data);
+        if (tracePagerState.pendingDirection === "next" && tracePagerState.pageIndex >= 0) {
+            tracePagerState.pages = tracePagerState.pages.slice(0, tracePagerState.pageIndex + 1);
+            tracePagerState.pages.push(page);
+            tracePagerState.pageIndex = tracePagerState.pages.length - 1;
+        } else {
+            tracePagerState.pages = [page];
+            tracePagerState.pageIndex = 0;
+        }
+
+        tracePagerState.pageSize = page.pageSize || tracePagerState.pageSize;
+        tracePagerState.lastHandledRequestId = requestId || tracePagerState.lastHandledRequestId;
+        tracePagerState.pendingDirection = "";
+        renderTracePage(page);
     }
 
     Object.assign(window, {
@@ -3368,6 +3562,8 @@
         openGalleryModal,
         openLogHistoryModal,
         openStatisticsHistoryModal,
+        loadNextTracePage,
+        loadPreviousTracePage,
         receiveStatisticsHistory,
         requestStatisticsHistory,
         searchTraceImages,

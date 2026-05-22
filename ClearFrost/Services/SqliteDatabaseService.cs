@@ -385,6 +385,8 @@ namespace ClearFrost.Services
                 CREATE INDEX IF NOT EXISTS idx_product_barcode ON DetectionRecords(ProductBarcode);
                 CREATE INDEX IF NOT EXISTS idx_trace_time_result
                     ON DetectionRecords(Timestamp DESC, IsQualified, Id DESC);
+                CREATE INDEX IF NOT EXISTS idx_trace_result_time
+                    ON DetectionRecords(IsQualified, Timestamp DESC, Id DESC);
                 CREATE INDEX IF NOT EXISTS idx_trace_model_camera_time
                     ON DetectionRecords(ModelVersion, CameraId, Timestamp DESC, Id DESC);
                 CREATE INDEX IF NOT EXISTS idx_trace_model_name_time
@@ -722,10 +724,22 @@ namespace ClearFrost.Services
 
         public async Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
         {
+            DetectionTracePage page = await GetTraceRecordPageAsync(query);
+            return page.Records.ToList();
+        }
+
+        public async Task<DetectionTracePage> GetTraceRecordPageAsync(DetectionTraceQuery query)
+        {
             if (!_initialized) await InitializeAsync();
 
             query ??= new DetectionTraceQuery();
-            var records = new List<DetectionTraceRecord>();
+            int pageSize = ClampTraceLimit(query.Limit);
+            var records = new List<DetectionTraceRecord>(pageSize);
+            var page = new DetectionTracePage
+            {
+                PageSize = pageSize,
+                Records = records
+            };
 
             try
             {
@@ -758,6 +772,13 @@ namespace ClearFrost.Services
                     command.Parameters.AddWithValue("@EndTime", FormatTimestamp(query.EndTime.Value));
                 }
 
+                if (!string.IsNullOrWhiteSpace(query.AfterTimestamp) && query.AfterId.HasValue)
+                {
+                    conditions.Add("(Timestamp < @AfterTimestamp OR (Timestamp = @AfterTimestamp AND Id < @AfterId))");
+                    command.Parameters.AddWithValue("@AfterTimestamp", query.AfterTimestamp.Trim());
+                    command.Parameters.AddWithValue("@AfterId", query.AfterId.Value);
+                }
+
                 string whereClause = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
                 command.CommandText = $@"
                     SELECT
@@ -776,15 +797,25 @@ namespace ClearFrost.Services
                     ORDER BY Timestamp DESC, Id DESC
                     LIMIT @Limit;
                 ";
-                command.Parameters.AddWithValue("@Limit", ClampTraceLimit(query.Limit));
+                command.Parameters.AddWithValue("@Limit", pageSize + 1);
 
                 using var reader = await command.ExecuteReaderAsync();
+                string? lastTimestamp = null;
+                long? lastId = null;
                 while (await reader.ReadAsync())
                 {
+                    if (records.Count >= pageSize)
+                    {
+                        page.HasMore = true;
+                        break;
+                    }
+
+                    string timestampText = GetStringOrDefault(reader, "Timestamp");
+                    long id = GetInt64OrDefault(reader, "Id");
                     records.Add(new DetectionTraceRecord
                     {
-                        Id = GetInt64OrDefault(reader, "Id"),
-                        Timestamp = ParseTimestamp(GetStringOrDefault(reader, "Timestamp")),
+                        Id = id,
+                        Timestamp = ParseTimestamp(timestampText),
                         IsQualified = GetInt32OrDefault(reader, "IsQualified") == 1,
                         InspectionId = GetStringOrDefault(reader, "InspectionId"),
                         ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
@@ -794,6 +825,14 @@ namespace ClearFrost.Services
                         ImagePath = GetStringOrDefault(reader, "ImagePath"),
                         RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath")
                     });
+                    lastTimestamp = timestampText;
+                    lastId = id;
+                }
+
+                if (records.Count > 0)
+                {
+                    page.NextCursorTimestamp = lastTimestamp;
+                    page.NextCursorId = lastId;
                 }
             }
             catch (Exception ex)
@@ -801,7 +840,7 @@ namespace ClearFrost.Services
                 Debug.WriteLine($"[SqliteDatabaseService] Trace query error: {ex.Message}");
             }
 
-            return records;
+            return page;
         }
 
         public async Task<List<string>> GetTraceDateKeysAsync(bool? isQualified = null, int limit = 60)

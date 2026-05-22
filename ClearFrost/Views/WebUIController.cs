@@ -540,7 +540,7 @@ namespace ClearFrost
             return ExecuteScriptCoreAsync(webView, script);
         }
 
-        private void PostMessage(string type, object? data = null)
+        private void PostMessage(string type, object? data = null, string? requestId = null)
         {
             WebView2? webView = _webView;
             if (!IsWebViewControlUsable(webView)) return;
@@ -549,7 +549,7 @@ namespace ClearFrost
             {
                 type = type,
                 data = data,
-                requestId = (string?)null,
+                requestId = requestId,
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             });
 
@@ -643,6 +643,9 @@ namespace ClearFrost
                 using (JsonDocument doc = JsonDocument.Parse(json))
                 {
                     JsonElement root = doc.RootElement;
+                    string? requestId = root.TryGetProperty("requestId", out JsonElement requestIdElement)
+                        ? requestIdElement.GetString()
+                        : null;
                     if (root.TryGetProperty("cmd", out JsonElement cmdElement))
                     {
                         string cmd = cmdElement.GetString() ?? string.Empty;
@@ -824,7 +827,10 @@ namespace ClearFrost
                                 {
                                     string date = paramsElement.GetProperty("date").GetString() ?? "";
                                     string hour = paramsElement.GetProperty("hour").GetString() ?? "";
-                                    await SendNGImages(date, hour);
+                                    int pageSize = TryGetInt32Property(paramsElement, "pageSize") ?? 100;
+                                    string? afterTimestamp = TryGetStringProperty(paramsElement, "afterTimestamp");
+                                    long? afterId = TryGetInt64Property(paramsElement, "afterId");
+                                    await SendNGImages(date, hour, pageSize, afterTimestamp, afterId, requestId);
                                 }
                                 break;
                             case "select_storage_folder":
@@ -1178,14 +1184,22 @@ namespace ClearFrost
             catch { PostMessage("historyHours", Array.Empty<string>()); }
         }
 
-        private async Task SendNGImages(string date, string hour)
+        private async Task SendNGImages(string date, string hour, int pageSize, string? afterTimestamp, long? afterId, string? requestId)
         {
             if (string.IsNullOrEmpty(date) || _webView == null) return;
             try
             {
                 if (DatabaseService == null || !TryParseTraceDate(date, out DateTime traceDate))
                 {
-                    PostMessage("historyImages", Array.Empty<object>());
+                    PostMessage("historyImages", new
+                    {
+                        records = Array.Empty<object>(),
+                        images = Array.Empty<object>(),
+                        hasMore = false,
+                        pageSize = 0,
+                        nextCursorTimestamp = (string?)null,
+                        nextCursorId = (long?)null
+                    }, requestId);
                     return;
                 }
 
@@ -1194,7 +1208,9 @@ namespace ClearFrost
                     IsQualified = false,
                     StartTime = traceDate.Date,
                     EndTime = traceDate.Date.AddDays(1).AddMilliseconds(-1),
-                    Limit = 300
+                    Limit = pageSize,
+                    AfterTimestamp = afterTimestamp,
+                    AfterId = afterId
                 };
 
                 if (TryParseTraceHour(hour, out int traceHour))
@@ -1204,11 +1220,31 @@ namespace ClearFrost
                     query.EndTime = start.AddHours(1).AddMilliseconds(-1);
                 }
 
-                List<DetectionTraceRecord> records = await DatabaseService.GetTraceRecordsAsync(query);
+                DetectionTracePage page = await DatabaseService.GetTraceRecordPageAsync(query);
+                List<DetectionTraceRecord> records = page.Records.ToList();
                 object[] payload = records.Select(BuildTraceRecordPayload).ToArray();
-                PostMessage("historyImages", new { records = payload, images = payload });
+                PostMessage("historyImages", new
+                {
+                    records = payload,
+                    images = payload,
+                    hasMore = page.HasMore,
+                    pageSize = page.PageSize,
+                    nextCursorTimestamp = page.NextCursorTimestamp,
+                    nextCursorId = page.NextCursorId
+                }, requestId);
             }
-            catch { PostMessage("historyImages", Array.Empty<string>()); }
+            catch
+            {
+                PostMessage("historyImages", new
+                {
+                    records = Array.Empty<object>(),
+                    images = Array.Empty<object>(),
+                    hasMore = false,
+                    pageSize = 0,
+                    nextCursorTimestamp = (string?)null,
+                    nextCursorId = (long?)null
+                }, requestId);
+            }
         }
 
         private object BuildTraceRecordPayload(DetectionTraceRecord record)
@@ -1276,6 +1312,55 @@ namespace ClearFrost
             {
                 return null;
             }
+        }
+
+        private static string? TryGetStringProperty(JsonElement element, string propertyName)
+        {
+            return element.TryGetProperty(propertyName, out JsonElement propertyElement)
+                ? propertyElement.GetString()
+                : null;
+        }
+
+        private static int? TryGetInt32Property(JsonElement element, string propertyName)
+        {
+            if (!element.TryGetProperty(propertyName, out JsonElement propertyElement))
+            {
+                return null;
+            }
+
+            if (propertyElement.ValueKind == JsonValueKind.Number && propertyElement.TryGetInt32(out int value))
+            {
+                return value;
+            }
+
+            if (propertyElement.ValueKind == JsonValueKind.String &&
+                int.TryParse(propertyElement.GetString(), out int parsed))
+            {
+                return parsed;
+            }
+
+            return null;
+        }
+
+        private static long? TryGetInt64Property(JsonElement element, string propertyName)
+        {
+            if (!element.TryGetProperty(propertyName, out JsonElement propertyElement))
+            {
+                return null;
+            }
+
+            if (propertyElement.ValueKind == JsonValueKind.Number && propertyElement.TryGetInt64(out long value))
+            {
+                return value;
+            }
+
+            if (propertyElement.ValueKind == JsonValueKind.String &&
+                long.TryParse(propertyElement.GetString(), out long parsed))
+            {
+                return parsed;
+            }
+
+            return null;
         }
 
         private static bool TryParseTraceDate(string value, out DateTime date)

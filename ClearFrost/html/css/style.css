@@ -3289,7 +3289,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     height: min(760px, calc(100vh - 48px)) !important;
     display: grid !important;
     grid-template-columns: 248px minmax(0, 1fr);
-    grid-template-rows: 126px minmax(0, 1fr);
+    grid-template-rows: 126px minmax(0, 1fr) 56px;
     overflow: hidden;
     background: #f6f9fd !important;
     border: 1px solid rgba(203, 213, 225, 0.92) !important;
@@ -3540,6 +3540,61 @@ input[type="range"]::-webkit-slider-runnable-track {
         #f6f9fd !important;
 }
 
+.cf-stitch-page #gallery-modal #trace-pagination {
+    grid-column: 2;
+    grid-row: 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 28px;
+    background: linear-gradient(180deg, rgba(246, 249, 253, 0.92), rgba(238, 244, 250, 0.98));
+    border-top: 1px solid #dde6f1;
+}
+
+.cf-stitch-page #gallery-modal #trace-page-status {
+    min-width: 0;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-pagination-actions {
+    flex: 0 0 auto;
+    display: inline-flex;
+    gap: 8px;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-pagination-actions button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    color: #1d5fcc;
+    background: #ffffff;
+    border: 1px solid #cfe0ff;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 800;
+    box-shadow: 0 8px 18px rgba(29, 95, 204, 0.08);
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-pagination-actions button svg {
+    width: 14px;
+    height: 14px;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-pagination-actions button:disabled {
+    opacity: 0.42;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
 .cf-stitch-page #gallery-modal .cf-trace-card {
     height: 284px;
     overflow: hidden;
@@ -3725,7 +3780,7 @@ input[type="range"]::-webkit-slider-runnable-track {
         width: calc(100vw - 20px) !important;
         height: calc(100vh - 20px) !important;
         grid-template-columns: 1fr;
-        grid-template-rows: auto 140px minmax(0, 1fr);
+        grid-template-rows: auto 140px minmax(0, 1fr) 56px;
     }
 
     .cf-stitch-page #gallery-modal header {
@@ -3763,6 +3818,12 @@ input[type="range"]::-webkit-slider-runnable-track {
     .cf-stitch-page #gallery-modal #ng-image-grid {
         grid-column: 1;
         grid-row: 3;
+    }
+
+    .cf-stitch-page #gallery-modal #trace-pagination {
+        grid-column: 1;
+        grid-row: 4;
+        padding: 0 14px;
     }
 }
 

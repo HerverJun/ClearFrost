@@ -310,6 +310,9 @@ namespace ClearFrost.Tests
             public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
                 => Task.FromResult(new List<DetectionTraceRecord>());
 
+            public Task<DetectionTracePage> GetTraceRecordPageAsync(DetectionTraceQuery query)
+                => Task.FromResult(new DetectionTracePage());
+
             public Task<List<string>> GetTraceDateKeysAsync(bool? isQualified = null, int limit = 60)
                 => Task.FromResult(new List<string>());
 

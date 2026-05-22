@@ -302,6 +302,100 @@ public class SqliteDatabaseServiceTests
         }
     }
 
+    [Fact]
+    public async Task GetTraceRecordPageAsync_按游标分页返回下一页且不重复()
+    {
+        string tempDir = CreateTempDirectory();
+
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "runtime", "detection.db");
+            using var service = new SqliteDatabaseService(dbPath);
+            await service.InitializeAsync();
+
+            await service.SaveDetectionRecordAsync(new DetectionRecord
+            {
+                Timestamp = new DateTime(2026, 5, 4, 14, 30, 0),
+                IsQualified = false,
+                InspectionId = "CF-20260504-143000-AAA",
+                ProductBarcode = "SN-001",
+                ModelVersion = "v1",
+                ModelName = "model-a",
+                CameraId = "cam-01",
+                ImagePath = @"C:\Trace\FAIL_A.jpg",
+                RenderedImagePath = @"C:\Trace\Rendered\FAIL_A_rendered.jpg"
+            });
+
+            await service.SaveDetectionRecordAsync(new DetectionRecord
+            {
+                Timestamp = new DateTime(2026, 5, 4, 14, 30, 0),
+                IsQualified = false,
+                InspectionId = "CF-20260504-143000-BBB",
+                ProductBarcode = "SN-002",
+                ModelVersion = "v1",
+                ModelName = "model-a",
+                CameraId = "cam-01",
+                ImagePath = @"C:\Trace\FAIL_B.jpg",
+                RenderedImagePath = @"C:\Trace\Rendered\FAIL_B_rendered.jpg"
+            });
+
+            await service.SaveDetectionRecordAsync(new DetectionRecord
+            {
+                Timestamp = new DateTime(2026, 5, 4, 14, 20, 0),
+                IsQualified = false,
+                InspectionId = "CF-20260504-142000-CCC",
+                ProductBarcode = "SN-003",
+                ModelVersion = "v1",
+                ModelName = "model-a",
+                CameraId = "cam-01",
+                ImagePath = @"C:\Trace\FAIL_C.jpg",
+                RenderedImagePath = @"C:\Trace\Rendered\FAIL_C_rendered.jpg"
+            });
+
+            DetectionTracePage firstPage = await service.GetTraceRecordPageAsync(new DetectionTraceQuery
+            {
+                IsQualified = false,
+                Limit = 1
+            });
+
+            firstPage.PageSize.Should().Be(1);
+            firstPage.HasMore.Should().BeTrue();
+            firstPage.Records.Should().ContainSingle();
+            firstPage.Records[0].InspectionId.Should().Be("CF-20260504-143000-BBB");
+            firstPage.NextCursorTimestamp.Should().Be("2026-05-04 14:30:00.000");
+            firstPage.NextCursorId.Should().BeGreaterThan(0);
+
+            DetectionTracePage secondPage = await service.GetTraceRecordPageAsync(new DetectionTraceQuery
+            {
+                IsQualified = false,
+                Limit = 1,
+                AfterTimestamp = firstPage.NextCursorTimestamp,
+                AfterId = firstPage.NextCursorId
+            });
+
+            secondPage.HasMore.Should().BeTrue();
+            secondPage.Records.Should().ContainSingle();
+            secondPage.Records[0].InspectionId.Should().Be("CF-20260504-143000-AAA");
+            secondPage.Records[0].InspectionId.Should().NotBe(firstPage.Records[0].InspectionId);
+
+            DetectionTracePage thirdPage = await service.GetTraceRecordPageAsync(new DetectionTraceQuery
+            {
+                IsQualified = false,
+                Limit = 1,
+                AfterTimestamp = secondPage.NextCursorTimestamp,
+                AfterId = secondPage.NextCursorId
+            });
+
+            thirdPage.HasMore.Should().BeFalse();
+            thirdPage.Records.Should().ContainSingle();
+            thirdPage.Records[0].InspectionId.Should().Be("CF-20260504-142000-CCC");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static void CreateMinimalDatabaseWithRows(string dbPath, params string[] timestamps)
     {
         string directory = Path.GetDirectoryName(dbPath) ?? string.Empty;
