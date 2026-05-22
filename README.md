@@ -1,250 +1,301 @@
-﻿# 清霜视觉检测系统 V4 预览版 (ClearFrost V4 Preview)
+# 清霜视觉检测系统 V5.7 正式版 (ClearFrost)
 
 <p align="center">
   <img src="ClearFrost/icon_transparent.png" width="120" alt="ClearFrost Logo">
 </p>
 
 <p align="center">
-  <strong>面向低配工控机的工业视觉检测平台</strong><br>
-  基于 C# .NET 8.0 | YOLO AI 检测 | 多模型自动切换 | 性能优化优先 | 现代 Web UI
+  <strong>工业级智能视觉检测平台</strong><br>
+  C# .NET 8.0 | WinForms + WebView2 | YOLO ONNX 推理 | 多相机 | PLC 联动 | SQLite 追溯
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet" alt=".NET 8.0">
-  <img src="https://img.shields.io/badge/YOLO-v8%2Fv11-00FFFF" alt="YOLO">
+  <img src="https://img.shields.io/badge/YOLO-v8%2Fv11%2Fv26-00FFFF" alt="YOLO">
   <img src="https://img.shields.io/badge/OpenCV-4.8-5C3EE8?logo=opencv" alt="OpenCV">
-  <img src="https://img.shields.io/badge/Platform-Windows%20x64-0078D6?logo=windows" alt="Windows">
-  <img src="https://img.shields.io/badge/V4-Performance%20Focused-16A34A" alt="V4 Performance Focused">
+  <img src="https://img.shields.io/badge/Platform-Windows%20x64-0078D6?logo=windows" alt="Windows x64">
+  <img src="https://img.shields.io/badge/Release-V5.7-16A34A" alt="ClearFrost V5.7">
 </p>
 
-> V4 预览版的核心方向不是“再做一层 UI”，而是围绕 **低配工控机性能、启动速度、内存占用、图像链路负载、现场稳定性** 做持续优化。
+> V5.7 的重点是现场可交付：稳定检测链路、多模型追溯、配置迁移、可版本化发布，以及更适合产线维护的发布流程。
 
 ---
 
-## ✨ V4 预览版重点
+## 当前版本
 
-### 性能优化优先
+| 项目 | 内容 |
+|------|------|
+| 当前系列 | `V5.7` |
+| 默认项目版本 | `5.7.0` |
+| 目标框架 | `net8.0-windows10.0.17763.0` |
+| 平台 | Windows x64 |
+| 主项目 | `ClearFrost/ClearFrost.csproj` |
+| 测试项目 | `ClearFrost.Tests/ClearFrost.Tests.csproj` |
 
-- ⚡ **检测链路瘦身**：持续移除冗余图像深拷贝、重复渲染和重复编码，减少 CPU 与内存浪费
-- 🧠 **低配工控机友好**：以“稳健优先”为原则，在不改变外部接口、不替换硬件驱动模式、不影响检测精度的前提下推进优化
-- 🖼️ **前端传输减负**：WebView2 图像传输缩放到实际显示尺寸，合并脚本调用，降低 JPEG 编码质量以减少传输体积
-- 💾 **异步去阻塞**：图像保存改为后台队列，降低磁盘 IO 对检测主链路的阻塞影响
-- ♻️ **降低 GC 压力**：减少大数组拷贝与临时对象创建，优化热路径内存行为
-- 🚀 **启动与交互更快**：移除不必要的 WebView2 启动清缓存步骤，初始化并行化，减少前端日志高频调用
-
-### 当前优化目标
-
-- 🎯 **单次检测目标**：`≤ 400ms`
-- 🎯 **内存占用目标**：`≤ 500MB`
-- 🧪 **适用场景**：资源受限的 Windows x64 工控机、常见工业相机 + PLC 联动部署
-
-> 以上为 V4 的持续优化目标，实际表现会受模型规模、相机分辨率、PLC 配置、工控机硬件规格影响。
-
-### 已落地的 V4 工程化优化
-
-- ✅ **冗余拷贝治理**：检测、保存、前端显示尽量复用同一份渲染结果，减少重复 `Bitmap`/`Mat` 转换
-- ✅ **工业精简渲染模式**：支持简洁框线与文本标签渲染，降低复杂 UI 效果带来的额外开销
-- ✅ **WebView2 图像链路优化**：前端显示尺寸缩放、脚本调用合并、图像压缩质量下调
-- ✅ **图像保存异步队列**：保存操作脱离主检测链路，优先保障检测实时性
-- ✅ **日志与锁粒度优化**：减少高频日志刷前端的压力，缩小关键锁作用范围
-- ✅ **原生窗口回归**：恢复系统标题栏与原生窗口控制，降低对 WebView2 的控制依赖并提升稳定性
-
-### V4 不是简单换皮
-
-- V3 更强调功能完整度与现代化界面
-- V4 预览版更强调 **性能可持续优化、工业现场稳定性、低配置可运行性**
-- 对于需要长时间稳定运行的产线环境，这类“减法优化”比继续堆界面效果更重要
+发布版本号由发布器传入。窗口标题、exe 文件版本、配置迁移导出的应用版本、WebView2 缓存隔离目录都会自动使用同一套版本信息。
 
 ---
 
-## ✨ V3 既有能力保留
+## V5.7 重点能力
 
-- 🚀 **多模型自动切换**：主模型未检测到目标时，自动切换辅助模型
-- 🎨 **现代 Web UI**：基于 TailwindCSS 的工业风界面
-- 📊 **实时统计图表**：今日产出环形图 + 历史数据对比
-- 🔧 **模块化架构**：Services / Views / Vision 分层设计
-- 📷 **多品牌相机支持**：华睿 + 海康威视工业相机
-- 🔌 **多协议 PLC 通讯**：Modbus TCP / 三菱 MC / 西门子 S7
+### 视觉检测
+
+- YOLO ONNX 推理，支持 DirectML GPU 加速
+- 兼容 YOLO v8 / v11 / v26 相关输出结构
+- 主模型 + 辅助模型的多模型切换
+- 目标标签、数量、置信度、IOU 阈值可配置
+- 检测记录写入模型名称、模型版本、模型哈希等追溯字段
+
+### 工业现场集成
+
+- 华睿、海康威视工业相机接入
+- Modbus TCP、三菱 MC、S7 等 PLC 通讯场景
+- 支持 PLC 触发、串口光电触发、手动检测
+- 检测结果自动写入 PLC
+- 重拍机制、健康检查、启动诊断
+
+### 数据与配置
+
+- SQLite 检测记录存储
+- 图像追溯、渲染图追溯、历史查询
+- 项目预设管理
+- 配置迁移导入/导出
+- 运行时配置写入用户目录，减少发布目录权限问题
+
+### 发布与维护
+
+- 新增统一发布器 `脚本/publish.ps1`
+- 支持 Lite / Full / Both 三种发布模式
+- 发布时输入版本号，例如 `5.7.1`
+- 自动生成版本化输出目录和 `VERSION.txt`
+- 可选生成 zip 包
+- 缺少根目录 `check_env.bat` 时自动生成环境检查脚本
 
 ---
 
-## 📋 系统要求
+## 系统要求
 
 | 项目 | 要求 |
 |------|------|
-| 操作系统 | Windows 10/11 (x64) |
-| .NET SDK | 8.0 或更高 |
-| 开发工具 | Visual Studio 2022 / VS Code |
-| GPU（可选） | 支持 DirectML 的显卡 |
+| 操作系统 | Windows 10/11 x64 |
+| 开发 SDK | .NET SDK 8.0 或更高 |
+| Lite 运行环境 | .NET 8 Desktop Runtime x64 |
+| Full 运行环境 | 自包含包，通常不需要额外安装 .NET Runtime |
+| Web UI | Microsoft Edge WebView2 Runtime |
+| GPU 可选 | 支持 DirectML 的显卡和驱动 |
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ### 1. 克隆代码
 
 ```bash
-git clone https://gitee.com/jiao-xiake/ClearForst.git
-cd ClearForst
+git clone https://github.com/HerverJun/ClearFrost.git
+cd ClearFrost
 ```
 
-### 2. 安装依赖
+### 2. 还原依赖
 
 ```bash
 dotnet restore
 ```
 
-### 3. 编译运行
+### 3. 构建
 
 ```bash
-# 命令行方式
-dotnet build -c Debug -p:Platform=x64
-dotnet run --project ClearFrost/ClearFrost.csproj
+dotnet build ClearFrost.sln -c Debug -p:Platform=x64
+```
 
-# 或使用 Visual Studio 打开 ClearFrost.sln，按 F5 运行
+### 4. 运行
+
+```bash
+dotnet run --project ClearFrost/ClearFrost.csproj -c Debug
+```
+
+也可以使用 Visual Studio 2022 打开 `ClearFrost.sln`，选择 `x64` 后运行。
+
+---
+
+## 发布
+
+### 交互式发布
+
+双击或运行：
+
+```bat
+脚本\publish.bat
+```
+
+按提示选择发布模式：
+
+```text
+1. Lite  - framework-dependent, smaller package
+2. Full  - self-contained, includes .NET runtime
+3. Both  - build both packages
+```
+
+版本输入示例：
+
+```text
+5.7.1
+```
+
+### 命令行发布
+
+```bat
+脚本\publish_lite.bat 5.7.1 -Zip
+脚本\publish_full.bat 5.7.1 -Zip
+```
+
+或直接使用 PowerShell：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\脚本\publish.ps1 -Mode Full -Version 5.7.1 -Zip -OpenOutput
+```
+
+输出目录示例：
+
+```text
+PublishOutput\ClearFrost_5.7.1_Lite
+PublishOutput\ClearFrost_5.7.1_Lite.zip
+PublishOutput\ClearFrost_5.7.1_Full
+PublishOutput\ClearFrost_5.7.1_Full.zip
+```
+
+版本号建议：
+
+| 类型 | 示例 | 说明 |
+|------|------|------|
+| 当前正式版 | `5.7.0` | V5.7 初始正式包 |
+| 修复版 | `5.7.1` | 小 bug 修复、补丁更新 |
+| 功能更新 | `5.8.0` | 新增一批功能但仍在 V5 系列 |
+| 大版本 | `6.0.0` | 兼容性或架构级变化 |
+
+---
+
+## 测试
+
+```bash
+# 运行所有测试
+dotnet test ClearFrost.Tests/ClearFrost.Tests.csproj
+
+# 运行单个测试类
+dotnet test ClearFrost.Tests/ClearFrost.Tests.csproj --filter "FullyQualifiedName~YoloResultTests"
+
+# 详细输出
+dotnet test ClearFrost.Tests/ClearFrost.Tests.csproj -v n
 ```
 
 ---
 
-## ⚠️ 重要提示
+## 项目结构
 
-**Git 仓库中只包含源代码，不包含以下大文件：**
-
-| 文件类型 | 说明 | 如何获取 |
-|----------|------|----------|
-| `DLL/*.dll` | 工业通讯库 (HslCommunication) | 从厂商官网下载 |
-| `ONNX/*.onnx` | YOLO 模型文件 | 自行训练或下载预训练模型 |
-| `依赖/x64依赖包/` | 相机 SDK 依赖 | 从华睿/海康官网下载 |
-
-详细配置步骤请参考下方「依赖配置」章节。
-
----
-
-## 📁 项目结构
-
-```
-ClearForst/
+```text
+ClearFrost/
 ├── ClearFrost/                 # 主项目
-│   ├── Services/               # 核心服务
-│   │   ├── DetectionService.cs # 检测服务（多模型支持）
-│   │   ├── CameraService.cs    # 相机服务
-│   │   ├── PlcService.cs       # PLC 通讯服务
-│   │   └── StatisticsService.cs# 统计服务
-│   ├── Views/                  # 界面逻辑（分模块）
-│   │   ├── 主窗口.Init.cs      # 初始化
-│   │   ├── 主窗口.Vision.cs    # 视觉检测
-│   │   ├── 主窗口.PLC.cs       # PLC 控制
-│   │   └── 主窗口.Camera.cs    # 相机控制
-│   ├── Core/                   # 核心模块
-│   │   └── MultiModelManager.cs# 多模型管理器
-│   ├── Yolo/                   # YOLO 推理引擎
-│   ├── Hardware/               # 硬件驱动
-│   ├── html/                   # Web UI 前端
-│   │   ├── index.html
-│   │   └── js/
-│   └── Config/                 # 配置管理
-├── ClearFrost_Lite/            # 简化版（SDK 依赖）
+│   ├── AppRuntime.cs           # 应用运行时服务装配
+│   ├── Config/                 # 配置管理与迁移
+│   ├── Core/                   # 规则、模型注册、配方等核心逻辑
+│   ├── Hardware/               # 相机、PLC、触发器硬件接口
+│   ├── Helpers/                # 运行路径、版本信息、窗口工具等
+│   ├── Interfaces/             # 服务接口与 DTO
+│   ├── Services/               # 检测、存储、统计、数据库、诊断等服务
+│   ├── Views/                  # WinForms 主窗口与 WebView2 控制器
+│   ├── Yolo/                   # YOLO 推理与后处理
+│   └── html/                   # Web UI 前端资源
+├── ClearFrost.Tests/           # xUnit 测试项目
+├── tools/                      # 调试、压测、PLC 探测工具
+├── 依赖/                       # 本地 SDK 依赖目录
+├── 脚本/                       # 发布器和辅助脚本
 └── README.md
 ```
 
 ---
 
-## 🎯 功能特性
+## 依赖说明
 
-### AI 检测模式
-- ✅ YOLO v8/v11 ONNX 模型推理
-- ✅ **多模型自动切换**（主模型 + 2个辅助模型）
-- ✅ DirectML GPU 加速
-- ✅ 可配置置信度/IOU 阈值
-- ✅ 目标标签 + 数量判定逻辑
+Git 仓库不提交模型文件和部分本地 DLL。部署或开发前需要准备：
 
-### 工业集成
-- ✅ 华睿/海康威视工业相机
-- ✅ 多协议 PLC 通讯
-- ✅ 检测结果自动写入 PLC
-- ✅ 重拍机制（可配置次数和间隔）
-- ✅ SQLite 历史记录存储
+| 路径 | 内容 | 说明 |
+|------|------|------|
+| `ClearFrost/DLL/` | `MVSDK_Net.dll` 等 | 华睿相机托管 SDK |
+| `ClearFrost/ONNX/` | `*.onnx` | YOLO 模型文件 |
+| `依赖/x64依赖包/` | 原生相机 SDK DLL | 华睿 SDK 依赖 |
+| `依赖/海康依赖包/` | 海康 SDK DLL | 海康相机依赖 |
 
-### 用户界面
-- ✅ 现代 Web UI（WebView2）
-- ✅ 实时检测流水日志
-- ✅ 今日产出统计图表
-- ✅ 图像追溯库
-- ✅ 密码保护的管理员设置
+NuGet 依赖由 `dotnet restore` 自动还原，主要包括：
+
+- `Microsoft.ML.OnnxRuntime.DirectML`
+- `OpenCvSharp4.Windows`
+- `Microsoft.Web.WebView2`
+- `HslCommunication`
+- `Microsoft.Data.Sqlite`
 
 ---
 
-## 🔧 依赖配置
+## 常见问题
 
-### 必需：工业通讯库
+### 发布时输入什么版本号？
 
-在 `ClearFrost/DLL/` 目录放入：
+如果当前是 `5.7.0`，后续修复版输入：
 
-| 文件 | 用途 | 来源 |
-|------|------|------|
-| `HslCommunication.dll` | PLC 通讯 | [HSL 官网](https://www.hslcommunication.cn/) |
-| `MVSDK_Net.dll` | 相机 SDK | [华睿官网](https://www.huaray.com/) |
-
-### 可选：ONNX 模型
-
-在 `ClearFrost/ONNX/` 目录放入 YOLO 模型：
-
-```bash
-# 使用 Ultralytics 导出
-yolo export model=yolo11n.pt format=onnx
+```text
+5.7.1
 ```
 
-### 可选：相机 SDK 依赖
+如果只是重新打当前版本的包，直接按回车使用默认值即可。
 
-在 `ClearFrost_Lite/` 目录放入华睿 SDK 的原生 DLL 文件。
+### Lite 和 Full 怎么选？
 
----
+- `Lite`：包更小，目标机器需要安装 .NET 8 Desktop Runtime x64。
+- `Full`：包更大，但自带 .NET 运行时，更适合直接交付现场电脑。
+- `Both`：同时生成两种包，适合正式归档。
 
-## 🔍 常见问题
+### 发布后怎么看版本？
 
-<details>
-<summary><strong>Q: 编译时报错缺少 DLL？</strong></summary>
+发布目录里会生成：
 
-确保 `ClearFrost/DLL/` 目录包含必要的 DLL 文件。如果不使用 PLC/相机功能，可以注释掉相关代码。
-</details>
+```text
+VERSION.txt
+```
 
-<details>
-<summary><strong>Q: 多模型切换不生效？</strong></summary>
+同时 exe 文件属性里的 `ProductVersion` 和 `FileVersion` 也会更新。
 
-1. 确保在界面上勾选了「模型池」开关
-2. 检查辅助模型是否正确加载
-3. 查看调试日志确认切换逻辑
-</details>
+### 缺少 ONNX 模型怎么办？
 
-<details>
-<summary><strong>Q: GPU 加速未启用？</strong></summary>
-
-1. 确保显卡驱动是最新版本
-2. 在设置中勾选「启用 DirectML GPU 加速」
-3. 确认显卡和驱动支持 DirectML，并检查 GPU 设备 ID 是否正确
-</details>
+发布器会给出警告，但不会阻止发布。实际检测前需要把模型放入 `ClearFrost/ONNX/` 或发布目录的 `ONNX/`。
 
 ---
 
-## 📧 联系方式
+## 更新日志
 
-如有问题，请提交 Issue 或联系项目维护者。
+### v5.7 (2026-05-22)
+
+- 新增统一发布器，支持发布时指定版本号
+- 窗口标题从程序集版本自动生成，避免手工忘改
+- 配置迁移导出使用统一应用版本
+- WebView2 用户数据目录按版本隔离
+- 发布产物自动生成 `VERSION.txt`
+- 缺少环境检查脚本时自动生成 `check_env.bat`
+
+### v5.x
+
+- 多相机管理与相机切换
+- 模型注册表与模型包追溯字段
+- 检测记录 SQLite 存储与图像追溯
+- 配置迁移、项目预设、健康诊断
+- 面向低配工控机的图像链路与渲染优化
 
 ---
 
-## 📝 更新日志
+## 维护建议
 
-### v3.2 (2026-01-19)
-- 修复多模型切换时标签显示错误
-- 优化今日产出图表位置
-- 添加代码分享说明文档
-
-### v3.0 (2026-01-14)
-- 全新多模型自动切换架构
-- 重构服务层（DetectionService/PlcService）
-- 新增目标标签+数量判定逻辑
-- 现代化 Web UI 界面
+- 发布正式包时固定使用三段版本号，例如 `5.7.1`
+- 每次现场交付保留 `PublishOutput` 中的 zip 包和 `VERSION.txt`
+- 模型文件、相机 SDK、现场配置不要直接提交到 Git
+- 修改发布流程后至少验证一次 Lite 发布和一次 Debug x64 构建
 
 ---
 
-**最后更新**: 2026-01-19
+**最后更新**: 2026-05-22
