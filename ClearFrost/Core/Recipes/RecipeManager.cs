@@ -42,7 +42,13 @@ namespace ClearFrost.Core.Recipes
                 try
                 {
                     string json = File.ReadAllText(_recipePath);
-                    CurrentRecipe = JsonSerializer.Deserialize<Recipe>(json, JsonOptions) ?? Recipe.FromAppConfig(config);
+                    Recipe loadedRecipe = JsonSerializer.Deserialize<Recipe>(json, JsonOptions) ?? Recipe.FromAppConfig(config);
+                    CurrentRecipe = EnsureProductionSnapshot(loadedRecipe, config, out bool migrated);
+                    if (migrated)
+                    {
+                        Save(CurrentRecipe);
+                    }
+
                     return CurrentRecipe;
                 }
                 catch
@@ -56,9 +62,9 @@ namespace ClearFrost.Core.Recipes
             return CurrentRecipe;
         }
 
-        public Recipe GenerateDefault(AppConfig config)
+        public Recipe GenerateDefault(AppConfig config, float[]? roi = null)
         {
-            CurrentRecipe = Recipe.FromAppConfig(config ?? throw new ArgumentNullException(nameof(config)));
+            CurrentRecipe = Recipe.FromAppConfig(config ?? throw new ArgumentNullException(nameof(config)), roi);
             return CurrentRecipe;
         }
 
@@ -87,7 +93,43 @@ namespace ClearFrost.Core.Recipes
             File.Copy(_backupPath, _recipePath, overwrite: true);
             string json = File.ReadAllText(_recipePath);
             CurrentRecipe = JsonSerializer.Deserialize<Recipe>(json, JsonOptions) ?? new Recipe();
+            NormalizeNestedSnapshots(CurrentRecipe);
             return true;
+        }
+
+        private static Recipe EnsureProductionSnapshot(Recipe recipe, AppConfig config, out bool migrated)
+        {
+            NormalizeNestedSnapshots(recipe);
+
+            bool needsMigration =
+                (recipe.Cameras.Count == 0 && (config.Cameras?.Count ?? 0) > 0) ||
+                (string.IsNullOrWhiteSpace(recipe.ActiveCameraId) && !string.IsNullOrWhiteSpace(config.ActiveCameraId)) ||
+                string.IsNullOrWhiteSpace(recipe.Plc.Protocol) ||
+                string.IsNullOrWhiteSpace(recipe.Plc.TriggerAddress) ||
+                string.IsNullOrWhiteSpace(recipe.Barcode.Encoding) ||
+                string.IsNullOrWhiteSpace(recipe.Trigger.Source);
+
+            if (!needsMigration)
+            {
+                migrated = false;
+                return recipe;
+            }
+
+            Recipe migratedRecipe = Recipe.FromAppConfig(config, recipe.GetRoiSnapshot());
+            migratedRecipe.RecipeId = string.IsNullOrWhiteSpace(recipe.RecipeId) ? migratedRecipe.RecipeId : recipe.RecipeId;
+            migratedRecipe.Version = string.IsNullOrWhiteSpace(recipe.Version) ? migratedRecipe.Version : recipe.Version;
+            migratedRecipe.CreatedAt = recipe.CreatedAt == default ? migratedRecipe.CreatedAt : recipe.CreatedAt;
+            migrated = true;
+            return migratedRecipe;
+        }
+
+        private static void NormalizeNestedSnapshots(Recipe recipe)
+        {
+            recipe.Cameras ??= new();
+            recipe.Plc ??= new RecipePlcSnapshot();
+            recipe.Barcode ??= new RecipeBarcodeSnapshot();
+            recipe.Trigger ??= new RecipeTriggerSnapshot();
+            recipe.Roi = recipe.GetRoiSnapshot();
         }
     }
 }
