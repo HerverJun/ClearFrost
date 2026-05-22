@@ -4,6 +4,7 @@ using FluentAssertions;
 
 namespace ClearFrost.Tests.Config;
 
+[Collection("RuntimePaths")]
 public class ProjectPresetStoreTests
 {
     [Fact]

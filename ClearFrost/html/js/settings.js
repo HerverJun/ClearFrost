@@ -1309,6 +1309,14 @@
         updateProjectPresetSelect("");
     }
 
+    function exportConfigMigration() {
+        bridge.sendCommand("export_config_migration");
+    }
+
+    function importConfigMigration() {
+        bridge.sendCommand("import_config_migration");
+    }
+
     function collectSettingsData() {
         const fieldMapping = {
             "cfg-storage-path": "StoragePath",
@@ -1652,7 +1660,9 @@
         applyMultiModelUiState,
         closeSettingsModal,
         deleteSelectedProjectPreset,
+        exportConfigMigration,
         handleProjectPresets,
+        importConfigMigration,
         initModelList,
         initSettings,
         loadProjectPreset,

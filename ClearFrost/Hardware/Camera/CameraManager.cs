@@ -519,6 +519,71 @@ namespace ClearFrost.Hardware
             }
         }
 
+        public void ReloadFromConfig(AppConfig config)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+
+            var nextCameras = new Dictionary<string, CameraInstance>();
+            string nextActiveCameraId = "";
+            foreach (CameraConfig camConfig in (config.Cameras ?? new List<CameraConfig>()).Where(c => c.IsEnabled))
+            {
+                if (string.IsNullOrWhiteSpace(camConfig.Id))
+                {
+                    throw new InvalidOperationException("相机配置 Id 不能为空");
+                }
+
+                Func<ICamera> cameraFactory = () => CreateCamera(camConfig);
+                if (!nextCameras.TryAdd(camConfig.Id, new CameraInstance(camConfig.Id, camConfig, cameraFactory)))
+                {
+                    throw new InvalidOperationException($"相机配置 Id 重复: {camConfig.Id}");
+                }
+
+                if (string.IsNullOrWhiteSpace(nextActiveCameraId))
+                {
+                    nextActiveCameraId = camConfig.Id;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.ActiveCameraId) && nextCameras.ContainsKey(config.ActiveCameraId))
+            {
+                nextActiveCameraId = config.ActiveCameraId;
+            }
+
+            string activeCameraId;
+            List<CameraInstance> oldCameras;
+            lock (_lock)
+            {
+                oldCameras = _cameras.Values.ToList();
+                _cameras.Clear();
+                foreach (KeyValuePair<string, CameraInstance> item in nextCameras)
+                {
+                    _cameras[item.Key] = item.Value;
+                }
+
+                _activeCameraId = nextActiveCameraId;
+                config.ActiveCameraId = _activeCameraId;
+                activeCameraId = _activeCameraId;
+            }
+
+            foreach (CameraInstance camera in oldCameras)
+            {
+                try
+                {
+                    camera.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[CameraManager] Dispose old camera during reload failed: {ex.Message}");
+                }
+            }
+
+            CameraListChanged?.Invoke(this, EventArgs.Empty);
+            if (!string.IsNullOrWhiteSpace(activeCameraId))
+            {
+                ActiveCameraChanged?.Invoke(this, activeCameraId);
+            }
+        }
+
         /// <summary>
         /// 保存到配置
         /// </summary>

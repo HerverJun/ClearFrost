@@ -86,6 +86,8 @@ namespace ClearFrost
         public event EventHandler<string>? OnSaveProjectPreset;
         public event EventHandler<string>? OnDeleteProjectPreset;
         public event EventHandler? OnGetProjectPresets;
+        public event EventHandler? OnExportConfigMigration;
+        public event EventHandler? OnImportConfigMigration;
         public event EventHandler? OnSelectStorageFolder;
         public event EventHandler? OnGetStatisticsHistory;
         public event EventHandler? OnClearStatisticsHistory;
@@ -668,6 +670,12 @@ namespace ClearFrost
                                 break;
                             case "get_project_presets":
                                 OnGetProjectPresets?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "export_config_migration":
+                                OnExportConfigMigration?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "import_config_migration":
+                                OnImportConfigMigration?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "save_project_preset":
                                 if (root.TryGetProperty("value", out JsonElement presetSaveElement))
@@ -1432,6 +1440,8 @@ namespace ClearFrost
                 OnSaveProjectPreset = null;
                 OnDeleteProjectPreset = null;
                 OnGetProjectPresets = null;
+                OnExportConfigMigration = null;
+                OnImportConfigMigration = null;
                 OnSelectStorageFolder = null;
                 OnGetStatisticsHistory = null;
                 OnClearStatisticsHistory = null;

@@ -121,6 +121,42 @@ namespace ClearFrost.Tests.Hardware.Camera
             manager.ActiveCamera!.Camera.Should().BeOfType<MockCamera>();
         }
 
+        [Fact]
+        public void CameraManager_ReloadFromConfig遇到重复Id时保留原注册表()
+        {
+            var originalConfig = new CameraConfig
+            {
+                Id = "cam-original",
+                SerialNumber = "SN-ORIGINAL",
+                DisplayName = "OriginalCam",
+                Manufacturer = "Huaray",
+                IsEnabled = true
+            };
+            var appConfig = new AppConfig
+            {
+                Cameras = { originalConfig },
+                ActiveCameraId = originalConfig.Id
+            };
+            using var manager = new CameraManager(false, _ => new FakeCamera());
+            manager.LoadFromConfig(appConfig);
+
+            var duplicateConfig = new AppConfig
+            {
+                Cameras =
+                {
+                    new CameraConfig { Id = "dup", SerialNumber = "SN-1", IsEnabled = true },
+                    new CameraConfig { Id = "dup", SerialNumber = "SN-2", IsEnabled = true }
+                },
+                ActiveCameraId = "dup"
+            };
+
+            Action act = () => manager.ReloadFromConfig(duplicateConfig);
+
+            act.Should().Throw<InvalidOperationException>().WithMessage("*重复*");
+            manager.Cameras.Should().ContainSingle(camera => camera.Id == "cam-original");
+            manager.ActiveCameraId.Should().Be("cam-original");
+        }
+
         private sealed class FakeCamera : ICamera
         {
             private bool _isGrabbing;

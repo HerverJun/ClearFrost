@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -270,13 +271,7 @@ namespace ClearFrost.Config
                     }
 
                     string json = File.ReadAllText(loadPath);
-                    var options = new JsonSerializerOptions
-                    {
-                        ReadCommentHandling = JsonCommentHandling.Skip,
-                        AllowTrailingCommas = true,
-                        PropertyNameCaseInsensitive = true
-                    };
-                    var config = JsonSerializer.Deserialize<AppConfig>(json, options) ?? new AppConfig();
+                    var config = FromJson(json);
                     config.MigrateLegacyCamera();
                     config.NormalizeRuntimeSettings();
                     if (!PathsEqual(loadPath, ConfigPath))
@@ -293,6 +288,20 @@ namespace ClearFrost.Config
             }
 
             return new AppConfig();
+        }
+
+        public static AppConfig FromJson(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                throw new InvalidOperationException("配置文件内容为空");
+            }
+
+            var config = JsonSerializer.Deserialize<AppConfig>(json, CreateJsonOptions())
+                ?? throw new InvalidOperationException("配置文件内容为空");
+            config.MigrateLegacyCamera();
+            config.NormalizeRuntimeSettings();
+            return config;
         }
 
         /// <summary>
@@ -392,6 +401,42 @@ namespace ClearFrost.Config
                 LogError("Save", ex);
                 return false;
             }
+        }
+
+        public string ToPortableJson()
+        {
+            NormalizeRuntimeSettings();
+            return SerializeForSave();
+        }
+
+        public void CopyFrom(AppConfig source)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            AppConfig normalizedSource = FromJson(source.ToPortableJson());
+            foreach (PropertyInfo property in typeof(AppConfig).GetProperties(BindingFlags.Instance | BindingFlags.Public))
+            {
+                if (!property.CanRead ||
+                    property.SetMethod?.IsPublic != true ||
+                    property.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+
+                object? value = property.GetValue(normalizedSource);
+                if (value is List<CameraConfig> cameras)
+                {
+                    value = cameras.Select(camera => camera.Clone()).ToList();
+                }
+
+                property.SetValue(this, value);
+            }
+
+            NormalizeRuntimeSettings();
+            LastError = null;
         }
 
         public void OnDeserialized()
@@ -595,6 +640,16 @@ namespace ClearFrost.Config
             {
                 yield return BundledConfigPath;
             }
+        }
+
+        private static JsonSerializerOptions CreateJsonOptions()
+        {
+            return new JsonSerializerOptions
+            {
+                ReadCommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true,
+                PropertyNameCaseInsensitive = true
+            };
         }
 
         private static void WriteConfigAtomically(string targetPath, string json)

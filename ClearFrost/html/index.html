@@ -305,6 +305,37 @@
                                 <p class="text-[9px] text-ink-400 mt-2 italic">选择后自动填充下方配置项，填充后仍可手动修改各参数</p>
                             </div>
 
+                            <!-- 配置迁移 -->
+                            <div class="p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+                                <label
+                                    class="flex items-center gap-2 text-[10px] font-bold text-slate-700 uppercase tracking-widest mb-3">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M7 16a4 4 0 0 1-.88-7.9A5 5 0 0 1 15.9 6H16a5 5 0 0 1 1 9.9M12 12v9m0 0-3-3m3 3 3-3"></path>
+                                    </svg>
+                                    配置迁移
+                                </label>
+                                <p class="text-[10px] text-ink-400 mb-3 leading-relaxed">
+                                    导出当前运行配置和全部项目预设；导入后覆盖运行参数并合并预设，同 id 以导入文件为准。
+                                </p>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    <button type="button" data-action="exportConfigMigration">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"></path>
+                                        </svg>
+                                        导出迁移配置
+                                    </button>
+                                    <button type="button" data-action="importConfigMigration">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M12 21V9m0 0 4 4m-4-4-4 4M5 3h14"></path>
+                                        </svg>
+                                        导入迁移配置
+                                    </button>
+                                </div>
+                            </div>
+
                             <!-- 数据集自动收集 -->
                             <div class="p-4 bg-gradient-to-r from-blue-50 to-porcelain-50 rounded-xl border border-blue-200 shadow-sm">
                                 <label class="flex items-center gap-2 text-[10px] font-bold text-blue-700 uppercase tracking-widest mb-3">

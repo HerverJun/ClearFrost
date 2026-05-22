@@ -870,6 +870,12 @@ namespace ClearFrost
                 }
             };
 
+            _uiController.OnExportConfigMigration += (sender, e) =>
+                InvokeOnUIThread(() => SafeFireAndForget(ExportConfigMigrationAsync(), "导出配置迁移"));
+
+            _uiController.OnImportConfigMigration += (sender, e) =>
+                InvokeOnUIThread(() => SafeFireAndForget(ImportConfigMigrationAsync(), "导入配置迁移"));
+
             // 订阅配置保存事件
             _uiController.OnSaveSettings += async (sender, configJson) =>
             {
@@ -1212,6 +1218,223 @@ namespace ClearFrost
             StartEmergencyCleanupMonitor();
 
             // 触发监听在相机打开成功后启动，避免软件刚启动时现场信号误入检测链路。
+        }
+
+        private async Task ExportConfigMigrationAsync()
+        {
+            try
+            {
+                using var dialog = new SaveFileDialog
+                {
+                    Title = "导出配置迁移文件",
+                    FileName = $"ClearFrost_Config_{DateTime.Now:yyyyMMdd_HHmmss}.clearfrost-config.json",
+                    Filter = "ClearFrost 配置迁移 (*.clearfrost-config.json)|*.clearfrost-config.json|JSON 配置 (*.json)|*.json|所有文件 (*.*)|*.*",
+                    DefaultExt = "clearfrost-config.json",
+                    AddExtension = true,
+                    OverwritePrompt = true,
+                    InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
+                };
+
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                string appVersion = Application.ProductVersion ?? string.Empty;
+                ConfigMigrationExportResult result = ConfigMigrationService.Export(_appConfig, dialog.FileName, appVersion);
+                await _uiController.LogToFrontend($"配置迁移文件已导出: {result.Path}", "success");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = $"已导出配置迁移文件，包含 {result.PresetCount} 个项目预设",
+                    type = "success",
+                    durationMs = 2200
+                });
+            }
+            catch (Exception ex)
+            {
+                await _uiController.SendUiCommand("alert", new { message = $"导出配置迁移失败: {ex.Message}" });
+            }
+        }
+
+        private async Task ImportConfigMigrationAsync()
+        {
+            try
+            {
+                using var dialog = new OpenFileDialog
+                {
+                    Title = "导入配置迁移文件",
+                    Filter = "ClearFrost 配置迁移 (*.clearfrost-config.json)|*.clearfrost-config.json|JSON 配置 (*.json)|*.json|所有文件 (*.*)|*.*",
+                    CheckFileExists = true,
+                    Multiselect = false,
+                    InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
+                };
+
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                ConfigMigrationImportPreview preview = ConfigMigrationService.PreviewImport(dialog.FileName);
+                DialogResult confirmResult = MessageBox.Show(
+                    this,
+                    BuildConfigMigrationImportConfirmText(dialog.FileName, preview),
+                    "导入配置迁移",
+                    MessageBoxButtons.OKCancel,
+                    preview.HasConfig ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+                if (confirmResult != DialogResult.OK)
+                {
+                    return;
+                }
+
+                ConfigMigrationImportResult result = ConfigMigrationService.ImportFromFile(dialog.FileName, _appConfig);
+                bool refreshSucceeded = true;
+                try
+                {
+                    await RefreshAfterConfigMigrationImportAsync(result);
+                }
+                catch (Exception refreshEx)
+                {
+                    refreshSucceeded = false;
+                    await _uiController.LogToFrontend($"配置已导入，但刷新运行状态失败: {refreshEx.Message}", "warning");
+                    await _uiController.SendUiCommand("alert", new
+                    {
+                        message = $"配置迁移已写入，但刷新运行状态失败。建议重启软件后确认相机、模型和触发源状态。\n\n{refreshEx.Message}"
+                    });
+                }
+
+                await _uiController.LogToFrontend(
+                    BuildConfigMigrationImportLogText(result),
+                    refreshSucceeded ? "success" : "warning");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = refreshSucceeded
+                        ? (result.HasConfig ? "配置迁移导入完成，运行参数已覆盖" : "项目预设导入完成")
+                        : "配置已导入，刷新状态需要人工确认",
+                    type = refreshSucceeded ? "success" : "warning",
+                    durationMs = 2600
+                });
+            }
+            catch (Exception ex)
+            {
+                await _uiController.SendUiCommand("alert", new { message = $"导入配置迁移失败: {ex.Message}" });
+            }
+        }
+
+        private string BuildConfigMigrationImportConfirmText(string filePath, ConfigMigrationImportPreview preview)
+        {
+            string kindText = preview.Kind switch
+            {
+                ConfigMigrationImportKind.MigrationPackage => "ClearFrost 配置迁移包",
+                ConfigMigrationImportKind.AppConfig => "普通 config.json",
+                ConfigMigrationImportKind.ProjectPresets => "项目预设文件",
+                _ => "配置文件"
+            };
+            string configText = preview.HasConfig ? "覆盖当前运行配置" : "不修改当前运行配置";
+            string presetText = preview.HasPresets
+                ? $"合并 {preview.PresetCount} 个项目预设，同 id 以导入文件为准"
+                : "不导入项目预设";
+            string versionText = string.IsNullOrWhiteSpace(preview.SourceAppVersion)
+                ? ""
+                : $"\n来源版本: {preview.SourceAppVersion}";
+
+            return
+                $"文件: {Path.GetFileName(filePath)}\n" +
+                $"类型: {kindText}{versionText}\n\n" +
+                $"{configText}\n" +
+                $"{presetText}\n\n" +
+                "导入后会刷新设置页、相机列表、触发源和模型状态。是否继续？";
+        }
+
+        private static string BuildConfigMigrationImportLogText(ConfigMigrationImportResult result)
+        {
+            string configText = result.HasConfig ? $"运行配置已写入 {result.RuntimeConfigPath}" : "运行配置未修改";
+            string presetText = result.HasPresets ? $"项目预设已合并 {result.PresetCount} 个" : "未导入项目预设";
+            return $"配置迁移导入完成: {configText}; {presetText}";
+        }
+
+        private async Task RefreshAfterConfigMigrationImportAsync(ConfigMigrationImportResult result)
+        {
+            if (result.HasConfig)
+            {
+                try
+                {
+                    _cameraService.StopCapture();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[ConfigMigration] StopCapture before camera reload failed: {ex.Message}");
+                }
+
+                _cameraManager.ReloadFromConfig(_appConfig);
+                CameraInstance? activeCamera = _cameraManager.ActiveCamera;
+                cam = activeCamera?.Camera ?? new RealCamera();
+
+                _recipeManager.Save(_recipeManager.GenerateDefault(_appConfig));
+                YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
+                _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
+                _detectionService.SetTaskMode(_appConfig.TaskType);
+
+                _uiController.ImageBasePath = Path_Images;
+                _uiController.LogBasePath = Path_Logs;
+                InitDirectories();
+                _uiController.SetImageMapping(Path_Images);
+
+                模型名 = _appConfig.CurrentModelFileName?.Trim() ?? string.Empty;
+                await WarnMissingImportedModelFilesAsync();
+                InitYolo();
+                _ = StartTriggerSourceAsync();
+
+                await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
+                await _uiController.InitSettings(_appConfig);
+                await _uiController.SendModelList(GetModelNames());
+            }
+
+            await _uiController.SendProjectPresets(ProjectPresetStore.Load());
+            await SendConfiguredCameraListToFrontendAsync();
+            await SendHealthSnapshotToFrontendAsync();
+        }
+
+        private async Task WarnMissingImportedModelFilesAsync()
+        {
+            if (!Directory.Exists(模型路径))
+            {
+                await _uiController.LogToFrontend($"模型目录不存在: {模型路径}", "warning");
+                return;
+            }
+
+            var modelNames = new[]
+            {
+                _appConfig.CurrentModelFileName,
+                _appConfig.Auxiliary1ModelPath,
+                _appConfig.Auxiliary2ModelPath
+            }
+                .Select(name => name?.Trim() ?? string.Empty)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string modelName in modelNames)
+            {
+                if (!File.Exists(Path.Combine(模型路径, modelName)))
+                {
+                    await _uiController.LogToFrontend($"导入配置引用的模型文件不存在: {modelName}", "warning");
+                }
+            }
+        }
+
+        private Task SendConfiguredCameraListToFrontendAsync()
+        {
+            object[] cameras = _appConfig.Cameras.Select(c => new
+            {
+                id = c.Id,
+                displayName = c.DisplayName,
+                serialNumber = c.SerialNumber,
+                manufacturer = c.Manufacturer,
+                pixelFormat = c.PixelFormat,
+                exposureTime = c.ExposureTime,
+                gain = c.Gain
+            }).Cast<object>().ToArray();
+
+            return _uiController.SendCameraList(cameras, _cameraManager.ActiveCameraId ?? _appConfig.ActiveCameraId);
         }
 
         /// <summary>

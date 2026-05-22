@@ -72,6 +72,34 @@ namespace ClearFrost.Config
             return Load();
         }
 
+        public static JsonObject ExportPresets()
+        {
+            return CloneObject(Load().Presets);
+        }
+
+        public static Snapshot MergePresets(JsonObject importedPresets)
+        {
+            if (importedPresets == null)
+            {
+                throw new ArgumentNullException(nameof(importedPresets));
+            }
+
+            Snapshot snapshot = Load();
+            foreach (KeyValuePair<string, JsonNode?> item in importedPresets)
+            {
+                string id = NormalizePresetId(item.Key);
+                if (item.Value is not JsonObject preset)
+                {
+                    throw new InvalidOperationException($"预设 {id} 内容必须是 JSON 对象");
+                }
+
+                snapshot.Presets[id] = CloneObject(preset);
+            }
+
+            WritePresetObject(RuntimePaths.ProjectPresetsPath, snapshot.Presets);
+            return Load();
+        }
+
         private static void EnsureRuntimePresetFile()
         {
             string runtimePath = RuntimePaths.ProjectPresetsPath;
