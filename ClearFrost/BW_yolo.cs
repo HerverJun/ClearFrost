@@ -707,7 +707,6 @@ namespace ClearFrost.Yolo
                 sw.Restart();
 
                 // ==================== 推理阶段 ====================
-                List<YoloResult> filteredDataList;
                 List<YoloResult> finalResult = new List<YoloResult>();
 
                 if (_executionTaskMode == YoloTaskType.Classify)
@@ -724,29 +723,11 @@ namespace ClearFrost.Yolo
                     var output0 = resultData.First().AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();
-                    if (_yoloVersion == 26)
-                    {
-                        // YOLOv26 NMS-free: 直接过滤置信度，输出已是最终结果
-                        finalResult = FilterConfidence_Yolo26_Detect(output0, confidence);
-                    }
-                    else if (_yoloVersion == 8)
-                    {
-                        filteredDataList = FilterConfidence_Yolo8_9_11_Detect(output0, confidence);
-                        finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
-                    }
-                    else if (_yoloVersion == 5)
-                    {
-                        filteredDataList = FilterConfidence_Yolo5_Detect(output0, confidence);
-                        finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
-                    }
-                    else
-                    {
-                        filteredDataList = FilterConfidence_Yolo6_Detect(output0, confidence);
-                        finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
-                    }
+                    finalResult = PostprocessDetectionOutput(output0, confidence, iouThreshold, globalIou);
                 }
                 else if (_executionTaskMode == YoloTaskType.SegmentDetectOnly || _executionTaskMode == YoloTaskType.SegmentWithMask)
                 {
+                    List<YoloResult> filteredDataList;
                     using var resultData = _inferenceSession.Run(container);
                     var output0 = resultData.First().AsTensor<float>();
                     var output1 = resultData.ElementAtOrDefault(1)?.AsTensor<float>();
@@ -765,6 +746,7 @@ namespace ClearFrost.Yolo
                 }
                 else if (_executionTaskMode == YoloTaskType.PoseDetectOnly || _executionTaskMode == YoloTaskType.PoseWithKeypoints)
                 {
+                    List<YoloResult> filteredDataList;
                     using var resultData = _inferenceSession.Run(container);
                     var output0 = resultData.First().AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
@@ -774,6 +756,7 @@ namespace ClearFrost.Yolo
                 }
                 else if (_executionTaskMode == YoloTaskType.Obb)
                 {
+                    List<YoloResult> filteredDataList;
                     using var resultData = _inferenceSession.Run(container);
                     var output0 = resultData.First().AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
@@ -849,7 +832,6 @@ namespace ClearFrost.Yolo
             sw.Restart();
 
             // ==================== 推理阶段 ====================
-            List<YoloResult> filteredDataList;
             List<YoloResult> finalResult = new List<YoloResult>();
 
             if (_executionTaskMode == YoloTaskType.Classify)
@@ -866,29 +848,11 @@ namespace ClearFrost.Yolo
                 var output0 = resultData.First().AsTensor<float>();
                 metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                 sw.Restart();
-                if (_yoloVersion == 26)
-                {
-                    // YOLOv26 NMS-free: 直接过滤置信度，输出已是最终结果
-                    finalResult = FilterConfidence_Yolo26_Detect(output0, confidence);
-                }
-                else if (_yoloVersion == 8)
-                {
-                    filteredDataList = FilterConfidence_Yolo8_9_11_Detect(output0, confidence);
-                    finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
-                }
-                else if (_yoloVersion == 5)
-                {
-                    filteredDataList = FilterConfidence_Yolo5_Detect(output0, confidence);
-                    finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
-                }
-                else
-                {
-                    filteredDataList = FilterConfidence_Yolo6_Detect(output0, confidence);
-                    finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
-                }
+                finalResult = PostprocessDetectionOutput(output0, confidence, iouThreshold, globalIou);
             }
             else if (_executionTaskMode == YoloTaskType.SegmentDetectOnly || _executionTaskMode == YoloTaskType.SegmentWithMask)
             {
+                List<YoloResult> filteredDataList;
                 using var resultData = _inferenceSession.Run(container);
                 var output0 = resultData.First().AsTensor<float>();
                 var output1 = resultData.ElementAtOrDefault(1)?.AsTensor<float>();
@@ -907,6 +871,7 @@ namespace ClearFrost.Yolo
             }
             else if (_executionTaskMode == YoloTaskType.PoseDetectOnly || _executionTaskMode == YoloTaskType.PoseWithKeypoints)
             {
+                List<YoloResult> filteredDataList;
                 using var resultData = _inferenceSession.Run(container);
                 var output0 = resultData.First().AsTensor<float>();
                 metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
@@ -916,6 +881,7 @@ namespace ClearFrost.Yolo
             }
             else if (_executionTaskMode == YoloTaskType.Obb)
             {
+                List<YoloResult> filteredDataList;
                 using var resultData = _inferenceSession.Run(container);
                 var output0 = resultData.First().AsTensor<float>();
                 metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
@@ -938,27 +904,58 @@ namespace ClearFrost.Yolo
             return finalResult;
         }
 
+        private List<YoloResult> PostprocessDetectionOutput(Tensor<float> output0, float confidence, float iouThreshold, bool globalIou)
+        {
+            List<YoloResult> filteredDataList;
+            if (IsDecodedDetectionOutput(output0))
+            {
+                // Decoded/end2end ONNX outputs use xyxy + confidence + class rows.
+                // Some exports still set nms=False, so keep app-side NMS active.
+                filteredDataList = FilterConfidence_Yolo26_Detect(output0, confidence);
+            }
+            else if (_yoloVersion >= 8)
+            {
+                filteredDataList = FilterConfidence_Yolo8_9_11_Detect(output0, confidence);
+            }
+            else if (_yoloVersion == 5)
+            {
+                filteredDataList = FilterConfidence_Yolo5_Detect(output0, confidence);
+            }
+            else
+            {
+                filteredDataList = FilterConfidence_Yolo6_Detect(output0, confidence);
+            }
+
+            return NmsFilter(filteredDataList, iouThreshold, globalIou);
+        }
+
+        private static bool IsDecodedDetectionOutput(Tensor<float> output0)
+        {
+            return output0.Dimensions.Length == 3 &&
+                output0.Dimensions[2] == BASIC_DATA_LENGTH &&
+                output0.Dimensions[1] > 0;
+        }
+
         private int DetermineModelVersion(int version)
         {
             if (_taskType == "classify")
             {
                 return 5;
             }
-            // YOLOv26+ 使用 NMS-free 推理，显式指定版本
+            // YOLOv26+ 显式指定版本；实际后处理仍按输出形状决定 raw/decoded 路径。
             if (version >= 26)
             {
                 return 26;
             }
 
-            // 根据输出张量形状自动检测 YOLOv26
-            // v26 NMS-free 输出格式: [1, ~300, 6] (batch, num_detections, 6)
+            // 根据输出张量形状自动检测 decoded/end2end 输出。
+            // decoded 输出格式: [1, num_detections, 6] = [x1, y1, x2, y2, conf, class]
             // v8/v11 输出格式: [1, 84, 8400] 或 [1, 8400, 84]
             if (_outputTensorInfo.Length == 3)
             {
                 int dim1 = _outputTensorInfo[1];
                 int dim2 = _outputTensorInfo[2];
-                // v26 特征: 第三维度恰好是 6 (x1, y1, x2, y2, conf, class)
-                // 且第二维度通常是 300 (默认检测数量)
+                // decoded 特征: 第三维度恰好是 6，第二维度通常是 300。
                 if (dim2 == 6 && dim1 >= 100 && dim1 <= 500)
                 {
                     return 26;

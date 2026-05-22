@@ -37,6 +37,47 @@ public class YoloPostprocessorSpanIndexTests
     }
 
     [Fact]
+    public void Yolo11Detect_RowLayout_按锚点和通道读取坐标类别()
+    {
+        object detector = CreateDetector();
+        DenseTensor<float> tensor = CreateRowTensor(anchorCount: 8, channelCount: 7);
+
+        SetRowBox(tensor, anchor: 3, centerX: 10, centerY: 20, width: 30, height: 40);
+        tensor[0, 3, 4] = 0.12f;
+        tensor[0, 3, 5] = 0.91f;
+        tensor[0, 3, 6] = 0.44f;
+
+        List<YoloResult> results = InvokeFilter("FilterConfidence_Yolo8_9_11_Detect", detector, tensor, 0.5f);
+
+        results.Should().ContainSingle();
+        results[0].CenterX.Should().BeApproximately(10, Tolerance);
+        results[0].CenterY.Should().BeApproximately(20, Tolerance);
+        results[0].Width.Should().BeApproximately(30, Tolerance);
+        results[0].Height.Should().BeApproximately(40, Tolerance);
+        results[0].Confidence.Should().BeApproximately(0.91f, Tolerance);
+        results[0].ClassId.Should().Be(1);
+    }
+
+    [Fact]
+    public void Yolo11Detect_同类别重叠框会执行NMS()
+    {
+        object detector = CreateDetector();
+        SetPrivateField(detector, "_yoloVersion", 8);
+        var results = new List<YoloResult>
+        {
+            Detection(centerX: 60, centerY: 60, width: 100, height: 100, confidence: 0.90f, classId: 0),
+            Detection(centerX: 62, centerY: 62, width: 100, height: 100, confidence: 0.80f, classId: 0),
+            Detection(centerX: 230, centerY: 230, width: 60, height: 60, confidence: 0.70f, classId: 0)
+        };
+
+        List<YoloResult> finalResults = InvokeNms(detector, results, 0.3f, globalIou: false);
+
+        finalResults.Should().HaveCount(2);
+        finalResults[0].Confidence.Should().BeApproximately(0.90f, Tolerance);
+        finalResults[1].Confidence.Should().BeApproximately(0.70f, Tolerance);
+    }
+
+    [Fact]
     public void Yolo5Detect_MidLayout_低目标置信度会跳过锚点()
     {
         object detector = CreateDetector();
@@ -157,6 +198,11 @@ public class YoloPostprocessorSpanIndexTests
         return new DenseTensor<float>(new[] { 1, channelCount, anchorCount });
     }
 
+    private static DenseTensor<float> CreateRowTensor(int anchorCount, int channelCount)
+    {
+        return new DenseTensor<float>(new[] { 1, anchorCount, channelCount });
+    }
+
     private static void SetBox(DenseTensor<float> tensor, int anchor, float centerX, float centerY, float width, float height)
     {
         tensor[0, 0, anchor] = centerX;
@@ -165,12 +211,35 @@ public class YoloPostprocessorSpanIndexTests
         tensor[0, 3, anchor] = height;
     }
 
+    private static void SetRowBox(DenseTensor<float> tensor, int anchor, float centerX, float centerY, float width, float height)
+    {
+        tensor[0, anchor, 0] = centerX;
+        tensor[0, anchor, 1] = centerY;
+        tensor[0, anchor, 2] = width;
+        tensor[0, anchor, 3] = height;
+    }
+
+    private static YoloResult Detection(float centerX, float centerY, float width, float height, float confidence, int classId)
+    {
+        var result = new YoloResult();
+        result.SetDetectionData(centerX, centerY, width, height, confidence, classId);
+        return result;
+    }
+
     private static List<YoloResult> InvokeFilter(string methodName, object detector, Tensor<float> tensor, float confidence)
     {
         MethodInfo method = DetectorType.GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingMethodException(DetectorType.FullName, methodName);
 
         return (List<YoloResult>)method.Invoke(detector, new object[] { tensor, confidence })!;
+    }
+
+    private static List<YoloResult> InvokeNms(object detector, List<YoloResult> results, float iouThreshold, bool globalIou)
+    {
+        MethodInfo method = DetectorType.GetMethod("NmsFilter", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(DetectorType.FullName, "NmsFilter");
+
+        return (List<YoloResult>)method.Invoke(detector, new object[] { results, iouThreshold, globalIou })!;
     }
 
     private static void SetPrivateField(object target, string fieldName, object value)

@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: YoloNms.cs
 // 描述:   YOLO NMS 模块 - 非极大值抑制 (Non-Maximum Suppression)
 // ============================================================================
@@ -18,10 +18,6 @@ namespace ClearFrost.Yolo
         {
             if (initialFilterList.Count == 0)
                 return new List<YoloResult>();
-
-            // YOLOv26 NMS-free 模式：模型输出已经是最终结果，跳过 NMS 处理
-            if (_yoloVersion == 26)
-                return initialFilterList;
 
             // 先按置信度排序
             SortConfidence(initialFilterList);
@@ -57,7 +53,9 @@ namespace ClearFrost.Yolo
                 }
             });
 
-            return resultBag.ToList();
+            return resultBag
+                .OrderByDescending(r => r.Confidence)
+                .ToList();
         }
 
         /// <summary>
