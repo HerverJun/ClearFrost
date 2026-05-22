@@ -338,6 +338,10 @@ function Verify-PublishOutput($PublishMode, $VersionInfo, [string]$TargetPath, [
         $errors += "McpXLib.dll is missing."
     }
 
+    if (-not (Test-Path -LiteralPath (Join-Path $TargetPath "HaoCommunication.dll"))) {
+        $warnings += "HaoCommunication.dll is missing. HaoCommunication PLC driver will be unavailable unless the DLL is copied next to the exe."
+    }
+
     $deps = Get-ChildItem -LiteralPath $TargetPath -Filter "*.deps.json" -File -ErrorAction SilentlyContinue
     if ($PublishMode -eq "Lite" -and $deps.Count -eq 0) {
         $errors += ".deps.json is missing. Lite package cannot resolve NuGet dependencies without it."

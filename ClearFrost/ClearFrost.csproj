@@ -75,7 +75,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\依赖\HaoCommunication.dll">
+    <None Include="..\依赖\HaoCommunication.dll" Condition="Exists('..\依赖\HaoCommunication.dll')">
       <Link>HaoCommunication.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
