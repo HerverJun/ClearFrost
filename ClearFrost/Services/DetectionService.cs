@@ -105,7 +105,8 @@ namespace ClearFrost.Services
                         _runtimeStatus = CreateRuntimeStatusFromDetector(PrimaryDetector, true, gpuDeviceId);
                         if (!_runtimeStatus.GpuActive && !string.IsNullOrWhiteSpace(_runtimeStatus.GpuFailureReason))
                         {
-                            ErrorOccurred?.Invoke($"DirectML GPU 加速不可用，已使用 CPU: {_runtimeStatus.GpuFailureReason}");
+                            Debug.WriteLine(
+                                $"[DetectionService] DirectML GPU 不可用，已自动回退 CPU: {_runtimeStatus.GpuFailureReason}");
                         }
                     }
                     return loaded;
@@ -113,13 +114,20 @@ namespace ClearFrost.Services
                 catch (Exception ex)
                 {
                     string reason = ex.Message;
-                    ErrorOccurred?.Invoke($"DirectML GPU 加速不可用，已回退 CPU: {reason}");
                     Debug.WriteLine($"[DetectionService] DirectML GPU 加载失败，回退 CPU: {ex}");
 
                     try
                     {
                         bool loaded = await LoadModelCoreAsync(modelPath, useGpu: false, gpuDeviceId).ConfigureAwait(false);
                         _runtimeStatus = CreateRuntimeStatus(true, false, gpuDeviceId, reason);
+                        if (loaded)
+                        {
+                            Debug.WriteLine(
+                                $"[DetectionService] DirectML GPU 失败后已成功回退 CPU: {reason}");
+                            return true;
+                        }
+
+                        ErrorOccurred?.Invoke($"CPU 回退加载模型失败: {reason}");
                         return loaded;
                     }
                     catch (Exception cpuEx)
