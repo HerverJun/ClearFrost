@@ -6,11 +6,14 @@
 
     const { escapeHtml } = window.CF_UTILS;
     const store = window.CF_STORE;
+    const errorAdvice = window.CF_ERROR_ADVICE;
     const domCache = new Map();
     const recentInspectionRows = new Map();
+    const criticalAdviceLogKeys = new Set();
     const logBuffer = [];
     const detectionLogBuffer = [];
     const MaxLogEntries = 50;
+    const MaxCriticalAdviceLogKeys = 120;
     const LogFlushIntervalMs = 300;
     let logFlushTimer = null;
     let detectionLogFlushTimer = null;
@@ -101,12 +104,48 @@
         return "条码: -";
     }
 
+    function isFailedInspection(item) {
+        return item?.isOk === false || item?.currentStage === "Failed";
+    }
+
+    function getInspectionAdvice(item, prefix = "处理建议", includeCode = false) {
+        if (!isFailedInspection(item)) return "";
+        return errorAdvice?.format?.(item, { prefix, includeCode }) || "";
+    }
+
+    function logCriticalInspectionAdvice(item) {
+        const resolved = errorAdvice?.resolve?.(item);
+        const hasErrorCode = Boolean(item?.errorCode);
+        if (!resolved?.advice || (!isFailedInspection(item) && !hasErrorCode)) return;
+
+        const key = [
+            item?.inspectionId || "live",
+            resolved.code || resolved.stage || "unknown",
+            resolved.message || "",
+        ].join("\u001f");
+        if (criticalAdviceLogKeys.has(key)) return;
+
+        criticalAdviceLogKeys.add(key);
+        if (criticalAdviceLogKeys.size > MaxCriticalAdviceLogKeys) {
+            const oldestKey = criticalAdviceLogKeys.values().next().value;
+            if (oldestKey) criticalAdviceLogKeys.delete(oldestKey);
+        }
+
+        const idPart = item?.inspectionId ? `(${item.inspectionId})` : "";
+        const codePart = resolved.code ? ` [${resolved.code}]` : "";
+        addLog(`关键错误${idPart}: ${resolved.advice}${codePart}`, "error");
+    }
+
     function getDetectionSummary(item) {
+        const advice = getInspectionAdvice(item, "建议");
+        if (advice) return advice;
+
         const message = item?.message || item?.errorMessage || "";
         const parts = String(message).split("|").map((part) => part.trim()).filter(Boolean);
         const objectPart = parts.find((part) => /^Found\s+\d+\s*:/i.test(part) || part.includes("未检测到目标"));
         if (objectPart) return objectPart;
         if (item?.barcodeError) return item.barcodeError;
+        if (item?.errorCode) return item.errorCode;
         if (item?.actualCount !== undefined && item?.actualCount !== null) return `检出 ${item.actualCount}`;
         return item?.currentStage || "-";
     }
@@ -126,7 +165,8 @@
             if (pill.textContent !== text) pill.textContent = text;
         }
 
-        const message = inspection.message || (isOk === true ? "检测通过" : isOk === false ? "检测未通过" : "等待检测结果");
+        const adviceMessage = getInspectionAdvice(inspection);
+        const message = adviceMessage || inspection.message || (isOk === true ? "检测通过" : isOk === false ? "检测未通过" : "等待检测结果");
         setText("camera-result-text", message, "等待检测结果");
         setText("camera-total-ms", `${inspection.totalMs || 0}ms`, "0ms");
         setText("camera-target-count", inspection.actualCount ?? 0, "0");
@@ -554,6 +594,7 @@
 
     function handleInspectionUpdate(payload) {
         store.applyInspectionUpdate(payload);
+        logCriticalInspectionAdvice(window.CF_STATE?.inspection || payload);
     }
 
     function handleHealthSnapshot(snapshot) {
@@ -616,6 +657,9 @@
                 break;
             case "closeSettingsModal":
                 window.closeSettingsModal?.();
+                break;
+            case "setRoi":
+                window.setRoi?.(payload.rect || payload.Rect || null);
                 break;
             default:
                 if (window.__CF_DEV_MODE) console.debug("Unknown uiCommand:", data);

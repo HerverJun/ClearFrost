@@ -9,6 +9,7 @@
     let roiStartX = 0;
     let roiStartY = 0;
     let currentROIRect = null;
+    let normalizedROIRect = null;
 
     function initRoiInteractions() {
         roiCanvas = document.getElementById("roi-canvas");
@@ -103,6 +104,7 @@
 
             window.sendCommand("update_roi", { rect: [normX, normY, normW, normH] });
             window.addLog?.(`ROI Set: [${normX.toFixed(2)}, ${normY.toFixed(2)}, ${normW.toFixed(2)}, ${normH.toFixed(2)}]`);
+            normalizedROIRect = { x: normX, y: normY, w: normW, h: normH };
             currentROIRect = { x, y, w, h };
         });
 
@@ -115,14 +117,24 @@
         const canvas = document.getElementById("roi-canvas");
         if (canvas) canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
         currentROIRect = null;
+        normalizedROIRect = null;
         window.sendCommand("update_roi", { rect: [0, 0, 0, 0] });
         window.addLog?.("ROI Cleared");
     }
 
     function redrawROI() {
-        if (!roiCanvas || !currentROIRect) return;
+        if (!roiCanvas) return;
         const ctx = roiCanvas.getContext("2d");
         ctx.clearRect(0, 0, roiCanvas.width, roiCanvas.height);
+        if (normalizedROIRect) {
+            currentROIRect = {
+                x: normalizedROIRect.x * roiCanvas.width,
+                y: normalizedROIRect.y * roiCanvas.height,
+                w: normalizedROIRect.w * roiCanvas.width,
+                h: normalizedROIRect.h * roiCanvas.height,
+            };
+        }
+        if (!currentROIRect) return;
         ctx.strokeStyle = "#a4161a";
         ctx.lineWidth = 2;
         ctx.setLineDash([8, 4]);
@@ -131,7 +143,25 @@
         ctx.fillRect(currentROIRect.x, currentROIRect.y, currentROIRect.w, currentROIRect.h);
     }
 
+    function setRoi(rect) {
+        if (!Array.isArray(rect) || rect.length !== 4) {
+            normalizedROIRect = null;
+            currentROIRect = null;
+            redrawROI();
+            return;
+        }
+
+        const x = Math.max(0, Math.min(1, Number(rect[0]) || 0));
+        const y = Math.max(0, Math.min(1, Number(rect[1]) || 0));
+        const w = Math.max(0, Math.min(1 - x, Number(rect[2]) || 0));
+        const h = Math.max(0, Math.min(1 - y, Number(rect[3]) || 0));
+        normalizedROIRect = w > 0.001 && h > 0.001 ? { x, y, w, h } : null;
+        currentROIRect = null;
+        redrawROI();
+    }
+
     window.clearRoi = clearRoi;
     window.initRoiInteractions = initRoiInteractions;
     window.redrawROI = redrawROI;
+    window.setRoi = setRoi;
 })();

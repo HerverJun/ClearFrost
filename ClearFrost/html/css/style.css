@@ -3690,6 +3690,16 @@ input[type="range"]::-webkit-slider-runnable-track {
     white-space: nowrap;
 }
 
+.cf-stitch-page #gallery-modal .cf-trace-card-body .cf-trace-advice {
+    max-width: 190px;
+    margin-top: 3px;
+    color: #b91c1c;
+    font-weight: 800;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .cf-stitch-page #gallery-modal .cf-trace-card-body svg {
     width: 18px;
     height: 18px;

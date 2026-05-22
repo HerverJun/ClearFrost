@@ -6,6 +6,7 @@
 
     const bridge = window.CF_BRIDGE;
     const { escapeHtml } = window.CF_UTILS;
+    const errorAdvice = window.CF_ERROR_ADVICE;
     const TRACE_DEFAULT_PAGE_SIZE = 100;
     let tracePagerState = createTracePagerState();
     let activeTraceRecord = null;
@@ -125,6 +126,10 @@
             const resultClass = record.isQualified ? "ok" : "ng";
             const reviewLabel = record.hasRenderedImage ? "复查图" : "无复查图";
             const model = record.modelVersion || record.modelName || "-";
+            const adviceText = getTraceAdviceText(record, "建议");
+            const adviceMarkup = adviceText
+                ? `<p class="cf-trace-advice">${escapeHtml(adviceText)}</p>`
+                : "";
             const imageMarkup = url
                 ? `<img src="${url}" loading="lazy" decoding="async" alt="${escapeHtml(record.inspectionId)}">`
                 : `<div class="cf-trace-thumb-missing">无图像</div>`;
@@ -141,6 +146,7 @@
                         <p>ID: ${escapeHtml(record.inspectionId || "-")}</p>
                         <p>模型: ${escapeHtml(model)}</p>
                         <p>相机: ${escapeHtml(record.cameraId || "-")}</p>
+                        ${adviceMarkup}
                     </div>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
@@ -482,6 +488,9 @@
             modelVersion: pickTraceValue(record, "modelVersion", "ModelVersion") || "",
             modelName: pickTraceValue(record, "modelName", "ModelName") || "-",
             cameraId: pickTraceValue(record, "cameraId", "CameraId") || "-",
+            errorStage: pickTraceValue(record, "errorStage", "ErrorStage") || "",
+            errorCode: pickTraceValue(record, "errorCode", "ErrorCode") || "",
+            errorMessage: pickTraceValue(record, "errorMessage", "ErrorMessage") || "",
             imagePath: pickTraceValue(record, "imagePath", "ImagePath") || "",
             renderedImagePath: pickTraceValue(record, "renderedImagePath", "RenderedImagePath") || "",
             imageUrl,
@@ -491,6 +500,11 @@
             hasRenderedImage,
             missingRenderedImage: hasRenderedImageValue !== "" ? !toBoolean(hasRenderedImageValue) : !renderedImageUrl || toBoolean(missingRenderedImageValue),
         };
+    }
+
+    function getTraceAdviceText(record, prefix = "处理建议") {
+        if (!record || record.isQualified) return "";
+        return errorAdvice?.format?.(record, { prefix, includeCode: false }) || "";
     }
 
     function getCurrentRuleSetJson() {
@@ -617,6 +631,7 @@
         if (info) {
             const statusText = normalized.hasRenderedImage ? "复查图" : "无复查图";
             const canRulePreview = Boolean(normalized.imagePath || normalized.renderedImagePath || originalUrl || reviewUrl);
+            const adviceText = getTraceAdviceText(normalized);
             info.innerHTML = `
                 <div class="cf-trace-viewer-toolbar">
                     <div class="cf-trace-viewer-meta">
@@ -630,6 +645,7 @@
                         <button type="button" data-trace-action="rule-preview" data-can-preview="${canRulePreview ? "true" : "false"}" ${canRulePreview ? "" : "disabled"}>当前规则复判</button>
                     </div>
                 </div>
+                <div class="cf-trace-preview-status error ${adviceText ? "" : "hidden"}">${escapeHtml(adviceText)}</div>
                 <div id="history-rule-preview-status" class="cf-trace-preview-status hidden"></div>`;
 
             info.querySelector('[data-trace-mode="rendered"]')?.addEventListener("click", (event) => {

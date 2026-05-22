@@ -56,6 +56,70 @@
             .replace(/'/g, "&#39;");
     }
 
+    const ErrorAdviceMap = Object.freeze({
+        CaptureFrameFailed: "检查相机连接/曝光/触发线",
+        NoBarcode: "检查 PLC 条码地址或扫码枪",
+        BarcodeReadFailed: "检查 PLC 通讯、条码地址或扫码枪",
+        PlcNotConnected: "检查 PLC 网络/IP/端口及通讯线",
+        PlcWriteFailed: "检查 PLC 结果地址、写入权限或握手时序",
+        PlcWriteException: "检查 PLC 通讯、地址配置或驱动状态",
+        DetectionServiceError: "检查模型文件、GPU 推理环境或输入图像",
+        DetectionCycleException: "检查检测规则、ROI、模型配置或运行日志",
+        UnhandledDetectionException: "查看系统日志并联系维护人员",
+    });
+
+    const StageFallbackAdviceMap = Object.freeze({
+        barcode: "检查 PLC 条码地址或扫码枪",
+        capture: "检查相机连接/曝光/触发线",
+        inference: "检查模型文件、GPU 推理环境或输入图像",
+        roifilter: "检查 ROI 和检测规则配置",
+        plcwrite: "检查 PLC 通讯、结果地址或握手时序",
+        saveimage: "检查图像保存目录和磁盘空间",
+        saverecord: "检查数据库文件和存储目录权限",
+    });
+
+    function cleanText(value) {
+        return value === undefined || value === null ? "" : String(value).trim();
+    }
+
+    function getMappedAdvice(errorCode) {
+        const normalizedCode = cleanText(errorCode);
+        if (!normalizedCode) return { code: "", advice: "" };
+        if (ErrorAdviceMap[normalizedCode]) {
+            return { code: normalizedCode, advice: ErrorAdviceMap[normalizedCode] };
+        }
+
+        const lowerCode = normalizedCode.toLowerCase();
+        const mappedCode = Object.keys(ErrorAdviceMap).find((key) => key.toLowerCase() === lowerCode);
+        return mappedCode
+            ? { code: mappedCode, advice: ErrorAdviceMap[mappedCode] }
+            : { code: normalizedCode, advice: "" };
+    }
+
+    function resolveErrorAdvice(source) {
+        const data = source?.inspection || source || {};
+        const mapped = getMappedAdvice(
+            cleanText(pickValue(data, "errorCode", "ErrorCode")) ||
+            cleanText(pickValue(data, "barcodeError", "BarcodeError")),
+        );
+        const errorStage = cleanText(pickValue(data, "errorStage", "ErrorStage"));
+        const stageAdvice = StageFallbackAdviceMap[errorStage.toLowerCase()] || "";
+        return {
+            code: mapped.code,
+            stage: errorStage,
+            message: cleanText(pickValue(data, "errorMessage", "ErrorMessage", "message", "Message")),
+            advice: mapped.advice || stageAdvice,
+        };
+    }
+
+    function formatErrorAdvice(source, options = {}) {
+        const resolved = resolveErrorAdvice(source);
+        if (!resolved.advice) return "";
+        const prefix = options.prefix ?? "处理建议";
+        const suffix = options.includeCode === false || !resolved.code ? "" : ` [${resolved.code}]`;
+        return `${prefix}: ${resolved.advice}${suffix}`;
+    }
+
     function normalizeHealthLevel(value) {
         if (value === 0 || value === "0" || value === "Ok") return "Ok";
         if (value === 1 || value === "1" || value === "Warning") return "Warning";
@@ -77,6 +141,7 @@
             barcodeError: pickValue(data, "barcodeError", "BarcodeError"),
             traceStatus: pickValue(data, "traceStatus", "TraceStatus"),
             currentStage: pickValue(data, "currentStage", "CurrentStage"),
+            errorStage: pickValue(data, "errorStage", "ErrorStage"),
             errorCode: pickValue(data, "errorCode", "ErrorCode"),
             errorMessage: pickValue(data, "errorMessage", "ErrorMessage"),
             totalMs: pickValue(data, "totalMs", "TotalMs"),
@@ -193,6 +258,12 @@
         escapeHtml,
         normalizeHealthLevel,
         normalizeInspection,
+    };
+
+    window.CF_ERROR_ADVICE = {
+        map: ErrorAdviceMap,
+        resolve: resolveErrorAdvice,
+        format: formatErrorAdvice,
     };
 
     window.CF_STORE = {

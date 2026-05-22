@@ -149,6 +149,70 @@
             .replace(/'/g, "&#39;");
     }
 
+    const ErrorAdviceMap = Object.freeze({
+        CaptureFrameFailed: "检查相机连接/曝光/触发线",
+        NoBarcode: "检查 PLC 条码地址或扫码枪",
+        BarcodeReadFailed: "检查 PLC 通讯、条码地址或扫码枪",
+        PlcNotConnected: "检查 PLC 网络/IP/端口及通讯线",
+        PlcWriteFailed: "检查 PLC 结果地址、写入权限或握手时序",
+        PlcWriteException: "检查 PLC 通讯、地址配置或驱动状态",
+        DetectionServiceError: "检查模型文件、GPU 推理环境或输入图像",
+        DetectionCycleException: "检查检测规则、ROI、模型配置或运行日志",
+        UnhandledDetectionException: "查看系统日志并联系维护人员",
+    });
+
+    const StageFallbackAdviceMap = Object.freeze({
+        barcode: "检查 PLC 条码地址或扫码枪",
+        capture: "检查相机连接/曝光/触发线",
+        inference: "检查模型文件、GPU 推理环境或输入图像",
+        roifilter: "检查 ROI 和检测规则配置",
+        plcwrite: "检查 PLC 通讯、结果地址或握手时序",
+        saveimage: "检查图像保存目录和磁盘空间",
+        saverecord: "检查数据库文件和存储目录权限",
+    });
+
+    function cleanText(value) {
+        return value === undefined || value === null ? "" : String(value).trim();
+    }
+
+    function getMappedAdvice(errorCode) {
+        const normalizedCode = cleanText(errorCode);
+        if (!normalizedCode) return { code: "", advice: "" };
+        if (ErrorAdviceMap[normalizedCode]) {
+            return { code: normalizedCode, advice: ErrorAdviceMap[normalizedCode] };
+        }
+
+        const lowerCode = normalizedCode.toLowerCase();
+        const mappedCode = Object.keys(ErrorAdviceMap).find((key) => key.toLowerCase() === lowerCode);
+        return mappedCode
+            ? { code: mappedCode, advice: ErrorAdviceMap[mappedCode] }
+            : { code: normalizedCode, advice: "" };
+    }
+
+    function resolveErrorAdvice(source) {
+        const data = source?.inspection || source || {};
+        const mapped = getMappedAdvice(
+            cleanText(pickValue(data, "errorCode", "ErrorCode")) ||
+            cleanText(pickValue(data, "barcodeError", "BarcodeError")),
+        );
+        const errorStage = cleanText(pickValue(data, "errorStage", "ErrorStage"));
+        const stageAdvice = StageFallbackAdviceMap[errorStage.toLowerCase()] || "";
+        return {
+            code: mapped.code,
+            stage: errorStage,
+            message: cleanText(pickValue(data, "errorMessage", "ErrorMessage", "message", "Message")),
+            advice: mapped.advice || stageAdvice,
+        };
+    }
+
+    function formatErrorAdvice(source, options = {}) {
+        const resolved = resolveErrorAdvice(source);
+        if (!resolved.advice) return "";
+        const prefix = options.prefix ?? "处理建议";
+        const suffix = options.includeCode === false || !resolved.code ? "" : ` [${resolved.code}]`;
+        return `${prefix}: ${resolved.advice}${suffix}`;
+    }
+
     function normalizeHealthLevel(value) {
         if (value === 0 || value === "0" || value === "Ok") return "Ok";
         if (value === 1 || value === "1" || value === "Warning") return "Warning";
@@ -170,6 +234,7 @@
             barcodeError: pickValue(data, "barcodeError", "BarcodeError"),
             traceStatus: pickValue(data, "traceStatus", "TraceStatus"),
             currentStage: pickValue(data, "currentStage", "CurrentStage"),
+            errorStage: pickValue(data, "errorStage", "ErrorStage"),
             errorCode: pickValue(data, "errorCode", "ErrorCode"),
             errorMessage: pickValue(data, "errorMessage", "ErrorMessage"),
             totalMs: pickValue(data, "totalMs", "TotalMs"),
@@ -288,6 +353,12 @@
         normalizeInspection,
     };
 
+    window.CF_ERROR_ADVICE = {
+        map: ErrorAdviceMap,
+        resolve: resolveErrorAdvice,
+        format: formatErrorAdvice,
+    };
+
     window.CF_STORE = {
         state,
         subscribe,
@@ -307,11 +378,14 @@
 
     const { escapeHtml } = window.CF_UTILS;
     const store = window.CF_STORE;
+    const errorAdvice = window.CF_ERROR_ADVICE;
     const domCache = new Map();
     const recentInspectionRows = new Map();
+    const criticalAdviceLogKeys = new Set();
     const logBuffer = [];
     const detectionLogBuffer = [];
     const MaxLogEntries = 50;
+    const MaxCriticalAdviceLogKeys = 120;
     const LogFlushIntervalMs = 300;
     let logFlushTimer = null;
     let detectionLogFlushTimer = null;
@@ -402,12 +476,48 @@
         return "条码: -";
     }
 
+    function isFailedInspection(item) {
+        return item?.isOk === false || item?.currentStage === "Failed";
+    }
+
+    function getInspectionAdvice(item, prefix = "处理建议", includeCode = false) {
+        if (!isFailedInspection(item)) return "";
+        return errorAdvice?.format?.(item, { prefix, includeCode }) || "";
+    }
+
+    function logCriticalInspectionAdvice(item) {
+        const resolved = errorAdvice?.resolve?.(item);
+        const hasErrorCode = Boolean(item?.errorCode);
+        if (!resolved?.advice || (!isFailedInspection(item) && !hasErrorCode)) return;
+
+        const key = [
+            item?.inspectionId || "live",
+            resolved.code || resolved.stage || "unknown",
+            resolved.message || "",
+        ].join("\u001f");
+        if (criticalAdviceLogKeys.has(key)) return;
+
+        criticalAdviceLogKeys.add(key);
+        if (criticalAdviceLogKeys.size > MaxCriticalAdviceLogKeys) {
+            const oldestKey = criticalAdviceLogKeys.values().next().value;
+            if (oldestKey) criticalAdviceLogKeys.delete(oldestKey);
+        }
+
+        const idPart = item?.inspectionId ? `(${item.inspectionId})` : "";
+        const codePart = resolved.code ? ` [${resolved.code}]` : "";
+        addLog(`关键错误${idPart}: ${resolved.advice}${codePart}`, "error");
+    }
+
     function getDetectionSummary(item) {
+        const advice = getInspectionAdvice(item, "建议");
+        if (advice) return advice;
+
         const message = item?.message || item?.errorMessage || "";
         const parts = String(message).split("|").map((part) => part.trim()).filter(Boolean);
         const objectPart = parts.find((part) => /^Found\s+\d+\s*:/i.test(part) || part.includes("未检测到目标"));
         if (objectPart) return objectPart;
         if (item?.barcodeError) return item.barcodeError;
+        if (item?.errorCode) return item.errorCode;
         if (item?.actualCount !== undefined && item?.actualCount !== null) return `检出 ${item.actualCount}`;
         return item?.currentStage || "-";
     }
@@ -427,7 +537,8 @@
             if (pill.textContent !== text) pill.textContent = text;
         }
 
-        const message = inspection.message || (isOk === true ? "检测通过" : isOk === false ? "检测未通过" : "等待检测结果");
+        const adviceMessage = getInspectionAdvice(inspection);
+        const message = adviceMessage || inspection.message || (isOk === true ? "检测通过" : isOk === false ? "检测未通过" : "等待检测结果");
         setText("camera-result-text", message, "等待检测结果");
         setText("camera-total-ms", `${inspection.totalMs || 0}ms`, "0ms");
         setText("camera-target-count", inspection.actualCount ?? 0, "0");
@@ -855,6 +966,7 @@
 
     function handleInspectionUpdate(payload) {
         store.applyInspectionUpdate(payload);
+        logCriticalInspectionAdvice(window.CF_STATE?.inspection || payload);
     }
 
     function handleHealthSnapshot(snapshot) {
@@ -917,6 +1029,9 @@
                 break;
             case "closeSettingsModal":
                 window.closeSettingsModal?.();
+                break;
+            case "setRoi":
+                window.setRoi?.(payload.rect || payload.Rect || null);
                 break;
             default:
                 if (window.__CF_DEV_MODE) console.debug("Unknown uiCommand:", data);
@@ -3001,6 +3116,7 @@
 
     const bridge = window.CF_BRIDGE;
     const { escapeHtml } = window.CF_UTILS;
+    const errorAdvice = window.CF_ERROR_ADVICE;
     const TRACE_DEFAULT_PAGE_SIZE = 100;
     let tracePagerState = createTracePagerState();
     let activeTraceRecord = null;
@@ -3120,6 +3236,10 @@
             const resultClass = record.isQualified ? "ok" : "ng";
             const reviewLabel = record.hasRenderedImage ? "复查图" : "无复查图";
             const model = record.modelVersion || record.modelName || "-";
+            const adviceText = getTraceAdviceText(record, "建议");
+            const adviceMarkup = adviceText
+                ? `<p class="cf-trace-advice">${escapeHtml(adviceText)}</p>`
+                : "";
             const imageMarkup = url
                 ? `<img src="${url}" loading="lazy" decoding="async" alt="${escapeHtml(record.inspectionId)}">`
                 : `<div class="cf-trace-thumb-missing">无图像</div>`;
@@ -3136,6 +3256,7 @@
                         <p>ID: ${escapeHtml(record.inspectionId || "-")}</p>
                         <p>模型: ${escapeHtml(model)}</p>
                         <p>相机: ${escapeHtml(record.cameraId || "-")}</p>
+                        ${adviceMarkup}
                     </div>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
@@ -3477,6 +3598,9 @@
             modelVersion: pickTraceValue(record, "modelVersion", "ModelVersion") || "",
             modelName: pickTraceValue(record, "modelName", "ModelName") || "-",
             cameraId: pickTraceValue(record, "cameraId", "CameraId") || "-",
+            errorStage: pickTraceValue(record, "errorStage", "ErrorStage") || "",
+            errorCode: pickTraceValue(record, "errorCode", "ErrorCode") || "",
+            errorMessage: pickTraceValue(record, "errorMessage", "ErrorMessage") || "",
             imagePath: pickTraceValue(record, "imagePath", "ImagePath") || "",
             renderedImagePath: pickTraceValue(record, "renderedImagePath", "RenderedImagePath") || "",
             imageUrl,
@@ -3486,6 +3610,11 @@
             hasRenderedImage,
             missingRenderedImage: hasRenderedImageValue !== "" ? !toBoolean(hasRenderedImageValue) : !renderedImageUrl || toBoolean(missingRenderedImageValue),
         };
+    }
+
+    function getTraceAdviceText(record, prefix = "处理建议") {
+        if (!record || record.isQualified) return "";
+        return errorAdvice?.format?.(record, { prefix, includeCode: false }) || "";
     }
 
     function getCurrentRuleSetJson() {
@@ -3612,6 +3741,7 @@
         if (info) {
             const statusText = normalized.hasRenderedImage ? "复查图" : "无复查图";
             const canRulePreview = Boolean(normalized.imagePath || normalized.renderedImagePath || originalUrl || reviewUrl);
+            const adviceText = getTraceAdviceText(normalized);
             info.innerHTML = `
                 <div class="cf-trace-viewer-toolbar">
                     <div class="cf-trace-viewer-meta">
@@ -3625,6 +3755,7 @@
                         <button type="button" data-trace-action="rule-preview" data-can-preview="${canRulePreview ? "true" : "false"}" ${canRulePreview ? "" : "disabled"}>当前规则复判</button>
                     </div>
                 </div>
+                <div class="cf-trace-preview-status error ${adviceText ? "" : "hidden"}">${escapeHtml(adviceText)}</div>
                 <div id="history-rule-preview-status" class="cf-trace-preview-status hidden"></div>`;
 
             info.querySelector('[data-trace-mode="rendered"]')?.addEventListener("click", (event) => {
@@ -3713,6 +3844,7 @@
     let roiStartX = 0;
     let roiStartY = 0;
     let currentROIRect = null;
+    let normalizedROIRect = null;
 
     function initRoiInteractions() {
         roiCanvas = document.getElementById("roi-canvas");
@@ -3807,6 +3939,7 @@
 
             window.sendCommand("update_roi", { rect: [normX, normY, normW, normH] });
             window.addLog?.(`ROI Set: [${normX.toFixed(2)}, ${normY.toFixed(2)}, ${normW.toFixed(2)}, ${normH.toFixed(2)}]`);
+            normalizedROIRect = { x: normX, y: normY, w: normW, h: normH };
             currentROIRect = { x, y, w, h };
         });
 
@@ -3819,14 +3952,24 @@
         const canvas = document.getElementById("roi-canvas");
         if (canvas) canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
         currentROIRect = null;
+        normalizedROIRect = null;
         window.sendCommand("update_roi", { rect: [0, 0, 0, 0] });
         window.addLog?.("ROI Cleared");
     }
 
     function redrawROI() {
-        if (!roiCanvas || !currentROIRect) return;
+        if (!roiCanvas) return;
         const ctx = roiCanvas.getContext("2d");
         ctx.clearRect(0, 0, roiCanvas.width, roiCanvas.height);
+        if (normalizedROIRect) {
+            currentROIRect = {
+                x: normalizedROIRect.x * roiCanvas.width,
+                y: normalizedROIRect.y * roiCanvas.height,
+                w: normalizedROIRect.w * roiCanvas.width,
+                h: normalizedROIRect.h * roiCanvas.height,
+            };
+        }
+        if (!currentROIRect) return;
         ctx.strokeStyle = "#a4161a";
         ctx.lineWidth = 2;
         ctx.setLineDash([8, 4]);
@@ -3835,9 +3978,27 @@
         ctx.fillRect(currentROIRect.x, currentROIRect.y, currentROIRect.w, currentROIRect.h);
     }
 
+    function setRoi(rect) {
+        if (!Array.isArray(rect) || rect.length !== 4) {
+            normalizedROIRect = null;
+            currentROIRect = null;
+            redrawROI();
+            return;
+        }
+
+        const x = Math.max(0, Math.min(1, Number(rect[0]) || 0));
+        const y = Math.max(0, Math.min(1, Number(rect[1]) || 0));
+        const w = Math.max(0, Math.min(1 - x, Number(rect[2]) || 0));
+        const h = Math.max(0, Math.min(1 - y, Number(rect[3]) || 0));
+        normalizedROIRect = w > 0.001 && h > 0.001 ? { x, y, w, h } : null;
+        currentROIRect = null;
+        redrawROI();
+    }
+
     window.clearRoi = clearRoi;
     window.initRoiInteractions = initRoiInteractions;
     window.redrawROI = redrawROI;
+    window.setRoi = setRoi;
 })();
 
 // ==========================================
