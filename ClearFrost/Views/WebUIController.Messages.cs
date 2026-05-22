@@ -34,6 +34,12 @@ namespace ClearFrost
             return Task.CompletedTask;
         }
 
+        public Task SendHistoryRulePreview(object payload)
+        {
+            PostMessage("historyRulePreview", payload);
+            return Task.CompletedTask;
+        }
+
         public Task SendBootstrapSnapshot(
             AppConfig config,
             IEnumerable<object> cameras,

@@ -96,6 +96,7 @@ namespace ClearFrost
         public event EventHandler? OnClearStatisticsHistory;
         public event EventHandler? OnResetStatistics;
         public event EventHandler? OnCollectDataset;
+        public event EventHandler<string>? OnRunHistoryRulePreview;
 
         // ================== 多相机事件 ==================
         public event EventHandler? OnGetCameraList;
@@ -831,6 +832,12 @@ namespace ClearFrost
                                     string? afterTimestamp = TryGetStringProperty(paramsElement, "afterTimestamp");
                                     long? afterId = TryGetInt64Property(paramsElement, "afterId");
                                     await SendNGImages(date, hour, pageSize, afterTimestamp, afterId, requestId);
+                                }
+                                break;
+                            case "run_history_rule_preview":
+                                if (root.TryGetProperty("value", out JsonElement historyRuleElement))
+                                {
+                                    OnRunHistoryRulePreview?.Invoke(this, historyRuleElement.GetRawText());
                                 }
                                 break;
                             case "select_storage_folder":
@@ -1713,6 +1720,7 @@ namespace ClearFrost
                 OnClearStatisticsHistory = null;
                 OnResetStatistics = null;
                 OnCollectDataset = null;
+                OnRunHistoryRulePreview = null;
                 OnGetCameraList = null;
                 OnSwitchCamera = null;
                 OnAddCamera = null;

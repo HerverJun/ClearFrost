@@ -171,10 +171,23 @@ namespace ClearFrost
                     var sw = Stopwatch.StartNew();
 
                     InspectionRuleSet ruleSet = _appConfig.GetInspectionRuleSet();
+                    string ruleSetJson = InspectionRuleSetSerializer.Serialize(ruleSet);
                     InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
+                    float[]? roiSnapshot = SnapshotCurrentROI();
+                    MultiModelCandidateEvaluator candidateEvaluator = CreateRuleCandidateEvaluator(
+                        ruleSet,
+                        originalBitmap.Width,
+                        originalBitmap.Height,
+                        roiSnapshot);
 
                     // 执行模型推理，最终 OK/NG 在 ROI 过滤后由规则引擎判定。
-                    var result = await _detectionService.DetectAsync(originalBitmap, _appConfig.Confidence, _appConfig.IouThreshold, fallbackGoal);
+                    var result = await _detectionService.DetectAsync(
+                        originalBitmap,
+                        _appConfig.Confidence,
+                        _appConfig.IouThreshold,
+                        fallbackGoal,
+                        candidateEvaluator);
+                    ApplyRuleTraceSnapshot(result, ruleSetJson, fallbackGoal);
 
                     sw.Stop();
 
@@ -184,7 +197,7 @@ namespace ClearFrost
                     bool detectionFailed = result.HasError;
 
                     // 应用 ROI 过滤
-                    results = FilterResultsByROI(results, originalBitmap.Width, originalBitmap.Height);
+                    results = FilterResultsByROI(results, originalBitmap.Width, originalBitmap.Height, roiSnapshot);
 
                     string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
                     if (detectionFailed)
@@ -236,6 +249,296 @@ namespace ClearFrost
             {
                 await _uiController.LogToFrontend($"测试失败: {ex.Message}", "error");
             }
+        }
+
+        private sealed class HistoryRulePreviewRequest
+        {
+            public string InspectionId { get; set; } = string.Empty;
+            public string Timestamp { get; set; } = string.Empty;
+            public string ImagePath { get; set; } = string.Empty;
+            public string RenderedImagePath { get; set; } = string.Empty;
+            public string RuleSetJson { get; set; } = string.Empty;
+        }
+
+        private async Task RunHistoryRulePreviewAsync(string requestJson)
+        {
+            HistoryRulePreviewRequest request;
+            try
+            {
+                request = JsonSerializer.Deserialize<HistoryRulePreviewRequest>(
+                    requestJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new HistoryRulePreviewRequest();
+            }
+            catch (Exception ex)
+            {
+                var invalidRequest = new HistoryRulePreviewRequest();
+                await SendHistoryRulePreviewStatusAsync(
+                    invalidRequest,
+                    "failed",
+                    null,
+                    $"历史图复判参数无效: {ex.Message}");
+                return;
+            }
+
+            await SendHistoryRulePreviewStatusAsync(
+                request,
+                "running",
+                null,
+                "正在用当前规则复判历史图...");
+
+            DetectionTriggerDecision decision = await _detectionGate.TryEnterAsync(IsShutdownInProgress);
+            if (!decision.Accepted)
+            {
+                string message = decision.DropReason == DetectionDropReason.Shutdown
+                    ? "软件正在退出，已忽略历史图复判"
+                    : "检测正在进行中，请稍后再复判历史图";
+                await SendHistoryRulePreviewStatusAsync(request, "failed", null, message);
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message,
+                    type = "warning",
+                    durationMs = 2200
+                });
+                return;
+            }
+
+            try
+            {
+                if (!_detectionService.IsModelLoaded)
+                {
+                    await SendHistoryRulePreviewStatusAsync(request, "failed", null, "YOLO模型未初始化，无法复判历史图");
+                    await _uiController.LogToFrontend("历史图复判失败: YOLO模型未初始化", "error");
+                    return;
+                }
+
+                string imagePath = ResolveHistoryPreviewImagePath(request);
+                if (string.IsNullOrWhiteSpace(imagePath))
+                {
+                    await SendHistoryRulePreviewStatusAsync(request, "failed", null, "历史图文件不存在或路径无效");
+                    await _uiController.LogToFrontend("历史图复判失败: 历史图文件不存在或路径无效", "error");
+                    return;
+                }
+
+                if (!TryResolveHistoryRuleSet(request.RuleSetJson, out InspectionRuleSet ruleSet, out string ruleSetJson, out string ruleError))
+                {
+                    string message = $"当前规则无效: {ruleError}";
+                    await SendHistoryRulePreviewStatusAsync(request, "failed", null, message);
+                    await _uiController.LogToFrontend($"历史图复判失败: {message}", "error");
+                    return;
+                }
+
+                using Bitmap originalBitmap = new Bitmap(imagePath);
+                using Mat sourceMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(originalBitmap);
+                if (sourceMat.Empty())
+                {
+                    await SendHistoryRulePreviewStatusAsync(request, "failed", null, "历史图读取失败，图像为空");
+                    return;
+                }
+
+                Stopwatch totalSw = Stopwatch.StartNew();
+                InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
+                float[]? roiSnapshot = SnapshotCurrentROI();
+                MultiModelCandidateEvaluator candidateEvaluator = CreateRuleCandidateEvaluator(
+                    ruleSet,
+                    sourceMat.Width,
+                    sourceMat.Height,
+                    roiSnapshot);
+
+                Stopwatch inferSw = Stopwatch.StartNew();
+                DetectionResultData result = await _detectionService.DetectAsync(
+                    sourceMat,
+                    _appConfig.Confidence,
+                    _appConfig.IouThreshold,
+                    fallbackGoal,
+                    candidateEvaluator);
+                inferSw.Stop();
+                ApplyRuleTraceSnapshot(result, ruleSetJson, fallbackGoal);
+
+                List<YoloResult> results = result.Results ?? new List<YoloResult>();
+                results = FilterResultsByROI(results, sourceMat.Width, sourceMat.Height, roiSnapshot);
+                string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
+
+                bool isQualified = false;
+                InspectionJudgeResult? judgeResult = null;
+                if (result.HasError)
+                {
+                    result.IsQualified = false;
+                    result.IsRuleEvaluated = true;
+                }
+                else
+                {
+                    judgeResult = InspectionRuleEngine.Evaluate(ruleSet, results, labels);
+                    result.JudgeResult = judgeResult;
+                    result.IsRuleEvaluated = true;
+                    result.IsQualified = judgeResult.IsQualified;
+                    isQualified = judgeResult.IsQualified;
+                }
+
+                totalSw.Stop();
+                string summary = judgeResult?.Summary ?? result.ErrorMessage;
+                string statusMessage = result.HasError
+                    ? $"历史图规则复判失败，已判定为 NG: {result.ErrorMessage}"
+                    : $"历史图规则复判: {(isQualified ? "OK" : "NG")} | {summary}";
+                string usedModelName = string.IsNullOrWhiteSpace(result.UsedModelName)
+                    ? _detectionService.CurrentModelName
+                    : result.UsedModelName;
+
+                using Mat? renderedMat = TryRenderDetectionMat(sourceMat, results, labels);
+                await _uiController.SendDetectionFrame(
+                    renderedMat ?? sourceMat,
+                    isQualified,
+                    stats: null,
+                    logMessage: statusMessage,
+                    logType: isQualified && !result.HasError ? "success" : "warning",
+                    metrics: (_detectionService as DetectionService)?.GetLastMetrics(),
+                    actualCount: results.Count,
+                    usedModelName: usedModelName,
+                    wasFallback: result.WasFallback,
+                    totalMs: totalSw.ElapsedMilliseconds,
+                    sourceLabel: "历史规则复判");
+
+                await _uiController.SendHistoryRulePreview(new
+                {
+                    status = "completed",
+                    inspectionId = request.InspectionId,
+                    timestamp = request.Timestamp,
+                    isQualified = isQualified,
+                    result = isQualified ? "OK" : "NG",
+                    summary = summary,
+                    message = statusMessage,
+                    actualCount = results.Count,
+                    inferenceMs = inferSw.ElapsedMilliseconds,
+                    totalMs = totalSw.ElapsedMilliseconds,
+                    usedModelName = usedModelName,
+                    wasFallback = result.WasFallback
+                });
+            }
+            catch (Exception ex)
+            {
+                await SendHistoryRulePreviewStatusAsync(
+                    request,
+                    "failed",
+                    null,
+                    $"历史图复判失败: {ex.Message}");
+                await _uiController.LogToFrontend($"历史图复判失败: {ex.Message}", "error");
+            }
+            finally
+            {
+                _detectionGate.Release();
+            }
+        }
+
+        private async Task SendHistoryRulePreviewStatusAsync(
+            HistoryRulePreviewRequest request,
+            string status,
+            bool? isQualified,
+            string message)
+        {
+            await _uiController.SendHistoryRulePreview(new
+            {
+                status = status,
+                inspectionId = request.InspectionId,
+                timestamp = request.Timestamp,
+                isQualified = isQualified,
+                result = isQualified.HasValue ? (isQualified.Value ? "OK" : "NG") : string.Empty,
+                message = message,
+                summary = message
+            });
+        }
+
+        private bool TryResolveHistoryRuleSet(
+            string? ruleSetJson,
+            out InspectionRuleSet ruleSet,
+            out string normalizedJson,
+            out string errorMessage)
+        {
+            if (string.IsNullOrWhiteSpace(ruleSetJson))
+            {
+                ruleSet = _appConfig.GetInspectionRuleSet();
+                normalizedJson = InspectionRuleSetSerializer.Serialize(ruleSet);
+                errorMessage = string.Empty;
+                return true;
+            }
+
+            if (!InspectionRuleSetSerializer.TryDeserialize(ruleSetJson, out ruleSet, out errorMessage))
+            {
+                normalizedJson = string.Empty;
+                return false;
+            }
+
+            normalizedJson = InspectionRuleSetSerializer.Serialize(ruleSet);
+            return true;
+        }
+
+        private string ResolveHistoryPreviewImagePath(HistoryRulePreviewRequest request)
+        {
+            foreach (string candidate in new[] { request.ImagePath, request.RenderedImagePath })
+            {
+                string? resolved = TryResolveHistoryImagePath(candidate);
+                if (!string.IsNullOrWhiteSpace(resolved))
+                {
+                    return resolved;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private string? TryResolveHistoryImagePath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            string trimmed = path.Trim();
+            if (Uri.TryCreate(trimmed, UriKind.Absolute, out Uri? uri))
+            {
+                if (uri.IsFile)
+                {
+                    return TryResolveHistoryImagePath(uri.LocalPath);
+                }
+
+                if (string.Equals(uri.Host, "ng-images.local", StringComparison.OrdinalIgnoreCase))
+                {
+                    string relative = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'))
+                        .Replace('/', Path.DirectorySeparatorChar);
+                    return TryResolveHistoryImagePath(relative);
+                }
+            }
+
+            if (Path.IsPathRooted(trimmed))
+            {
+                string fullPath = Path.GetFullPath(trimmed);
+                return File.Exists(fullPath) ? fullPath : null;
+            }
+
+            foreach (string basePath in GetHistoryImageBasePaths())
+            {
+                string fullPath = Path.GetFullPath(Path.Combine(basePath, trimmed));
+                if (File.Exists(fullPath))
+                {
+                    return fullPath;
+                }
+            }
+
+            return null;
+        }
+
+        private IEnumerable<string> GetHistoryImageBasePaths()
+        {
+            var paths = new[]
+            {
+                _storageService.ImageBasePath,
+                Path_Images,
+                BaseStoragePath,
+                Directory.GetParent(_storageService.ImageBasePath)?.FullName
+            };
+
+            return paths
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(path => Path.GetFullPath(path!))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
         }
 
         private async Task<string?> ShowOpenFileDialogOnStaThread(string title, string filter)
@@ -333,6 +636,45 @@ namespace ClearFrost
                 ? "-"
                 : judgeResult.Summary;
             return $" | 规则: {(judgeResult.IsQualified ? "OK" : "NG")} [{summary}]";
+        }
+
+        private static void ApplyRuleTraceSnapshot(
+            DetectionResultData result,
+            string ruleSetJson,
+            InspectionFallbackGoal? fallbackGoal)
+        {
+            result.RuleSetJson = ruleSetJson ?? string.Empty;
+            result.TargetLabel = fallbackGoal?.TargetLabel ?? string.Empty;
+            result.ExpectedCount = fallbackGoal?.TargetCount ?? 0;
+        }
+
+        private MultiModelCandidateEvaluator CreateRuleCandidateEvaluator(
+            InspectionRuleSet ruleSet,
+            int imageWidth,
+            int imageHeight,
+            float[]? roiSnapshot)
+        {
+            return candidate =>
+            {
+                var rawResults = candidate.Results?.ToList() ?? new List<YoloResult>();
+                List<YoloResult> filteredResults = FilterResultsByROI(rawResults, imageWidth, imageHeight, roiSnapshot);
+                InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(ruleSet, filteredResults, candidate.Labels);
+
+                return new MultiModelCandidateEvaluation
+                {
+                    IsMatch = judgeResult.IsQualified,
+                    Score = ScoreRuleCandidate(judgeResult, filteredResults.Count),
+                    Summary = judgeResult.Summary
+                };
+            };
+        }
+
+        private static int ScoreRuleCandidate(InspectionJudgeResult judgeResult, int filteredCount)
+        {
+            int matchedRules = judgeResult.RuleResults.Count(result => result.IsMatch);
+            int failedRules = judgeResult.RuleResults.Count - matchedRules;
+            int score = matchedRules * 1000 - failedRules * 100 + Math.Min(filteredCount, 100);
+            return judgeResult.IsQualified ? score + 1_000_000 : score;
         }
 
         private readonly record struct DetectionCycleRequest(
@@ -780,12 +1122,21 @@ namespace ClearFrost
                     context.CurrentStage = InspectionStage.Inference;
                     var inferSw = Stopwatch.StartNew();
                     InspectionRuleSet ruleSet = _appConfig.GetInspectionRuleSet();
+                    string ruleSetJson = InspectionRuleSetSerializer.Serialize(ruleSet);
                     InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
+                    float[]? roiSnapshot = SnapshotCurrentROI();
+                    MultiModelCandidateEvaluator candidateEvaluator = CreateRuleCandidateEvaluator(
+                        ruleSet,
+                        frameToProcess.Width,
+                        frameToProcess.Height,
+                        roiSnapshot);
                     DetectionResultData result = await _detectionService.DetectAsync(
                         frameToProcess,
                         _appConfig.Confidence,
                         _appConfig.IouThreshold,
-                        fallbackGoal);
+                        fallbackGoal,
+                        candidateEvaluator);
+                    ApplyRuleTraceSnapshot(result, ruleSetJson, fallbackGoal);
                     inferSw.Stop();
                     inferenceMs = inferSw.ElapsedMilliseconds;
                     context.InferenceMs = inferenceMs;
@@ -800,7 +1151,7 @@ namespace ClearFrost
 
                     context.CurrentStage = InspectionStage.RoiFilter;
                     var roiSw = Stopwatch.StartNew();
-                    results = FilterResultsByROI(results, frameToProcess.Width, frameToProcess.Height);
+                    results = FilterResultsByROI(results, frameToProcess.Width, frameToProcess.Height, roiSnapshot);
                     roiSw.Stop();
                     roiFilterMs = roiSw.ElapsedMilliseconds;
                     context.RoiMs = roiFilterMs;
@@ -1331,6 +1682,16 @@ namespace ClearFrost
             string recipeId = _recipeManager.CurrentRecipe?.RecipeId ?? "default";
             string recipeVersion = _recipeManager.CurrentRecipe?.Version ?? string.Empty;
             InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(_appConfig.GetInspectionRuleSet());
+            string traceTargetLabel = !string.IsNullOrWhiteSpace(result?.TargetLabel)
+                ? result!.TargetLabel
+                : fallbackGoal?.TargetLabel ?? string.Empty;
+            int traceExpectedCount = result != null &&
+                (!string.IsNullOrWhiteSpace(result.TargetLabel) || result.ExpectedCount > 0)
+                    ? result.ExpectedCount
+                    : fallbackGoal?.TargetCount ?? 0;
+            string ruleSetJson = !string.IsNullOrWhiteSpace(result?.RuleSetJson)
+                ? result!.RuleSetJson
+                : _appConfig.InspectionRuleSetJson ?? string.Empty;
 
             return new DetectionPersistencePayload
             {
@@ -1364,13 +1725,13 @@ namespace ClearFrost
                 UsedModelName = usedModelName,
                 ModelName = usedModelName,
                 InferenceMs = ClampLongToInt(context.InferenceMs),
-                TargetLabel = fallbackGoal?.TargetLabel ?? string.Empty,
-                ExpectedCount = fallbackGoal?.TargetCount ?? 0,
+                TargetLabel = traceTargetLabel,
+                ExpectedCount = traceExpectedCount,
                 ActualCount = actualCount,
                 CameraId = _cameraManager.ActiveCameraId ?? string.Empty,
                 RuleSummary = result?.JudgeResult?.Summary ?? string.Empty,
                 RuleResultJson = SerializeRuleResults(result?.JudgeResult),
-                RuleSetJson = _appConfig.InspectionRuleSetJson ?? string.Empty,
+                RuleSetJson = ruleSetJson,
                 ResultJson = resultJsonOverride ?? SerializeDetectionResults(results)
             };
         }
@@ -1682,14 +2043,30 @@ namespace ClearFrost
         /// </summary>
         private List<YoloResult> FilterResultsByROI(List<YoloResult> results, int imageWidth, int imageHeight)
         {
-            if (_currentROI == null || _currentROI.Length != 4 || _currentROI[2] <= 0.001f || _currentROI[3] <= 0.001f)
+            return FilterResultsByROI(results, imageWidth, imageHeight, _currentROI);
+        }
+
+        private float[]? SnapshotCurrentROI()
+        {
+            return _currentROI == null || _currentROI.Length != 4
+                ? null
+                : (float[])_currentROI.Clone();
+        }
+
+        private static List<YoloResult> FilterResultsByROI(
+            List<YoloResult> results,
+            int imageWidth,
+            int imageHeight,
+            float[]? roi)
+        {
+            if (roi == null || roi.Length != 4 || roi[2] <= 0.001f || roi[3] <= 0.001f)
                 return results; // 无 ROI 设置或 ROI 为空（宽度或高度约为0），返回全部结果
 
             // 将归一化 ROI 转换为像素坐标
-            float roiX = _currentROI[0] * imageWidth;
-            float roiY = _currentROI[1] * imageHeight;
-            float roiW = _currentROI[2] * imageWidth;
-            float roiH = _currentROI[3] * imageHeight;
+            float roiX = roi[0] * imageWidth;
+            float roiY = roi[1] * imageHeight;
+            float roiW = roi[2] * imageWidth;
+            float roiH = roi[3] * imageHeight;
 
             Debug.WriteLine($"[ROI过滤] ROI区域: X={roiX:F0}, Y={roiY:F0}, W={roiW:F0}, H={roiH:F0}");
 

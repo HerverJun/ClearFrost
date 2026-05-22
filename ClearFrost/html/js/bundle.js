@@ -1760,7 +1760,9 @@
     function validateInspectionRuleSettings() {
         const rules = getCurrentRuleSet().Rules || [];
         if (!rules.length) return "至少需要配置一条判定规则";
-        for (const rule of rules.filter((r) => r.Enabled !== false)) {
+        const enabledRules = rules.filter((r) => r.Enabled !== false);
+        if (!enabledRules.length) return "至少需要启用一条判定规则";
+        for (const rule of enabledRules) {
             if (rule.Type === "OrderedLabels" && !normalizeRuleLabels(rule.ExpectedLabels).length) {
                 return `规则“${rule.Name || "顺序规则"}”必须配置期望标签顺序`;
             }
@@ -3001,6 +3003,7 @@
     const { escapeHtml } = window.CF_UTILS;
     const TRACE_DEFAULT_PAGE_SIZE = 100;
     let tracePagerState = createTracePagerState();
+    let activeTraceRecord = null;
 
     function byId(id) {
         return document.getElementById(id);
@@ -3485,8 +3488,114 @@
         };
     }
 
+    function getCurrentRuleSetJson() {
+        const state = window.CF_STORE?.state || window.CF_STATE || {};
+        if (state.inspectionRuleSet) {
+            return JSON.stringify(state.inspectionRuleSet);
+        }
+
+        const hiddenValue = byId("cfg-inspection-rule-set-json")?.value || "";
+        if (hiddenValue.trim()) return hiddenValue;
+
+        const settings = state.settings || {};
+        return settings.InspectionRuleSetJson || settings.inspectionRuleSetJson || "";
+    }
+
+    function setHistoryRulePreviewStatus(payload) {
+        const statusNode = byId("history-rule-preview-status");
+        const button = byId("viewer-info")?.querySelector('[data-trace-action="rule-preview"]');
+        const status = String(payload?.status || "").toLowerCase();
+        const isRunning = status === "running";
+
+        if (button) {
+            const canPreview = button.dataset.canPreview !== "false";
+            button.disabled = !canPreview || isRunning;
+            button.textContent = isRunning ? "复判中..." : "当前规则复判";
+        }
+
+        if (!statusNode) return;
+
+        statusNode.classList.remove("hidden", "pending", "ok", "ng", "error");
+        if (!status) {
+            statusNode.classList.add("hidden");
+            statusNode.textContent = "";
+            return;
+        }
+
+        if (isRunning) {
+            statusNode.classList.add("pending");
+            statusNode.textContent = payload?.message || "正在用当前规则复判...";
+            return;
+        }
+
+        if (status === "failed") {
+            statusNode.classList.add("error");
+            statusNode.textContent = payload?.message || "复判失败";
+            return;
+        }
+
+        const isOk = payload?.isQualified === true || String(payload?.result || "").toUpperCase() === "OK";
+        const summary = payload?.summary || payload?.message || "-";
+        const actualCount = payload?.actualCount ?? payload?.ActualCount;
+        const elapsed = payload?.totalMs ?? payload?.TotalMs;
+        const detail = [
+            `当前规则 ${isOk ? "OK" : "NG"}`,
+            summary,
+            actualCount !== undefined ? `检出 ${actualCount}` : null,
+            elapsed !== undefined ? `${elapsed}ms` : null,
+        ].filter(Boolean).join(" · ");
+        statusNode.classList.add(isOk ? "ok" : "ng");
+        statusNode.textContent = detail;
+        statusNode.title = detail;
+    }
+
+    function runHistoryRulePreview(record) {
+        const normalized = normalizeTraceRecord(record || activeTraceRecord || {});
+        const imagePath = normalized.imagePath || normalized.imageUrl || "";
+        const renderedImagePath = normalized.renderedImagePath || normalized.renderedImageUrl || "";
+        if (!imagePath && !renderedImagePath) {
+            window.showToast?.("历史图路径不存在，无法复判", "warning", 1800);
+            setHistoryRulePreviewStatus({ status: "failed", message: "历史图路径不存在" });
+            return;
+        }
+
+        setHistoryRulePreviewStatus({
+            status: "running",
+            inspectionId: normalized.inspectionId,
+            message: "正在用当前规则复判历史图...",
+        });
+
+        bridge.sendCommand("run_history_rule_preview", {
+            inspectionId: normalized.inspectionId || "",
+            timestamp: normalized.timestamp || "",
+            imagePath,
+            renderedImagePath,
+            ruleSetJson: getCurrentRuleSetJson(),
+        });
+    }
+
+    function updateHistoryRulePreview(data) {
+        const payload = data || {};
+        const incomingId = payload.inspectionId || payload.InspectionId || "";
+        const activeId = activeTraceRecord?.inspectionId || "";
+        const isActiveViewer = !incomingId || !activeId || incomingId === activeId;
+        const status = String(payload.status || payload.Status || "").toLowerCase();
+
+        if (isActiveViewer) {
+            setHistoryRulePreviewStatus(payload);
+        }
+
+        if (status === "completed") {
+            const ok = payload.isQualified === true || String(payload.result || "").toUpperCase() === "OK";
+            window.showToast?.(`历史图复判: ${ok ? "OK" : "NG"}`, ok ? "success" : "warning", 1800);
+        } else if (status === "failed") {
+            window.showToast?.(payload.message || "历史图复判失败", "warning", 2200);
+        }
+    }
+
     function openTraceViewer(record, mode = "rendered") {
         const normalized = normalizeTraceRecord(record);
+        activeTraceRecord = normalized;
         const viewer = byId("image-viewer");
         const img = byId("viewer-img");
         const info = byId("viewer-info");
@@ -3502,16 +3611,21 @@
 
         if (info) {
             const statusText = normalized.hasRenderedImage ? "复查图" : "无复查图";
+            const canRulePreview = Boolean(normalized.imagePath || normalized.renderedImagePath || originalUrl || reviewUrl);
             info.innerHTML = `
-                <div class="cf-trace-viewer-meta">
-                    <strong>${escapeHtml(normalized.inspectionId)}</strong>
-                    <span>${escapeHtml(normalized.timestamp)}</span>
-                    <em>${escapeHtml(statusText)}</em>
+                <div class="cf-trace-viewer-toolbar">
+                    <div class="cf-trace-viewer-meta">
+                        <strong>${escapeHtml(normalized.inspectionId)}</strong>
+                        <span>${escapeHtml(normalized.timestamp)}</span>
+                        <em>${escapeHtml(statusText)}</em>
+                    </div>
+                    <div class="cf-trace-viewer-actions">
+                        <button type="button" data-trace-mode="rendered" ${reviewUrl ? "" : "disabled"} class="${activeMode === "rendered" ? "active" : ""}">复查图</button>
+                        <button type="button" data-trace-mode="original" ${originalUrl ? "" : "disabled"} class="${activeMode === "original" ? "active" : ""}">训练原图</button>
+                        <button type="button" data-trace-action="rule-preview" data-can-preview="${canRulePreview ? "true" : "false"}" ${canRulePreview ? "" : "disabled"}>当前规则复判</button>
+                    </div>
                 </div>
-                <div class="cf-trace-viewer-actions">
-                    <button type="button" data-trace-mode="rendered" ${reviewUrl ? "" : "disabled"} class="${activeMode === "rendered" ? "active" : ""}">复查图</button>
-                    <button type="button" data-trace-mode="original" ${originalUrl ? "" : "disabled"} class="${activeMode === "original" ? "active" : ""}">训练原图</button>
-                </div>`;
+                <div id="history-rule-preview-status" class="cf-trace-preview-status hidden"></div>`;
 
             info.querySelector('[data-trace-mode="rendered"]')?.addEventListener("click", (event) => {
                 event.stopPropagation();
@@ -3520,6 +3634,10 @@
             info.querySelector('[data-trace-mode="original"]')?.addEventListener("click", (event) => {
                 event.stopPropagation();
                 openTraceViewer(normalized, "original");
+            });
+            info.querySelector('[data-trace-action="rule-preview"]')?.addEventListener("click", (event) => {
+                event.stopPropagation();
+                runHistoryRulePreview(normalized);
             });
         }
 
@@ -3566,12 +3684,14 @@
         loadPreviousTracePage,
         receiveStatisticsHistory,
         requestStatisticsHistory,
+        runHistoryRulePreview,
         searchTraceImages,
         selectTraceHour,
         updateDetectionLogTable,
         updateNGDates,
         updateNGHours,
         updateNGImages,
+        updateHistoryRulePreview,
     });
 
     bridge.registerMessageHandler("statisticsHistory", receiveStatisticsHistory);
@@ -3579,6 +3699,7 @@
     bridge.registerMessageHandler("historyDates", updateNGDates);
     bridge.registerMessageHandler("historyHours", updateNGHours);
     bridge.registerMessageHandler("historyImages", updateNGImages);
+    bridge.registerMessageHandler("historyRulePreview", updateHistoryRulePreview);
 })();
 
 // ==========================================

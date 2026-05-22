@@ -3711,12 +3711,20 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .cf-stitch-page #gallery-modal #viewer-info {
     display: flex;
-    align-items: center;
-    gap: 14px;
-    max-width: min(760px, calc(100vw - 56px));
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    max-width: min(920px, calc(100vw - 56px));
     padding: 10px 12px;
     border-radius: 8px;
     white-space: normal;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-viewer-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-viewer-meta {
@@ -3763,6 +3771,33 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page #gallery-modal .cf-trace-viewer-actions button:disabled {
     opacity: 0.42;
     cursor: not-allowed;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-preview-status {
+    max-width: 100%;
+    padding: 7px 9px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 800;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-preview-status.pending {
+    color: #dbeafe;
+    background: rgba(37, 99, 235, 0.18);
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-preview-status.ok {
+    color: #dcfce7;
+    background: rgba(22, 163, 74, 0.22);
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-preview-status.ng,
+.cf-stitch-page #gallery-modal .cf-trace-preview-status.error {
+    color: #fee2e2;
+    background: rgba(220, 38, 38, 0.22);
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-empty {

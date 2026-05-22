@@ -755,7 +755,9 @@
     function validateInspectionRuleSettings() {
         const rules = getCurrentRuleSet().Rules || [];
         if (!rules.length) return "至少需要配置一条判定规则";
-        for (const rule of rules.filter((r) => r.Enabled !== false)) {
+        const enabledRules = rules.filter((r) => r.Enabled !== false);
+        if (!enabledRules.length) return "至少需要启用一条判定规则";
+        for (const rule of enabledRules) {
             if (rule.Type === "OrderedLabels" && !normalizeRuleLabels(rule.ExpectedLabels).length) {
                 return `规则“${rule.Name || "顺序规则"}”必须配置期望标签顺序`;
             }
