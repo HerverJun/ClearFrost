@@ -27,6 +27,13 @@ namespace ClearFrost.Core.Inspection
         public long SaveImageMs { get; set; }
         public long SaveRecordMs { get; set; }
         public long TotalMs { get; set; }
+        public int FallbackAttemptCount { get; set; }
+        public string FallbackSkippedReason { get; set; } = string.Empty;
+        public long ImageQueuePending { get; set; }
+        public long RecordQueuePending { get; set; }
+        public long HandshakeStartMs { get; set; }
+        public long PlcResultWriteMs { get; set; }
+        public long HandshakeCompleteMs { get; set; }
         public string? ProductBarcode { get; set; }
         public bool? BarcodeReadSucceeded { get; set; }
         public string? BarcodeError { get; set; }

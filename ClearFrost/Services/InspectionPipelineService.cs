@@ -76,6 +76,9 @@ namespace ClearFrost.Services
         public long RenderToUiMs { get; set; }
         public long SaveQueueMs { get; set; }
         public long DbWriteMs { get; set; }
+        public long HandshakeStartMs { get; set; }
+        public long PlcResultWriteMs { get; set; }
+        public long HandshakeCompleteMs { get; set; }
     }
 
     internal sealed class InspectionPipelineResult : IDisposable
@@ -101,6 +104,8 @@ namespace ClearFrost.Services
         public string? BarcodeError { get; set; }
         public string StatusMessage { get; set; } = string.Empty;
         public string StatusLevel { get; set; } = "info";
+        public int FallbackAttemptCount { get; set; }
+        public string FallbackSkippedReason { get; set; } = string.Empty;
         public Mat? Frame { get; set; }
         public Mat? RenderedFrame { get; set; }
         public bool DetectionFailed { get; set; }
@@ -209,6 +214,7 @@ namespace ClearFrost.Services
                 }
 
                 await WriteHandshakeDetectionStartedAsync(context).ConfigureAwait(false);
+                pipelineResult.Timings.HandshakeStartMs = context.HandshakeStartMs;
                 await PublishUpdateAsync(
                     progressAsync,
                     context,
@@ -226,6 +232,7 @@ namespace ClearFrost.Services
                     {
                         await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
                         await WriteHandshakeDetectionCompletedAsync(context, pipelineResult.FinalQualified).ConfigureAwait(false);
+                        pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
                         finalHandshakeWritten = true;
                         return pipelineResult;
                     }
@@ -240,6 +247,7 @@ namespace ClearFrost.Services
                 {
                     await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
                     await WriteHandshakeDetectionCompletedAsync(context, pipelineResult.FinalQualified).ConfigureAwait(false);
+                    pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
                     finalHandshakeWritten = true;
                     return pipelineResult;
                 }
@@ -266,6 +274,7 @@ namespace ClearFrost.Services
 
                 await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
                 await WriteHandshakeDetectionCompletedAsync(context, pipelineResult.FinalQualified).ConfigureAwait(false);
+                pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
                 finalHandshakeWritten = true;
                 return pipelineResult;
             }
@@ -290,6 +299,7 @@ namespace ClearFrost.Services
                 if (!finalHandshakeWritten)
                 {
                     await WriteHandshakeDetectionCompletedAsync(context, false).ConfigureAwait(false);
+                    pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
                 }
 
                 await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
@@ -365,7 +375,9 @@ namespace ClearFrost.Services
             bool plcWritten = await WriteDetectionResultToPlcAsync(false, context, progressAsync).ConfigureAwait(false);
             plcSw.Stop();
             pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
+            pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
             context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
+            context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
             pipelineResult.AddStage(
                 InspectionStage.PlcWrite,
                 plcWritten,
@@ -487,7 +499,9 @@ namespace ClearFrost.Services
             bool plcWritten = await WriteDetectionResultToPlcAsync(false, context, progressAsync).ConfigureAwait(false);
             plcSw.Stop();
             pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
+            pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
             context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
+            context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
             pipelineResult.AddStage(
                 InspectionStage.PlcWrite,
                 plcWritten,
@@ -572,6 +586,10 @@ namespace ClearFrost.Services
                     ? _detectionService.CurrentModelName
                     : result.UsedModelName;
                 pipelineResult.WasFallback = result.WasFallback;
+                pipelineResult.FallbackAttemptCount = result.FallbackAttemptCount;
+                pipelineResult.FallbackSkippedReason = result.FallbackSkippedReason ?? string.Empty;
+                context.FallbackAttemptCount = result.FallbackAttemptCount;
+                context.FallbackSkippedReason = result.FallbackSkippedReason ?? string.Empty;
                 pipelineResult.AddStage(
                     InspectionStage.Inference,
                     !detectionFailed,
@@ -635,7 +653,9 @@ namespace ClearFrost.Services
                 bool plcWritten = await WriteDetectionResultToPlcAsync(isQualified, context, progressAsync).ConfigureAwait(false);
                 plcSw.Stop();
                 pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
+                pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
                 context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
+                context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
                 pipelineResult.AddStage(
                     InspectionStage.PlcWrite,
                     plcWritten,
@@ -647,7 +667,7 @@ namespace ClearFrost.Services
                 _statisticsService.RecordDetection(isQualified);
 
                 string objDesc = GetDetailedDetectionLog(results, labels);
-                string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
+                string modelInfo = BuildFallbackStatus(result);
                 string ruleInfo = BuildRuleStatus(result.JudgeResult);
                 pipelineResult.StatusMessage = detectionFailed
                     ? $"[{request.TriggerSource}] ID {request.InspectionId} 检测失败，已判定为不合格: {result.ErrorMessage} | {pipelineResult.Timings.InferenceMs}ms"
@@ -691,7 +711,9 @@ namespace ClearFrost.Services
                     bool plcWritten = await WriteDetectionResultToPlcAsync(false, context, progressAsync).ConfigureAwait(false);
                     plcSw.Stop();
                     pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
+                    pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
                     context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
+                    context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
                     pipelineResult.AddStage(
                         InspectionStage.PlcWrite,
                         plcWritten,
@@ -783,6 +805,11 @@ namespace ClearFrost.Services
 
         private async Task FinalizePipelineAsync(InspectionPipelineResult result)
         {
+            result.Timings.HandshakeStartMs = result.Context.HandshakeStartMs;
+            result.Timings.PlcResultWriteMs = result.Context.PlcResultWriteMs;
+            result.Timings.HandshakeCompleteMs = result.Context.HandshakeCompleteMs;
+            result.Context.ImageQueuePending = _imageSaveQueue.PendingCount;
+            result.Context.RecordQueuePending = _detectionRecordQueue.PendingCount;
             result.Context.TotalMs = result.Timings.CaptureMs +
                                      result.Timings.InferenceMs +
                                      result.Timings.RoiFilterMs +
@@ -949,6 +976,7 @@ namespace ClearFrost.Services
 
             saveSw.Stop();
             context.SaveImageMs = saveSw.ElapsedMilliseconds;
+            context.ImageQueuePending = _imageSaveQueue.PendingCount;
 
             if (!imageQueued)
             {
@@ -992,6 +1020,7 @@ namespace ClearFrost.Services
             context.SaveRecordMs = dbSw.ElapsedMilliseconds;
             payload.SaveRecordMs = context.SaveRecordMs;
             context.TraceStatus = ResolveTraceStatus(imageQueued, dbQueued);
+            context.RecordQueuePending = _detectionRecordQueue.PendingCount;
 
             if (!dbQueued)
             {
@@ -1023,14 +1052,8 @@ namespace ClearFrost.Services
                 : Path.GetFileNameWithoutExtension(usedModelName);
             string recipeId = _recipeManager.CurrentRecipe?.RecipeId ?? "default";
             string recipeVersion = _recipeManager.CurrentRecipe?.Version ?? string.Empty;
-            InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(_appConfig.GetInspectionRuleSet());
-            string traceTargetLabel = !string.IsNullOrWhiteSpace(result?.TargetLabel)
-                ? result!.TargetLabel
-                : fallbackGoal?.TargetLabel ?? string.Empty;
-            int traceExpectedCount = result != null &&
-                (!string.IsNullOrWhiteSpace(result.TargetLabel) || result.ExpectedCount > 0)
-                    ? result.ExpectedCount
-                    : fallbackGoal?.TargetCount ?? 0;
+            string traceTargetLabel = result?.TargetLabel ?? string.Empty;
+            int traceExpectedCount = result?.ExpectedCount ?? 0;
             string ruleSetJson = !string.IsNullOrWhiteSpace(result?.RuleSetJson)
                 ? result!.RuleSetJson
                 : _appConfig.InspectionRuleSetJson ?? string.Empty;
@@ -1090,6 +1113,7 @@ namespace ClearFrost.Services
                 return;
             }
 
+            var handshakeSw = Stopwatch.StartNew();
             await WriteHandshakeWordAsync(_appConfig.PlcVisionOnlineAddress, 1, "VisionOnline", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcVisionReadyAddress, 1, "VisionReady", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcVisionBusyAddress, 1, "VisionBusy", context).ConfigureAwait(false);
@@ -1097,6 +1121,8 @@ namespace ClearFrost.Services
             await WriteHandshakeWordAsync(_appConfig.PlcTraceSavedAddress, 0, "TraceSaved", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcErrorCodeAddress, 0, "ErrorCode", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcHeartbeatAddress, 1, "Heartbeat", context).ConfigureAwait(false);
+            handshakeSw.Stop();
+            context.HandshakeStartMs = handshakeSw.ElapsedMilliseconds;
         }
 
         private async Task WriteHandshakeDetectionCompletedAsync(InspectionContext context, bool isQualified)
@@ -1111,6 +1137,7 @@ namespace ClearFrost.Services
                 return;
             }
 
+            var handshakeSw = Stopwatch.StartNew();
             if (!context.ResultSeq.HasValue && context.TriggerSeq.HasValue)
             {
                 context.ResultSeq = context.TriggerSeq;
@@ -1133,6 +1160,8 @@ namespace ClearFrost.Services
             await WriteHandshakeWordAsync(_appConfig.PlcTraceSavedAddress, traceSaved, "TraceSaved", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcInspectionDoneAddress, 1, "InspectionDone", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcHeartbeatAddress, 1, "Heartbeat", context).ConfigureAwait(false);
+            handshakeSw.Stop();
+            context.HandshakeCompleteMs = handshakeSw.ElapsedMilliseconds;
 
             DiagLog($"HandshakeV1完成[{context.InspectionId}]: Result={(isQualified ? "OK" : "NG")}, ResultSeq={context.ResultSeq?.ToString() ?? "-"}, TraceSaved={traceSaved}, ErrorCode={errorCode}");
         }
@@ -1342,6 +1371,32 @@ namespace ClearFrost.Services
                 ? "-"
                 : judgeResult.Summary;
             return $" | 规则: {(judgeResult.IsQualified ? "OK" : "NG")} [{summary}]";
+        }
+
+        private static string BuildFallbackStatus(DetectionResultData result)
+        {
+            if (result == null)
+            {
+                return string.Empty;
+            }
+
+            string attemptText = result.FallbackAttemptCount > 1
+                ? $", 尝试{result.FallbackAttemptCount}个模型"
+                : string.Empty;
+
+            if (result.WasFallback)
+            {
+                return $" [切换至: {result.UsedModelName}{attemptText}]";
+            }
+
+            if (!string.IsNullOrWhiteSpace(result.FallbackSkippedReason))
+            {
+                return $" [回退未命中: {result.FallbackSkippedReason}{attemptText}]";
+            }
+
+            return attemptText.Length > 0
+                ? $" [模型{attemptText.TrimStart(',', ' ')}]"
+                : string.Empty;
         }
 
         private static void ApplyRuleTraceSnapshot(

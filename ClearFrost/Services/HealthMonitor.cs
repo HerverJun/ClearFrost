@@ -45,9 +45,11 @@ namespace ClearFrost.Services
         public long RecentInspectionP95Ms { get; init; }
         public long RecentInspectionP99Ms { get; init; }
         public long ImageQueueLength { get; init; }
+        public int ImageQueueCapacity { get; init; }
         public long ImageQueueDroppedCount { get; init; }
         public long ImageQueueFailedCount { get; init; }
         public long RecordQueueLength { get; init; }
+        public int RecordQueueCapacity { get; init; }
         public long RecordQueueDroppedCount { get; init; }
         public long RecordQueueFailedCount { get; init; }
         public double FreeDiskGb { get; init; }
@@ -155,8 +157,18 @@ namespace ClearFrost.Services
             long imageFailed = _imageSaveQueue.FailedCount;
             long recordDropped = _recordQueue.DroppedCount;
             long recordFailed = _recordQueue.FailedCount;
+            long imagePending = _imageSaveQueue.PendingCount;
+            long recordPending = _recordQueue.PendingCount;
             DetectionRuntimeStatus detectionRuntime = _detectionService.RuntimeStatus;
-            var syntheticErrors = BuildQueueErrors(imageDropped, imageFailed, recordDropped, recordFailed);
+            var syntheticErrors = BuildQueueErrors(
+                imagePending,
+                _imageSaveQueue.Capacity,
+                imageDropped,
+                imageFailed,
+                recordPending,
+                _recordQueue.Capacity,
+                recordDropped,
+                recordFailed);
             var allErrors = errors.Concat(syntheticErrors).TakeLast(MaxRecentErrors).ToArray();
 
             HealthLevel level = allErrors.Length > 0 ? HealthLevel.Warning : HealthLevel.Ok;
@@ -183,10 +195,12 @@ namespace ClearFrost.Services
                 LastInspectionTotalMs = lastInspectionTotalMs,
                 RecentInspectionP95Ms = Percentile(inspectionMs, 0.95),
                 RecentInspectionP99Ms = Percentile(inspectionMs, 0.99),
-                ImageQueueLength = _imageSaveQueue.PendingCount,
+                ImageQueueLength = imagePending,
+                ImageQueueCapacity = _imageSaveQueue.Capacity,
                 ImageQueueDroppedCount = imageDropped,
                 ImageQueueFailedCount = imageFailed,
-                RecordQueueLength = _recordQueue.PendingCount,
+                RecordQueueLength = recordPending,
+                RecordQueueCapacity = _recordQueue.Capacity,
                 RecordQueueDroppedCount = recordDropped,
                 RecordQueueFailedCount = recordFailed,
                 FreeDiskGb = GetFreeDiskGb(_storageService.ImageBasePath),
@@ -197,17 +211,38 @@ namespace ClearFrost.Services
         }
 
         private static IReadOnlyList<HealthError> BuildQueueErrors(
+            long imagePending,
+            int imageCapacity,
             long imageDropped,
             long imageFailed,
+            long recordPending,
+            int recordCapacity,
             long recordDropped,
             long recordFailed)
         {
             var errors = new List<HealthError>();
+            AddIfNearCapacity(errors, imagePending, imageCapacity, "ImageSaveQueue", "图像保存队列超过75%，建议检查磁盘写入速度或降低触发频率");
             AddIfPositive(errors, imageDropped, "ImageSaveQueue", $"图像保存队列丢弃累计: {imageDropped}");
             AddIfPositive(errors, imageFailed, "ImageSaveQueue", $"图像保存失败累计: {imageFailed}");
+            AddIfNearCapacity(errors, recordPending, recordCapacity, "DetectionRecordQueue", "数据库记录队列超过75%，建议检查数据库文件和存储目录");
             AddIfPositive(errors, recordDropped, "DetectionRecordQueue", $"数据库记录队列丢弃累计: {recordDropped}");
             AddIfPositive(errors, recordFailed, "DetectionRecordQueue", $"数据库记录保存失败累计: {recordFailed}");
             return errors;
+        }
+
+        private static void AddIfNearCapacity(List<HealthError> errors, long pending, int capacity, string source, string message)
+        {
+            if (capacity <= 0 || pending * 4L < capacity * 3L)
+            {
+                return;
+            }
+
+            errors.Add(new HealthError
+            {
+                Timestamp = DateTimeOffset.Now,
+                Source = source,
+                Message = $"{message} ({pending}/{capacity})"
+            });
         }
 
         private static void AddIfPositive(List<HealthError> errors, long value, string source, string message)

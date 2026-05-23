@@ -18,11 +18,18 @@ namespace ClearFrost.Core.Rules
             IReadOnlyList<YoloResult>? detections,
             IReadOnlyList<string>? labels)
         {
-            List<YoloResult> resultList = detections?.ToList() ?? new List<YoloResult>();
-            string[] labelArray = labels?.ToArray() ?? Array.Empty<string>();
-            List<InspectionRule> rules = ruleSet?.EnabledRules.ToList() ?? new List<InspectionRule>();
+            IReadOnlyList<YoloResult> resultList = detections ?? Array.Empty<YoloResult>();
+            IReadOnlyList<string> labelArray = labels ?? Array.Empty<string>();
+            IEnumerable<InspectionRule> rules = ruleSet?.Rules?
+                .Where(rule => rule.Enabled) ?? Enumerable.Empty<InspectionRule>();
 
-            if (rules.Count == 0)
+            var ruleResults = new List<InspectionRuleResult>();
+            foreach (InspectionRule rule in rules)
+            {
+                ruleResults.Add(EvaluateRule(rule, resultList, labelArray));
+            }
+
+            if (ruleResults.Count == 0)
             {
                 return new InspectionJudgeResult
                 {
@@ -31,10 +38,6 @@ namespace ClearFrost.Core.Rules
                     RuleResults = Array.Empty<InspectionRuleResult>()
                 };
             }
-
-            List<InspectionRuleResult> ruleResults = rules
-                .Select(rule => EvaluateRule(rule, resultList, labelArray))
-                .ToList();
 
             bool isQualified = ruleResults.All(result => result.IsMatch);
             string summary = string.Join("; ", ruleResults.Select(result =>

@@ -68,6 +68,16 @@ namespace ClearFrost.Interfaces
         public bool WasFallback { get; set; }
 
         /// <summary>
+        /// 本次推理实际尝试的模型数量，包含主模型。
+        /// </summary>
+        public int FallbackAttemptCount { get; set; }
+
+        /// <summary>
+        /// 回退未继续或未命中的原因，空字符串表示已命中或无需提示。
+        /// </summary>
+        public string FallbackSkippedReason { get; set; } = string.Empty;
+
+        /// <summary>
         /// 检测流程是否发生错误。发生错误时必须按 NG 处理，不能再用空结果重新判定为 OK。
         /// </summary>
         public bool HasError { get; set; }

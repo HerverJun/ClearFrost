@@ -1013,7 +1013,15 @@ namespace ClearFrost
             bool barcodeEnabled = false,
             string? productBarcode = null,
             bool? barcodeReadSucceeded = null,
-            string? barcodeError = null)
+            string? barcodeError = null,
+            int? fallbackAttemptCount = null,
+            string? fallbackSkippedReason = null,
+            long? imageQueuePending = null,
+            long? recordQueuePending = null,
+            long? handshakeStartMs = null,
+            long? plcResultWriteMs = null,
+            long? handshakeCompleteMs = null,
+            long? inferenceMs = null)
         {
             if (!IsWebViewControlUsable(_webView) || image == null || image.Empty())
             {
@@ -1038,9 +1046,17 @@ namespace ClearFrost
                     : new { message = logMessage, type = logType },
                 metrics = metrics,
                 totalMs = totalMs,
+                inferenceMs = inferenceMs ?? inspection?.InferenceMs,
                 actualCount = actualCount,
                 usedModelName = usedModelName,
                 wasFallback = wasFallback,
+                fallbackAttemptCount = fallbackAttemptCount ?? inspection?.FallbackAttemptCount,
+                fallbackSkippedReason = fallbackSkippedReason ?? inspection?.FallbackSkippedReason,
+                imageQueuePending = imageQueuePending ?? inspection?.ImageQueuePending,
+                recordQueuePending = recordQueuePending ?? inspection?.RecordQueuePending,
+                handshakeStartMs = handshakeStartMs ?? inspection?.HandshakeStartMs,
+                plcResultWriteMs = plcResultWriteMs ?? inspection?.PlcResultWriteMs,
+                handshakeCompleteMs = handshakeCompleteMs ?? inspection?.HandshakeCompleteMs,
                 sourceLabel = sourceLabel,
                 inspection = inspection == null
                     ? null
@@ -1140,6 +1156,13 @@ namespace ClearFrost
                 captureMs = context.CaptureMs,
                 inferenceMs = context.InferenceMs,
                 plcWriteMs = context.PlcWriteMs,
+                handshakeStartMs = context.HandshakeStartMs,
+                plcResultWriteMs = context.PlcResultWriteMs,
+                handshakeCompleteMs = context.HandshakeCompleteMs,
+                fallbackAttemptCount = context.FallbackAttemptCount,
+                fallbackSkippedReason = context.FallbackSkippedReason,
+                imageQueuePending = context.ImageQueuePending,
+                recordQueuePending = context.RecordQueuePending,
                 usedModelName = usedModelName,
                 wasFallback = wasFallback,
                 actualCount = actualCount,

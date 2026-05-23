@@ -229,7 +229,7 @@ namespace ClearFrost
                         _statisticsService.RecordDetection(isQualified);
 
                         string objDesc = GetDetailedDetectionLog(results, labels);
-                        string modelInfo = result.WasFallback ? $" [切换至: {result.UsedModelName}]" : "";
+                        string modelInfo = BuildFallbackStatus(result);
                         string ruleInfo = BuildRuleStatus(result.JudgeResult);
                         string statusMessage = detectionFailed
                             ? $"检测失败，已判定为不合格: {result.ErrorMessage} | {sw.ElapsedMilliseconds}ms"
@@ -245,7 +245,10 @@ namespace ClearFrost
                             usedModelName: result.UsedModelName ?? _detectionService.CurrentModelName,
                             wasFallback: result.WasFallback,
                             totalMs: sw.ElapsedMilliseconds,
-                            sourceLabel: "本地推理");
+                            sourceLabel: "本地推理",
+                            fallbackAttemptCount: result.FallbackAttemptCount,
+                            fallbackSkippedReason: result.FallbackSkippedReason,
+                            inferenceMs: result.ElapsedMs);
                     }
                 }
             }
@@ -284,12 +287,6 @@ namespace ClearFrost
                 return;
             }
 
-            await SendHistoryRulePreviewStatusAsync(
-                request,
-                "running",
-                null,
-                "正在用当前规则复判历史图...");
-
             DetectionTriggerDecision decision = await _detectionGate.TryEnterAsync(IsShutdownInProgress);
             if (!decision.Accepted)
             {
@@ -305,6 +302,12 @@ namespace ClearFrost
                 });
                 return;
             }
+
+            await SendHistoryRulePreviewStatusAsync(
+                request,
+                "running",
+                null,
+                "正在用当前规则复判历史图...");
 
             try
             {
@@ -382,7 +385,7 @@ namespace ClearFrost
                 string summary = judgeResult?.Summary ?? result.ErrorMessage;
                 string statusMessage = result.HasError
                     ? $"历史图规则复判失败，已判定为 NG: {result.ErrorMessage}"
-                    : $"历史图规则复判: {(isQualified ? "OK" : "NG")} | {summary}";
+                    : $"历史图规则复判: {(isQualified ? "OK" : "NG")} | {summary}{BuildFallbackStatus(result)}";
                 string usedModelName = string.IsNullOrWhiteSpace(result.UsedModelName)
                     ? _detectionService.CurrentModelName
                     : result.UsedModelName;
@@ -399,7 +402,10 @@ namespace ClearFrost
                     usedModelName: usedModelName,
                     wasFallback: result.WasFallback,
                     totalMs: totalSw.ElapsedMilliseconds,
-                    sourceLabel: "历史规则复判");
+                    sourceLabel: "历史规则复判",
+                    fallbackAttemptCount: result.FallbackAttemptCount,
+                    fallbackSkippedReason: result.FallbackSkippedReason,
+                    inferenceMs: result.ElapsedMs);
 
                 await _uiController.SendHistoryRulePreview(new
                 {
@@ -643,6 +649,32 @@ namespace ClearFrost
                 ? "-"
                 : judgeResult.Summary;
             return $" | 规则: {(judgeResult.IsQualified ? "OK" : "NG")} [{summary}]";
+        }
+
+        private static string BuildFallbackStatus(DetectionResultData result)
+        {
+            if (result == null)
+            {
+                return string.Empty;
+            }
+
+            string attemptText = result.FallbackAttemptCount > 1
+                ? $", 尝试{result.FallbackAttemptCount}个模型"
+                : string.Empty;
+
+            if (result.WasFallback)
+            {
+                return $" [切换至: {result.UsedModelName}{attemptText}]";
+            }
+
+            if (!string.IsNullOrWhiteSpace(result.FallbackSkippedReason))
+            {
+                return $" [回退未命中: {result.FallbackSkippedReason}{attemptText}]";
+            }
+
+            return attemptText.Length > 0
+                ? $" [模型{attemptText.TrimStart(',', ' ')}]"
+                : string.Empty;
         }
 
         private static void ApplyRuleTraceSnapshot(
@@ -1230,15 +1262,29 @@ namespace ClearFrost
                 }
                 sb.AppendLine($"总耗时: {totalMs}ms");
                 sb.AppendLine($"尝试次数: {Math.Max(1, attempts)} (重试{Math.Max(0, attempts - 1)}次)");
+                sb.AppendLine($"模型尝试: {Math.Max(0, context.FallbackAttemptCount)}");
+                if (!string.IsNullOrWhiteSpace(context.FallbackSkippedReason))
+                {
+                    sb.AppendLine($"回退状态: {context.FallbackSkippedReason}");
+                }
                 sb.AppendLine($"目标数量: {resultCount}");
+                sb.AppendLine($"队列: image={context.ImageQueuePending}, record={context.RecordQueuePending}");
                 sb.AppendLine($"丢弃累计: busy={dropSnapshot.BusyCount}, debounce={dropSnapshot.DebounceCount}, shutdown={dropSnapshot.ShutdownCount}");
                 sb.AppendLine("阶段耗时:");
+                if (context.HandshakeStartMs > 0 || context.HandshakeCompleteMs > 0)
+                {
+                    sb.AppendLine($"- 握手启动: {context.HandshakeStartMs}ms");
+                }
                 sb.AppendLine($"- 取图: {captureMs}ms");
                 sb.AppendLine($"- 推理: {inferenceMs}ms");
                 sb.AppendLine($"- ROI过滤: {roiFilterMs}ms");
                 sb.AppendLine($"- 前端渲染: {renderToUiMs}ms");
                 sb.AppendLine($"- 图像入队: {saveQueueMs}ms");
-                sb.AppendLine($"- PLC写入: {plcWriteMs}ms");
+                sb.AppendLine($"- PLC结果写入: {(context.PlcResultWriteMs > 0 ? context.PlcResultWriteMs : plcWriteMs)}ms");
+                if (context.HandshakeStartMs > 0 || context.HandshakeCompleteMs > 0)
+                {
+                    sb.AppendLine($"- 握手完成: {context.HandshakeCompleteMs}ms");
+                }
                 sb.AppendLine($"- 数据库写入: {dbWriteMs}ms");
 
                 _storageService.WriteDetectionLog(sb.ToString(), isQualified);

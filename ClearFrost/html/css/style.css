@@ -1237,13 +1237,6 @@ input[type="range"]::-webkit-slider-runnable-track {
     background: linear-gradient(180deg, #ffffff 0%, #fafbfd 100%);
 }
 
-.stitch-stat-wide {
-    grid-column: 1 / -1;
-    min-height: 74px;
-    justify-content: flex-start;
-    gap: 5px;
-}
-
 .stitch-stat-card span,
 .stitch-okng-grid span,
 .stitch-model-card label,
@@ -1264,33 +1257,8 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .stitch-stat-card:nth-child(2) strong,
-#val-defect-rate,
 #stitch-pass-rate {
     color: var(--stitch-tertiary);
-}
-
-.stitch-rate-row {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-}
-
-.stitch-progress {
-    width: 100%;
-    height: 6px;
-    margin-top: 2px;
-    border-radius: 999px;
-    overflow: hidden;
-    background: linear-gradient(180deg, #e2e6ec 0%, #e8ebf0 100%);
-    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.08);
-}
-
-.stitch-progress-fill {
-    height: 100%;
-    border-radius: inherit;
-    background: linear-gradient(90deg, #0d3d9e 0%, #2a5bc7 60%, #4a7de8 100%);
-    box-shadow: 0 0 8px rgba(13, 61, 158, 0.25);
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .stitch-okng-grid {
@@ -3961,16 +3929,6 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page .cf-flow-row:hover {
     border-color: #c9d6e6 !important;
     box-shadow: 0 2px 6px rgba(16, 24, 40, 0.06) !important;
-}
-
-.stitch-progress {
-    background: #dce4ee !important;
-    box-shadow: inset 0 1px 1px rgba(16, 24, 40, 0.08) !important;
-}
-
-.stitch-progress-fill {
-    background: #0b5cab !important;
-    box-shadow: none !important;
 }
 
 .stitch-model-card select {

@@ -57,6 +57,61 @@ public class HealthMonitorTests
         }
     }
 
+    [Fact]
+    public void GetSnapshot_队列超过75Percent时生成维护建议()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            using var imageQueue = new ImageSaveQueue(capacity: 4);
+            using var recordQueue = new DetectionRecordQueue(new RecordingDatabaseService(), capacity: 4);
+            SetPendingCount(imageQueue, 3);
+            SetPendingCount(recordQueue, 3);
+
+            var monitor = new HealthMonitor(
+                new FakeCameraService(),
+                new FakePlcService(),
+                new FakeDetectionService(),
+                new FakeStorageService(tempDir),
+                imageQueue,
+                recordQueue);
+
+            HealthSnapshot snapshot = monitor.GetSnapshot();
+
+            snapshot.HealthLevel.Should().Be(HealthLevel.Warning);
+            snapshot.ImageQueueLength.Should().Be(3);
+            snapshot.ImageQueueCapacity.Should().Be(4);
+            snapshot.RecordQueueLength.Should().Be(3);
+            snapshot.RecordQueueCapacity.Should().Be(4);
+            snapshot.RecentErrors.Should().Contain(e =>
+                e.Source == "ImageSaveQueue" &&
+                e.Message.Contains("超过75%") &&
+                e.Message.Contains("3/4"));
+            snapshot.RecentErrors.Should().Contain(e =>
+                e.Source == "DetectionRecordQueue" &&
+                e.Message.Contains("超过75%") &&
+                e.Message.Contains("3/4"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
+    private static void SetPendingCount(object queue, long value)
+    {
+        var field = queue.GetType().GetField(
+            "_pendingCount",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        field.Should().NotBeNull();
+        field!.SetValue(queue, value);
+    }
+
     private sealed class FakeCameraService : ICameraService
     {
         public event Action<Mat>? FrameCaptured;

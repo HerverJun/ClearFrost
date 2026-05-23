@@ -366,6 +366,8 @@ namespace ClearFrost.Services
                     inference.UsedModelName,
                     inference.UsedModelLabels,
                     inference.WasFallback,
+                    inference.FallbackAttemptCount,
+                    inference.FallbackSkippedReason,
                     sw.ElapsedMilliseconds);
 
                 DetectionCompleted?.Invoke(result);
@@ -411,6 +413,8 @@ namespace ClearFrost.Services
                     inference.UsedModelName,
                     inference.UsedModelLabels,
                     inference.WasFallback,
+                    inference.FallbackAttemptCount,
+                    inference.FallbackSkippedReason,
                     sw.ElapsedMilliseconds);
 
                 DetectionCompleted?.Invoke(result);
@@ -423,7 +427,7 @@ namespace ClearFrost.Services
             }
         }
 
-        private async Task<(List<YoloResult> Results, string UsedModelName, string[] UsedModelLabels, bool WasFallback)> RunInferenceAsync(
+        private async Task<(List<YoloResult> Results, string UsedModelName, string[] UsedModelLabels, bool WasFallback, int FallbackAttemptCount, string FallbackSkippedReason)> RunInferenceAsync(
             Bitmap image,
             float confidence,
             float iouThreshold,
@@ -446,20 +450,26 @@ namespace ClearFrost.Services
                     throw new InvalidOperationException(inferenceResult.ErrorMessage);
                 }
 
-                return (inferenceResult.Results, inferenceResult.UsedModelName, inferenceResult.UsedModelLabels, inferenceResult.WasFallback);
+                return (
+                    inferenceResult.Results,
+                    inferenceResult.UsedModelName,
+                    inferenceResult.UsedModelLabels,
+                    inferenceResult.WasFallback,
+                    inferenceResult.FallbackAttemptCount,
+                    inferenceResult.FallbackSkippedReason);
             }
 
             if (_yolo != null)
             {
                 var allResults = await Task.Run(() =>
                     _yolo.Inference(image, confidence, iouThreshold, false, 1));
-                return (allResults, "", _yolo.Labels, false);
+                return (allResults, "", _yolo.Labels, false, 1, string.Empty);
             }
 
             throw new InvalidOperationException("没有可用的检测模型");
         }
 
-        private async Task<(List<YoloResult> Results, string UsedModelName, string[] UsedModelLabels, bool WasFallback)> RunInferenceAsync(
+        private async Task<(List<YoloResult> Results, string UsedModelName, string[] UsedModelLabels, bool WasFallback, int FallbackAttemptCount, string FallbackSkippedReason)> RunInferenceAsync(
             Mat image,
             float confidence,
             float iouThreshold,
@@ -482,14 +492,20 @@ namespace ClearFrost.Services
                     throw new InvalidOperationException(inferenceResult.ErrorMessage);
                 }
 
-                return (inferenceResult.Results, inferenceResult.UsedModelName, inferenceResult.UsedModelLabels, inferenceResult.WasFallback);
+                return (
+                    inferenceResult.Results,
+                    inferenceResult.UsedModelName,
+                    inferenceResult.UsedModelLabels,
+                    inferenceResult.WasFallback,
+                    inferenceResult.FallbackAttemptCount,
+                    inferenceResult.FallbackSkippedReason);
             }
 
             if (_yolo != null)
             {
                 var allResults = await Task.Run(() =>
                     _yolo.Inference(image, confidence, iouThreshold, false, 1));
-                return (allResults, "", _yolo.Labels, false);
+                return (allResults, "", _yolo.Labels, false, 1, string.Empty);
             }
 
             throw new InvalidOperationException("没有可用的检测模型");
@@ -501,6 +517,8 @@ namespace ClearFrost.Services
             string usedModelName,
             string[] usedModelLabels,
             bool wasFallback,
+            int fallbackAttemptCount,
+            string fallbackSkippedReason,
             long elapsedMs)
         {
             Debug.WriteLine($"[DetectionService] 推理完成: 检测结果数量={allResults.Count}, 耗时={elapsedMs}ms");
@@ -511,6 +529,8 @@ namespace ClearFrost.Services
             result.UsedModelLabels = usedModelLabels;
             result.UsedModelName = usedModelName;
             result.WasFallback = wasFallback;
+            result.FallbackAttemptCount = fallbackAttemptCount;
+            result.FallbackSkippedReason = fallbackSkippedReason ?? string.Empty;
             result.HasError = false;
             result.ErrorMessage = string.Empty;
         }

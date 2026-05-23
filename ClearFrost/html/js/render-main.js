@@ -10,13 +10,16 @@
     const domCache = new Map();
     const recentInspectionRows = new Map();
     const criticalAdviceLogKeys = new Set();
+    const fallbackTelemetryLogKeys = new Set();
     const logBuffer = [];
     const detectionLogBuffer = [];
     const MaxLogEntries = 50;
     const MaxCriticalAdviceLogKeys = 120;
+    const MaxFallbackTelemetryLogKeys = 120;
     const LogFlushIntervalMs = 300;
     let logFlushTimer = null;
     let detectionLogFlushTimer = null;
+    let lastQueueAdviceKey = "";
     let resultOverlayTimer = null;
     let lastPreviewFrameId = 0;
     let openCameraCooldownUntil = 0;
@@ -40,6 +43,7 @@
         /开启异常/,
         /驱动缺失/,
         /启动诊断/,
+        /队列/,
     ];
 
     function shouldRenderFull(reasons) {
@@ -136,6 +140,95 @@
         addLog(`关键错误${idPart}: ${resolved.advice}${codePart}`, "error");
     }
 
+    function toFiniteNumber(value) {
+        const number = Number(value);
+        return Number.isFinite(number) ? number : 0;
+    }
+
+    function getFallbackRatioText(list) {
+        const inspections = Array.isArray(list)
+            ? list.filter((item) => item && (item.inspectionId || item.isOk !== undefined))
+            : [];
+        if (inspections.length === 0) return "";
+
+        const fallbackCount = inspections.filter((item) => item.wasFallback === true).length;
+        const ratio = fallbackCount / inspections.length * 100;
+        return `近${inspections.length}次 fallback ${fallbackCount}次 (${ratio.toFixed(1)}%)`;
+    }
+
+    function getFallbackBadge(inspection, recentInspections) {
+        const attempts = Math.max(0, Math.trunc(toFiniteNumber(inspection?.fallbackAttemptCount)));
+        const inferenceMs = inspection?.inferenceMs ?? "-";
+        const ratioText = getFallbackRatioText(recentInspections);
+        const ratioSuffix = ratioText ? `; ${ratioText}` : "";
+
+        if (inspection?.wasFallback === true) {
+            return {
+                text: attempts > 1 ? `FALLBACK x${attempts}` : "FALLBACK",
+                title: `fallback命中，模型: ${inspection.usedModelName || "-"}，推理: ${inferenceMs}ms${ratioSuffix}`,
+            };
+        }
+
+        const skippedReason = String(inspection?.fallbackSkippedReason || "").trim();
+        if (skippedReason && skippedReason !== "FallbackDisabled") {
+            return {
+                text: "FB SKIP",
+                title: `fallback未命中或跳过: ${skippedReason}${ratioSuffix}`,
+            };
+        }
+
+        return null;
+    }
+
+    function getPerformanceDetail(item) {
+        const parts = [];
+        const inferenceMs = item?.inferenceMs;
+        if (inferenceMs !== undefined && inferenceMs !== null && inferenceMs !== "") {
+            parts.push(`推理${inferenceMs}ms`);
+        }
+
+        const attempts = Math.max(0, Math.trunc(toFiniteNumber(item?.fallbackAttemptCount)));
+        if (item?.wasFallback === true) {
+            parts.push(`fallback ${attempts > 0 ? attempts : "?"}模型`);
+        } else if (attempts > 1) {
+            parts.push(`模型尝试${attempts}次`);
+        }
+
+        const skippedReason = String(item?.fallbackSkippedReason || "").trim();
+        if (skippedReason && skippedReason !== "FallbackDisabled" && item?.wasFallback !== true) {
+            parts.push(`FB:${skippedReason}`);
+        }
+
+        const imagePending = Math.max(0, Math.trunc(toFiniteNumber(item?.imageQueuePending)));
+        const recordPending = Math.max(0, Math.trunc(toFiniteNumber(item?.recordQueuePending)));
+        if (imagePending > 0 || recordPending > 0) {
+            parts.push(`队列 I${imagePending}/R${recordPending}`);
+        }
+
+        return parts.join(" / ");
+    }
+
+    function logFallbackTelemetry(item, recentInspections) {
+        if (item?.wasFallback !== true) return;
+
+        const key = item.inspectionId || `${item.triggerSeq || "-"}:${item.resultSeq || "-"}:${item.usedModelName || "-"}`;
+        if (fallbackTelemetryLogKeys.has(key)) return;
+
+        fallbackTelemetryLogKeys.add(key);
+        if (fallbackTelemetryLogKeys.size > MaxFallbackTelemetryLogKeys) {
+            const oldestKey = fallbackTelemetryLogKeys.values().next().value;
+            if (oldestKey) fallbackTelemetryLogKeys.delete(oldestKey);
+        }
+
+        const attempts = Math.max(0, Math.trunc(toFiniteNumber(item.fallbackAttemptCount)));
+        const ratioText = getFallbackRatioText(recentInspections);
+        const ratioSuffix = ratioText ? `，${ratioText}` : "";
+        addDetectionLog(
+            `Fallback命中: ${item.usedModelName || "-"}，尝试${attempts > 0 ? attempts : "-"}模型，推理${item.inferenceMs ?? "-"}ms${ratioSuffix}`,
+            "warning",
+        );
+    }
+
     function getDetectionSummary(item) {
         const advice = getInspectionAdvice(item, "建议");
         if (advice) return advice;
@@ -172,7 +265,14 @@
         setText("camera-target-count", inspection.actualCount ?? 0, "0");
         setText("camera-model", inspection.usedModelName, "-");
         setText("feed-model-name", inspection.usedModelName ? `MODEL ${inspection.usedModelName}` : "MODEL -", "MODEL -");
-        toggleClass(el("camera-fallback"), "hidden", !inspection.wasFallback);
+        const fallbackBadge = el("camera-fallback");
+        const fallbackMeta = getFallbackBadge(inspection, state.recentInspections || []);
+        if (fallbackBadge && fallbackMeta) {
+            fallbackBadge.textContent = fallbackMeta.text;
+            fallbackBadge.title = fallbackMeta.title;
+        }
+        toggleClass(fallbackBadge, "hidden", !fallbackMeta);
+        logFallbackTelemetry(inspection, state.recentInspections || []);
     }
 
     function renderRecentInspections(state = window.CF_STATE) {
@@ -201,9 +301,11 @@
             const identity = getTraceIdentityLabel(item);
             const title = item.productBarcode || item.sourceLabel || item.inspectionId || item.barcodeError || "-";
             const detectionSummary = getDetectionSummary(item);
+            const performanceDetail = getPerformanceDetail(item);
             const detail = [
                 detectionSummary,
                 item.totalMs ? `${item.totalMs}ms` : null,
+                performanceDetail,
             ].filter(Boolean).join(" / ");
             const key = item._renderKey || item.inspectionId || `${item.time}:${title}:${index}`;
             const signature = [
@@ -287,15 +389,43 @@
         setText("val-ok", stats.ok, "0");
         setText("val-ng", stats.ng, "0");
         const yieldRate = stats.total > 0 ? (stats.ok / stats.total * 100) : 0;
-        const defectRate = stats.total > 0 ? (stats.ng / stats.total * 100) : 0;
-        setText("val-defect-rate", `${defectRate.toFixed(1)}%`, "0.0%");
         setText("stitch-pass-rate", `${yieldRate.toFixed(1)}%`, "0.0%");
-        const progress = el("yield-progress");
-        if (progress) {
-            const width = `${Math.max(0, Math.min(100, yieldRate)).toFixed(1)}%`;
-            if (progress.style.width !== width) progress.style.width = width;
+
+    }
+
+    function getHealthValue(health, camelName, pascalName) {
+        return health?.[camelName] ?? health?.[pascalName];
+    }
+
+    function getQueuePressureItems(health) {
+        const imagePending = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "imageQueueLength", "ImageQueueLength"))));
+        const imageCapacity = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "imageQueueCapacity", "ImageQueueCapacity"))));
+        const recordPending = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "recordQueueLength", "RecordQueueLength"))));
+        const recordCapacity = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "recordQueueCapacity", "RecordQueueCapacity"))));
+        const items = [];
+
+        if (imageCapacity > 0 && imagePending * 4 >= imageCapacity * 3) {
+            items.push(`图像${imagePending}/${imageCapacity}`);
+        }
+        if (recordCapacity > 0 && recordPending * 4 >= recordCapacity * 3) {
+            items.push(`记录${recordPending}/${recordCapacity}`);
         }
 
+        return items;
+    }
+
+    function logQueuePressureAdvice(health) {
+        const items = getQueuePressureItems(health);
+        if (items.length === 0) {
+            lastQueueAdviceKey = "";
+            return;
+        }
+
+        const key = items.join("|");
+        if (key === lastQueueAdviceKey) return;
+
+        lastQueueAdviceKey = key;
+        addLog(`队列压力偏高: ${items.join("，")}；建议检查磁盘/数据库写入速度或降低触发频率`, "warning");
     }
 
     function renderHealthSnapshot(state) {
@@ -309,6 +439,7 @@
         if (plcStatus) {
             updateConnection("plc", /^Connected/i.test(String(plcStatus)));
         }
+        logQueuePressureAdvice(health);
     }
 
     function renderAll(state, reasons = []) {
@@ -678,9 +809,17 @@
             isOk: data.isOk,
             message: data.log?.message,
             totalMs: data.inspection?.totalMs ?? data.totalMs,
+            inferenceMs: data.inspection?.inferenceMs ?? data.inferenceMs,
             actualCount: data.inspection?.actualCount ?? data.actualCount,
             usedModelName: data.inspection?.usedModelName ?? data.usedModelName,
             wasFallback: data.inspection?.wasFallback ?? data.wasFallback,
+            fallbackAttemptCount: data.inspection?.fallbackAttemptCount ?? data.fallbackAttemptCount,
+            fallbackSkippedReason: data.inspection?.fallbackSkippedReason ?? data.fallbackSkippedReason,
+            imageQueuePending: data.inspection?.imageQueuePending ?? data.imageQueuePending,
+            recordQueuePending: data.inspection?.recordQueuePending ?? data.recordQueuePending,
+            handshakeStartMs: data.inspection?.handshakeStartMs ?? data.handshakeStartMs,
+            plcResultWriteMs: data.inspection?.plcResultWriteMs ?? data.plcResultWriteMs,
+            handshakeCompleteMs: data.inspection?.handshakeCompleteMs ?? data.handshakeCompleteMs,
             sourceLabel: data.inspection?.sourceLabel ?? data.sourceLabel,
             currentStage: data.inspection?.currentStage ?? "Completed",
         });

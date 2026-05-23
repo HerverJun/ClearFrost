@@ -37,7 +37,9 @@ public class InspectionPipelineServiceTests
                 {
                     Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
                     UsedModelName = "primary.onnx",
-                    UsedModelLabels = new[] { "part" }
+                    UsedModelLabels = new[] { "part" },
+                    FallbackAttemptCount = 1,
+                    FallbackSkippedReason = "FallbackDisabled"
                 }
             };
             var statistics = new FakeStatisticsService();
@@ -67,6 +69,12 @@ public class InspectionPipelineServiceTests
             result.HasFrame.Should().BeTrue();
             context.ResultSeq.Should().Be(7);
             context.TraceStatus.Should().Be(TraceStatus.Queued);
+            context.FallbackAttemptCount.Should().Be(1);
+            context.FallbackSkippedReason.Should().Be("FallbackDisabled");
+            context.ImageQueuePending.Should().BeGreaterThanOrEqualTo(0);
+            context.RecordQueuePending.Should().BeGreaterThanOrEqualTo(0);
+            result.FallbackAttemptCount.Should().Be(1);
+            result.FallbackSkippedReason.Should().Be("FallbackDisabled");
             statistics.Total.Should().Be(1);
             statistics.Qualified.Should().Be(1);
             camera.CaptureCalls.Should().Be(1);

@@ -73,6 +73,36 @@ public class MultiModelManagerSelectionTests
         }
     }
 
+    [Fact]
+    public void InferenceWithFallback_FallbackDisabledRecordsSingleAttemptAndReason()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string primaryPath = CopySampleOnnx(tempDir, "primary.onnx");
+            string auxiliaryPath = CopySampleOnnx(tempDir, "auxiliary1.onnx");
+            using var manager = new MultiModelManager(useGpu: false);
+            manager.LoadPrimaryModel(primaryPath);
+            manager.LoadAuxiliary1Model(auxiliaryPath);
+            manager.EnableFallback = false;
+
+            using var image = new Mat(64, 64, MatType.CV_8UC3, Scalar.All(0));
+            var result = manager.InferenceWithFallback(
+                image,
+                confidence: 1f,
+                targetLabel: "__missing_label__",
+                targetCount: 1);
+
+            result.FallbackAttemptCount.Should().Be(1);
+            result.FallbackSkippedReason.Should().Be("FallbackDisabled");
+            result.WasFallback.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static YoloResult Detection(int classId)
     {
         var result = new YoloResult();

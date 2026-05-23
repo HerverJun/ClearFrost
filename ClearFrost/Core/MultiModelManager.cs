@@ -57,6 +57,16 @@ namespace ClearFrost.Yolo
         public bool WasFallback { get; set; } = false;
 
         /// <summary>
+        /// 本次推理实际尝试的模型数量，包含主模型。
+        /// </summary>
+        public int FallbackAttemptCount { get; set; }
+
+        /// <summary>
+        /// 回退未继续或未命中的原因，空字符串表示已命中或无需提示。
+        /// </summary>
+        public string FallbackSkippedReason { get; set; } = string.Empty;
+
+        /// <summary>
         /// 推理是否发生错误。所有候选模型均推理失败时置为 true。
         /// </summary>
         public bool HasError { get; set; }
@@ -591,6 +601,41 @@ namespace ClearFrost.Yolo
             result.WasFallback = wasFallback;
         }
 
+        private static MultiModelInferenceResult CompleteInferenceResult(
+            MultiModelInferenceResult result,
+            int attemptedModelCount,
+            string? fallbackSkippedReason = null)
+        {
+            result.FallbackAttemptCount = attemptedModelCount;
+            result.FallbackSkippedReason = fallbackSkippedReason ?? string.Empty;
+            return result;
+        }
+
+        private static string ResolveFallbackSkippedReason(
+            bool enableFallback,
+            YoloDetector? auxiliary1Model,
+            YoloDetector? auxiliary2Model,
+            int attemptedModelCount,
+            int successfulInferenceCount)
+        {
+            if (!enableFallback)
+            {
+                return "FallbackDisabled";
+            }
+
+            if (auxiliary1Model == null && auxiliary2Model == null)
+            {
+                return "NoAuxiliaryModelLoaded";
+            }
+
+            if (attemptedModelCount > 0 && successfulInferenceCount == 0)
+            {
+                return "AllInferenceFailed";
+            }
+
+            return "NoCandidateMatched";
+        }
+
         /// <summary>
         /// 执行多模型推理，支持自动切换到辅助模型
         /// </summary>
@@ -748,7 +793,7 @@ namespace ClearFrost.Yolo
                     // 目标标签命中（或未配置目标标签时任意命中）才停止切换
                     if (TryAcceptCandidate(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false))
                     {
-                        return result;
+                        return CompleteInferenceResult(result, attemptedModelCount);
                     }
 
                     if (primaryResults.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
@@ -782,14 +827,14 @@ namespace ClearFrost.Yolo
                     result.UsedModelName = bestModelName;
                     result.UsedModelLabels = bestModelLabels;
                     result.WasFallback = bestWasFallback;
-                    return result;
+                    return CompleteInferenceResult(result, attemptedModelCount, "FallbackDisabled");
                 }
 
                 result.UsedModel = ModelRole.Primary;
                 result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
                 result.UsedModelLabels = primaryModel?.Labels ?? Array.Empty<string>();
                 MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
-                return result;
+                return CompleteInferenceResult(result, attemptedModelCount, "FallbackDisabled");
             }
 
             // 尝试辅助模型1
@@ -806,7 +851,7 @@ namespace ClearFrost.Yolo
                     if (TryAcceptCandidate(aux1Results, ModelRole.Auxiliary1, auxiliary1ModelPath, aux1Labels, true))
                     {
                         System.Diagnostics.Debug.WriteLine("[MultiModelManager] 辅助模型1命中!");
-                        return result;
+                        return CompleteInferenceResult(result, attemptedModelCount);
                     }
 
                     if (aux1Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
@@ -834,7 +879,7 @@ namespace ClearFrost.Yolo
 
                     if (TryAcceptCandidate(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true))
                     {
-                        return result;
+                        return CompleteInferenceResult(result, attemptedModelCount);
                     }
 
                     if (aux2Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
@@ -866,7 +911,12 @@ namespace ClearFrost.Yolo
 
             MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
 
-            return result;
+            return CompleteInferenceResult(
+                result,
+                attemptedModelCount,
+                string.IsNullOrWhiteSpace(result.FallbackSkippedReason)
+                    ? ResolveFallbackSkippedReason(enableFallback, auxiliary1Model, auxiliary2Model, attemptedModelCount, successfulInferenceCount)
+                    : result.FallbackSkippedReason);
             }
             finally
             {
@@ -1064,7 +1114,7 @@ namespace ClearFrost.Yolo
 
                     if (TryAcceptCandidate(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false))
                     {
-                        return result;
+                        return CompleteInferenceResult(result, attemptedModelCount);
                     }
 
                     if (primaryResults.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
@@ -1098,14 +1148,14 @@ namespace ClearFrost.Yolo
                     result.UsedModelName = bestModelName;
                     result.UsedModelLabels = bestModelLabels;
                     result.WasFallback = bestWasFallback;
-                    return result;
+                    return CompleteInferenceResult(result, attemptedModelCount, "FallbackDisabled");
                 }
 
                 result.UsedModel = ModelRole.Primary;
                 result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
                 result.UsedModelLabels = primaryModel?.Labels ?? Array.Empty<string>();
                 MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
-                return result;
+                return CompleteInferenceResult(result, attemptedModelCount, "FallbackDisabled");
             }
 
             if (auxiliary1Model != null)
@@ -1121,7 +1171,7 @@ namespace ClearFrost.Yolo
                     if (TryAcceptCandidate(aux1Results, ModelRole.Auxiliary1, auxiliary1ModelPath, aux1Labels, true))
                     {
                         System.Diagnostics.Debug.WriteLine("[MultiModelManager] 辅助模型1命中!");
-                        return result;
+                        return CompleteInferenceResult(result, attemptedModelCount);
                     }
 
                     if (aux1Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
@@ -1148,7 +1198,7 @@ namespace ClearFrost.Yolo
 
                     if (TryAcceptCandidate(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true))
                     {
-                        return result;
+                        return CompleteInferenceResult(result, attemptedModelCount);
                     }
 
                     if (aux2Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
@@ -1180,7 +1230,12 @@ namespace ClearFrost.Yolo
 
             MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
 
-            return result;
+            return CompleteInferenceResult(
+                result,
+                attemptedModelCount,
+                string.IsNullOrWhiteSpace(result.FallbackSkippedReason)
+                    ? ResolveFallbackSkippedReason(enableFallback, auxiliary1Model, auxiliary2Model, attemptedModelCount, successfulInferenceCount)
+                    : result.FallbackSkippedReason);
             }
             finally
             {
