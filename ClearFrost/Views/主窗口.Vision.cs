@@ -248,7 +248,10 @@ namespace ClearFrost
                             sourceLabel: "本地推理",
                             fallbackAttemptCount: result.FallbackAttemptCount,
                             fallbackSkippedReason: result.FallbackSkippedReason,
-                            inferenceMs: result.ElapsedMs);
+                            inferenceMs: result.ElapsedMs,
+                            ruleSummary: result.JudgeResult?.Summary,
+                            rulePrimaryReason: GetRulePrimaryReason(result.JudgeResult),
+                            ruleDetails: result.JudgeResult?.Details);
                     }
                 }
             }
@@ -405,7 +408,10 @@ namespace ClearFrost
                     sourceLabel: "历史规则复判",
                     fallbackAttemptCount: result.FallbackAttemptCount,
                     fallbackSkippedReason: result.FallbackSkippedReason,
-                    inferenceMs: result.ElapsedMs);
+                    inferenceMs: result.ElapsedMs,
+                    ruleSummary: judgeResult?.Summary,
+                    rulePrimaryReason: GetRulePrimaryReason(judgeResult),
+                    ruleDetails: judgeResult?.Details);
 
                 await _uiController.SendHistoryRulePreview(new
                 {
@@ -415,6 +421,8 @@ namespace ClearFrost
                     isQualified = isQualified,
                     result = isQualified ? "OK" : "NG",
                     summary = summary,
+                    rulePrimaryReason = GetRulePrimaryReason(judgeResult),
+                    ruleDetails = judgeResult?.Details,
                     message = statusMessage,
                     actualCount = results.Count,
                     inferenceMs = inferSw.ElapsedMilliseconds,
@@ -645,10 +653,32 @@ namespace ClearFrost
                 return string.Empty;
             }
 
-            string summary = string.IsNullOrWhiteSpace(judgeResult.Summary)
-                ? "-"
-                : judgeResult.Summary;
+            string summary = judgeResult.IsQualified
+                ? (string.IsNullOrWhiteSpace(judgeResult.Summary) ? "-" : judgeResult.Summary)
+                : GetRulePrimaryReason(judgeResult);
             return $" | 规则: {(judgeResult.IsQualified ? "OK" : "NG")} [{summary}]";
+        }
+
+        private static string GetRulePrimaryReason(InspectionJudgeResult? judgeResult)
+        {
+            if (judgeResult == null)
+            {
+                return string.Empty;
+            }
+
+            if (!string.IsNullOrWhiteSpace(judgeResult.PrimaryReason))
+            {
+                return judgeResult.PrimaryReason;
+            }
+
+            string? failedReason = judgeResult.RuleResults
+                .FirstOrDefault(result => !result.IsMatch)?.Message;
+            if (!string.IsNullOrWhiteSpace(failedReason))
+            {
+                return failedReason;
+            }
+
+            return string.IsNullOrWhiteSpace(judgeResult.Summary) ? "-" : judgeResult.Summary;
         }
 
         private static string BuildFallbackStatus(DetectionResultData result)
@@ -816,7 +846,8 @@ namespace ClearFrost
                         dbWriteMs,
                         finalAttemptCount,
                         finalResultCount,
-                        _detectionGate.GetSnapshot());
+                        _detectionGate.GetSnapshot(),
+                        pipelineResult?.JudgeResult);
                 }
 
                 pipelineResult?.Dispose();
@@ -869,7 +900,10 @@ namespace ClearFrost
                     result.BarcodeEnabled,
                     result.ProductBarcode,
                     result.BarcodeReadSucceeded,
-                    result.BarcodeError);
+                    result.BarcodeError,
+                    ruleSummary: result.JudgeResult?.Summary,
+                    rulePrimaryReason: GetRulePrimaryReason(result.JudgeResult),
+                    ruleDetails: result.JudgeResult?.Details);
                 renderSw.Stop();
                 result.Timings.RenderToUiMs = renderSw.ElapsedMilliseconds;
                 context.RenderToUiMs = result.Timings.RenderToUiMs;
@@ -886,7 +920,10 @@ namespace ClearFrost
                     result.BarcodeEnabled,
                     result.ProductBarcode,
                     result.BarcodeReadSucceeded,
-                    result.BarcodeError);
+                    result.BarcodeError,
+                    ruleSummary: result.JudgeResult?.Summary,
+                    rulePrimaryReason: GetRulePrimaryReason(result.JudgeResult),
+                    ruleDetails: result.JudgeResult?.Details);
                 return;
             }
 
@@ -900,7 +937,10 @@ namespace ClearFrost
                 result.BarcodeEnabled,
                 result.ProductBarcode,
                 result.BarcodeReadSucceeded,
-                result.BarcodeError);
+                result.BarcodeError,
+                ruleSummary: result.JudgeResult?.Summary,
+                rulePrimaryReason: GetRulePrimaryReason(result.JudgeResult),
+                ruleDetails: result.JudgeResult?.Details);
         }
 
         private async Task<DetectionTriggerDecision> TryStartDetectionCycleAsync(string triggerSource, string? inspectionId)
@@ -1247,7 +1287,8 @@ namespace ClearFrost
             long dbWriteMs,
             int attempts,
             int resultCount,
-            DetectionDropSnapshot dropSnapshot)
+            DetectionDropSnapshot dropSnapshot,
+            InspectionJudgeResult? judgeResult)
         {
             try
             {
@@ -1268,6 +1309,19 @@ namespace ClearFrost
                     sb.AppendLine($"回退状态: {context.FallbackSkippedReason}");
                 }
                 sb.AppendLine($"目标数量: {resultCount}");
+                if (judgeResult != null)
+                {
+                    sb.AppendLine($"判定规则: {(judgeResult.IsQualified ? "OK" : "NG")} {judgeResult.Summary}");
+                    if (!judgeResult.IsQualified)
+                    {
+                        sb.AppendLine($"NG原因: {GetRulePrimaryReason(judgeResult)}");
+                    }
+
+                    if (judgeResult.Details.Count > 0)
+                    {
+                        sb.AppendLine($"规则明细: {string.Join("；", judgeResult.Details)}");
+                    }
+                }
                 sb.AppendLine($"队列: image={context.ImageQueuePending}, record={context.RecordQueuePending}");
                 sb.AppendLine($"丢弃累计: busy={dropSnapshot.BusyCount}, debounce={dropSnapshot.DebounceCount}, shutdown={dropSnapshot.ShutdownCount}");
                 sb.AppendLine("阶段耗时:");

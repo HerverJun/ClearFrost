@@ -110,6 +110,7 @@ namespace ClearFrost.Services
         public Mat? RenderedFrame { get; set; }
         public bool DetectionFailed { get; set; }
         public object? DetectionMetrics { get; set; }
+        public InspectionJudgeResult? JudgeResult { get; set; }
 
         public bool HasFrame => Frame != null && !Frame.Empty();
 
@@ -625,6 +626,7 @@ namespace ClearFrost.Services
                 {
                     InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(ruleSet, results, labels);
                     result.JudgeResult = judgeResult;
+                    pipelineResult.JudgeResult = judgeResult;
                     result.IsRuleEvaluated = true;
                     result.IsQualified = judgeResult.IsQualified;
                     isQualified = judgeResult.IsQualified;
@@ -1367,10 +1369,32 @@ namespace ClearFrost.Services
                 return string.Empty;
             }
 
-            string summary = string.IsNullOrWhiteSpace(judgeResult.Summary)
-                ? "-"
-                : judgeResult.Summary;
+            string summary = judgeResult.IsQualified
+                ? (string.IsNullOrWhiteSpace(judgeResult.Summary) ? "-" : judgeResult.Summary)
+                : GetRulePrimaryReason(judgeResult);
             return $" | 规则: {(judgeResult.IsQualified ? "OK" : "NG")} [{summary}]";
+        }
+
+        private static string GetRulePrimaryReason(InspectionJudgeResult? judgeResult)
+        {
+            if (judgeResult == null)
+            {
+                return string.Empty;
+            }
+
+            if (!string.IsNullOrWhiteSpace(judgeResult.PrimaryReason))
+            {
+                return judgeResult.PrimaryReason;
+            }
+
+            string? failedReason = judgeResult.RuleResults
+                .FirstOrDefault(result => !result.IsMatch)?.Message;
+            if (!string.IsNullOrWhiteSpace(failedReason))
+            {
+                return failedReason;
+            }
+
+            return string.IsNullOrWhiteSpace(judgeResult.Summary) ? "-" : judgeResult.Summary;
         }
 
         private static string BuildFallbackStatus(DetectionResultData result)

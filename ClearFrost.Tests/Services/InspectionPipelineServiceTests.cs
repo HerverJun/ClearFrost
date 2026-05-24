@@ -202,6 +202,88 @@ public class InspectionPipelineServiceTests
         }
     }
 
+    [Fact]
+    public async Task ExecuteAsync_顺序规则忽略Roi内非期望标签_返回Ok()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var ruleSet = new InspectionRuleSet
+            {
+                Rules = new List<InspectionRule>
+                {
+                    new InspectionRule
+                    {
+                        Name = "person-dog-y-order",
+                        Type = InspectionRuleTypes.OrderedLabels,
+                        ExpectedLabels = new List<string> { "person", "dog" },
+                        SortBy = "CenterY",
+                        Direction = "TopToBottom",
+                        ExpectedCount = 2
+                    }
+                }
+            };
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            config.InspectionRuleSetJson = InspectionRuleSetSerializer.Serialize(ruleSet);
+            var camera = new FakeCameraService(new Mat(400, 400, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService();
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult>
+                    {
+                        Detection(100, 100, 50, 160, 0.94f, 0),
+                        Detection(120, 150, 70, 90, 0.88f, 2),
+                        Detection(130, 260, 70, 120, 0.91f, 1),
+                        Detection(310, 110, 50, 160, 0.95f, 0)
+                    },
+                    UsedModelName = "primary.onnx",
+                    UsedModelLabels = new[] { "person", "dog", "backpack" },
+                    FallbackAttemptCount = 1,
+                    FallbackSkippedReason = "FallbackDisabled"
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue,
+                new[] { 0f, 0f, 0.5f, 1f });
+            InspectionContext context = CreateContext("CF-RULE-ROI-ORDER", triggerSeq: null);
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("手动", context.InspectionId, context.TriggerSeq, context),
+                default);
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeTrue();
+            result.FinalResultCount.Should().Be(3);
+            result.JudgeResult.Should().NotBeNull();
+            result.JudgeResult!.IsQualified.Should().BeTrue();
+            result.JudgeResult.RuleResults.Should().ContainSingle()
+                .Which.Actual.Should().Be("person -> dog");
+            statistics.Qualified.Should().Be(1);
+            plc.WrittenValues.Should().Contain(config.PlcOkValue);
+            database.SavedRecords.Should().ContainSingle();
+            database.SavedRecords[0].IsQualified.Should().BeTrue();
+            database.SavedRecords[0].ActualCount.Should().Be(3);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static InspectionPipelineService CreateService(
         AppConfig config,
         FakeCameraService camera,
@@ -210,7 +292,8 @@ public class InspectionPipelineServiceTests
         FakeStatisticsService statistics,
         RecordingDatabaseService database,
         ImageSaveQueue imageQueue,
-        DetectionRecordQueue recordQueue)
+        DetectionRecordQueue recordQueue,
+        float[]? roiSnapshot = null)
     {
         var storage = new FakeStorageService(config.StoragePath);
         var recipeManager = new RecipeManager(Path.Combine(config.StoragePath, "default_recipe.json"));
@@ -236,7 +319,7 @@ public class InspectionPipelineServiceTests
             recipeManager,
             modelRegistry,
             healthMonitor,
-            () => null,
+            () => roiSnapshot,
             () => "CAM-1");
     }
 

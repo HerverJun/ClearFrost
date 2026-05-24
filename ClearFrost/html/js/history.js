@@ -335,7 +335,7 @@
                             ${escapeHtml(result || "-")}
                         </span>
                     </td>
-                    <td class="px-4 py-3 text-slate-500 max-w-md truncate" title="${escapeHtml(details)}">
+                    <td class="px-4 py-3 text-slate-500 max-w-md whitespace-normal break-words leading-snug" title="${escapeHtml(details)}">
                         ${escapeHtml(details || "-")}
                     </td>
                 </tr>
@@ -554,7 +554,7 @@
         }
 
         const isOk = payload?.isQualified === true || String(payload?.result || "").toUpperCase() === "OK";
-        const summary = payload?.summary || payload?.message || "-";
+        const summary = payload?.rulePrimaryReason || payload?.summary || payload?.message || "-";
         const actualCount = payload?.actualCount ?? payload?.ActualCount;
         const elapsed = payload?.totalMs ?? payload?.TotalMs;
         const detail = [

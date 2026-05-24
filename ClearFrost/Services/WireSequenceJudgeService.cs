@@ -45,8 +45,16 @@ namespace ClearFrost.Services
             List<YoloResult> filteredDetections = rawDetections
                 .Where(detection => detection.Confidence >= minConfidence)
                 .ToList();
+            var expectedLabelSet = new HashSet<string>(expectedLabels, StringComparer.OrdinalIgnoreCase);
+            IEnumerable<YoloResult> sequenceCandidates = filteredDetections;
+            if (expectedLabelSet.Count > 0)
+            {
+                sequenceCandidates = sequenceCandidates
+                    .Where(detection => expectedLabelSet.Contains(ResolveLabel(detection, labels)));
+            }
+
             List<YoloResult> orderedDetections = SortDetections(
-                filteredDetections,
+                sequenceCandidates,
                 config.WireSequenceSortBy,
                 config.WireSequenceDirection);
 

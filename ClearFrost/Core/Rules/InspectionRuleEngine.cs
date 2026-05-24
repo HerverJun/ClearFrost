@@ -31,22 +31,33 @@ namespace ClearFrost.Core.Rules
 
             if (ruleResults.Count == 0)
             {
+                const string noRuleReason = "未启用判定规则，判定 NG";
                 return new InspectionJudgeResult
                 {
                     IsQualified = false,
-                    Summary = "未启用判定规则，判定 NG",
+                    Summary = noRuleReason,
+                    PrimaryReason = noRuleReason,
+                    Details = new[] { noRuleReason },
                     RuleResults = Array.Empty<InspectionRuleResult>()
                 };
             }
 
             bool isQualified = ruleResults.All(result => result.IsMatch);
-            string summary = string.Join("; ", ruleResults.Select(result =>
-                $"{DisplayName(result)} {(result.IsMatch ? "OK" : "NG")}: {result.Actual}"));
+            List<string> details = ruleResults
+                .Select(result => result.Message)
+                .Where(message => !string.IsNullOrWhiteSpace(message))
+                .ToList();
+            string primaryReason = ruleResults.FirstOrDefault(result => !result.IsMatch)?.Message
+                ?? details.FirstOrDefault()
+                ?? (isQualified ? "规则判定 OK" : "规则判定 NG");
+            string summary = BuildJudgeSummary(ruleResults, details, primaryReason, isQualified);
 
             return new InspectionJudgeResult
             {
                 IsQualified = isQualified,
                 Summary = summary,
+                PrimaryReason = primaryReason,
+                Details = details,
                 RuleResults = ruleResults
             };
         }
@@ -112,7 +123,8 @@ namespace ClearFrost.Core.Rules
 
             int expectedCount = Math.Max(0, rule.Count);
             bool isMatch = Compare(actualCount, expectedCount, NormalizeOperator(rule.Operator));
-            string expected = $"{targetLabelOrAll(targetLabel)} {OperatorText(rule.Operator)} {expectedCount}";
+            string labelText = targetLabelOrAll(targetLabel);
+            string expected = $"{labelText} 数量 {OperatorText(rule.Operator)} {expectedCount}";
             string actual = actualCount.ToString(CultureInfo.InvariantCulture);
 
             return Result(
@@ -120,9 +132,7 @@ namespace ClearFrost.Core.Rules
                 isMatch,
                 expected,
                 actual,
-                isMatch
-                    ? $"数量满足: {actualCount}"
-                    : $"数量不满足: 期望 {expected}, 实际 {actualCount}");
+                BuildCountMessage(rule, isMatch, labelText, expectedCount, actualCount));
         }
 
         private static InspectionRuleResult EvaluateOrderedLabels(
@@ -132,8 +142,15 @@ namespace ClearFrost.Core.Rules
         {
             List<string> expectedLabels = NormalizeLabels(rule.ExpectedLabels);
             double minConfidence = NormalizeConfidence(rule.MinConfidence);
+            var expectedLabelSet = new HashSet<string>(expectedLabels, StringComparer.OrdinalIgnoreCase);
+            IEnumerable<YoloResult> candidates = detections.Where(detection => detection.Confidence >= minConfidence);
+            if (expectedLabelSet.Count > 0)
+            {
+                candidates = candidates.Where(detection => expectedLabelSet.Contains(ResolveLabel(detection, labels)));
+            }
+
             List<YoloResult> ordered = SortDetections(
-                detections.Where(detection => detection.Confidence >= minConfidence),
+                candidates,
                 rule.SortBy,
                 rule.Direction);
 
@@ -162,32 +179,36 @@ namespace ClearFrost.Core.Rules
 
             if (!rule.AllowMissing && missingLabels.Count > 0)
             {
-                reasons.Add($"缺失: {string.Join(", ", missingLabels)}");
+                reasons.Add($"缺失 {string.Join(", ", missingLabels)}");
             }
 
             if (!rule.AllowDuplicate && duplicateLabels.Count > 0)
             {
-                reasons.Add($"重复: {string.Join(", ", duplicateLabels)}");
+                reasons.Add($"重复 {string.Join(", ", duplicateLabels)}");
             }
 
             if (expectedCount > 0 && IsCountMismatch(actualOrder.Count, expectedCount, rule.AllowMissing, rule.AllowDuplicate))
             {
-                reasons.Add($"数量不符: 期望 {expectedCount}, 实际 {actualOrder.Count}");
+                reasons.Add($"数量不符：期望 {expectedCount}，实际 {actualOrder.Count}");
             }
 
             if (expectedLabels.Count > 0 &&
                 !MatchesExpectedOrder(expectedLabels, actualOrder, rule.AllowMissing, rule.AllowDuplicate))
             {
-                reasons.Add($"顺序不符: {FormatLabels(actualOrder)}");
+                reasons.Add($"顺序不符：实际 {FormatLabelsForMessage(actualOrder)}");
             }
 
             bool isMatch = reasons.Count == 0;
+            string expectedText = FormatLabelsForMessage(expectedLabels);
+            string actualText = FormatLabelsForMessage(actualOrder);
             return Result(
                 rule,
                 isMatch,
                 FormatLabels(expectedLabels),
                 FormatLabels(actualOrder),
-                isMatch ? $"顺序满足: {FormatLabels(actualOrder)}" : string.Join("; ", reasons));
+                isMatch
+                    ? $"顺序规则 OK：期望 {expectedText}，实际 {actualText}"
+                    : $"顺序规则 NG：期望 {expectedText}，实际 {actualText}；{string.Join("；", reasons)}");
         }
 
         private static InspectionRuleResult EvaluateRelativePosition(
@@ -201,7 +222,7 @@ namespace ClearFrost.Core.Rules
 
             if (string.IsNullOrWhiteSpace(subjectLabel) || string.IsNullOrWhiteSpace(referenceLabel))
             {
-                return Result(rule, false, "主标签和参考标签必须配置", "未配置", "位置规则缺少标签");
+                return Result(rule, false, "主标签和参考标签必须配置", "未配置", "位置规则 NG：主标签和参考标签必须配置");
             }
 
             List<YoloResult> subjects = FindDetections(detections, labels, subjectLabel, minConfidence);
@@ -212,7 +233,7 @@ namespace ClearFrost.Core.Rules
                 string actual = subjects.Count == 0 && references.Count == 0
                     ? "主标签和参考标签均缺失"
                     : subjects.Count == 0 ? "主标签缺失" : "参考标签缺失";
-                return Result(rule, false, RelativeExpected(rule), actual, actual);
+                return Result(rule, false, RelativeExpected(rule), actual, $"位置规则 NG：期望 {RelativeExpected(rule)}，实际 {actual}");
             }
 
             var subjectResults = subjects
@@ -249,14 +270,16 @@ namespace ClearFrost.Core.Rules
                 .Select(item => item.BestDistance)
                 .DefaultIfEmpty(0)
                 .Min();
-            string actualText = $"{RelativeActual(rule.Relation)} 间距 {displayDistance:F1}px, 主目标 {subjects.Count} 个, 参考 {references.Count} 个";
+            string actualText = $"{RelativeActual(rule.Relation)}间距 {displayDistance:F1}px，主目标 {subjects.Count} 个，参考 {references.Count} 个";
 
             return Result(
                 rule,
                 isMatch,
                 RelativeExpected(rule),
                 actualText,
-                isMatch ? $"位置满足: {actualText}" : $"位置不满足: {actualText}");
+                isMatch
+                    ? $"位置规则 OK：期望 {RelativeExpected(rule)}，{actualText}"
+                    : $"位置规则 NG：期望 {RelativeExpected(rule)}，{actualText}");
         }
 
         internal static List<YoloResult> SortDetections(
@@ -458,6 +481,54 @@ namespace ClearFrost.Core.Rules
             return false;
         }
 
+        private static string BuildJudgeSummary(
+            IReadOnlyList<InspectionRuleResult> ruleResults,
+            IReadOnlyList<string> details,
+            string primaryReason,
+            bool isQualified)
+        {
+            int enabledCount = ruleResults.Count;
+            int failedCount = ruleResults.Count(result => !result.IsMatch);
+            if (isQualified)
+            {
+                string okDetails = details.Count == 0 ? string.Empty : $"；{string.Join("；", details)}";
+                return $"启用规则 {enabledCount} 条，全部满足{okDetails}";
+            }
+
+            List<string> failedDetails = ruleResults
+                .Where(result => !result.IsMatch)
+                .Select(result => result.Message)
+                .Where(message => !string.IsNullOrWhiteSpace(message))
+                .ToList();
+            string failureText = failedDetails.Count == 0
+                ? primaryReason
+                : string.Join("；", failedDetails);
+            return $"启用规则 {enabledCount} 条，失败 {failedCount} 条；{failureText}";
+        }
+
+        private static string BuildCountMessage(
+            InspectionRule rule,
+            bool isMatch,
+            string labelText,
+            int expectedCount,
+            int actualCount)
+        {
+            string status = isMatch ? "OK" : "NG";
+            string actualText = ShouldUseOnlyDetectedText(rule.Operator, expectedCount, actualCount)
+                ? $"实际只检测到 {actualCount} 个"
+                : $"实际检测到 {actualCount} 个";
+            return $"数量规则 {status}：期望 {labelText} 数量 {OperatorText(rule.Operator)} {expectedCount}，{actualText}";
+        }
+
+        private static bool ShouldUseOnlyDetectedText(string? op, int expectedCount, int actualCount)
+        {
+            string normalizedOperator = NormalizeOperator(op);
+            return actualCount < expectedCount &&
+                   (normalizedOperator == InspectionRuleOperators.Equal ||
+                    normalizedOperator == InspectionRuleOperators.GreaterThan ||
+                    normalizedOperator == InspectionRuleOperators.GreaterThanOrEqual);
+        }
+
         private static bool Compare(int actual, int expected, string op)
         {
             return op switch
@@ -500,6 +571,9 @@ namespace ClearFrost.Core.Rules
         private static string FormatLabels(IReadOnlyCollection<string> labels) =>
             labels.Count == 0 ? "<empty>" : string.Join(" -> ", labels);
 
+        private static string FormatLabelsForMessage(IReadOnlyCollection<string> labels) =>
+            labels.Count == 0 ? "未检测到" : string.Join(" -> ", labels);
+
         private static string DisplayName(InspectionRuleResult result) =>
             string.IsNullOrWhiteSpace(result.RuleName) ? result.RuleType : result.RuleName;
 
@@ -515,7 +589,7 @@ namespace ClearFrost.Core.Rules
                 InspectionRuleOperators.GreaterThanOrEqual => ">=",
                 InspectionRuleOperators.LessThan => "<",
                 InspectionRuleOperators.LessThanOrEqual => "<=",
-                _ => "=="
+                _ => "="
             };
         }
 

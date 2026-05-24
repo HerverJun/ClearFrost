@@ -12,6 +12,7 @@ public class WireSequenceJudgeServiceTests
         "Wire_Brown",
         "Wire_Black",
         "Wire_Blue",
+        "backpack",
     };
 
     [Fact]
@@ -126,6 +127,31 @@ public class WireSequenceJudgeServiceTests
         WireSequenceJudgeResult result = WireSequenceJudgeService.Evaluate(detections, Labels, config);
 
         result.IsMatch.Should().BeTrue();
+        result.ActualOrder.Should().Equal("Wire_Brown", "Wire_Black", "Wire_Blue");
+    }
+
+    [Fact]
+    public void Evaluate_顺序规则忽略非期望标签_返回OK()
+    {
+        var config = new AppConfig
+        {
+            WireSequenceExpectedLabels = "Wire_Brown,Wire_Black,Wire_Blue",
+            WireSequenceSortBy = "CenterX",
+            WireSequenceDirection = "LeftToRight",
+        };
+        var detections = new[]
+        {
+            Detection(0, 20, 20),
+            Detection(3, 80, 20),
+            Detection(1, 120, 20),
+            Detection(2, 220, 20),
+        };
+
+        WireSequenceJudgeResult result = WireSequenceJudgeService.Evaluate(detections, Labels, config);
+
+        result.IsMatch.Should().BeTrue();
+        result.FilteredCount.Should().Be(4);
+        result.SortedCount.Should().Be(3);
         result.ActualOrder.Should().Equal("Wire_Brown", "Wire_Black", "Wire_Blue");
     }
 

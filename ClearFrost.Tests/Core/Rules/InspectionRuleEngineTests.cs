@@ -15,6 +15,10 @@ public class InspectionRuleEngineTests
         "Wire_Black",
         "Wire_Blue",
         "body",
+        "person",
+        "dog",
+        "backpack",
+        "potted plant",
     };
 
     [Fact]
@@ -61,6 +65,33 @@ public class InspectionRuleEngineTests
 
         result.IsQualified.Should().BeFalse();
         result.RuleResults[0].Actual.Should().Be("1");
+        result.RuleResults[0].Message.Should().Contain("期望 screw 数量 >= 2，实际只检测到 1 个");
+    }
+
+    [Fact]
+    public void Evaluate_CountEqualMissing_SummaryExplainsExpectedAndActual()
+    {
+        var ruleSet = RuleSet(new InspectionRule
+        {
+            Type = InspectionRuleTypes.Count,
+            Label = "screw",
+            Operator = InspectionRuleOperators.Equal,
+            Count = 4
+        });
+        var detections = new[]
+        {
+            Detection(0, 20, 20),
+            Detection(0, 80, 20),
+            Detection(0, 140, 20),
+        };
+
+        InspectionJudgeResult result = InspectionRuleEngine.Evaluate(ruleSet, detections, Labels);
+
+        result.IsQualified.Should().BeFalse();
+        result.PrimaryReason.Should().Be("数量规则 NG：期望 screw 数量 = 4，实际只检测到 3 个");
+        result.Summary.Should().Contain("启用规则 1 条，失败 1 条");
+        result.Summary.Should().Contain("期望 screw 数量 = 4，实际只检测到 3 个");
+        result.Details.Should().ContainSingle().Which.Should().Be(result.PrimaryReason);
     }
 
     [Fact]
@@ -87,6 +118,55 @@ public class InspectionRuleEngineTests
     }
 
     [Fact]
+    public void Evaluate_OrderedLabelsIgnoresUnexpectedLabelsInRoi_ReturnsOk()
+    {
+        var ruleSet = RuleSet(new InspectionRule
+        {
+            Type = InspectionRuleTypes.OrderedLabels,
+            ExpectedLabels = new List<string> { "person", "dog" },
+            SortBy = "CenterY",
+            Direction = "TopToBottom",
+            ExpectedCount = 2
+        });
+        var detections = new[]
+        {
+            Detection(7, 571, 436, 0.62f, width: 113, height: 162),
+            Detection(5, 591, 521, 0.91f, width: 163, height: 475),
+            Detection(6, 666, 682, 0.80f, width: 104, height: 218),
+            Detection(8, 441, 780, 0.81f, width: 206, height: 239),
+        };
+
+        InspectionJudgeResult result = InspectionRuleEngine.Evaluate(ruleSet, detections, Labels);
+
+        result.IsQualified.Should().BeTrue();
+        result.RuleResults[0].Actual.Should().Be("person -> dog");
+    }
+
+    [Fact]
+    public void Evaluate_OrderedLabelsOnlyUnexpectedLabels_ReturnsNg()
+    {
+        var ruleSet = RuleSet(new InspectionRule
+        {
+            Type = InspectionRuleTypes.OrderedLabels,
+            ExpectedLabels = new List<string> { "person", "dog" },
+            SortBy = "CenterY",
+            Direction = "TopToBottom",
+            ExpectedCount = 2
+        });
+        var detections = new[]
+        {
+            Detection(7, 571, 436, 0.62f),
+            Detection(8, 441, 780, 0.81f),
+        };
+
+        InspectionJudgeResult result = InspectionRuleEngine.Evaluate(ruleSet, detections, Labels);
+
+        result.IsQualified.Should().BeFalse();
+        result.RuleResults[0].Actual.Should().Be("<empty>");
+        result.RuleResults[0].Message.Should().Contain("未检测到期望标签");
+    }
+
+    [Fact]
     public void Evaluate_OrderedLabelsMismatch_ReturnsNg()
     {
         var ruleSet = RuleSet(new InspectionRule
@@ -106,6 +186,31 @@ public class InspectionRuleEngineTests
         InspectionJudgeResult result = InspectionRuleEngine.Evaluate(ruleSet, detections, Labels);
 
         result.IsQualified.Should().BeFalse();
+        result.RuleResults[0].Message.Should().Contain("顺序不符");
+    }
+
+    [Fact]
+    public void Evaluate_OrderedLabelsDuplicateAndMissing_ReturnsReadableReasons()
+    {
+        var ruleSet = RuleSet(new InspectionRule
+        {
+            Type = InspectionRuleTypes.OrderedLabels,
+            ExpectedLabels = new List<string> { "Wire_Brown", "Wire_Black", "Wire_Blue" },
+            SortBy = "CenterX",
+            Direction = "LeftToRight"
+        });
+        var detections = new[]
+        {
+            Detection(1, 20, 20),
+            Detection(1, 120, 20),
+            Detection(3, 220, 20),
+        };
+
+        InspectionJudgeResult result = InspectionRuleEngine.Evaluate(ruleSet, detections, Labels);
+
+        result.IsQualified.Should().BeFalse();
+        result.RuleResults[0].Message.Should().Contain("缺失 Wire_Black");
+        result.RuleResults[0].Message.Should().Contain("重复 Wire_Brown");
         result.RuleResults[0].Message.Should().Contain("顺序不符");
     }
 
@@ -150,7 +255,41 @@ public class InspectionRuleEngineTests
         InspectionJudgeResult result = InspectionRuleEngine.Evaluate(ruleSet, detections, Labels);
 
         result.IsQualified.Should().BeFalse();
-        result.RuleResults[0].Message.Should().Contain("位置不满足");
+        result.RuleResults[0].Message.Should().Contain("位置规则 NG");
+        result.RuleResults[0].Message.Should().Contain("期望 screw 在 body 右侧");
+    }
+
+    [Fact]
+    public void Evaluate_MultipleFailures_PrimaryReasonUsesFirstFailureAndDetailsKeepAllFailures()
+    {
+        var ruleSet = RuleSet(
+            new InspectionRule
+            {
+                Type = InspectionRuleTypes.Count,
+                Label = "screw",
+                Operator = InspectionRuleOperators.Equal,
+                Count = 2
+            },
+            new InspectionRule
+            {
+                Type = InspectionRuleTypes.RelativePosition,
+                SubjectLabel = "screw",
+                ReferenceLabel = "body",
+                Relation = InspectionRuleRelations.RightOf
+            });
+        var detections = new[]
+        {
+            Detection(0, 20, 20, width: 10),
+            Detection(4, 80, 20, width: 20),
+        };
+
+        InspectionJudgeResult result = InspectionRuleEngine.Evaluate(ruleSet, detections, Labels);
+
+        result.IsQualified.Should().BeFalse();
+        result.PrimaryReason.Should().Be("数量规则 NG：期望 screw 数量 = 2，实际只检测到 1 个");
+        result.Summary.Should().Contain("启用规则 2 条，失败 2 条");
+        result.Details.Should().HaveCount(2);
+        result.Details[1].Should().Contain("位置规则 NG");
     }
 
     [Fact]

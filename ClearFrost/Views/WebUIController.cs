@@ -1021,7 +1021,10 @@ namespace ClearFrost
             long? handshakeStartMs = null,
             long? plcResultWriteMs = null,
             long? handshakeCompleteMs = null,
-            long? inferenceMs = null)
+            long? inferenceMs = null,
+            string? ruleSummary = null,
+            string? rulePrimaryReason = null,
+            IReadOnlyList<string>? ruleDetails = null)
         {
             if (!IsWebViewControlUsable(_webView) || image == null || image.Empty())
             {
@@ -1057,6 +1060,9 @@ namespace ClearFrost
                 handshakeStartMs = handshakeStartMs ?? inspection?.HandshakeStartMs,
                 plcResultWriteMs = plcResultWriteMs ?? inspection?.PlcResultWriteMs,
                 handshakeCompleteMs = handshakeCompleteMs ?? inspection?.HandshakeCompleteMs,
+                ruleSummary = ruleSummary,
+                rulePrimaryReason = rulePrimaryReason,
+                ruleDetails = ruleDetails,
                 sourceLabel = sourceLabel,
                 inspection = inspection == null
                     ? null
@@ -1070,7 +1076,10 @@ namespace ClearFrost
                         barcodeEnabled,
                         productBarcode,
                         barcodeReadSucceeded,
-                        barcodeError)
+                        barcodeError,
+                        ruleSummary,
+                        rulePrimaryReason,
+                        ruleDetails)
             });
         }
 
@@ -1084,7 +1093,10 @@ namespace ClearFrost
             bool barcodeEnabled = false,
             string? productBarcode = null,
             bool? barcodeReadSucceeded = null,
-            string? barcodeError = null)
+            string? barcodeError = null,
+            string? ruleSummary = null,
+            string? rulePrimaryReason = null,
+            IReadOnlyList<string>? ruleDetails = null)
         {
             if (context == null)
             {
@@ -1101,7 +1113,10 @@ namespace ClearFrost
                 barcodeEnabled,
                 productBarcode,
                 barcodeReadSucceeded,
-                barcodeError));
+                barcodeError,
+                ruleSummary,
+                rulePrimaryReason,
+                ruleDetails));
             return Task.CompletedTask;
         }
 
@@ -1135,7 +1150,10 @@ namespace ClearFrost
             bool barcodeEnabled,
             string? productBarcode,
             bool? barcodeReadSucceeded,
-            string? barcodeError)
+            string? barcodeError,
+            string? ruleSummary,
+            string? rulePrimaryReason,
+            IReadOnlyList<string>? ruleDetails)
         {
             return new
             {
@@ -1167,7 +1185,10 @@ namespace ClearFrost
                 wasFallback = wasFallback,
                 actualCount = actualCount,
                 isOk = isOk,
-                message = message
+                message = message,
+                ruleSummary = ruleSummary,
+                rulePrimaryReason = rulePrimaryReason,
+                ruleDetails = ruleDetails
             };
         }
 

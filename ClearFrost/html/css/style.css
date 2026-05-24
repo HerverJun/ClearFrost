@@ -1741,7 +1741,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     align-items: center;
     column-gap: 10px;
     row-gap: 4px;
-    min-height: 78px;
+    min-height: 92px;
     padding: 12px 14px 11px 20px;
     overflow: hidden;
     transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
@@ -1807,7 +1807,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     overflow: hidden;
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 3;
     white-space: normal;
     color: #434653;
     font-size: 12px;
@@ -2281,7 +2281,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .cf-stitch-page #log-history-table tr {
     position: relative;
-    min-height: 78px;
+    min-height: 92px;
     padding: 14px 16px 14px 18px;
     overflow: hidden;
     background: #ffffff;

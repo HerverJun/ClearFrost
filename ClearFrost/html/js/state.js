@@ -160,6 +160,9 @@
             actualCount: pickValue(data, "actualCount", "ActualCount", "targetCount"),
             isOk: pickValue(data, "isOk", "IsOk", "isQualified", "IsQualified"),
             message: pickValue(data, "message", "Message"),
+            ruleSummary: pickValue(data, "ruleSummary", "RuleSummary"),
+            rulePrimaryReason: pickValue(data, "rulePrimaryReason", "RulePrimaryReason"),
+            ruleDetails: pickValue(data, "ruleDetails", "RuleDetails"),
         };
     }
 

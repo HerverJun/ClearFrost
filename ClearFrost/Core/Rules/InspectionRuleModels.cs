@@ -80,6 +80,8 @@ namespace ClearFrost.Core.Rules
     {
         public bool IsQualified { get; init; }
         public string Summary { get; init; } = string.Empty;
+        public string PrimaryReason { get; init; } = string.Empty;
+        public IReadOnlyList<string> Details { get; init; } = Array.Empty<string>();
         public IReadOnlyList<InspectionRuleResult> RuleResults { get; init; } = Array.Empty<InspectionRuleResult>();
     }
 

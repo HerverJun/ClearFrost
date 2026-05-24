@@ -253,6 +253,9 @@
             actualCount: pickValue(data, "actualCount", "ActualCount", "targetCount"),
             isOk: pickValue(data, "isOk", "IsOk", "isQualified", "IsQualified"),
             message: pickValue(data, "message", "Message"),
+            ruleSummary: pickValue(data, "ruleSummary", "RuleSummary"),
+            rulePrimaryReason: pickValue(data, "rulePrimaryReason", "RulePrimaryReason"),
+            ruleDetails: pickValue(data, "ruleDetails", "RuleDetails"),
         };
     }
 
@@ -608,13 +611,25 @@
         );
     }
 
+    function getObjectSummaryFromMessage(message) {
+        const parts = String(message || "").split("|").map((part) => part.trim()).filter(Boolean);
+        return parts.find((part) => /^Found\s+\d+\s*:/i.test(part) || part.includes("未检测到目标")) || "";
+    }
+
+    function normalizeRuleDetails(details) {
+        if (Array.isArray(details)) return details.filter(Boolean).map(String);
+        if (typeof details === "string" && details.trim()) return [details.trim()];
+        return [];
+    }
+
     function getDetectionSummary(item) {
         const advice = getInspectionAdvice(item, "建议");
         if (advice) return advice;
 
+        if (item?.isOk === false && item?.rulePrimaryReason) return item.rulePrimaryReason;
+
         const message = item?.message || item?.errorMessage || "";
-        const parts = String(message).split("|").map((part) => part.trim()).filter(Boolean);
-        const objectPart = parts.find((part) => /^Found\s+\d+\s*:/i.test(part) || part.includes("未检测到目标"));
+        const objectPart = getObjectSummaryFromMessage(message);
         if (objectPart) return objectPart;
         if (item?.barcodeError) return item.barcodeError;
         if (item?.errorCode) return item.errorCode;
@@ -638,7 +653,8 @@
         }
 
         const adviceMessage = getInspectionAdvice(inspection);
-        const message = adviceMessage || inspection.message || (isOk === true ? "检测通过" : isOk === false ? "检测未通过" : "等待检测结果");
+        const ruleReason = isOk === false ? inspection.rulePrimaryReason : "";
+        const message = adviceMessage || ruleReason || inspection.message || (isOk === true ? "检测通过" : isOk === false ? "检测未通过" : "等待检测结果");
         setText("camera-result-text", message, "等待检测结果");
         setText("camera-total-ms", `${inspection.totalMs || 0}ms`, "0ms");
         setText("camera-target-count", inspection.actualCount ?? 0, "0");
@@ -680,12 +696,22 @@
             const identity = getTraceIdentityLabel(item);
             const title = item.productBarcode || item.sourceLabel || item.inspectionId || item.barcodeError || "-";
             const detectionSummary = getDetectionSummary(item);
+            const objectSummary = item.isOk === false ? getObjectSummaryFromMessage(item.message || "") : "";
             const performanceDetail = getPerformanceDetail(item);
             const detail = [
                 detectionSummary,
+                objectSummary && objectSummary !== detectionSummary ? objectSummary : null,
                 item.totalMs ? `${item.totalMs}ms` : null,
                 performanceDetail,
             ].filter(Boolean).join(" / ");
+            const ruleTitle = [
+                item.ruleSummary,
+                ...normalizeRuleDetails(item.ruleDetails),
+            ].filter(Boolean).join("\n");
+            const detailTitle = [
+                detail,
+                ruleTitle,
+            ].filter(Boolean).join("\n");
             const key = item._renderKey || item.inspectionId || `${item.time}:${title}:${index}`;
             const signature = [
                 statusClass,
@@ -693,7 +719,7 @@
                 item.time || "",
                 identity || "",
                 title || "",
-                detail || item.currentStage || "-",
+                detailTitle || detail || item.currentStage || "-",
             ].join("\u001f");
 
             let row = recentInspectionRows.get(String(key));
@@ -713,7 +739,7 @@
                 sn.title = title || "";
                 const detailNode = row.querySelector(".cf-flow-detail");
                 detailNode.textContent = detail || item.currentStage || "-";
-                detailNode.title = detail || "";
+                detailNode.title = detailTitle || detail || "";
             }
             row.dataset.cfKey = String(key);
 
@@ -1199,6 +1225,9 @@
             handshakeStartMs: data.inspection?.handshakeStartMs ?? data.handshakeStartMs,
             plcResultWriteMs: data.inspection?.plcResultWriteMs ?? data.plcResultWriteMs,
             handshakeCompleteMs: data.inspection?.handshakeCompleteMs ?? data.handshakeCompleteMs,
+            ruleSummary: data.inspection?.ruleSummary ?? data.ruleSummary,
+            rulePrimaryReason: data.inspection?.rulePrimaryReason ?? data.rulePrimaryReason,
+            ruleDetails: data.inspection?.ruleDetails ?? data.ruleDetails,
             sourceLabel: data.inspection?.sourceLabel ?? data.sourceLabel,
             currentStage: data.inspection?.currentStage ?? "Completed",
         });
@@ -3591,7 +3620,7 @@
                             ${escapeHtml(result || "-")}
                         </span>
                     </td>
-                    <td class="px-4 py-3 text-slate-500 max-w-md truncate" title="${escapeHtml(details)}">
+                    <td class="px-4 py-3 text-slate-500 max-w-md whitespace-normal break-words leading-snug" title="${escapeHtml(details)}">
                         ${escapeHtml(details || "-")}
                     </td>
                 </tr>
@@ -3810,7 +3839,7 @@
         }
 
         const isOk = payload?.isQualified === true || String(payload?.result || "").toUpperCase() === "OK";
-        const summary = payload?.summary || payload?.message || "-";
+        const summary = payload?.rulePrimaryReason || payload?.summary || payload?.message || "-";
         const actualCount = payload?.actualCount ?? payload?.ActualCount;
         const elapsed = payload?.totalMs ?? payload?.TotalMs;
         const detail = [
