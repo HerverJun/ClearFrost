@@ -1,15 +1,11 @@
 ﻿// ============================================================================
-// 
-// 
+// 文件名: MultiModelManager.cs
+// 描述:   多模型推理管理器
 //
-// 
-// 
-// 
-// 
-// 
-//
-// 
-// 
+// 功能:
+//   - 管理主模型和两个辅助模型
+//   - 根据目标规则自动回退到辅助模型
+//   - 记录模型命中统计并提供结果渲染入口
 // ============================================================================
 using System;
 using System.Collections.Generic;
@@ -22,38 +18,38 @@ using OpenCvSharp;
 namespace ClearFrost.Yolo
 {
     /// <summary>
-    /// 
+    /// 多模型推理时使用的模型角色。
     /// </summary>
     public enum ModelRole
     {
-        /// 
+        /// <summary>主模型。</summary>
         Primary,
-        /// 
+        /// <summary>辅助模型 1。</summary>
         Auxiliary1,
-        /// 
+        /// <summary>辅助模型 2。</summary>
         Auxiliary2,
-        /// 
+        /// <summary>未使用任何模型。</summary>
         None
     }
 
     /// <summary>
-    /// 
+    /// 多模型推理结果。
     /// </summary>
     public class MultiModelInferenceResult
     {
-        /// 
+        /// <summary>检测结果列表。</summary>
         public List<YoloResult> Results { get; set; } = new List<YoloResult>();
 
-        /// 
+        /// <summary>最终采用的模型角色。</summary>
         public ModelRole UsedModel { get; set; } = ModelRole.None;
 
-        /// 
+        /// <summary>最终采用的模型文件名。</summary>
         public string UsedModelName { get; set; } = "";
 
-        /// 
+        /// <summary>最终采用模型的标签数组。</summary>
         public string[] UsedModelLabels { get; set; } = Array.Empty<string>();
 
-        /// 
+        /// <summary>是否使用了辅助模型回退。</summary>
         public bool WasFallback { get; set; } = false;
 
         /// <summary>
@@ -76,7 +72,7 @@ namespace ClearFrost.Yolo
         /// </summary>
         public string ErrorMessage { get; set; } = string.Empty;
 
-        /// 
+        /// <summary>检测目标数量。</summary>
         public int DetectionCount => Results.Count;
     }
 
@@ -99,11 +95,11 @@ namespace ClearFrost.Yolo
     public delegate MultiModelCandidateEvaluation MultiModelCandidateEvaluator(MultiModelCandidate candidate);
 
     /// <summary>
-    /// 
+    /// 管理主模型与辅助模型，并按规则执行多模型回退推理。
     /// </summary>
     public class MultiModelManager : IDisposable
     {
-        #region ˽���ֶ�
+        #region 私有字段
 
         private YoloDetector? _primaryModel;
         private YoloDetector? _auxiliary1Model;
@@ -123,18 +119,18 @@ namespace ClearFrost.Yolo
 
         #endregion
 
-        #region ��������
+        #region 属性
 
-        /// 
+        /// <summary>主模型路径。</summary>
         public string PrimaryModelPath => _primaryModelPath;
 
-        /// 
+        /// <summary>辅助模型 1 路径。</summary>
         public string Auxiliary1ModelPath => _auxiliary1ModelPath;
 
-        /// 
+        /// <summary>辅助模型 2 路径。</summary>
         public string Auxiliary2ModelPath => _auxiliary2ModelPath;
 
-        /// 
+        /// <summary>主模型是否已加载。</summary>
         public bool IsPrimaryLoaded
         {
             get
@@ -151,7 +147,7 @@ namespace ClearFrost.Yolo
             }
         }
 
-        /// 
+        /// <summary>辅助模型 1 是否已加载。</summary>
         public bool IsAuxiliary1Loaded
         {
             get
@@ -168,7 +164,7 @@ namespace ClearFrost.Yolo
             }
         }
 
-        /// 
+        /// <summary>辅助模型 2 是否已加载。</summary>
         public bool IsAuxiliary2Loaded
         {
             get
@@ -185,7 +181,7 @@ namespace ClearFrost.Yolo
             }
         }
 
-        ///
+        /// <summary>是否启用辅助模型回退。</summary>
         public bool EnableFallback
         {
             get
@@ -225,22 +221,22 @@ namespace ClearFrost.Yolo
         /// </summary>
         public int GpuDeviceId => _gpuDeviceId;
 
-        /// 
+        /// <summary>主模型命中次数。</summary>
         public int PrimaryHitCount { get; private set; }
 
-        /// 
+        /// <summary>辅助模型 1 命中次数。</summary>
         public int Auxiliary1HitCount { get; private set; }
 
-        /// 
+        /// <summary>辅助模型 2 命中次数。</summary>
         public int Auxiliary2HitCount { get; private set; }
 
-        /// 
+        /// <summary>总推理次数。</summary>
         public int TotalInferenceCount { get; private set; }
 
-        /// 
+        /// <summary>上一次采用的模型角色。</summary>
         public ModelRole LastUsedModel { get; private set; } = ModelRole.None;
 
-        /// 
+        /// <summary>主模型标签数组。</summary>
         public string[] PrimaryLabels
         {
             get
@@ -257,18 +253,18 @@ namespace ClearFrost.Yolo
             }
         }
 
-        /// 
+        /// <summary>当前主检测器实例。</summary>
         internal YoloDetector? PrimaryDetector => _primaryModel;
 
         #endregion
 
-        #region ���캯��
+        #region 构造函数
 
         /// <summary>
-        /// 
+        /// 初始化多模型管理器。
         /// </summary>
-        /// 
-        /// 
+        /// <param name="useGpu">是否启用 GPU 推理。</param>
+        /// <param name="gpuDeviceId">GPU 设备 ID。</param>
         public MultiModelManager(bool useGpu = true, int gpuDeviceId = 0)
         {
             _useGpu = useGpu;
@@ -277,10 +273,10 @@ namespace ClearFrost.Yolo
 
         #endregion
 
-        #region ģ�ͼ���
+        #region 模型加载
 
         /// <summary>
-        /// 
+        /// 加载或替换主模型。
         /// </summary>
         public void LoadPrimaryModel(string modelPath)
         {
@@ -308,11 +304,11 @@ namespace ClearFrost.Yolo
                     _modelLock.ExitWriteLock();
                 }
 
-                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ��ģ�ͼ��سɹ�: {System.IO.Path.GetFileName(modelPath)}");
+                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型加载成功: {System.IO.Path.GetFileName(modelPath)}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ��ģ�ͼ���ʧ��: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 主模型加载失败: {ex.Message}");
                 throw;
             }
             finally
@@ -323,7 +319,7 @@ namespace ClearFrost.Yolo
         }
 
         /// <summary>
-        /// 
+        /// 加载或替换辅助模型 1。
         /// </summary>
         public void LoadAuxiliary1Model(string modelPath)
         {
@@ -351,11 +347,11 @@ namespace ClearFrost.Yolo
                     _modelLock.ExitWriteLock();
                 }
 
-                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��1���سɹ�: {System.IO.Path.GetFileName(modelPath)}");
+                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1加载成功: {System.IO.Path.GetFileName(modelPath)}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��1����ʧ��: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型1加载失败: {ex.Message}");
                 throw;
             }
             finally
@@ -366,7 +362,7 @@ namespace ClearFrost.Yolo
         }
 
         /// <summary>
-        /// 
+        /// 加载或替换辅助模型 2。
         /// </summary>
         public void LoadAuxiliary2Model(string modelPath)
         {
@@ -394,11 +390,11 @@ namespace ClearFrost.Yolo
                     _modelLock.ExitWriteLock();
                 }
 
-                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��2���سɹ�: {System.IO.Path.GetFileName(modelPath)}");
+                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2加载成功: {System.IO.Path.GetFileName(modelPath)}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��2����ʧ��: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2加载失败: {ex.Message}");
                 throw;
             }
             finally
@@ -409,7 +405,7 @@ namespace ClearFrost.Yolo
         }
 
         /// <summary>
-        /// 
+        /// 卸载辅助模型 1。
         /// </summary>
         public void UnloadAuxiliary1Model()
         {
@@ -432,7 +428,7 @@ namespace ClearFrost.Yolo
         }
 
         /// <summary>
-        /// 
+        /// 卸载辅助模型 2。
         /// </summary>
         public void UnloadAuxiliary2Model()
         {
@@ -456,7 +452,7 @@ namespace ClearFrost.Yolo
 
         #endregion
 
-        #region ��������
+        #region 推理逻辑
 
         internal static int CountTargetLabelHits(IReadOnlyList<YoloResult>? results, string[]? labels, string? targetLabel)
         {
@@ -890,7 +886,7 @@ namespace ClearFrost.Yolo
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] ����ģ��2�����쳣: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2推理异常: {ex.Message}");
                     inferenceErrors.Add($"辅助模型2: {ex.Message}");
                 }
             }
@@ -1264,7 +1260,7 @@ namespace ClearFrost.Yolo
         }
 
         /// <summary>
-        /// 
+        /// 仅使用主模型执行推理。
         /// </summary>
         public List<YoloResult> InferencePrimaryOnly(
             Bitmap image,
@@ -1336,10 +1332,10 @@ namespace ClearFrost.Yolo
 
         #endregion
 
-        #region ͳ��
+        #region 统计
 
         /// <summary>
-        /// 
+        /// 重置模型命中统计。
         /// </summary>
         public void ResetStatistics()
         {
@@ -1350,26 +1346,26 @@ namespace ClearFrost.Yolo
         }
 
         /// <summary>
-        /// 
+        /// 主模型命中率。
         /// </summary>
         public double PrimaryHitRate => TotalInferenceCount > 0 ? (double)PrimaryHitCount / TotalInferenceCount : 0;
 
         /// <summary>
-        /// 
+        /// 辅助模型 1 命中率。
         /// </summary>
         public double Auxiliary1HitRate => TotalInferenceCount > 0 ? (double)Auxiliary1HitCount / TotalInferenceCount : 0;
 
         /// <summary>
-        /// 
+        /// 辅助模型 2 命中率。
         /// </summary>
         public double Auxiliary2HitRate => TotalInferenceCount > 0 ? (double)Auxiliary2HitCount / TotalInferenceCount : 0;
 
         #endregion
 
-        #region ������������
+        #region 推理参数设置
 
         /// <summary>
-        /// 
+        /// 设置所有已加载模型的任务模式。
         /// </summary>
         public void SetTaskMode(YoloTaskType taskType)
         {
