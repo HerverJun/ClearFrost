@@ -9,30 +9,48 @@ using HslCommunication.ModBus;
 
 namespace ClearFrost.Hardware
 {
+    // ============================================================================
+    // 文件名: PlcAdapters.cs
+    // 作者: 蘅芜君
+    // 描述:   PLC 协议工厂和 HslCommunication 默认适配器
+    //
+    // 功能:
+    //   - 统一创建不同厂商 PLC 的 IPlcDevice 实现
+    //   - 在 Hsl、McpX、HaoCommunication 三类驱动之间按配置分流
+    //   - 封装连接、Int16 读写和字节读取的通用错误处理
+    // ============================================================================
+
     /// <summary>
-    /// 
+    /// 当前系统支持的 PLC 通讯协议类型。
     /// </summary>
     public enum PlcProtocolType
     {
-        /// 
+        /// <summary>三菱 MC 协议 ASCII 报文。</summary>
         Mitsubishi_MC_ASCII,
-        /// 
+
+        /// <summary>三菱 MC 协议二进制报文。</summary>
         Mitsubishi_MC_Binary,
-        /// 
+
+        /// <summary>Modbus TCP 协议。</summary>
         Modbus_TCP,
-        /// 
+
+        /// <summary>西门子 S7 协议。</summary>
         Siemens_S7,
-        /// 
+
+        /// <summary>欧姆龙 FINS 协议。</summary>
         Omron_Fins
     }
 
     /// <summary>
-    /// 
+    /// 根据配置创建 PLC 适配器的工厂。
     /// </summary>
+    /// <remarks>
+    /// 业务层只认识 <see cref="IPlcDevice"/>，这里集中处理协议枚举、驱动提供方和厂商特定参数。
+    /// </remarks>
     public static class PlcFactory
     {
         /// <summary>
-        /// 
+        /// 使用基础连接参数创建 PLC 适配器。
         /// </summary>
         public static IPlcDevice Create(string driverProvider, PlcProtocolType protocol, string ip, int port)
         {
@@ -46,8 +64,10 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// 
+        /// 根据完整连接配置创建 PLC 适配器。
         /// </summary>
+        /// <exception cref="ArgumentNullException">options 为空时抛出。</exception>
+        /// <exception cref="NotSupportedException">协议或驱动组合不受支持时抛出。</exception>
         public static IPlcDevice Create(PlcConnectionOptions options)
         {
             if (options == null) throw new ArgumentNullException(nameof(options));
@@ -57,6 +77,7 @@ namespace ClearFrost.Hardware
             string ip = options.Ip;
             int port = options.Port;
 
+            // McpX 只覆盖三菱 MC 协议，用于需要替换 HslCommunication 三菱实现的现场。
             if (string.Equals(driverProvider, "McpX", StringComparison.OrdinalIgnoreCase))
             {
                 return protocol switch
@@ -67,6 +88,7 @@ namespace ClearFrost.Hardware
                 };
             }
 
+            // HaoCommunication 是信息部特调版通讯库，需走独立反射适配器，避免和 NuGet Hsl DLL 冲突。
             if (string.Equals(driverProvider, "HaoCommunication", StringComparison.OrdinalIgnoreCase))
             {
                 return protocol switch
@@ -85,6 +107,7 @@ namespace ClearFrost.Hardware
                 };
             }
 
+            // 默认分支使用 NuGet 版 HslCommunication，覆盖系统常规协议。
             return protocol switch
             {
                 PlcProtocolType.Mitsubishi_MC_ASCII => new MitsubishiMcAsciiAdapter(ip, port),
@@ -102,8 +125,9 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// 
+        /// 将配置文件中的协议字符串转换为协议枚举。
         /// </summary>
+        /// <remarks>解析失败时回退到三菱 MC ASCII，保持旧配置兼容。</remarks>
         public static PlcProtocolType ParseProtocol(string protocolStr)
         {
             if (Enum.TryParse<PlcProtocolType>(protocolStr, true, out var result))
@@ -111,6 +135,10 @@ namespace ClearFrost.Hardware
             return PlcProtocolType.Mitsubishi_MC_ASCII; // 默认值
         }
 
+        /// <summary>
+        /// 将配置中的西门子 CPU 型号转换为 HslCommunication 使用的枚举。
+        /// </summary>
+        /// <remarks>未知型号按 S1200 处理，避免空配置导致连接创建失败。</remarks>
         public static SiemensPLCS ParseSiemensCpuModel(string? cpuModel)
         {
             return cpuModel?.Trim().ToUpperInvariant() switch
@@ -125,7 +153,7 @@ namespace ClearFrost.Hardware
     }
 
     /// <summary>
-    /// 
+    /// 基于 HslCommunication 的三菱 MC ASCII 适配器。
     /// </summary>
     public class MitsubishiMcAsciiAdapter : IPlcDevice
     {
@@ -238,7 +266,7 @@ namespace ClearFrost.Hardware
     }
 
     /// <summary>
-    /// 
+    /// 基于 HslCommunication 的三菱 MC Binary 适配器。
     /// </summary>
     public class MitsubishiMcBinaryAdapter : IPlcDevice
     {
@@ -351,7 +379,7 @@ namespace ClearFrost.Hardware
     }
 
     /// <summary>
-    /// 
+    /// 基于 HslCommunication 的 Modbus TCP 适配器。
     /// </summary>
     public class ModbusTcpAdapter : IPlcDevice
     {
@@ -365,7 +393,7 @@ namespace ClearFrost.Hardware
         public ModbusTcpAdapter(string ip, int port)
         {
             _plc = new ModbusTcpNet(ip, port);
-            // 
+            // 默认站号使用 1，和常见 Modbus TCP 从站配置保持一致。
             _plc.Station = 1;
         }
 
@@ -406,7 +434,6 @@ namespace ClearFrost.Hardware
         {
             try
             {
-                // 
                 var result = await Task.Run(() => _plc.ReadInt16(address));
                 if (!result.IsSuccess)
                 {
@@ -467,7 +494,7 @@ namespace ClearFrost.Hardware
     }
 
     /// <summary>
-    /// 
+    /// 基于 HslCommunication 的西门子 S7 适配器。
     /// </summary>
     public class SiemensS7Adapter : IPlcDevice
     {
@@ -494,6 +521,7 @@ namespace ClearFrost.Hardware
 
             if (siemensPlcType == SiemensPLCS.S300 || siemensPlcType == SiemensPLCS.S400)
             {
+                // S300/S400 需要机架和槽位；S1200/S1500 通常不依赖这两个参数。
                 _plc.Rack = (byte)Math.Clamp(rack, 0, byte.MaxValue);
                 _plc.Slot = (byte)Math.Clamp(slot, 0, byte.MaxValue);
             }
@@ -536,7 +564,6 @@ namespace ClearFrost.Hardware
         {
             try
             {
-                // 
                 var result = await Task.Run(() => _plc.ReadInt16(address));
                 if (!result.IsSuccess)
                 {
@@ -597,7 +624,7 @@ namespace ClearFrost.Hardware
     }
 
     /// <summary>
-    /// 
+    /// 基于 HslCommunication 的欧姆龙 FINS 适配器。
     /// </summary>
     public class OmronFinsAdapter : IPlcDevice
     {
@@ -611,7 +638,7 @@ namespace ClearFrost.Hardware
         public OmronFinsAdapter(string ip, int port)
         {
             _plc = new OmronFinsNet(ip, port);
-            // 
+            // 默认节点号为 0，适用于无需显式配置 FINS 源/目标节点的简化连接。
             _plc.SA1 = 0x00; // 源节点
             _plc.DA1 = 0x00; // 目标节点
         }
@@ -653,7 +680,6 @@ namespace ClearFrost.Hardware
         {
             try
             {
-                // 
                 var result = await Task.Run(() => _plc.ReadInt16(address));
                 if (!result.IsSuccess)
                 {

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -10,6 +10,7 @@ namespace ClearFrost.Hardware
 {
     // ============================================================================
     // 文件名: HaoCommunicationAdapters.cs
+    // 作者: 蘅芜君
     // 描述:   信息部特调版 HaoCommunication PLC 适配器
     //
     // 功能:
@@ -18,6 +19,13 @@ namespace ClearFrost.Hardware
     //   - 对接 IPlcDevice 统一接口
     // ============================================================================
 
+    /// <summary>
+    /// 为信息部特调版 HaoCommunication.dll 提供隔离加载上下文。
+    /// </summary>
+    /// <remarks>
+    /// 特调库的程序集身份仍是 HslCommunication；放在独立上下文中加载，可以避免覆盖主程序引用的
+    /// NuGet 版 HslCommunication。
+    /// </remarks>
     internal sealed class HaoCommunicationLoadContext : AssemblyLoadContext
     {
         private readonly string _haoAssemblyPath;
@@ -30,6 +38,7 @@ namespace ClearFrost.Hardware
 
         protected override Assembly? Load(AssemblyName assemblyName)
         {
+            // 只接管 HslCommunication 身份的解析，其它依赖仍交给默认加载逻辑。
             if (string.Equals(assemblyName.Name, "HslCommunication", StringComparison.OrdinalIgnoreCase))
             {
                 return LoadFromAssemblyPath(_haoAssemblyPath);
@@ -39,6 +48,9 @@ namespace ClearFrost.Hardware
         }
     }
 
+    /// <summary>
+    /// 延迟定位并加载 HaoCommunication 运行时程序集。
+    /// </summary>
     internal static class HaoCommunicationRuntime
     {
         private const string AssemblyFileName = "HaoCommunication.dll";
@@ -64,6 +76,7 @@ namespace ClearFrost.Hardware
                 Path.GetFullPath(Path.Combine(baseDirectory, "..", "..", "..", "..", AssemblyFileName))
             };
 
+            // 同时兼容发布目录、DLL 子目录和开发调试目录，减少部署路径差异带来的配置项。
             foreach (string candidate in candidates)
             {
                 if (File.Exists(candidate))
@@ -76,6 +89,13 @@ namespace ClearFrost.Hardware
         }
     }
 
+    /// <summary>
+    /// HaoCommunication 适配器基类。
+    /// </summary>
+    /// <remarks>
+    /// 该 DLL 与 HslCommunication 类型同名但版本不同，不能直接静态引用；这里通过反射调用公共成员，
+    /// 再转换成 <see cref="IPlcDevice"/> 所需的稳定接口。
+    /// </remarks>
     public abstract class HaoCommunicationAdapterBase : IPlcDevice
     {
         private object? _plc;
@@ -105,6 +125,7 @@ namespace ClearFrost.Hardware
             {
                 await Task.Run(() =>
                 {
+                    // 重新连接前先关闭旧实例，避免驱动内部 socket 状态残留。
                     CloseCurrentConnection();
                     _plc = CreatePlcInstance(HaoCommunicationRuntime.Assembly);
                     ConfigurePlc(_plc);
@@ -149,6 +170,7 @@ namespace ClearFrost.Hardware
             try
             {
                 object plc = GetConnectedPlc();
+                // OperateResult<T> 由特调 DLL 定义，只能通过属性名读取 IsSuccess/Content。
                 object result = await Task.Run(() => InvokeMethod(
                     plc,
                     "ReadInt16",
@@ -245,6 +267,7 @@ namespace ClearFrost.Hardware
         {
             PropertyInfo property = target.GetType().GetProperty(propertyName)
                                     ?? throw new MissingMemberException(target.GetType().FullName, propertyName);
+            // 反射赋值前按目标属性类型转换，兼容 byte/int 等驱动参数差异。
             object convertedValue = Convert.ChangeType(value, property.PropertyType);
             property.SetValue(target, convertedValue);
         }
@@ -287,6 +310,7 @@ namespace ClearFrost.Hardware
             }
             catch (TargetInvocationException ex) when (ex.InnerException != null)
             {
+                // 保留驱动内部异常的原始堆栈，方便现场排查通讯库问题。
                 ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
                 throw;
             }
@@ -350,6 +374,7 @@ namespace ClearFrost.Hardware
             Type plcType = GetRequiredType(assembly, PlcTypeName);
             try
             {
+                // 新版本构造函数为 (ip, port)，旧版可能需要第三个站号参数。
                 return Activator.CreateInstance(plcType, Ip, Port)
                        ?? throw new InvalidOperationException($"创建 {PlcTypeName} 失败");
             }
@@ -400,6 +425,7 @@ namespace ClearFrost.Hardware
             string normalizedCpuModel = NormalizeCpuModel(_cpuModel);
             if (normalizedCpuModel is "S300" or "S400")
             {
+                // S300/S400 的 rack/slot 会影响 TCP 建连，限制在 byte 范围内避免反射赋值溢出。
                 SetProperty(plc, "Rack", (byte)Math.Clamp(_rack, 0, byte.MaxValue));
                 SetProperty(plc, "Slot", (byte)Math.Clamp(_slot, 0, byte.MaxValue));
             }

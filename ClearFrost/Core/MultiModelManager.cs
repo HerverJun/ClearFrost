@@ -1,5 +1,6 @@
 ﻿// ============================================================================
 // 文件名: MultiModelManager.cs
+// 作者: 蘅芜君
 // 描述:   多模型推理管理器
 //
 // 功能:
@@ -76,22 +77,45 @@ namespace ClearFrost.Yolo
         public int DetectionCount => Results.Count;
     }
 
+    /// <summary>
+    /// 单个候选模型的推理结果上下文。
+    /// </summary>
     public sealed class MultiModelCandidate
     {
+        /// <summary>该模型本次输出的检测框。</summary>
         public IReadOnlyList<YoloResult> Results { get; init; } = Array.Empty<YoloResult>();
+
+        /// <summary>该模型对应的标签数组。</summary>
         public string[] Labels { get; init; } = Array.Empty<string>();
+
+        /// <summary>该模型在多模型链路中的角色。</summary>
         public ModelRole ModelRole { get; init; } = ModelRole.None;
+
+        /// <summary>该模型文件名，用于日志和前端展示。</summary>
         public string ModelName { get; init; } = string.Empty;
+
+        /// <summary>该候选是否来自辅助模型回退。</summary>
         public bool WasFallback { get; init; }
     }
 
+    /// <summary>
+    /// 业务规则对候选模型结果的评估结论。
+    /// </summary>
     public sealed class MultiModelCandidateEvaluation
     {
+        /// <summary>候选结果是否满足当前检测规则。</summary>
         public bool IsMatch { get; init; }
+
+        /// <summary>候选排序分数；未完全命中时也用于选择最接近规则的结果。</summary>
         public int Score { get; init; }
+
+        /// <summary>规则评估摘要，用于调试日志。</summary>
         public string Summary { get; init; } = string.Empty;
     }
 
+    /// <summary>
+    /// 多模型回退过程中用于评估每个候选结果的业务规则委托。
+    /// </summary>
     public delegate MultiModelCandidateEvaluation MultiModelCandidateEvaluator(MultiModelCandidate candidate);
 
     /// <summary>
@@ -454,6 +478,10 @@ namespace ClearFrost.Yolo
 
         #region 推理逻辑
 
+        /// <summary>
+        /// 统计候选结果中指定标签的命中数量。
+        /// </summary>
+        /// <remarks>未配置目标标签时，所有检测框都视为命中。</remarks>
         internal static int CountTargetLabelHits(IReadOnlyList<YoloResult>? results, string[]? labels, string? targetLabel)
         {
             if (results == null || results.Count == 0)
@@ -478,6 +506,9 @@ namespace ClearFrost.Yolo
             });
         }
 
+        /// <summary>
+        /// 判断检测结果是否满足简单目标标签数量规则。
+        /// </summary>
         internal static bool IsTargetSatisfied(IReadOnlyList<YoloResult>? results, string[]? labels, string? targetLabel, int targetCount)
         {
             if (string.IsNullOrWhiteSpace(targetLabel))
@@ -493,6 +524,9 @@ namespace ClearFrost.Yolo
             return CountTargetLabelHits(results, labels, targetLabel) == targetCount;
         }
 
+        /// <summary>
+        /// 在没有外部规则评估器时，选择更接近目标数量的候选结果。
+        /// </summary>
         private static bool ShouldReplaceBestResult(
             IReadOnlyList<YoloResult> candidateResults,
             string[] candidateLabels,
@@ -511,6 +545,7 @@ namespace ClearFrost.Yolo
 
             if (targetCount == 0)
             {
+                // 目标数量为 0 表示希望该标签不出现，因此目标标签越少越好。
                 if (candidateHits != bestHits)
                 {
                     return candidateHits < bestHits;
@@ -527,6 +562,9 @@ namespace ClearFrost.Yolo
             return candidateResults.Count > currentBestResults.Count;
         }
 
+        /// <summary>
+        /// 在启用规则评估器时，优先保留规则命中候选，其次保留分数更高的候选。
+        /// </summary>
         private static bool ShouldReplaceEvaluatedResult(
             MultiModelCandidateEvaluation candidateEvaluation,
             IReadOnlyList<YoloResult> candidateResults,
@@ -646,6 +684,7 @@ namespace ClearFrost.Yolo
             int targetCount = 0,
             MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
+            // 推理期间持有读锁，防止 UI 切换模型或关闭系统时把正在使用的检测器释放掉。
             _modelLock.EnterReadLock();
             try
             {
@@ -659,6 +698,7 @@ namespace ClearFrost.Yolo
             string auxiliary1ModelPath;
             string auxiliary2ModelPath;
             bool enableFallback;
+            // 当没有候选完全命中规则时，保留最接近目标的结果供前端展示和追溯。
             List<YoloResult>? bestResults = null;
             ModelRole bestModelRole = ModelRole.None;
             string bestModelName = string.Empty;
@@ -730,6 +770,7 @@ namespace ClearFrost.Yolo
                 string modelName = System.IO.Path.GetFileName(modelPath);
                 if (candidateEvaluator != null)
                 {
+                    // 复杂规则（ROI 后数量、标签组合等）由调用方评估，管理器只负责候选排序和回退链路。
                     MultiModelCandidateEvaluation evaluation = candidateEvaluator(new MultiModelCandidate
                     {
                         Results = detections,
@@ -762,7 +803,7 @@ namespace ClearFrost.Yolo
                 return true;
             }
 
-            // 仅保护模型引用读取，推理本身在锁外执行。
+            // _lock 只保护统计字段和模型快照读取；_modelLock 的读锁负责延长检测器生命周期。
             lock (_lock)
             {
                 TotalInferenceCount++;
@@ -813,6 +854,7 @@ namespace ClearFrost.Yolo
             {
                 if (bestResults != null)
                 {
+                    // 禁用回退时不继续尝试辅助模型，但仍返回主模型的最佳可追溯结果。
                     lock (_lock)
                     {
                         LastUsedModel = bestModelRole;
@@ -893,6 +935,7 @@ namespace ClearFrost.Yolo
 
             if (bestResults != null)
             {
+                // 所有候选都未完全命中时，返回评分最优的候选，便于人工复核和调参。
                 lock (_lock)
                 {
                     LastUsedModel = bestModelRole;
@@ -920,6 +963,10 @@ namespace ClearFrost.Yolo
             }
         }
 
+        /// <summary>
+        /// 仅在所有已尝试模型都推理失败时把结果标记为错误。
+        /// </summary>
+        /// <remarks>单个模型失败但其它模型成功时，仍允许回退链路给出有效检测结果。</remarks>
         private static void MarkErrorIfAllAttemptsFailed(
             MultiModelInferenceResult result,
             int attemptedModelCount,
@@ -970,6 +1017,7 @@ namespace ClearFrost.Yolo
             int targetCount = 0,
             MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
+            // Mat 路径用于相机实时流，和 Bitmap 路径保持相同的锁语义与回退策略。
             _modelLock.EnterReadLock();
             try
             {
@@ -983,6 +1031,7 @@ namespace ClearFrost.Yolo
             string auxiliary1ModelPath;
             string auxiliary2ModelPath;
             bool enableFallback;
+            // 当没有候选完全命中规则时，保留最接近目标的结果供前端展示和追溯。
             List<YoloResult>? bestResults = null;
             ModelRole bestModelRole = ModelRole.None;
             string bestModelName = string.Empty;
@@ -1054,6 +1103,7 @@ namespace ClearFrost.Yolo
                 string modelName = System.IO.Path.GetFileName(modelPath);
                 if (candidateEvaluator != null)
                 {
+                    // 复杂规则（ROI 后数量、标签组合等）由调用方评估，管理器只负责候选排序和回退链路。
                     MultiModelCandidateEvaluation evaluation = candidateEvaluator(new MultiModelCandidate
                     {
                         Results = detections,
@@ -1088,6 +1138,7 @@ namespace ClearFrost.Yolo
 
             lock (_lock)
             {
+                // 统计字段和模型引用快照放在同一个临界区，确保本次推理日志对应同一组模型。
                 TotalInferenceCount++;
                 LastUsedModel = ModelRole.None;
                 primaryModel = _primaryModel;
@@ -1134,6 +1185,7 @@ namespace ClearFrost.Yolo
             {
                 if (bestResults != null)
                 {
+                    // 禁用回退时不继续尝试辅助模型，但仍返回主模型的最佳可追溯结果。
                     lock (_lock)
                     {
                         LastUsedModel = bestModelRole;
@@ -1212,6 +1264,7 @@ namespace ClearFrost.Yolo
 
             if (bestResults != null)
             {
+                // 所有候选都未完全命中时，返回评分最优的候选，便于人工复核和调参。
                 lock (_lock)
                 {
                     LastUsedModel = bestModelRole;

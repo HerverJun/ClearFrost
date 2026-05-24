@@ -1,13 +1,23 @@
-using System;
+﻿using System;
 using System.Text.RegularExpressions;
+
+// ============================================================================
+// 文件名: PlcAddressNormalizer.cs
+// 作者: 蘅芜君
+// 描述:   PLC 地址规范化与校验工具
+// ============================================================================
 
 namespace ClearFrost.Hardware
 {
     /// <summary>
     /// PLC 地址规范化与校验。
     /// </summary>
+    /// <remarks>
+    /// 前端和旧配置可能传入纯数字、大小写混合或带空格的地址；进入驱动前统一收敛为各协议可识别格式。
+    /// </remarks>
     public static class PlcAddressNormalizer
     {
+        // 地址校验规则按协议拆开维护，避免把三菱、西门子、欧姆龙的地址语义混在业务代码中。
         private static readonly Regex DigitsRegex = new Regex(@"^\d+$", RegexOptions.Compiled);
         private static readonly Regex MitsubishiDecimalWordRegex = new Regex(@"^(D|M|S|T|C|R)(\d+)$", RegexOptions.Compiled);
         private static readonly Regex MitsubishiHexWordRegex = new Regex(@"^(X|Y)([0-9A-F]+)$", RegexOptions.Compiled);
@@ -19,6 +29,9 @@ namespace ClearFrost.Hardware
         private static readonly Regex OmronWordRegex = new Regex(@"^(D|CIO|C|W|H|A)(\d+)$", RegexOptions.Compiled);
         private static readonly Regex OmronBitAddressRegex = new Regex(@"^(?:D|CIO|C|W|H|A)\d+\.\d+$", RegexOptions.Compiled);
 
+        /// <summary>
+        /// 规范化 PLC 地址；失败时直接抛出带中文说明的参数异常。
+        /// </summary>
         public static string NormalizeOrThrow(string? rawAddress, PlcProtocolType protocolType)
         {
             if (TryNormalize(rawAddress, protocolType, out string normalized, out string? error))
@@ -29,6 +42,9 @@ namespace ClearFrost.Hardware
             throw new ArgumentException(error ?? "PLC 地址格式无效", nameof(rawAddress));
         }
 
+        /// <summary>
+        /// 尝试按协议规范化地址，失败时通过 error 返回可展示给用户的原因。
+        /// </summary>
         public static bool TryNormalize(
             string? rawAddress,
             PlcProtocolType protocolType,
@@ -56,6 +72,12 @@ namespace ClearFrost.Hardware
             };
         }
 
+        /// <summary>
+        /// 迁移旧版纯数字地址到当前协议的默认地址区。
+        /// </summary>
+        /// <remarks>
+        /// 例如三菱/欧姆龙迁移为 D 区，西门子迁移为 DB1，Modbus 保持数字寄存器地址。
+        /// </remarks>
         public static string MigrateLegacyAddress(string? rawAddress, PlcProtocolType protocolType, string fallback)
         {
             string compact = Compact(rawAddress);
@@ -85,6 +107,9 @@ namespace ClearFrost.Hardware
             return fallback;
         }
 
+        /// <summary>
+        /// 获取连接探测地址，优先使用用户配置，配置无效时使用各协议的安全默认值。
+        /// </summary>
         public static string GetProbeAddress(PlcProtocolType protocolType, string? preferredAddress)
         {
             if (TryNormalize(preferredAddress, protocolType, out string normalized, out _))
@@ -103,6 +128,12 @@ namespace ClearFrost.Hardware
             };
         }
 
+        /// <summary>
+        /// 检查规范化后的地址是否被当前驱动实现支持。
+        /// </summary>
+        /// <remarks>
+        /// 目前 McpX 业务适配器只实现三菱 D 区读写，因此需要在连接前阻止不支持的地址。
+        /// </remarks>
         public static bool IsSupportedByDriver(
             string normalizedAddress,
             PlcProtocolType protocolType,
@@ -131,6 +162,9 @@ namespace ClearFrost.Hardware
             return false;
         }
 
+        /// <summary>
+        /// 地址不被当前驱动支持时抛出参数异常。
+        /// </summary>
         public static void EnsureDriverSupportsAddress(
             string normalizedAddress,
             PlcProtocolType protocolType,
@@ -221,6 +255,7 @@ namespace ClearFrost.Hardware
 
         private static bool TryNormalizeSiemensDbByteMatch(Match match, out string normalized, out string? error)
         {
+            // 统一 DB100.0 和 DB100.DBW0 两种写法，底层 Hsl 读 Int16 时使用字节偏移。
             if (!int.TryParse(match.Groups[1].Value, out int dbNumber) || dbNumber < 1)
             {
                 return Fail("西门子 DB 块号必须大于等于 1", out normalized, out error);
@@ -283,6 +318,7 @@ namespace ClearFrost.Hardware
 
         private static string Compact(string? rawAddress)
         {
+            // 允许用户在地址中输入空格，保存和驱动调用时统一去除。
             return Regex.Replace((rawAddress ?? string.Empty).Trim(), @"\s+", string.Empty);
         }
 

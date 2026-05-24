@@ -26,13 +26,24 @@ using ClearFrost.Services;
 
 namespace ClearFrost
 {
+    // ============================================================================
+    // 文件名: 主窗口.Vision.cs
+    // 作者: 蘅芜君
+    // 描述:   主窗口中的视觉检测、规则判定和检测结果展示逻辑
+    //
+    // 功能:
+    //   - 初始化/切换 YOLO 模型与辅助模型
+    //   - 处理手动检测、历史图复判和检测流水线回调
+    //   - 统一完成 ROI 过滤、规则判定、图像渲染和追溯图入队
+    // ============================================================================
+
     public partial class 主窗口
     {
         #region 5. YOLO检测逻辑 (检测与视觉逻辑)
 
         private void InitYolo()
         {
-            // 同步调用异步方法
+            // 初始化由 WinForms 生命周期触发，使用统一的 fire-and-forget 包装记录异常。
             SafeFireAndForget(InitYoloAsync(), "YOLO初始化");
         }
 
@@ -109,6 +120,7 @@ namespace ClearFrost
 
         private async Task RestoreMultiModelConfigAsync()
         {
+            // 主模型加载成功后再恢复辅助模型，确保多模型管理器已经具备基础推理上下文。
             _detectionService.SetEnableFallback(_appConfig.EnableMultiModelFallback);
 
             if (!string.IsNullOrWhiteSpace(_appConfig.Auxiliary1ModelPath))
@@ -178,6 +190,7 @@ namespace ClearFrost
                     string ruleSetJson = InspectionRuleSetSerializer.Serialize(ruleSet);
                     InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
                     float[]? roiSnapshot = SnapshotCurrentROI();
+                    // 测试推理使用与生产检测一致的候选评估，避免设置页测试和现场判定逻辑分叉。
                     MultiModelCandidateEvaluator candidateEvaluator = CreateRuleCandidateEvaluator(
                         ruleSet,
                         originalBitmap.Width,
@@ -195,7 +208,7 @@ namespace ClearFrost
 
                     sw.Stop();
 
-                    // 获取检测结果
+                    // 检测服务返回的是模型原始结果，最终 OK/NG 以 ROI 过滤后的规则评估为准。
                     var results = result.Results ?? new List<YoloResult>();
                     bool isQualified = result.IsQualified;
                     bool detectionFailed = result.HasError;
@@ -301,6 +314,7 @@ namespace ClearFrost
                 return;
             }
 
+            // 历史图复判复用检测信号量，避免和实时相机检测同时占用模型/GPU 资源。
             await SendHistoryRulePreviewStatusAsync(
                 request,
                 "running",
@@ -343,6 +357,7 @@ namespace ClearFrost
                 Stopwatch totalSw = Stopwatch.StartNew();
                 InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
                 float[]? roiSnapshot = SnapshotCurrentROI();
+                // 对历史图使用当前规则和当前 ROI 重新评估，便于调试规则变更后的影响。
                 MultiModelCandidateEvaluator candidateEvaluator = CreateRuleCandidateEvaluator(
                     ruleSet,
                     sourceMat.Width,
@@ -467,6 +482,7 @@ namespace ClearFrost
         {
             if (string.IsNullOrWhiteSpace(ruleSetJson))
             {
+                // 前端未携带历史规则快照时，用当前配置复判。
                 ruleSet = _appConfig.GetInspectionRuleSet();
                 normalizedJson = InspectionRuleSetSerializer.Serialize(ruleSet);
                 errorMessage = string.Empty;
@@ -514,6 +530,7 @@ namespace ClearFrost
 
                 if (string.Equals(uri.Host, "ng-images.local", StringComparison.OrdinalIgnoreCase))
                 {
+                    // 前端历史图可能使用虚拟域名 URL，这里还原为本地图片相对路径。
                     string relative = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'))
                         .Replace('/', Path.DirectorySeparatorChar);
                     return TryResolveHistoryImagePath(relative);
@@ -721,6 +738,7 @@ namespace ClearFrost
             return candidate =>
             {
                 var rawResults = candidate.Results?.ToList() ?? new List<YoloResult>();
+                // 多模型候选必须先过同一份 ROI，再交给规则引擎；否则辅助模型选择会和最终展示不一致。
                 List<YoloResult> filteredResults = FilterResultsByROI(rawResults, imageWidth, imageHeight, roiSnapshot);
                 InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(ruleSet, filteredResults, candidate.Labels);
 
@@ -735,6 +753,7 @@ namespace ClearFrost
 
         private static int ScoreRuleCandidate(InspectionJudgeResult judgeResult, int filteredCount)
         {
+            // 未完全命中时也给候选打分，回退链路可返回最接近规则的结果供追溯。
             int matchedRules = judgeResult.RuleResults.Count(result => result.IsMatch);
             int failedRules = judgeResult.RuleResults.Count - matchedRules;
             int score = matchedRules * 1000 - failedRules * 100 + Math.Min(filteredCount, 100);
@@ -781,6 +800,7 @@ namespace ClearFrost
 
             try
             {
+                // 真实检测流程交给 InspectionPipelineService，窗口层只负责 UI 展示、健康状态和追溯日志。
                 await _uiController.SendInspectionUpdate(
                     context,
                     message: "检测已触发",
@@ -940,6 +960,7 @@ namespace ClearFrost
 
         private async Task<DetectionTriggerDecision> TryStartDetectionCycleAsync(string triggerSource, string? inspectionId)
         {
+            // 检测信号量同时承担忙碌保护、防抖和退出保护，所有触发源必须先经过这里。
             DetectionTriggerDecision decision = await _detectionGate.TryEnterAsync(IsShutdownInProgress);
             if (decision.Accepted)
             {
@@ -983,6 +1004,7 @@ namespace ClearFrost
         {
             if (!IsManualTriggerSource(triggerSource))
             {
+                // PLC 等自动触发在启动链路中已做硬件状态控制，这里只拦截手动误触发。
                 return true;
             }
 
@@ -1106,6 +1128,7 @@ namespace ClearFrost
                 string fileName = BuildTraceImageFileName(isQualified, safeInspectionId, context.ProductBarcode);
                 string filePath = Path.Combine(directory, fileName);
                 context.ImagePath = filePath;
+                // ImageSavePayload 持有 Mat 的只读视图，真正编码写盘由后台队列完成。
                 payloads.Add(ImageSavePayload.CreateReadOnlyView(
                     image,
                     filePath,
@@ -1155,6 +1178,7 @@ namespace ClearFrost
 
         private static string BuildTraceImageFileName(bool isQualified, string inspectionId, string? productBarcode)
         {
+            // 文件名包含检测结论、追溯 ID 和可选条码，方便脱离数据库时人工定位图片。
             string resultPrefix = isQualified ? "PASS" : "FAIL";
             string safeInspectionId = SanitizeTraceFileNamePart(inspectionId, maxLength: 96);
             string safeBarcode = SanitizeTraceFileNamePart(productBarcode, maxLength: 80);
@@ -1210,6 +1234,7 @@ namespace ClearFrost
                 bool enqueued = _imageSaveQueue.Enqueue(payload);
                 if (!enqueued)
                 {
+                    // 入队失败时当前线程仍拥有 payload，必须立即释放 Mat 视图。
                     payload.Dispose();
                 }
             }
@@ -1287,6 +1312,7 @@ namespace ClearFrost
         {
             try
             {
+                // 性能日志按阶段写入，便于区分相机、推理、UI、PLC 和数据库瓶颈。
                 StringBuilder sb = new StringBuilder(256);
                 sb.AppendLine($"InspectionId: {context.InspectionId}");
                 sb.AppendLine($"触发来源: {context.TriggerSource}");
