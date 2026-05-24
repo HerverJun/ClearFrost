@@ -1766,6 +1766,10 @@ namespace ClearFrost
             {
                 Debug.WriteLine($"[Shutdown] 运行时清理失败: {ex.Message}");
             }
+            finally
+            {
+                FlushDiagnosticLog();
+            }
 
             Debug.WriteLine($"[Shutdown] 后台清理完成: {source}");
         }

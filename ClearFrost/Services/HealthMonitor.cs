@@ -62,6 +62,7 @@ namespace ClearFrost.Services
     {
         private const int MaxRecentErrors = 50;
         private const int MaxRecentInspectionSamples = 200;
+        private static readonly TimeSpan DefaultDiskProbeCacheTtl = TimeSpan.FromSeconds(5);
 
         private readonly DateTimeOffset _startedAt = DateTimeOffset.Now;
         private readonly ICameraService _cameraService;
@@ -71,8 +72,12 @@ namespace ClearFrost.Services
         private readonly ImageSaveQueue _imageSaveQueue;
         private readonly DetectionRecordQueue _recordQueue;
         private readonly object _syncRoot = new object();
+        private readonly object _diskProbeLock = new object();
+        private readonly TimeSpan _diskProbeCacheTtl;
         private readonly Queue<HealthError> _recentErrors = new Queue<HealthError>();
         private readonly Queue<long> _recentInspectionMs = new Queue<long>();
+        private DiskProbeSnapshot _diskProbeSnapshot;
+        private bool _hasDiskProbeSnapshot;
         private string _lastInspectionId = string.Empty;
         private long _lastInspectionTotalMs;
 
@@ -82,7 +87,8 @@ namespace ClearFrost.Services
             IDetectionService detectionService,
             IStorageService storageService,
             ImageSaveQueue imageSaveQueue,
-            DetectionRecordQueue recordQueue)
+            DetectionRecordQueue recordQueue,
+            TimeSpan? diskProbeCacheTtl = null)
         {
             _cameraService = cameraService ?? throw new ArgumentNullException(nameof(cameraService));
             _plcService = plcService ?? throw new ArgumentNullException(nameof(plcService));
@@ -90,6 +96,7 @@ namespace ClearFrost.Services
             _storageService = storageService ?? throw new ArgumentNullException(nameof(storageService));
             _imageSaveQueue = imageSaveQueue ?? throw new ArgumentNullException(nameof(imageSaveQueue));
             _recordQueue = recordQueue ?? throw new ArgumentNullException(nameof(recordQueue));
+            _diskProbeCacheTtl = diskProbeCacheTtl ?? DefaultDiskProbeCacheTtl;
         }
 
         public void RecordError(string source, string message, string? inspectionId = null)
@@ -170,9 +177,10 @@ namespace ClearFrost.Services
                 recordDropped,
                 recordFailed);
             var allErrors = errors.Concat(syntheticErrors).TakeLast(MaxRecentErrors).ToArray();
+            DiskProbeSnapshot diskProbe = GetDiskProbeSnapshot();
 
             HealthLevel level = allErrors.Length > 0 ? HealthLevel.Warning : HealthLevel.Ok;
-            if (!IsStorageWritable(_storageService.LogBasePath) || !IsStorageWritable(_storageService.ImageBasePath))
+            if (!diskProbe.LogWritable || !diskProbe.ImageWritable)
             {
                 level = HealthLevel.Critical;
             }
@@ -203,11 +211,40 @@ namespace ClearFrost.Services
                 RecordQueueCapacity = _recordQueue.Capacity,
                 RecordQueueDroppedCount = recordDropped,
                 RecordQueueFailedCount = recordFailed,
-                FreeDiskGb = GetFreeDiskGb(_storageService.ImageBasePath),
+                FreeDiskGb = diskProbe.FreeDiskGb,
                 MemoryMb = Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024,
                 RecentErrors = allErrors,
                 UpdatedAt = DateTimeOffset.Now
             };
+        }
+
+        private DiskProbeSnapshot GetDiskProbeSnapshot()
+        {
+            string logPath = _storageService.LogBasePath;
+            string imagePath = _storageService.ImageBasePath;
+            DateTimeOffset now = DateTimeOffset.Now;
+
+            lock (_diskProbeLock)
+            {
+                if (_hasDiskProbeSnapshot &&
+                    _diskProbeCacheTtl > TimeSpan.Zero &&
+                    now - _diskProbeSnapshot.UpdatedAt < _diskProbeCacheTtl &&
+                    string.Equals(_diskProbeSnapshot.LogPath, logPath, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(_diskProbeSnapshot.ImagePath, imagePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return _diskProbeSnapshot;
+                }
+
+                _diskProbeSnapshot = new DiskProbeSnapshot(
+                    logPath,
+                    imagePath,
+                    IsStorageWritable(logPath),
+                    IsStorageWritable(imagePath),
+                    GetFreeDiskGb(imagePath),
+                    now);
+                _hasDiskProbeSnapshot = true;
+                return _diskProbeSnapshot;
+            }
         }
 
         private static IReadOnlyList<HealthError> BuildQueueErrors(
@@ -307,5 +344,13 @@ namespace ClearFrost.Services
             index = Math.Clamp(index, 0, values.Length - 1);
             return values[index];
         }
+
+        private readonly record struct DiskProbeSnapshot(
+            string LogPath,
+            string ImagePath,
+            bool LogWritable,
+            bool ImageWritable,
+            double FreeDiskGb,
+            DateTimeOffset UpdatedAt);
     }
 }

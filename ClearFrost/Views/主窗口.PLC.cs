@@ -30,15 +30,32 @@ namespace ClearFrost
         /// [PLC-DIAG] 诊断日志 → 追加写入 plc_diag.log（现场无需开发工具即可查看）
         /// </summary>
         private static readonly string _diagLogPath = RuntimePaths.PlcDiagLogPath;
+        private static readonly AsyncDiagnosticLogger _diagLogger = new AsyncDiagnosticLogger(_diagLogPath);
+
         private static void DiagLog(string message)
         {
             try
             {
                 string line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}";
                 Debug.WriteLine(line);
-                File.AppendAllText(_diagLogPath, line + Environment.NewLine);
+                if (!_diagLogger.Enqueue(line))
+                {
+                    Debug.WriteLine("[PLC-DIAG] 异步诊断日志队列已满，丢弃一条日志");
+                }
             }
             catch { /* 诊断日志写入失败不影响业务 */ }
+        }
+
+        private static void FlushDiagnosticLog()
+        {
+            try
+            {
+                _diagLogger.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[PLC-DIAG] 刷新诊断日志失败: {ex.Message}");
+            }
         }
 
         /// <summary>

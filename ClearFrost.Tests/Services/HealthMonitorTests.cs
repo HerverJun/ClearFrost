@@ -103,6 +103,46 @@ public class HealthMonitorTests
         }
     }
 
+    [Fact]
+    public async Task GetSnapshot_短时间内复用磁盘探针结果()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(new RecordingDatabaseService());
+            var storage = new FakeStorageService(tempDir);
+            var monitor = new HealthMonitor(
+                new FakeCameraService(),
+                new FakePlcService(),
+                new FakeDetectionService(),
+                storage,
+                imageQueue,
+                recordQueue,
+                diskProbeCacheTtl: TimeSpan.FromMilliseconds(500));
+
+            monitor.GetSnapshot().HealthLevel.Should().Be(HealthLevel.Ok);
+
+            Directory.Delete(storage.ImageBasePath, true);
+            File.WriteAllText(storage.ImageBasePath, "blocked");
+
+            monitor.GetSnapshot().HealthLevel.Should().Be(HealthLevel.Ok);
+
+            await Task.Delay(650);
+
+            monitor.GetSnapshot().HealthLevel.Should().Be(HealthLevel.Critical);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
     private static void SetPendingCount(object queue, long value)
     {
         var field = queue.GetType().GetField(
