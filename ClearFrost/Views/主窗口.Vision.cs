@@ -150,7 +150,7 @@ namespace ClearFrost
         {
             try
             {
-                await _uiController.LogToFrontend("开始YOLO测试...", "info");
+                await _uiController.LogToFrontend("开始测试推理...", "info");
 
                 string? selectedFile = await ShowOpenFileDialogOnStaThread("选择测试图片", "图像文件|*.jpg;*.jpeg;*.png;*.bmp|所有文件|*.*");
 
@@ -160,7 +160,7 @@ namespace ClearFrost
                     return;
                 }
 
-                await _uiController.LogToFrontend($"测试图片: {Path.GetFileName(selectedFile)}", "info");
+                await _uiController.LogToFrontend($"测试推理图片: {Path.GetFileName(selectedFile)}", "info");
 
                 // 读取图片
                 using (Bitmap originalBitmap = new Bitmap(selectedFile))
@@ -207,7 +207,7 @@ namespace ClearFrost
                     if (detectionFailed)
                     {
                         isQualified = false;
-                        await _uiController.LogToFrontend($"检测失败，已强制判定为不合格: {result.ErrorMessage}", "error");
+                        await _uiController.LogToFrontend($"测试推理失败，已强制判定为不合格: {result.ErrorMessage}", "error");
                     }
                     else
                     {
@@ -217,23 +217,18 @@ namespace ClearFrost
                         result.IsQualified = judgeResult.IsQualified;
                         isQualified = judgeResult.IsQualified;
                         await _uiController.LogToFrontend(
-                            $"规则判定: {(judgeResult.IsQualified ? "OK" : "NG")} | {judgeResult.Summary}",
+                            $"测试推理规则判定: {(judgeResult.IsQualified ? "OK" : "NG")} | {judgeResult.Summary}",
                             judgeResult.IsQualified ? "info" : "warning");
                     }
                     using (var sourceMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(originalBitmap))
                     using (var renderedMat = TryRenderDetectionMat(sourceMat, results, labels))
                     {
-                        // 追溯保存原图与带框复查图；数据集收集只使用原图路径。
-                        await SaveDetectionImage(sourceMat, isQualified, renderedMat);
-
-                        _statisticsService.RecordDetection(isQualified);
-
                         string objDesc = GetDetailedDetectionLog(results, labels);
                         string modelInfo = BuildFallbackStatus(result);
                         string ruleInfo = BuildRuleStatus(result.JudgeResult);
                         string statusMessage = detectionFailed
-                            ? $"检测失败，已判定为不合格: {result.ErrorMessage} | {sw.ElapsedMilliseconds}ms"
-                            : $"检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc}{ruleInfo} | {sw.ElapsedMilliseconds}ms{modelInfo}";
+                            ? $"[测试推理] 检测失败，已判定为不合格: {result.ErrorMessage} | {sw.ElapsedMilliseconds}ms"
+                            : $"[测试推理] 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc}{ruleInfo} | {sw.ElapsedMilliseconds}ms{modelInfo}";
                         await _uiController.SendDetectionFrame(
                             renderedMat ?? sourceMat,
                             isQualified,
@@ -245,7 +240,7 @@ namespace ClearFrost
                             usedModelName: result.UsedModelName ?? _detectionService.CurrentModelName,
                             wasFallback: result.WasFallback,
                             totalMs: sw.ElapsedMilliseconds,
-                            sourceLabel: "本地推理",
+                            sourceLabel: "测试推理",
                             fallbackAttemptCount: result.FallbackAttemptCount,
                             fallbackSkippedReason: result.FallbackSkippedReason,
                             inferenceMs: result.ElapsedMs,
