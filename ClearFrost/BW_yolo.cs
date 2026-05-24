@@ -125,6 +125,9 @@ namespace ClearFrost.Yolo
         private const int YOLO8_CLASS_START_INDEX = 4;
         private const int DEFAULT_MASK_CHANNELS = 32;
         private const int BASIC_DATA_LENGTH = 6;
+        private const int DEFAULT_BATCH_SIZE = 1;
+        private const int DEFAULT_INPUT_CHANNELS = 3;
+        private const int DEFAULT_DYNAMIC_INPUT_SIZE = 640;
 
         private const int LETTERBOX_FILL_COLOR_R = 114;
         private const int LETTERBOX_FILL_COLOR_G = 114;
@@ -363,8 +366,12 @@ namespace ClearFrost.Yolo
 
             _modelInputName = _inferenceSession.InputNames.First();
             _modelOutputName = _inferenceSession.OutputNames.First();
-            _inputTensorInfo = _inferenceSession.InputMetadata[_modelInputName].Dimensions;
+            _inputTensorInfo = NormalizeInputTensorDimensions(_inferenceSession.InputMetadata[_modelInputName].Dimensions);
             _outputTensorInfo = _inferenceSession.OutputMetadata[_modelOutputName].Dimensions;
+            _outputTensorInfo2_Segment = null;
+            _segWidth = 0;
+            _maskScaleW = 0;
+            _maskScaleH = 0;
             var modelMetadata = _inferenceSession.ModelMetadata.CustomMetadataMap;
             if (modelMetadata.Keys.Contains("names"))
             {
@@ -383,11 +390,10 @@ namespace ClearFrost.Yolo
                 _taskType = modelMetadata["task"];
                 if (_taskType == "segment")
                 {
-                    string modelOutputName2 = _inferenceSession.OutputNames[1];
-                    _outputTensorInfo2_Segment = _inferenceSession.OutputMetadata[modelOutputName2].Dimensions;
-                    _segWidth = _outputTensorInfo2_Segment[1];
-                    _maskScaleW = 1f * _outputTensorInfo2_Segment[3] / _inputTensorInfo[3];
-                    _maskScaleH = 1f * _outputTensorInfo2_Segment[2] / _inputTensorInfo[2];
+                    if (!TryInitializeSegmentMetadata())
+                    {
+                        throw new NotSupportedException("分割模型缺少有效的 4 维 mask prototype 输出");
+                    }
                 }
                 else if (_taskType == "pose")
                 {
@@ -415,12 +421,9 @@ namespace ClearFrost.Yolo
                     }
                     else if (_inferenceSession.OutputNames.Count == 2)
                     {
-                        string modelOutputName2 = _inferenceSession.OutputNames[1];
-                        _outputTensorInfo2_Segment = _inferenceSession.OutputMetadata[modelOutputName2].Dimensions;
-                        _segWidth = _outputTensorInfo2_Segment[1];
-                        _maskScaleW = 1f * _outputTensorInfo2_Segment[3] / _inputTensorInfo[3];
-                        _maskScaleH = 1f * _outputTensorInfo2_Segment[2] / _inputTensorInfo[2];
-                        _taskType = "segment";
+                        _taskType = TryInitializeSegmentMetadata()
+                            ? "segment"
+                            : "detect";
                     }
                 }
                 else
@@ -432,6 +435,67 @@ namespace ClearFrost.Yolo
             _yoloVersion = DetermineModelVersion(yoloVersion);
             _tensorWidth = _inputTensorInfo[3];
             _tensorHeight = _inputTensorInfo[2];
+        }
+
+        internal static int[] NormalizeInputTensorDimensions(IReadOnlyList<int>? dimensions)
+        {
+            if (dimensions == null || dimensions.Count < 4)
+            {
+                throw new NotSupportedException("模型输入维度不受支持");
+            }
+
+            int[] normalized = dimensions.ToArray();
+            if (normalized[0] <= 0)
+            {
+                normalized[0] = DEFAULT_BATCH_SIZE;
+            }
+            if (normalized[1] <= 0)
+            {
+                normalized[1] = DEFAULT_INPUT_CHANNELS;
+            }
+            if (normalized[2] <= 0)
+            {
+                normalized[2] = DEFAULT_DYNAMIC_INPUT_SIZE;
+            }
+            if (normalized[3] <= 0)
+            {
+                normalized[3] = DEFAULT_DYNAMIC_INPUT_SIZE;
+            }
+
+            return normalized;
+        }
+
+        private bool TryInitializeSegmentMetadata()
+        {
+            if (_inferenceSession == null || _inferenceSession.OutputNames.Count < 2)
+            {
+                return false;
+            }
+
+            string modelOutputName2 = _inferenceSession.OutputNames[1];
+            int[] segmentDimensions = _inferenceSession.OutputMetadata[modelOutputName2].Dimensions;
+            if (!IsSegmentPrototypeOutputShape(segmentDimensions) ||
+                _inputTensorInfo.Length <= 3 ||
+                _inputTensorInfo[2] <= 0 ||
+                _inputTensorInfo[3] <= 0)
+            {
+                return false;
+            }
+
+            _outputTensorInfo2_Segment = segmentDimensions;
+            _segWidth = segmentDimensions[1];
+            _maskScaleW = 1f * segmentDimensions[3] / _inputTensorInfo[3];
+            _maskScaleH = 1f * segmentDimensions[2] / _inputTensorInfo[2];
+            return true;
+        }
+
+        internal static bool IsSegmentPrototypeOutputShape(IReadOnlyList<int>? dimensions)
+        {
+            return dimensions != null &&
+                dimensions.Count == 4 &&
+                dimensions[1] > 0 &&
+                dimensions[2] > 0 &&
+                dimensions[3] > 0;
         }
 
         /// <summary>

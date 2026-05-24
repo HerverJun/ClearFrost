@@ -90,6 +90,26 @@ public class Yolo26VersionDetectionTests
         finalResults[1].Confidence.Should().BeApproximately(0.70f, 0.0001f);
     }
 
+    [Theory]
+    [MemberData(nameof(SegmentPrototypeShapeCases))]
+    public void IsSegmentPrototypeOutputShape_只接受四维MaskPrototype(int[] dimensions, bool expected)
+    {
+        YoloDetector.IsSegmentPrototypeOutputShape(dimensions).Should().Be(expected);
+    }
+
+    [Fact]
+    public void IsSegmentPrototypeOutputShape_Null_ReturnsFalse()
+    {
+        YoloDetector.IsSegmentPrototypeOutputShape(null).Should().BeFalse();
+    }
+
+    [Theory]
+    [MemberData(nameof(InputTensorDimensionCases))]
+    public void NormalizeInputTensorDimensions_动态维度会转换为可执行尺寸(int[] dimensions, int[] expected)
+    {
+        YoloDetector.NormalizeInputTensorDimensions(dimensions).Should().Equal(expected);
+    }
+
     [Fact]
     public void YoloResult_BasicProperties_ShouldWork()
     {
@@ -109,6 +129,23 @@ public class Yolo26VersionDetectionTests
         result.Right.Should().BeApproximately(125.5f, 0.001f);
         result.Bottom.Should().BeApproximately(240.5f, 0.001f);
         result.Area.Should().BeApproximately(4000f, 0.001f);
+    }
+
+    public static IEnumerable<object[]> SegmentPrototypeShapeCases()
+    {
+        yield return new object[] { new[] { 1, 32, 160, 160 }, true };
+        yield return new object[] { new[] { -1, 32, 160, 160 }, true };
+        yield return new object[] { new[] { 1, 300, 6 }, false };
+        yield return new object[] { new[] { 1, 32, 160, 160, 1 }, false };
+        yield return new object[] { new[] { 1, 2 }, false };
+        yield return new object[] { Array.Empty<int>(), false };
+    }
+
+    public static IEnumerable<object[]> InputTensorDimensionCases()
+    {
+        yield return new object[] { new[] { -1, 3, -1, -1 }, new[] { 1, 3, 640, 640 } };
+        yield return new object[] { new[] { 1, 3, 320, 320 }, new[] { 1, 3, 320, 320 } };
+        yield return new object[] { new[] { 0, -1, 0, 0 }, new[] { 1, 3, 640, 640 } };
     }
 
     private static void SetYolo26Row(
