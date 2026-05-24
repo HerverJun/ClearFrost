@@ -645,6 +645,32 @@ namespace ClearFrost.Yolo
             return result;
         }
 
+        private static void DisposeUnusedCandidateResults(
+            IEnumerable<List<YoloResult>> candidateResults,
+            List<YoloResult>? selectedResults)
+        {
+            foreach (List<YoloResult> results in candidateResults)
+            {
+                if (!ReferenceEquals(results, selectedResults))
+                {
+                    DisposeResultList(results);
+                }
+            }
+        }
+
+        private static void DisposeResultList(IEnumerable<YoloResult>? results)
+        {
+            if (results == null)
+            {
+                return;
+            }
+
+            foreach (YoloResult result in results)
+            {
+                result.Dispose();
+            }
+        }
+
         private static string ResolveFallbackSkippedReason(
             bool enableFallback,
             YoloDetector? auxiliary1Model,
@@ -679,7 +705,7 @@ namespace ClearFrost.Yolo
             float confidence = 0.5f,
             float iouThreshold = 0.3f,
             bool globalIou = false,
-            int preprocessingMode = 1,
+            int preprocessingMode = -1,
             string? targetLabel = null,
             int targetCount = 0,
             MultiModelCandidateEvaluator? candidateEvaluator = null)
@@ -708,6 +734,14 @@ namespace ClearFrost.Yolo
             int attemptedModelCount = 0;
             int successfulInferenceCount = 0;
             List<string> inferenceErrors = new List<string>();
+            List<List<YoloResult>> candidateResultLists = new List<List<YoloResult>>();
+
+            MultiModelInferenceResult CompleteAndDisposeUnused(int attemptedCount, string? fallbackSkippedReason = null)
+            {
+                MultiModelInferenceResult completed = CompleteInferenceResult(result, attemptedCount, fallbackSkippedReason);
+                DisposeUnusedCandidateResults(candidateResultLists, completed.Results);
+                return completed;
+            }
 
             void CaptureBestResult(List<YoloResult> detections, ModelRole modelRole, string modelPath, string[] labels, bool wasFallback)
             {
@@ -824,13 +858,14 @@ namespace ClearFrost.Yolo
                 try
                 {
                     var primaryResults = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    candidateResultLists.Add(primaryResults);
                     successfulInferenceCount++;
                     var primaryLabels = primaryModel.Labels ?? Array.Empty<string>();
 
                     // 目标标签命中（或未配置目标标签时任意命中）才停止切换
                     if (TryAcceptCandidate(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false))
                     {
-                        return CompleteInferenceResult(result, attemptedModelCount);
+                        return CompleteAndDisposeUnused(attemptedModelCount);
                     }
 
                     if (primaryResults.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
@@ -865,14 +900,14 @@ namespace ClearFrost.Yolo
                     result.UsedModelName = bestModelName;
                     result.UsedModelLabels = bestModelLabels;
                     result.WasFallback = bestWasFallback;
-                    return CompleteInferenceResult(result, attemptedModelCount, "FallbackDisabled");
+                    return CompleteAndDisposeUnused(attemptedModelCount, "FallbackDisabled");
                 }
 
                 result.UsedModel = ModelRole.Primary;
                 result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
                 result.UsedModelLabels = primaryModel?.Labels ?? Array.Empty<string>();
                 MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
-                return CompleteInferenceResult(result, attemptedModelCount, "FallbackDisabled");
+                return CompleteAndDisposeUnused(attemptedModelCount, "FallbackDisabled");
             }
 
             // 尝试辅助模型1
@@ -883,13 +918,14 @@ namespace ClearFrost.Yolo
                 {
                     System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型1进行检测...");
                     var aux1Results = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    candidateResultLists.Add(aux1Results);
                     successfulInferenceCount++;
                     var aux1Labels = auxiliary1Model.Labels ?? Array.Empty<string>();
 
                     if (TryAcceptCandidate(aux1Results, ModelRole.Auxiliary1, auxiliary1ModelPath, aux1Labels, true))
                     {
                         System.Diagnostics.Debug.WriteLine("[MultiModelManager] 辅助模型1命中!");
-                        return CompleteInferenceResult(result, attemptedModelCount);
+                        return CompleteAndDisposeUnused(attemptedModelCount);
                     }
 
                     if (aux1Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
@@ -912,12 +948,13 @@ namespace ClearFrost.Yolo
                 try
                 {
                     var aux2Results = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    candidateResultLists.Add(aux2Results);
                     successfulInferenceCount++;
                     var aux2Labels = auxiliary2Model.Labels ?? Array.Empty<string>();
 
                     if (TryAcceptCandidate(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true))
                     {
-                        return CompleteInferenceResult(result, attemptedModelCount);
+                        return CompleteAndDisposeUnused(attemptedModelCount);
                     }
 
                     if (aux2Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
@@ -950,8 +987,7 @@ namespace ClearFrost.Yolo
 
             MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
 
-            return CompleteInferenceResult(
-                result,
+            return CompleteAndDisposeUnused(
                 attemptedModelCount,
                 string.IsNullOrWhiteSpace(result.FallbackSkippedReason)
                     ? ResolveFallbackSkippedReason(enableFallback, auxiliary1Model, auxiliary2Model, attemptedModelCount, successfulInferenceCount)
@@ -990,7 +1026,7 @@ namespace ClearFrost.Yolo
             float confidence = 0.5f,
             float iouThreshold = 0.3f,
             bool globalIou = false,
-            int preprocessingMode = 1,
+            int preprocessingMode = -1,
             string? targetLabel = null,
             int targetCount = 0,
             MultiModelCandidateEvaluator? candidateEvaluator = null,
@@ -1012,7 +1048,7 @@ namespace ClearFrost.Yolo
             float confidence = 0.5f,
             float iouThreshold = 0.3f,
             bool globalIou = false,
-            int preprocessingMode = 1,
+            int preprocessingMode = -1,
             string? targetLabel = null,
             int targetCount = 0,
             MultiModelCandidateEvaluator? candidateEvaluator = null)
@@ -1041,6 +1077,14 @@ namespace ClearFrost.Yolo
             int attemptedModelCount = 0;
             int successfulInferenceCount = 0;
             List<string> inferenceErrors = new List<string>();
+            List<List<YoloResult>> candidateResultLists = new List<List<YoloResult>>();
+
+            MultiModelInferenceResult CompleteAndDisposeUnused(int attemptedCount, string? fallbackSkippedReason = null)
+            {
+                MultiModelInferenceResult completed = CompleteInferenceResult(result, attemptedCount, fallbackSkippedReason);
+                DisposeUnusedCandidateResults(candidateResultLists, completed.Results);
+                return completed;
+            }
 
             void CaptureBestResult(List<YoloResult> detections, ModelRole modelRole, string modelPath, string[] labels, bool wasFallback)
             {
@@ -1156,12 +1200,13 @@ namespace ClearFrost.Yolo
                 try
                 {
                     var primaryResults = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    candidateResultLists.Add(primaryResults);
                     successfulInferenceCount++;
                     var primaryLabels = primaryModel.Labels ?? Array.Empty<string>();
 
                     if (TryAcceptCandidate(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false))
                     {
-                        return CompleteInferenceResult(result, attemptedModelCount);
+                        return CompleteAndDisposeUnused(attemptedModelCount);
                     }
 
                     if (primaryResults.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
@@ -1196,14 +1241,14 @@ namespace ClearFrost.Yolo
                     result.UsedModelName = bestModelName;
                     result.UsedModelLabels = bestModelLabels;
                     result.WasFallback = bestWasFallback;
-                    return CompleteInferenceResult(result, attemptedModelCount, "FallbackDisabled");
+                    return CompleteAndDisposeUnused(attemptedModelCount, "FallbackDisabled");
                 }
 
                 result.UsedModel = ModelRole.Primary;
                 result.UsedModelName = System.IO.Path.GetFileName(primaryModelPath);
                 result.UsedModelLabels = primaryModel?.Labels ?? Array.Empty<string>();
                 MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
-                return CompleteInferenceResult(result, attemptedModelCount, "FallbackDisabled");
+                return CompleteAndDisposeUnused(attemptedModelCount, "FallbackDisabled");
             }
 
             if (auxiliary1Model != null)
@@ -1213,13 +1258,14 @@ namespace ClearFrost.Yolo
                 {
                     System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型1进行检测...");
                     var aux1Results = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    candidateResultLists.Add(aux1Results);
                     successfulInferenceCount++;
                     var aux1Labels = auxiliary1Model.Labels ?? Array.Empty<string>();
 
                     if (TryAcceptCandidate(aux1Results, ModelRole.Auxiliary1, auxiliary1ModelPath, aux1Labels, true))
                     {
                         System.Diagnostics.Debug.WriteLine("[MultiModelManager] 辅助模型1命中!");
-                        return CompleteInferenceResult(result, attemptedModelCount);
+                        return CompleteAndDisposeUnused(attemptedModelCount);
                     }
 
                     if (aux1Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
@@ -1241,12 +1287,13 @@ namespace ClearFrost.Yolo
                 try
                 {
                     var aux2Results = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    candidateResultLists.Add(aux2Results);
                     successfulInferenceCount++;
                     var aux2Labels = auxiliary2Model.Labels ?? Array.Empty<string>();
 
                     if (TryAcceptCandidate(aux2Results, ModelRole.Auxiliary2, auxiliary2ModelPath, aux2Labels, true))
                     {
-                        return CompleteInferenceResult(result, attemptedModelCount);
+                        return CompleteAndDisposeUnused(attemptedModelCount);
                     }
 
                     if (aux2Results.Count > 0 && !string.IsNullOrWhiteSpace(targetLabel))
@@ -1279,8 +1326,7 @@ namespace ClearFrost.Yolo
 
             MarkErrorIfAllAttemptsFailed(result, attemptedModelCount, successfulInferenceCount, inferenceErrors);
 
-            return CompleteInferenceResult(
-                result,
+            return CompleteAndDisposeUnused(
                 attemptedModelCount,
                 string.IsNullOrWhiteSpace(result.FallbackSkippedReason)
                     ? ResolveFallbackSkippedReason(enableFallback, auxiliary1Model, auxiliary2Model, attemptedModelCount, successfulInferenceCount)
@@ -1300,7 +1346,7 @@ namespace ClearFrost.Yolo
             float confidence = 0.5f,
             float iouThreshold = 0.3f,
             bool globalIou = false,
-            int preprocessingMode = 1,
+            int preprocessingMode = -1,
             string? targetLabel = null,
             int targetCount = 0,
             MultiModelCandidateEvaluator? candidateEvaluator = null,
@@ -1320,7 +1366,7 @@ namespace ClearFrost.Yolo
             float confidence = 0.5f,
             float iouThreshold = 0.3f,
             bool globalIou = false,
-            int preprocessingMode = 1)
+            int preprocessingMode = -1)
         {
             _modelLock.EnterReadLock();
             try

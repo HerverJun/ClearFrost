@@ -441,7 +441,7 @@ namespace ClearFrost.Services
                     confidence,
                     iouThreshold,
                     false,
-                    1,
+                    (int)YoloPreprocessingMode.StandardLetterBox,
                     fallbackGoal?.TargetLabel,
                     fallbackGoal?.TargetCount ?? 0,
                     candidateEvaluator);
@@ -462,7 +462,7 @@ namespace ClearFrost.Services
             if (_yolo != null)
             {
                 var allResults = await Task.Run(() =>
-                    _yolo.Inference(image, confidence, iouThreshold, false, 1));
+                    _yolo.Inference(image, confidence, iouThreshold, false, (int)YoloPreprocessingMode.StandardLetterBox));
                 return (allResults, "", _yolo.Labels, false, 1, string.Empty);
             }
 
@@ -483,7 +483,7 @@ namespace ClearFrost.Services
                     confidence,
                     iouThreshold,
                     false,
-                    1,
+                    (int)YoloPreprocessingMode.StandardLetterBox,
                     fallbackGoal?.TargetLabel,
                     fallbackGoal?.TargetCount ?? 0,
                     candidateEvaluator);
@@ -504,7 +504,7 @@ namespace ClearFrost.Services
             if (_yolo != null)
             {
                 var allResults = await Task.Run(() =>
-                    _yolo.Inference(image, confidence, iouThreshold, false, 1));
+                    _yolo.Inference(image, confidence, iouThreshold, false, (int)YoloPreprocessingMode.StandardLetterBox));
                 return (allResults, "", _yolo.Labels, false, 1, string.Empty);
             }
 

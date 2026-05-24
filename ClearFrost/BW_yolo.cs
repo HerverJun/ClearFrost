@@ -31,6 +31,10 @@ namespace ClearFrost.Yolo
     public enum YoloTaskType
     {
         /// <summary>
+        /// 自动根据 ONNX metadata 与输出 shape 选择执行模式。
+        /// </summary>
+        Auto = -1,
+        /// <summary>
         /// 分类任务
         /// </summary>
         Classify = 0,
@@ -97,6 +101,14 @@ namespace ClearFrost.Yolo
         /// ONNX Runtime 跨操作线程数
         /// </summary>
         public int InterOpNumThreads { get; set; } = 1;
+        /// <summary>
+        /// 默认预处理模式。默认使用官方 YOLO LetterBox 契约。
+        /// </summary>
+        public YoloPreprocessingMode PreprocessingMode { get; set; } = YoloPreprocessingMode.StandardLetterBox;
+        /// <summary>
+        /// 任务模式偏好。Auto 表示由 ONNX metadata 和输出 shape 推断。
+        /// </summary>
+        public YoloTaskType TaskType { get; set; } = YoloTaskType.Auto;
 
         /// <summary>
         /// 验证配置参数
@@ -109,6 +121,10 @@ namespace ClearFrost.Yolo
                 throw new ArgumentException("ModelPath is required");
             if (GpuDeviceId < 0)
                 throw new ArgumentOutOfRangeException(nameof(GpuDeviceId));
+            if (IntraOpNumThreads < 0)
+                throw new ArgumentOutOfRangeException(nameof(IntraOpNumThreads));
+            if (InterOpNumThreads < 0)
+                throw new ArgumentOutOfRangeException(nameof(InterOpNumThreads));
         }
     }
 
@@ -157,6 +173,8 @@ namespace ClearFrost.Yolo
         private float _maskScaleH = 0;
         private string _modelVersion = "";
         private string _taskType = "";
+        private YoloPreprocessingMode _defaultPreprocessingMode = YoloPreprocessingMode.StandardLetterBox;
+        private YoloTaskType _requestedTaskMode = YoloTaskType.Auto;
         private bool _requestedGpu;
         private bool _gpuActive;
         private int _gpuDeviceId;
@@ -186,6 +204,11 @@ namespace ClearFrost.Yolo
         public string ExecutionProvider => _executionProvider;
 
         public string GpuFailureReason => _gpuFailureReason;
+
+        /// <summary>
+        /// 当前模型的 ONNX 导出契约诊断信息。
+        /// </summary>
+        public YoloModelDescriptor ModelDescriptor { get; private set; } = new YoloModelDescriptor();
 
         /// <summary>
         /// 全局工业渲染模式开关。开启后使用轻量绘制路径。
@@ -230,6 +253,12 @@ namespace ClearFrost.Yolo
             get { return _executionTaskMode; }
             set
             {
+                if (value == YoloTaskType.Auto)
+                {
+                    _executionTaskMode = GetDefaultTaskMode();
+                    return;
+                }
+
                 if (_taskType == "classify")
                 {
                     _executionTaskMode = YoloTaskType.Classify;
@@ -282,10 +311,20 @@ namespace ClearFrost.Yolo
         /// 使用配置对象初始化 YOLO 检测器的新实例。
         /// </summary>
         /// <param name="config">YOLO 检测器配置对象。</param>
-        public YoloDetector(YoloDetectorConfig config) : this(config.ModelPath, config.YoloVersion, config.GpuDeviceId, config.UseGpu)
+        public YoloDetector(YoloDetectorConfig config)
         {
+            if (config == null)
+                throw new ArgumentNullException(nameof(config));
             config.Validate();
-            // 当前构造链在 this(...) 内已创建 session，暂不在此处追溯修改线程数。
+            InitializeDetector(
+                config.ModelPath,
+                config.YoloVersion,
+                config.GpuDeviceId,
+                config.UseGpu,
+                config.IntraOpNumThreads,
+                config.InterOpNumThreads,
+                config.PreprocessingMode,
+                config.TaskType);
         }
 
         /// <summary>
@@ -300,6 +339,27 @@ namespace ClearFrost.Yolo
         /// <exception cref="Exception">模型类型不受支持。</exception>
         public YoloDetector(string modelPath, int yoloVersion = 0, int gpuIndex = 0, bool useGpu = false)
         {
+            InitializeDetector(
+                modelPath,
+                yoloVersion,
+                gpuIndex,
+                useGpu,
+                intraOpThreads: 0,
+                interOpThreads: 0,
+                preprocessingMode: YoloPreprocessingMode.StandardLetterBox,
+                requestedTaskMode: YoloTaskType.Auto);
+        }
+
+        private void InitializeDetector(
+            string modelPath,
+            int yoloVersion,
+            int gpuIndex,
+            bool useGpu,
+            int intraOpThreads,
+            int interOpThreads,
+            YoloPreprocessingMode preprocessingMode,
+            YoloTaskType requestedTaskMode)
+        {
             if (string.IsNullOrWhiteSpace(modelPath))
                 throw new ArgumentNullException(nameof(modelPath));
             if (!File.Exists(modelPath))
@@ -310,18 +370,20 @@ namespace ClearFrost.Yolo
             _requestedGpu = useGpu;
             _gpuDeviceId = gpuIndex;
             _executionProvider = useGpu ? "DmlExecutionProvider" : "CPUExecutionProvider";
+            _defaultPreprocessingMode = preprocessingMode;
+            _requestedTaskMode = requestedTaskMode;
 
             if (!useGpu)
             {
-                CreateCpuSession(modelPath, yoloVersion);
+                CreateCpuSession(modelPath, yoloVersion, intraOpThreads, interOpThreads);
                 return;
             }
 
             try
             {
-                using var options = CreateSessionOptions(useGpu: true, gpuIndex, 0);
+                using var options = CreateSessionOptions(useGpu: true, gpuIndex, intraOpThreads, interOpThreads, enableProfiling: true);
                 _inferenceSession = new InferenceSession(modelPath, options);
-                InitializeModelMetadata(yoloVersion);
+                InitializeModelMetadata(modelPath, yoloVersion);
                 ValidateDirectMlSession();
             }
             catch (Exception ex)
@@ -337,7 +399,7 @@ namespace ClearFrost.Yolo
 
                 try
                 {
-                    CreateCpuSession(modelPath, yoloVersion);
+                    CreateCpuSession(modelPath, yoloVersion, intraOpThreads, interOpThreads);
                 }
                 catch (Exception cpuEx)
                 {
@@ -348,16 +410,16 @@ namespace ClearFrost.Yolo
             }
         }
 
-        private void CreateCpuSession(string modelPath, int yoloVersion)
+        private void CreateCpuSession(string modelPath, int yoloVersion, int intraOpThreads, int interOpThreads)
         {
-            using var cpuOptions = CreateSessionOptions(useGpu: false, gpuIndex: 0, intraOpThreads: 0);
+            using var cpuOptions = CreateSessionOptions(useGpu: false, gpuIndex: 0, intraOpThreads, interOpThreads, enableProfiling: false);
             _inferenceSession = new InferenceSession(modelPath, cpuOptions);
-            InitializeModelMetadata(yoloVersion);
+            InitializeModelMetadata(modelPath, yoloVersion);
             _gpuActive = false;
             _executionProvider = "CPUExecutionProvider";
         }
 
-        private void InitializeModelMetadata(int yoloVersion)
+        private void InitializeModelMetadata(string modelPath, int yoloVersion)
         {
             if (_inferenceSession == null)
             {
@@ -373,21 +435,15 @@ namespace ClearFrost.Yolo
             _maskScaleW = 0;
             _maskScaleH = 0;
             var modelMetadata = _inferenceSession.ModelMetadata.CustomMetadataMap;
-            if (modelMetadata.Keys.Contains("names"))
+            Labels = modelMetadata.TryGetValue("names", out string? labelNames)
+                ? SplitLabelNames(labelNames)
+                : Array.Empty<string>();
+            _modelVersion = modelMetadata.TryGetValue("version", out string? modelVersion)
+                ? modelVersion
+                : string.Empty;
+            if (modelMetadata.TryGetValue("task", out string? taskType))
             {
-                Labels = SplitLabelNames(modelMetadata["names"]!);
-            }
-            else
-            {
-                Labels = new string[0];
-            }
-            if (modelMetadata.Keys.Contains("version"))
-            {
-                _modelVersion = modelMetadata["version"];
-            }
-            if (modelMetadata.Keys.Contains("task"))
-            {
-                _taskType = modelMetadata["task"];
+                _taskType = NormalizeTaskName(taskType);
                 if (_taskType == "segment")
                 {
                     if (!TryInitializeSegmentMetadata())
@@ -431,10 +487,59 @@ namespace ClearFrost.Yolo
                     throw new Exception("Model not supported yet");
                 }
             }
-            TaskMode = YoloTaskType.Detect;
             _yoloVersion = DetermineModelVersion(yoloVersion);
             _tensorWidth = _inputTensorInfo[3];
             _tensorHeight = _inputTensorInfo[2];
+
+            var outputs = _inferenceSession.OutputNames
+                .Select(name => new YoloOutputDescriptor
+                {
+                    Name = name,
+                    Dimensions = _inferenceSession.OutputMetadata[name].Dimensions.ToArray()
+                })
+                .ToArray();
+
+            ModelDescriptor = YoloModelContractResolver.CreateDescriptor(
+                modelPath,
+                _modelInputName,
+                _inputTensorInfo,
+                outputs,
+                modelMetadata,
+                yoloVersion,
+                _defaultPreprocessingMode,
+                _requestedTaskMode);
+
+            if (!ModelDescriptor.IsSupported)
+            {
+                throw new NotSupportedException(ModelDescriptor.SupportMessage);
+            }
+
+            TaskMode = ModelDescriptor.ExecutionTaskMode;
+        }
+
+        private static string NormalizeTaskName(string? taskType)
+        {
+            string normalized = (taskType ?? string.Empty).Trim().ToLowerInvariant();
+            return normalized switch
+            {
+                "classification" => "classify",
+                "detection" => "detect",
+                "seg" or "segmentation" => "segment",
+                "oriented-bounding-box" => "obb",
+                _ => normalized
+            };
+        }
+
+        private YoloTaskType GetDefaultTaskMode()
+        {
+            return _taskType switch
+            {
+                "classify" => YoloTaskType.Classify,
+                "segment" => YoloTaskType.SegmentWithMask,
+                "pose" => YoloTaskType.PoseWithKeypoints,
+                "obb" => YoloTaskType.Obb,
+                _ => YoloTaskType.Detect
+            };
         }
 
         internal static int[] NormalizeInputTensorDimensions(IReadOnlyList<int>? dimensions)
@@ -504,7 +609,12 @@ namespace ClearFrost.Yolo
         /// <param name="useGpu">是否使用 GPU。</param>
         /// <param name="gpuIndex">GPU 设备ID。</param>
         /// <returns>配置好的 SessionOptions 对象。</returns>
-        private static SessionOptions CreateSessionOptions(bool useGpu, int gpuIndex, int intraOpThreads = 0)
+        private static SessionOptions CreateSessionOptions(
+            bool useGpu,
+            int gpuIndex,
+            int intraOpThreads = 0,
+            int interOpThreads = 0,
+            bool enableProfiling = false)
         {
             var options = new SessionOptions();
             options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
@@ -517,13 +627,19 @@ namespace ClearFrost.Yolo
             options.IntraOpNumThreads = intraOpThreads > 0
                 ? intraOpThreads
                 : Math.Max(1, Environment.ProcessorCount / 2);
+            options.InterOpNumThreads = interOpThreads > 0
+                ? interOpThreads
+                : 1;
 
             if (useGpu)
             {
-                options.EnableProfiling = true;
-                options.ProfileOutputPathPrefix = Path.Combine(
-                    Path.GetTempPath(),
-                    $"clearfrost-dml-{Environment.ProcessId}-{Guid.NewGuid():N}");
+                options.EnableProfiling = enableProfiling;
+                if (enableProfiling)
+                {
+                    options.ProfileOutputPathPrefix = Path.Combine(
+                        Path.GetTempPath(),
+                        $"clearfrost-dml-{Environment.ProcessId}-{Guid.NewGuid():N}");
+                }
                 try
                 {
                     options.AppendExecutionProvider_DML(gpuIndex);
@@ -598,13 +714,13 @@ namespace ClearFrost.Yolo
         /// <param name="confidence">置信度阈值。</param>
         /// <param name="iouThreshold">IOU 阈值。</param>
         /// <param name="globalIou">是否全局 NMS。</param>
-        /// <param name="preprocessingMode">预处理模式 (0: Letterbox, 1: Resize)。</param>
+        /// <param name="preprocessingMode">预处理模式 (0: StandardLetterBox, 1: IndustrialFast)。</param>
         /// <returns>检测结果列表。</returns>
         /// <exception cref="ObjectDisposedException">如果检测器已被释放。</exception>
         /// <exception cref="ArgumentNullException">image 为空。</exception>
         /// <exception cref="ArgumentException">图像尺寸无效。</exception>
         /// <exception cref="ArgumentOutOfRangeException">confidence 或 iouThreshold 超出有效范围。</exception>
-        public List<YoloResult> Inference(Bitmap image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = 1)
+        public List<YoloResult> Inference(Bitmap image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = -1)
         {
             ThrowIfDisposed();
             if (image == null)
@@ -640,7 +756,7 @@ namespace ClearFrost.Yolo
         /// <exception cref="ObjectDisposedException">如果检测器已被释放。</exception>
         /// <exception cref="ArgumentNullException">image 为空。</exception>
         /// <exception cref="OperationCanceledException">如果操作被取消。</exception>
-        public async Task<List<YoloResult>> InferenceAsync(Bitmap image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = 1, CancellationToken cancellationToken = default)
+        public async Task<List<YoloResult>> InferenceAsync(Bitmap image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = -1, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
             if (image == null)
@@ -665,9 +781,9 @@ namespace ClearFrost.Yolo
         /// <param name="confidence">置信度阈值。</param>
         /// <param name="iouThreshold">IOU 阈值。</param>
         /// <param name="globalIou">是否全局 NMS。</param>
-        /// <param name="preprocessingMode">预处理模式 (0: Letterbox, 1: Resize)。</param>
+        /// <param name="preprocessingMode">预处理模式 (0: StandardLetterBox, 1: IndustrialFast)。</param>
         /// <returns>检测结果列表。</returns>
-        public List<YoloResult> Inference(Mat image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = 1)
+        public List<YoloResult> Inference(Mat image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = -1)
         {
             ThrowIfDisposed();
             if (image == null)
@@ -700,7 +816,7 @@ namespace ClearFrost.Yolo
         /// <param name="preprocessingMode">预处理模式。</param>
         /// <param name="cancellationToken">取消令牌。</param>
         /// <returns>检测结果列表。</returns>
-        public async Task<List<YoloResult>> InferenceAsync(Mat image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = 1, CancellationToken cancellationToken = default)
+        public async Task<List<YoloResult>> InferenceAsync(Mat image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = -1, CancellationToken cancellationToken = default)
         {
             ThrowIfDisposed();
             if (image == null)
@@ -727,9 +843,9 @@ namespace ClearFrost.Yolo
         /// <param name="confidence">置信度阈值。</param>
         /// <param name="iouThreshold">IOU 阈值。</param>
         /// <param name="globalIou">是否全局 NMS。</param>
-        /// <param name="preprocessingMode">预处理模式 (0: Letterbox, 1: Resize)。</param>
+        /// <param name="preprocessingMode">预处理模式 (0: StandardLetterBox, 1: IndustrialFast)。</param>
         /// <returns>检测结果列表。</returns>
-        private List<YoloResult> InferenceInternal(Bitmap image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = 1)
+        private List<YoloResult> InferenceInternal(Bitmap image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = -1)
         {
             ThrowIfDisposed();
             if (_inferenceSession == null) return new List<YoloResult>();
@@ -751,12 +867,13 @@ namespace ClearFrost.Yolo
                 _inferenceImageWidth = image.Width;
                 _inferenceImageHeight = image.Height;
 
-                if (preprocessingMode == 0)
+                YoloPreprocessingMode effectivePreprocessingMode = ResolvePreprocessingMode(preprocessingMode);
+                if (effectivePreprocessingMode == YoloPreprocessingMode.StandardLetterBox)
                 {
                     processedImage = LetterboxResize(image);
                     ImageToTensor_Parallel(processedImage, _tensorBuffer!);
                 }
-                else if (preprocessingMode == 1)
+                else if (effectivePreprocessingMode == YoloPreprocessingMode.IndustrialFast)
                 {
                     ImageToTensor_NoInterpolation(image, _tensorBuffer!);
                 }
@@ -779,7 +896,7 @@ namespace ClearFrost.Yolo
                     var output0 = resultData.First().AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();
-                    finalResult = FilterConfidence_Classify(output0, confidence);
+                    finalResult = DecodeModelOutput(output0, confidence, YoloOutputLayout.Classification);
                 }
                 else if (_executionTaskMode == YoloTaskType.Detect)
                 {
@@ -797,16 +914,12 @@ namespace ClearFrost.Yolo
                     var output1 = resultData.ElementAtOrDefault(1)?.AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();
-                    if (_yoloVersion == 8)
-                    {
-                        filteredDataList = FilterConfidence_Yolo8_11_Segment(output0, confidence);
-                    }
-                    else
-                    {
-                        filteredDataList = FilterConfidence_Yolo5_Segment(output0, confidence);
-                    }
+                    filteredDataList = DecodeModelOutput(output0, confidence, YoloOutputLayout.SegmentRaw);
                     finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
-                    RestoreMask(ref finalResult, output1);
+                    if (_executionTaskMode == YoloTaskType.SegmentWithMask)
+                    {
+                        RestoreMask(ref finalResult, output1);
+                    }
                 }
                 else if (_executionTaskMode == YoloTaskType.PoseDetectOnly || _executionTaskMode == YoloTaskType.PoseWithKeypoints)
                 {
@@ -815,7 +928,7 @@ namespace ClearFrost.Yolo
                     var output0 = resultData.First().AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();
-                    filteredDataList = FilterConfidence_Pose(output0, confidence);
+                    filteredDataList = DecodeModelOutput(output0, confidence, YoloOutputLayout.PoseRaw);
                     finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
                 }
                 else if (_executionTaskMode == YoloTaskType.Obb)
@@ -825,7 +938,7 @@ namespace ClearFrost.Yolo
                     var output0 = resultData.First().AsTensor<float>();
                     metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();
-                    filteredDataList = FilterConfidence_Obb(output0, confidence);
+                    filteredDataList = DecodeModelOutput(output0, confidence, YoloOutputLayout.ObbRaw);
                     finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
                 }
 
@@ -855,9 +968,9 @@ namespace ClearFrost.Yolo
         /// <param name="confidence">置信度阈值。</param>
         /// <param name="iouThreshold">IOU 阈值。</param>
         /// <param name="globalIou">是否全局 NMS。</param>
-        /// <param name="preprocessingMode">预处理模式 (0: Letterbox, 1: Resize)。</param>
+        /// <param name="preprocessingMode">预处理模式 (0: StandardLetterBox, 1: IndustrialFast)。</param>
         /// <returns>检测结果列表。</returns>
-        private List<YoloResult> InferenceInternalMat(Mat image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = 1)
+        private List<YoloResult> InferenceInternalMat(Mat image, float confidence = 0.5f, float iouThreshold = 0.3f, bool globalIou = false, int preprocessingMode = -1)
         {
             ThrowIfDisposed();
             if (_inferenceSession == null) return new List<YoloResult>();
@@ -875,12 +988,13 @@ namespace ClearFrost.Yolo
             _inferenceImageWidth = image.Width;
             _inferenceImageHeight = image.Height;
 
-            if (preprocessingMode == 0)
+            YoloPreprocessingMode effectivePreprocessingMode = ResolvePreprocessingMode(preprocessingMode);
+            if (effectivePreprocessingMode == YoloPreprocessingMode.StandardLetterBox)
             {
                 using Mat processedMat = LetterboxResizeMat(image);
                 MatToTensor_Parallel(processedMat, _tensorBuffer!);
             }
-            else if (preprocessingMode == 1)
+            else if (effectivePreprocessingMode == YoloPreprocessingMode.IndustrialFast)
             {
                 MatToTensor_NoInterpolation(image, _tensorBuffer!);
             }
@@ -904,7 +1018,7 @@ namespace ClearFrost.Yolo
                 var output0 = resultData.First().AsTensor<float>();
                 metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                 sw.Restart();
-                finalResult = FilterConfidence_Classify(output0, confidence);
+                finalResult = DecodeModelOutput(output0, confidence, YoloOutputLayout.Classification);
             }
             else if (_executionTaskMode == YoloTaskType.Detect)
             {
@@ -922,16 +1036,12 @@ namespace ClearFrost.Yolo
                 var output1 = resultData.ElementAtOrDefault(1)?.AsTensor<float>();
                 metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                 sw.Restart();
-                if (_yoloVersion == 8)
-                {
-                    filteredDataList = FilterConfidence_Yolo8_11_Segment(output0, confidence);
-                }
-                else
-                {
-                    filteredDataList = FilterConfidence_Yolo5_Segment(output0, confidence);
-                }
+                filteredDataList = DecodeModelOutput(output0, confidence, YoloOutputLayout.SegmentRaw);
                 finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
-                RestoreMask(ref finalResult, output1);
+                if (_executionTaskMode == YoloTaskType.SegmentWithMask)
+                {
+                    RestoreMask(ref finalResult, output1);
+                }
             }
             else if (_executionTaskMode == YoloTaskType.PoseDetectOnly || _executionTaskMode == YoloTaskType.PoseWithKeypoints)
             {
@@ -940,7 +1050,7 @@ namespace ClearFrost.Yolo
                 var output0 = resultData.First().AsTensor<float>();
                 metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                 sw.Restart();
-                filteredDataList = FilterConfidence_Pose(output0, confidence);
+                filteredDataList = DecodeModelOutput(output0, confidence, YoloOutputLayout.PoseRaw);
                 finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
             }
             else if (_executionTaskMode == YoloTaskType.Obb)
@@ -950,7 +1060,7 @@ namespace ClearFrost.Yolo
                 var output0 = resultData.First().AsTensor<float>();
                 metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
                 sw.Restart();
-                filteredDataList = FilterConfidence_Obb(output0, confidence);
+                filteredDataList = DecodeModelOutput(output0, confidence, YoloOutputLayout.ObbRaw);
                 finalResult = NmsFilter(filteredDataList, iouThreshold, globalIou);
             }
 
@@ -970,24 +1080,13 @@ namespace ClearFrost.Yolo
 
         private List<YoloResult> PostprocessDetectionOutput(Tensor<float> output0, float confidence, float iouThreshold, bool globalIou)
         {
-            List<YoloResult> filteredDataList;
-            if (IsDecodedDetectionOutput(output0))
+            YoloOutputLayout layout = ResolveDetectionOutputLayout(output0);
+            List<YoloResult> filteredDataList = DecodeModelOutput(output0, confidence, layout);
+
+            if (ShouldSkipApplicationNms(layout))
             {
-                // Decoded/end2end ONNX outputs use xyxy + confidence + class rows.
-                // Some exports still set nms=False, so keep app-side NMS active.
-                filteredDataList = FilterConfidence_Yolo26_Detect(output0, confidence);
-            }
-            else if (_yoloVersion >= 8)
-            {
-                filteredDataList = FilterConfidence_Yolo8_9_11_Detect(output0, confidence);
-            }
-            else if (_yoloVersion == 5)
-            {
-                filteredDataList = FilterConfidence_Yolo5_Detect(output0, confidence);
-            }
-            else
-            {
-                filteredDataList = FilterConfidence_Yolo6_Detect(output0, confidence);
+                SortConfidence(filteredDataList);
+                return filteredDataList;
             }
 
             return NmsFilter(filteredDataList, iouThreshold, globalIou);
@@ -995,9 +1094,77 @@ namespace ClearFrost.Yolo
 
         private static bool IsDecodedDetectionOutput(Tensor<float> output0)
         {
-            return output0.Dimensions.Length == 3 &&
-                output0.Dimensions[2] == BASIC_DATA_LENGTH &&
-                output0.Dimensions[1] > 0;
+            return (output0.Dimensions.Length == 3 &&
+                    output0.Dimensions[2] == BASIC_DATA_LENGTH &&
+                    output0.Dimensions[1] > 0) ||
+                (output0.Dimensions.Length == 2 &&
+                    output0.Dimensions[1] == BASIC_DATA_LENGTH &&
+                    output0.Dimensions[0] > 0);
+        }
+
+        private YoloOutputLayout ResolveDetectionOutputLayout(Tensor<float> output0)
+        {
+            if (IsDecodedDetectionOutput(output0))
+            {
+                return YoloOutputLayout.DecodedXyxy;
+            }
+
+            YoloModelDescriptor? descriptor = ModelDescriptor;
+            YoloOutputLayout descriptorLayout = descriptor?.PostprocessProfile?.Layout ?? YoloOutputLayout.Unknown;
+            if (descriptorLayout == YoloOutputLayout.RawYoloNoObjectness ||
+                descriptorLayout == YoloOutputLayout.RawYoloObjectness)
+            {
+                return descriptorLayout;
+            }
+
+            if (output0.Dimensions.Length != 3)
+            {
+                return YoloOutputLayout.Unknown;
+            }
+
+            if (_yoloVersion >= 8 || _yoloVersion >= 26)
+            {
+                return YoloOutputLayout.RawYoloNoObjectness;
+            }
+            if (_yoloVersion == 5 || _yoloVersion == 7)
+            {
+                return YoloOutputLayout.RawYoloObjectness;
+            }
+            if (_yoloVersion == 6)
+            {
+                return YoloOutputLayout.RawYoloNoObjectness;
+            }
+
+            return YoloModelContractResolver.ResolveOutputLayout(
+                output0.Dimensions.ToArray(),
+                Labels.Length,
+                YoloModelTask.Detect,
+                _yoloVersion);
+        }
+
+        private bool ShouldSkipApplicationNms(YoloOutputLayout layout)
+        {
+            return layout == YoloOutputLayout.DecodedXyxy &&
+                ModelDescriptor != null &&
+                (ModelDescriptor.HasBuiltInNms || ModelDescriptor.IsEndToEndNmsFree);
+        }
+
+        private YoloPreprocessingMode ResolvePreprocessingMode(int preprocessingMode)
+        {
+            if (preprocessingMode == -1)
+            {
+                return _defaultPreprocessingMode;
+            }
+
+            if (Enum.IsDefined(typeof(YoloPreprocessingMode), preprocessingMode))
+            {
+                return (YoloPreprocessingMode)preprocessingMode;
+            }
+
+            throw new ArgumentOutOfRangeException(
+                nameof(preprocessingMode),
+                preprocessingMode,
+                "预处理模式只支持 -1(配置默认值)、0(StandardLetterBox)、1(IndustrialFast)");
         }
 
         private int DetermineModelVersion(int version)
@@ -1037,10 +1204,13 @@ namespace ClearFrost.Yolo
             // 从模型元数据中读取版本
             if (_modelVersion != "")
             {
-                int ver = int.Parse(_modelVersion.Split('.')[0]);
-                // 检测 v26+
-                if (ver >= 26) return 26;
-                return ver >= 8 ? 8 : ver;
+                string majorText = _modelVersion.Split('.', '-', '_').FirstOrDefault() ?? string.Empty;
+                if (int.TryParse(majorText, out int ver))
+                {
+                    // 检测 v26+
+                    if (ver >= 26) return 26;
+                    return ver >= 8 ? 8 : ver;
+                }
             }
             int mid = _outputTensorInfo[1];
             int right = _outputTensorInfo[2];
@@ -1059,16 +1229,7 @@ namespace ClearFrost.Yolo
 
         private string[] SplitLabelNames(string name)
         {
-            string removedBrackets = name.Replace("{", "").Replace("}", "");
-            string[] splitArray = removedBrackets.Split(',');
-            string[] returnArray = new string[splitArray.Length];
-            for (int i = 0; i < splitArray.Length; i++)
-            {
-                int startIndex = splitArray[i].IndexOf(':') + 3;
-                int endIndex = splitArray[i].Length - 1;
-                returnArray[i] = splitArray[i].Substring(startIndex, endIndex - startIndex);
-            }
-            return returnArray;
+            return YoloModelContractResolver.ParseLabelNames(name);
         }
 
         public string GetLabelNameByIndex(int index)

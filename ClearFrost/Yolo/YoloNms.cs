@@ -86,6 +86,7 @@ namespace ClearFrost.Yolo
                     if (iou > iouThreshold)
                     {
                         suppressed[j] = true;
+                        sortedGroup[j].Dispose();
                     }
                 }
             }
@@ -120,6 +121,7 @@ namespace ClearFrost.Yolo
                     if (iou > iouThreshold)
                     {
                         suppressed[j] = true;
+                        sortedList[j].Dispose();
                     }
                 }
             }
@@ -129,6 +131,11 @@ namespace ClearFrost.Yolo
 
         private float CalculateIntersectionOverUnion(YoloResult box1, YoloResult box2)
         {
+            if (box1.Angle.HasValue && box2.Angle.HasValue)
+            {
+                return CalculateRotatedIntersectionOverUnion(box1, box2);
+            }
+
             float width1 = box1.Width;
             float height1 = box1.Height;
             float width2 = box2.Width;
@@ -161,7 +168,162 @@ namespace ClearFrost.Yolo
             float area1 = width1 * height1;
             float area2 = width2 * height2;
             unionArea = area1 + area2 - intersectionArea;
-            return intersectionArea / unionArea;
+            return unionArea <= 0 ? 0 : intersectionArea / unionArea;
+        }
+
+        private static float CalculateRotatedIntersectionOverUnion(YoloResult box1, YoloResult box2)
+        {
+            if (box1.Width <= 0 || box1.Height <= 0 || box2.Width <= 0 || box2.Height <= 0)
+            {
+                return 0;
+            }
+
+            List<PointD> polygon1 = GetRotatedCorners(box1);
+            List<PointD> polygon2 = GetRotatedCorners(box2);
+            List<PointD> intersection = ClipPolygon(polygon1, polygon2);
+            double intersectionArea = PolygonArea(intersection);
+            double unionArea = box1.Width * box1.Height + box2.Width * box2.Height - intersectionArea;
+            if (unionArea <= 0)
+            {
+                return 0;
+            }
+
+            return (float)(intersectionArea / unionArea);
+        }
+
+        private static List<PointD> GetRotatedCorners(YoloResult box)
+        {
+            double angle = box.Angle ?? 0;
+            double cos = Math.Cos(angle);
+            double sin = Math.Sin(angle);
+            double halfWidth = box.Width / 2.0;
+            double halfHeight = box.Height / 2.0;
+            var localCorners = new[]
+            {
+                new PointD(-halfWidth, -halfHeight),
+                new PointD(halfWidth, -halfHeight),
+                new PointD(halfWidth, halfHeight),
+                new PointD(-halfWidth, halfHeight)
+            };
+
+            return localCorners
+                .Select(point => new PointD(
+                    box.CenterX + point.X * cos - point.Y * sin,
+                    box.CenterY + point.X * sin + point.Y * cos))
+                .ToList();
+        }
+
+        private static List<PointD> ClipPolygon(IReadOnlyList<PointD> subjectPolygon, IReadOnlyList<PointD> clipPolygon)
+        {
+            List<PointD> output = subjectPolygon.ToList();
+            if (output.Count == 0 || clipPolygon.Count < 3)
+            {
+                return new List<PointD>();
+            }
+
+            double orientation = SignedPolygonArea(clipPolygon) >= 0 ? 1 : -1;
+            for (int i = 0; i < clipPolygon.Count; i++)
+            {
+                PointD edgeStart = clipPolygon[i];
+                PointD edgeEnd = clipPolygon[(i + 1) % clipPolygon.Count];
+                List<PointD> input = output;
+                output = new List<PointD>();
+                if (input.Count == 0)
+                {
+                    break;
+                }
+
+                PointD previous = input[input.Count - 1];
+                foreach (PointD current in input)
+                {
+                    bool currentInside = IsInside(current, edgeStart, edgeEnd, orientation);
+                    bool previousInside = IsInside(previous, edgeStart, edgeEnd, orientation);
+                    if (currentInside)
+                    {
+                        if (!previousInside)
+                        {
+                            output.Add(LineIntersection(previous, current, edgeStart, edgeEnd));
+                        }
+                        output.Add(current);
+                    }
+                    else if (previousInside)
+                    {
+                        output.Add(LineIntersection(previous, current, edgeStart, edgeEnd));
+                    }
+
+                    previous = current;
+                }
+            }
+
+            return output;
+        }
+
+        private static bool IsInside(PointD point, PointD edgeStart, PointD edgeEnd, double orientation)
+        {
+            double cross = Cross(edgeStart, edgeEnd, point);
+            return orientation * cross >= -1e-6;
+        }
+
+        private static PointD LineIntersection(PointD line1Start, PointD line1End, PointD line2Start, PointD line2End)
+        {
+            double a1 = line1End.Y - line1Start.Y;
+            double b1 = line1Start.X - line1End.X;
+            double c1 = a1 * line1Start.X + b1 * line1Start.Y;
+
+            double a2 = line2End.Y - line2Start.Y;
+            double b2 = line2Start.X - line2End.X;
+            double c2 = a2 * line2Start.X + b2 * line2Start.Y;
+
+            double determinant = a1 * b2 - a2 * b1;
+            if (Math.Abs(determinant) < 1e-9)
+            {
+                return line1End;
+            }
+
+            return new PointD(
+                (b2 * c1 - b1 * c2) / determinant,
+                (a1 * c2 - a2 * c1) / determinant);
+        }
+
+        private static double Cross(PointD edgeStart, PointD edgeEnd, PointD point)
+        {
+            return (edgeEnd.X - edgeStart.X) * (point.Y - edgeStart.Y) -
+                (edgeEnd.Y - edgeStart.Y) * (point.X - edgeStart.X);
+        }
+
+        private static double PolygonArea(IReadOnlyList<PointD> polygon)
+        {
+            return Math.Abs(SignedPolygonArea(polygon));
+        }
+
+        private static double SignedPolygonArea(IReadOnlyList<PointD> polygon)
+        {
+            if (polygon.Count < 3)
+            {
+                return 0;
+            }
+
+            double area = 0;
+            for (int i = 0; i < polygon.Count; i++)
+            {
+                PointD current = polygon[i];
+                PointD next = polygon[(i + 1) % polygon.Count];
+                area += current.X * next.Y - next.X * current.Y;
+            }
+
+            return area / 2.0;
+        }
+
+        private readonly struct PointD
+        {
+            public PointD(double x, double y)
+            {
+                X = x;
+                Y = y;
+            }
+
+            public double X { get; }
+            public double Y { get; }
         }
 
         private void SortConfidence(List<YoloResult> dataList)
