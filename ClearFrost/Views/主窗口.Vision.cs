@@ -1071,7 +1071,7 @@ namespace ClearFrost
                 string fileName = BuildTraceImageFileName(isQualified, safeInspectionId, context.ProductBarcode);
                 string filePath = Path.Combine(directory, fileName);
                 context.ImagePath = filePath;
-                payloads.Add(ImageSavePayload.Create(
+                payloads.Add(ImageSavePayload.CreateReadOnlyView(
                     image,
                     filePath,
                     jpegQuality: 70,
@@ -1085,7 +1085,7 @@ namespace ClearFrost
                     string renderedFileName = AddFileNameSuffix(fileName, "_rendered");
                     string renderedPath = Path.Combine(renderedDirectory, renderedFileName);
                     context.RenderedImagePath = renderedPath;
-                    payloads.Add(ImageSavePayload.Create(
+                    payloads.Add(ImageSavePayload.CreateReadOnlyView(
                         renderedImage,
                         renderedPath,
                         jpegQuality: 95,

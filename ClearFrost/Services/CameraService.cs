@@ -76,6 +76,28 @@ namespace ClearFrost.Services
 
         #endregion
 
+        private void CacheLastFrameReference(Mat frame)
+        {
+            Mat lastFrame = CreateMatReference(frame);
+
+            lock (_frameLock)
+            {
+                _lastFrame?.Dispose();
+                _lastFrame = lastFrame;
+            }
+        }
+
+        private static Mat CreateMatReference(Mat frame)
+        {
+            if (frame.Empty())
+            {
+                return frame.Clone();
+            }
+
+            // 保留引用计数即可让 LastFrame 跨调用方 Dispose 存活，无需热路径整图复制。
+            return frame.SubMat(new Rect(0, 0, frame.Width, frame.Height));
+        }
+
         #region 构造函数
 
         public CameraService(bool debugMode = false)
@@ -451,11 +473,7 @@ namespace ClearFrost.Services
                 }
 
                 Mat mat = ConvertFrameToMat(frame);
-                lock (_frameLock)
-                {
-                    _lastFrame?.Dispose();
-                    _lastFrame = mat.Clone();
-                }
+                CacheLastFrameReference(mat);
 
                 LastError = null;
                 return mat;
@@ -501,13 +519,8 @@ namespace ClearFrost.Services
                     using var cameraFrame = provider.GetFrame(500);
                     if (cameraFrame != null && cameraFrame.DataPtr != IntPtr.Zero && cameraFrame.Width > 0 && cameraFrame.Height > 0)
                     {
-                        Mat capturedFrame = ConvertCameraFrameToMat(cameraFrame);
-
-                        lock (_frameLock)
-                        {
-                            _lastFrame?.Dispose();
-                            _lastFrame = capturedFrame;
-                        }
+                        using Mat capturedFrame = ConvertCameraFrameToMat(cameraFrame);
+                        CacheLastFrameReference(capturedFrame);
 
                         var frameCapturedHandler = FrameCaptured;
                         if (frameCapturedHandler != null)

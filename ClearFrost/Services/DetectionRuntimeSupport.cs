@@ -231,6 +231,20 @@ namespace ClearFrost.Services
             return new ImageSavePayload(image.Clone(), path, jpegQuality, purpose);
         }
 
+        public static ImageSavePayload CreateReadOnlyView(
+            Mat image,
+            string path,
+            int? jpegQuality = null,
+            ImageSavePurpose purpose = ImageSavePurpose.General)
+        {
+            if (image == null) throw new ArgumentNullException(nameof(image));
+            if (image.Empty()) throw new ArgumentException("图像为空", nameof(image));
+
+            // Mat 视图持有同一像素缓冲的引用计数，避免保存队列再做整图深拷贝。
+            Mat ownedView = image.SubMat(new Rect(0, 0, image.Width, image.Height));
+            return new ImageSavePayload(ownedView, path, jpegQuality, purpose);
+        }
+
         public void Dispose()
         {
             Image.Dispose();

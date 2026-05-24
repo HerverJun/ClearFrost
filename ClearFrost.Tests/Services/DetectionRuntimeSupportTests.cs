@@ -65,6 +65,18 @@ namespace ClearFrost.Tests.Services
         }
 
         [Fact]
+        public void ImageSavePayload_CreateReadOnlyView会复用源图像像素缓冲()
+        {
+            using var source = new Mat(2, 2, MatType.CV_8UC1, Scalar.All(10));
+            using ImageSavePayload payload = ImageSavePayload.CreateReadOnlyView(source, "dummy.jpg");
+
+            source.SetTo(Scalar.All(20));
+
+            payload.Image.At<byte>(0, 0).Should().Be(20);
+            payload.Image.At<byte>(1, 1).Should().Be(20);
+        }
+
+        [Fact]
         public void ImageSavePayload_Create会携带JPEG质量和用途()
         {
             using var source = new Mat(2, 2, MatType.CV_8UC3, Scalar.All(42));
