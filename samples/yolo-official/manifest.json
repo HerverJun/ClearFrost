@@ -1,0 +1,40 @@
+﻿{
+  "source": "Ultralytics official YOLO11 nano models",
+  "format": "onnx",
+  "opset": 17,
+  "dynamic": false,
+  "nms": false,
+  "half": false,
+  "models": [
+    {
+      "task": "detect",
+      "source": "yolo11n.pt",
+      "imgsz": 320,
+      "onnx": "samples/yolo-official/detect/yolo11n.onnx"
+    },
+    {
+      "task": "segment",
+      "source": "yolo11n-seg.pt",
+      "imgsz": 320,
+      "onnx": "samples/yolo-official/segment/yolo11n-seg.onnx"
+    },
+    {
+      "task": "pose",
+      "source": "yolo11n-pose.pt",
+      "imgsz": 320,
+      "onnx": "samples/yolo-official/pose/yolo11n-pose.onnx"
+    },
+    {
+      "task": "obb",
+      "source": "yolo11n-obb.pt",
+      "imgsz": 320,
+      "onnx": "samples/yolo-official/obb/yolo11n-obb.onnx"
+    },
+    {
+      "task": "classify",
+      "source": "yolo11n-cls.pt",
+      "imgsz": 224,
+      "onnx": "samples/yolo-official/classify/yolo11n-cls.onnx"
+    }
+  ]
+}

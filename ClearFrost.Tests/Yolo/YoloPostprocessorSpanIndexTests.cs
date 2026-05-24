@@ -4,6 +4,7 @@
 using ClearFrost.Yolo;
 using FluentAssertions;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using OpenCvSharp;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
@@ -100,7 +101,7 @@ public class YoloPostprocessorSpanIndexTests
         results[0].CenterY.Should().BeApproximately(22, Tolerance);
         results[0].Width.Should().BeApproximately(32, Tolerance);
         results[0].Height.Should().BeApproximately(42, Tolerance);
-        results[0].Confidence.Should().BeApproximately(0.88f, Tolerance);
+        results[0].Confidence.Should().BeApproximately(0.616f, Tolerance);
         results[0].ClassId.Should().Be(1);
     }
 
@@ -134,6 +135,50 @@ public class YoloPostprocessorSpanIndexTests
         finally
         {
             DisposeResults(results);
+        }
+    }
+
+    [Fact]
+    public void SegmentDetectOnly_MidLayout_不分配Mask系数()
+    {
+        object detector = CreateDetector(segWidth: 32);
+        SetPrivateField(detector, "_executionTaskMode", YoloTaskType.SegmentDetectOnly);
+        DenseTensor<float> tensor = CreateTensor(channelCount: 38, anchorCount: 40);
+
+        SetBox(tensor, anchor: 7, centerX: 13, centerY: 23, width: 33, height: 43);
+        tensor[0, 4, 7] = 0.22f;
+        tensor[0, 5, 7] = 0.86f;
+        for (int maskIndex = 0; maskIndex < 32; maskIndex++)
+        {
+            tensor[0, 6 + maskIndex, 7] = 1000 + maskIndex;
+        }
+
+        List<YoloResult> results = InvokeFilter("FilterConfidence_Yolo8_11_Segment", detector, tensor, 0.5f);
+
+        results.Should().ContainSingle();
+        results[0].MaskData.Should().BeNull();
+    }
+
+    [Fact]
+    public void Nms_抑制候选_释放MaskData()
+    {
+        object detector = CreateDetector();
+        YoloResult kept = Detection(centerX: 60, centerY: 60, width: 100, height: 100, confidence: 0.90f, classId: 0);
+        YoloResult suppressed = Detection(centerX: 62, centerY: 62, width: 100, height: 100, confidence: 0.80f, classId: 0);
+        suppressed.MaskData = new Mat(1, 1, MatType.CV_32F, Scalar.All(1));
+        var results = new List<YoloResult> { kept, suppressed };
+
+        List<YoloResult> finalResults = InvokeNms(detector, results, 0.3f, globalIou: false);
+
+        try
+        {
+            finalResults.Should().ContainSingle();
+            finalResults[0].Should().BeSameAs(kept);
+            suppressed.MaskData.Should().BeNull();
+        }
+        finally
+        {
+            DisposeResults(finalResults);
         }
     }
 

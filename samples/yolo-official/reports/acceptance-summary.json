@@ -1,0 +1,52 @@
+﻿[
+    {
+        "Task":  "detect",
+        "Path":  "samples\\yolo-official\\detect\\yolo11n.onnx",
+        "Supported":  true,
+        "Layout":  "RawYoloNoObjectness",
+        "Classes":  80,
+        "AvgMs":  15.34,
+        "P95Ms":  17.76,
+        "Fps":  65.2
+    },
+    {
+        "Task":  "segment",
+        "Path":  "samples\\yolo-official\\segment\\yolo11n-seg.onnx",
+        "Supported":  true,
+        "Layout":  "SegmentRaw",
+        "Classes":  80,
+        "AvgMs":  14.57,
+        "P95Ms":  20.14,
+        "Fps":  68.6
+    },
+    {
+        "Task":  "pose",
+        "Path":  "samples\\yolo-official\\pose\\yolo11n-pose.onnx",
+        "Supported":  true,
+        "Layout":  "PoseRaw",
+        "Classes":  1,
+        "AvgMs":  11.47,
+        "P95Ms":  17.06,
+        "Fps":  87.2
+    },
+    {
+        "Task":  "obb",
+        "Path":  "samples\\yolo-official\\obb\\yolo11n-obb.onnx",
+        "Supported":  true,
+        "Layout":  "ObbRaw",
+        "Classes":  15,
+        "AvgMs":  11.33,
+        "P95Ms":  18.29,
+        "Fps":  88.2
+    },
+    {
+        "Task":  "classify",
+        "Path":  "samples\\yolo-official\\classify\\yolo11n-cls.onnx",
+        "Supported":  true,
+        "Layout":  "Classification",
+        "Classes":  1000,
+        "AvgMs":  3.5,
+        "P95Ms":  4.79,
+        "Fps":  285.9
+    }
+]

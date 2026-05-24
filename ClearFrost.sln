@@ -15,6 +15,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ClearFrost.SimStress", "too
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "HslTypeAnalyzer", "tools\HslTypeAnalyzer\HslTypeAnalyzer.csproj", "{A5B3D9E8-4D8C-4D58-8F50-948F77DAF537}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ClearFrost.YoloProbe", "tools\ClearFrost.YoloProbe\ClearFrost.YoloProbe.csproj", "{C1F5A7B4-0F9D-4D68-BDE4-9A4DA3204C77}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -41,6 +43,10 @@ Global
 		{A5B3D9E8-4D8C-4D58-8F50-948F77DAF537}.Debug|x64.Build.0 = Debug|x64
 		{A5B3D9E8-4D8C-4D58-8F50-948F77DAF537}.Release|x64.ActiveCfg = Release|x64
 		{A5B3D9E8-4D8C-4D58-8F50-948F77DAF537}.Release|x64.Build.0 = Release|x64
+		{C1F5A7B4-0F9D-4D68-BDE4-9A4DA3204C77}.Debug|x64.ActiveCfg = Debug|x64
+		{C1F5A7B4-0F9D-4D68-BDE4-9A4DA3204C77}.Debug|x64.Build.0 = Debug|x64
+		{C1F5A7B4-0F9D-4D68-BDE4-9A4DA3204C77}.Release|x64.ActiveCfg = Release|x64
+		{C1F5A7B4-0F9D-4D68-BDE4-9A4DA3204C77}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -49,6 +55,7 @@ Global
 		{93FB398E-44C8-43F4-A461-49E3C4951BCD} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 		{66D56E57-D19F-4FF4-9F3B-53D94F7D726A} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 		{A5B3D9E8-4D8C-4D58-8F50-948F77DAF537} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
+		{C1F5A7B4-0F9D-4D68-BDE4-9A4DA3204C77} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {C397AAFF-5460-454C-A819-8B30A5840FBB}

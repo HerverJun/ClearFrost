@@ -70,6 +70,24 @@ public class Yolo26VersionDetectionTests
     }
 
     [Fact]
+    public void Yolo26Decoded2DResults_运行时按Decoded输出解析()
+    {
+        object detector = RuntimeHelpers.GetUninitializedObject(DetectorType);
+        SetPrivateField(detector, "_yoloVersion", 26);
+
+        var tensor = new DenseTensor<float>(new[] { 3, 6 });
+        SetYolo26Row2D(tensor, index: 0, x1: 10, y1: 10, x2: 110, y2: 110, confidence: 0.90f, classId: 0);
+        SetYolo26Row2D(tensor, index: 1, x1: 12, y1: 12, x2: 112, y2: 112, confidence: 0.80f, classId: 0);
+        SetYolo26Row2D(tensor, index: 2, x1: 200, y1: 200, x2: 260, y2: 260, confidence: 0.70f, classId: 0);
+
+        List<YoloResult> finalResults = InvokePostprocessDetectionOutput(detector, tensor, 0.5f, 0.3f, globalIou: false);
+
+        finalResults.Should().HaveCount(2);
+        finalResults[0].Confidence.Should().BeApproximately(0.90f, 0.0001f);
+        finalResults[1].Confidence.Should().BeApproximately(0.70f, 0.0001f);
+    }
+
+    [Fact]
     public void ExplicitYolo26_RawLayout_仍按RawYolo输出解析并执行NMS()
     {
         object detector = RuntimeHelpers.GetUninitializedObject(DetectorType);
@@ -164,6 +182,24 @@ public class Yolo26VersionDetectionTests
         tensor[0, index, 3] = y2;
         tensor[0, index, 4] = confidence;
         tensor[0, index, 5] = classId;
+    }
+
+    private static void SetYolo26Row2D(
+        DenseTensor<float> tensor,
+        int index,
+        float x1,
+        float y1,
+        float x2,
+        float y2,
+        float confidence,
+        int classId)
+    {
+        tensor[index, 0] = x1;
+        tensor[index, 1] = y1;
+        tensor[index, 2] = x2;
+        tensor[index, 3] = y2;
+        tensor[index, 4] = confidence;
+        tensor[index, 5] = classId;
     }
 
     private static void SetRawBox(DenseTensor<float> tensor, int anchor, float centerX, float centerY, float width, float height)
