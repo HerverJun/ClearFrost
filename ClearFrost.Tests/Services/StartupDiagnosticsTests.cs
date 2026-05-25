@@ -66,6 +66,68 @@ public class StartupDiagnosticsTests
     }
 
     [Fact]
+    public void Run_Plc协议名非法会产生阻塞失败()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                PlcProtocol = "Mitsubishi_MC_ASCI"
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "PLC address config" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking &&
+                i.Details.Contains("PLC 协议无效"));
+            report.IsReady.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_Plc驱动名非法会产生阻塞失败()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                PlcDriverProvider = "HaoCommunicaton"
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "PLC address config" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking &&
+                i.Details.Contains("PLC 驱动库"));
+            report.IsReady.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void Run_条码启用时会校验条码地址()
     {
         string tempDir = CreateTempDirectory();

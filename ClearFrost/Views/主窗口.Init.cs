@@ -1041,7 +1041,18 @@ namespace ClearFrost
                         if (root.TryGetProperty("BarcodeEncoding", out var benc)) barcodeEncoding = benc.GetString() ?? barcodeEncoding;
                         if (root.TryGetProperty("BarcodeRequired", out var br)) barcodeRequired = br.ValueKind == JsonValueKind.True;
 
-                        PlcProtocolType plcProtocolType = PlcFactory.ParseProtocol(plcProtocol);
+                        if (!PlcFactory.TryParseProtocol(plcProtocol, out PlcProtocolType plcProtocolType))
+                        {
+                            throw new InvalidOperationException(
+                                $"PLC 协议无效: {plcProtocol}。支持: {string.Join(", ", Enum.GetNames<PlcProtocolType>())}");
+                        }
+
+                        plcProtocol = plcProtocolType.ToString();
+                        if (!PlcFactory.TryNormalizeDriverProvider(plcDriverProvider, out plcDriverProvider))
+                        {
+                            throw new InvalidOperationException("PLC 驱动库仅支持 Hsl、HaoCommunication、McpX");
+                        }
+
                         bool isMitsubishiProtocol =
                             plcProtocolType == PlcProtocolType.Mitsubishi_MC_ASCII ||
                             plcProtocolType == PlcProtocolType.Mitsubishi_MC_Binary;
@@ -1195,6 +1206,7 @@ namespace ClearFrost
 
                         // 重新初始化YOLO(如果GPU设置改变)
                         InitYolo();
+                        RefreshStartupDiagnostics();
 
                         // 根据 TriggerSource 切换触发源；PLC 通讯连接保留用于写回/条码，监听只按触发源启动。
                         _ = StartTriggerSourceAsync();
@@ -1430,6 +1442,7 @@ namespace ClearFrost
                 模型名 = _appConfig.CurrentModelFileName?.Trim() ?? string.Empty;
                 await WarnMissingImportedModelFilesAsync();
                 InitYolo();
+                RefreshStartupDiagnostics();
                 _ = StartTriggerSourceAsync();
 
                 await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");

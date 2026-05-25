@@ -189,6 +189,214 @@ public class PlcServiceRecoveryTests
         device.Writes.Should().Contain(("D555", (short)0));
     }
 
+    [Fact]
+    public async Task MonitoringLoop_触发复位失败时不发送触发事件并断开()
+    {
+        var service = new PlcService();
+        using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        var device = new FakePlcDevice(
+            isConnected: true,
+            readResultFactory: address => (true, (short)(address == "D555" ? 1 : 0), string.Empty),
+            writeResultFactory: (address, value) =>
+            {
+                cancellationTokenSource.Cancel();
+                return (false, $"复位失败: {address}");
+            });
+        bool triggered = false;
+        service.TriggerReceived += () => triggered = true;
+
+        PlcTestReflectionHelper.SetPrivateField(service, "_plcDevice", device);
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastProtocolMode", PlcProtocolMode.Legacy);
+        PlcTestReflectionHelper.SetAutoProperty(service, "IsConnected", true);
+
+        await InvokeMonitoringLoopAsync(service, "D555", 50, 0, cancellationTokenSource.Token);
+
+        triggered.Should().BeFalse();
+        service.IsConnected.Should().BeFalse();
+        service.LastError.Should().Contain("复位失败");
+        device.DisconnectCalled.Should().BeTrue();
+        PlcTestReflectionHelper.GetPrivateField<IPlcDevice?>(service, "_plcDevice").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task MonitoringLoop_HandshakeV1读取TriggerSeq失败时不复位也不触发()
+    {
+        var service = new PlcService();
+        using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        var device = new FakePlcDevice(
+            isConnected: true,
+            readResultFactory: address =>
+            {
+                if (address == "D557")
+                {
+                    cancellationTokenSource.Cancel();
+                    return (false, (short)0, "TriggerSeq读取失败");
+                }
+
+                return (true, (short)(address == "D555" ? 1 : 0), string.Empty);
+            });
+        bool legacyTriggered = false;
+        bool contextTriggered = false;
+        service.TriggerReceived += () => legacyTriggered = true;
+        service.TriggerContextReceived += _ => contextTriggered = true;
+
+        PlcTestReflectionHelper.SetPrivateField(service, "_plcDevice", device);
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastProtocolMode", PlcProtocolMode.HandshakeV1);
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastTriggerSeqAddress", "D557");
+        PlcTestReflectionHelper.SetAutoProperty(service, "IsConnected", true);
+
+        await InvokeMonitoringLoopAsync(service, "D555", 50, 0, cancellationTokenSource.Token);
+
+        legacyTriggered.Should().BeFalse();
+        contextTriggered.Should().BeFalse();
+        device.Writes.Should().BeEmpty();
+        service.IsConnected.Should().BeFalse();
+        service.LastError.Should().Contain("TriggerSeq读取失败");
+        device.DisconnectCalled.Should().BeTrue();
+        PlcTestReflectionHelper.GetPrivateField<IPlcDevice?>(service, "_plcDevice").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task MonitoringLoop_正常停止不标记PLC断开()
+    {
+        var service = new PlcService();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        PlcTestReflectionHelper.SetPrivateField(service, "_monitoringStopRequested", true);
+        PlcTestReflectionHelper.SetAutoProperty(service, "IsConnected", true);
+
+        await InvokeMonitoringLoopAsync(service, "D555", 50, 0, cancellationTokenSource.Token);
+
+        service.IsConnected.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task WriteResultAsync_底层写入失败后同步断开状态()
+    {
+        var service = CreateConnectedService(new FakePlcDevice(
+            isConnected: true,
+            writeResultFactory: (address, value) => (false, $"写入失败: {address}")));
+        bool? changedState = null;
+        service.ConnectionChanged += connected => changedState = connected;
+
+        bool result = await service.WriteResultAsync("D100", (short)1);
+
+        result.Should().BeFalse();
+        service.IsConnected.Should().BeFalse();
+        service.LastError.Should().Contain("写入失败");
+        changedState.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task WriteResultAsync_服务状态未同步但底层已断开时立即同步断开()
+    {
+        var service = CreateConnectedService(new FakePlcDevice(isConnected: false));
+        bool? changedState = null;
+        service.ConnectionChanged += connected => changedState = connected;
+
+        bool result = await service.WriteResultAsync("D100", (short)1);
+
+        result.Should().BeFalse();
+        service.IsConnected.Should().BeFalse();
+        service.LastError.Should().Contain("PLC 未连接");
+        changedState.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task WriteReleaseSignalAsync_底层写入失败后同步断开状态()
+    {
+        var service = CreateConnectedService(new FakePlcDevice(
+            isConnected: true,
+            writeResultFactory: (address, value) => (false, $"放行失败: {address}")));
+        bool? changedState = null;
+        service.ConnectionChanged += connected => changedState = connected;
+
+        bool result = await service.WriteReleaseSignalAsync("D100");
+
+        result.Should().BeFalse();
+        service.IsConnected.Should().BeFalse();
+        service.LastError.Should().Contain("放行失败");
+        changedState.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ReadStringAsync_底层读取失败后同步断开状态()
+    {
+        var service = CreateConnectedService(new FakePlcDevice(
+            isConnected: true,
+            readBytesResultFactory: (address, length) => (false, Array.Empty<byte>(), $"读取条码失败: {address}")));
+        bool? changedState = null;
+        service.ConnectionChanged += connected => changedState = connected;
+
+        var result = await service.ReadStringAsync("D570", 16, "ASCII");
+
+        result.Success.Should().BeFalse();
+        result.Value.Should().BeEmpty();
+        service.IsConnected.Should().BeFalse();
+        service.LastError.Should().Contain("读取条码失败");
+        changedState.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Modbus_TCP", 16, 16)]
+    [InlineData("Siemens_S7", 16, 32)]
+    [InlineData("Mitsubishi_MC_ASCII", 16, 32)]
+    [InlineData("Mitsubishi_MC_Binary", 16, 32)]
+    [InlineData("Omron_Fins", 16, 32)]
+    public void GetStringReadLength_按协议换算条码字长(string protocol, int wordLength, ushort expected)
+    {
+        var service = new PlcService();
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastProtocol", protocol);
+
+        ushort readLength = InvokeGetStringReadLength(service, wordLength);
+
+        readLength.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task ConnectAsync_地址无效后不会卡住连接中状态()
+    {
+        var service = new PlcService();
+
+        bool firstResult = await service.ConnectAsync(new PlcConnectionOptions
+        {
+            Protocol = PlcProtocolType.Mitsubishi_MC_Binary.ToString(),
+            DriverProvider = "McpX",
+            Ip = "127.0.0.1",
+            Port = 1,
+            TriggerAddress = "M100"
+        });
+
+        bool secondResult = await service.ConnectAsync(new PlcConnectionOptions
+        {
+            Protocol = PlcProtocolType.Mitsubishi_MC_Binary.ToString(),
+            DriverProvider = "McpX",
+            Ip = "127.0.0.1",
+            Port = 1,
+            TriggerAddress = "M100"
+        });
+
+        firstResult.Should().BeFalse();
+        secondResult.Should().BeFalse();
+        PlcTestReflectionHelper.GetPrivateField<bool>(service, "_isConnecting").Should().BeFalse();
+        service.LastError.Should().Contain("McpX");
+    }
+
+    [Fact]
+    public void StartMonitoring_地址无效时记录错误且不抛异常()
+    {
+        var service = new PlcService();
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastProtocol", PlcProtocolType.Mitsubishi_MC_Binary.ToString());
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastDriverProvider", "McpX");
+
+        Action action = () => service.StartMonitoring("M100");
+
+        action.Should().NotThrow();
+        service.LastError.Should().Contain("McpX");
+        PlcTestReflectionHelper.GetPrivateField<Task?>(service, "_monitoringTask").Should().BeNull();
+    }
+
     private static async Task InvokeMonitoringLoopAsync(
         PlcService service,
         string triggerAddress,
@@ -222,6 +430,30 @@ public class PlcServiceRecoveryTests
 
         task.Should().NotBeNull();
         return await task!;
+    }
+
+    private static ushort InvokeGetStringReadLength(PlcService service, int safeWordLength)
+    {
+        var method = typeof(PlcService).GetMethod(
+            "GetStringReadLength",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        method.Should().NotBeNull();
+
+        var result = method!.Invoke(service, new object[] { safeWordLength });
+
+        result.Should().BeOfType<ushort>();
+        return (ushort)result!;
+    }
+
+    private static PlcService CreateConnectedService(IPlcDevice device)
+    {
+        var service = new PlcService();
+        PlcTestReflectionHelper.SetPrivateField(service, "_plcDevice", device);
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastProtocol", PlcProtocolType.Mitsubishi_MC_ASCII.ToString());
+        PlcTestReflectionHelper.SetPrivateField(service, "_lastDriverProvider", "Hsl");
+        PlcTestReflectionHelper.SetAutoProperty(service, "IsConnected", true);
+        return service;
     }
 }
 
@@ -268,15 +500,21 @@ internal sealed class FakePlcDevice : IPlcDevice
 {
     private readonly Action? _onRead;
     private readonly Func<string, (bool Success, short Value, string Error)>? _readResultFactory;
+    private readonly Func<string, ushort, (bool Success, byte[] Value, string Error)>? _readBytesResultFactory;
+    private readonly Func<string, short, (bool Success, string Error)>? _writeResultFactory;
 
     public FakePlcDevice(
         bool isConnected,
         Action? onRead = null,
-        Func<string, (bool Success, short Value, string Error)>? readResultFactory = null)
+        Func<string, (bool Success, short Value, string Error)>? readResultFactory = null,
+        Func<string, ushort, (bool Success, byte[] Value, string Error)>? readBytesResultFactory = null,
+        Func<string, short, (bool Success, string Error)>? writeResultFactory = null)
     {
         IsConnected = isConnected;
         _onRead = onRead;
         _readResultFactory = readResultFactory;
+        _readBytesResultFactory = readBytesResultFactory;
+        _writeResultFactory = writeResultFactory;
     }
 
     public bool DisconnectCalled { get; private set; }
@@ -318,12 +556,28 @@ internal sealed class FakePlcDevice : IPlcDevice
     public Task<(bool Success, byte[] Value)> ReadBytesAsync(string address, ushort length)
     {
         _onRead?.Invoke();
-        return Task.FromResult((true, Array.Empty<byte>()));
+
+        var result = _readBytesResultFactory?.Invoke(address, length) ?? (true, Array.Empty<byte>(), string.Empty);
+        LastError = result.Error;
+        if (!result.Success)
+        {
+            IsConnected = false;
+        }
+
+        return Task.FromResult((result.Success, result.Value));
     }
 
     public Task<bool> WriteInt16Async(string address, short value)
     {
         Writes.Add((address, value));
-        return Task.FromResult(true);
+
+        var result = _writeResultFactory?.Invoke(address, value) ?? (true, string.Empty);
+        LastError = result.Error;
+        if (!result.Success)
+        {
+            IsConnected = false;
+        }
+
+        return Task.FromResult(result.Success);
     }
 }

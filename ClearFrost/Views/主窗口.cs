@@ -118,6 +118,13 @@ namespace ClearFrost
             }
         }
 
+        private StartupDiagnosticReport RefreshStartupDiagnostics()
+        {
+            StartupDiagnosticReport report = _startupDiagnostics.Run(_appConfig, _storageService, _modelRegistry);
+            LogStartupDiagnostics();
+            return report;
+        }
+
         private async Task<bool> EnsureStartupReadyForProductionAsync(string operation, string? inspectionId = null)
         {
             if (_startupDiagnostics.CurrentReport.IsReady)

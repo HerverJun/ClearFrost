@@ -123,7 +123,13 @@ namespace ClearFrost.Services
         {
             try
             {
-                PlcProtocolType protocolType = PlcFactory.ParseProtocol(config.PlcProtocol);
+                if (!PlcFactory.TryParseProtocol(config.PlcProtocol, out PlcProtocolType protocolType))
+                {
+                    throw new ArgumentException(
+                        $"PLC 协议无效: {config.PlcProtocol}。支持: {string.Join(", ", Enum.GetNames<PlcProtocolType>())}");
+                }
+
+                string driverProvider = PlcFactory.NormalizeDriverProviderOrThrow(config.PlcDriverProvider);
                 var addresses = new List<string>
                 {
                     config.PlcTriggerAddress,
@@ -158,7 +164,7 @@ namespace ClearFrost.Services
                     PlcAddressNormalizer.EnsureDriverSupportsAddress(
                         normalized,
                         protocolType,
-                        config.PlcDriverProvider);
+                        driverProvider);
                 }
 
                 return Pass("PLC address config", "PLC addresses are valid.", config.PlcProtocolMode.ToString(), isBlocking: true);

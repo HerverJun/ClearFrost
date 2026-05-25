@@ -136,6 +136,69 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
+        /// 严格解析协议字符串；用于用户保存和启动诊断，避免拼写错误被静默当作三菱协议。
+        /// </summary>
+        public static bool TryParseProtocol(string? protocolStr, out PlcProtocolType protocolType)
+        {
+            string raw = protocolStr?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(raw) || int.TryParse(raw, out _))
+            {
+                protocolType = default;
+                return false;
+            }
+
+            if (Enum.TryParse(raw, true, out protocolType) &&
+                Enum.IsDefined(typeof(PlcProtocolType), protocolType))
+            {
+                return true;
+            }
+
+            protocolType = default;
+            return false;
+        }
+
+        /// <summary>
+        /// 校验并规范化驱动提供方名称。
+        /// </summary>
+        public static bool TryNormalizeDriverProvider(string? driverProvider, out string normalized)
+        {
+            string raw = driverProvider?.Trim() ?? string.Empty;
+            if (string.Equals(raw, "Hsl", StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = "Hsl";
+                return true;
+            }
+
+            if (string.Equals(raw, "HaoCommunication", StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = "HaoCommunication";
+                return true;
+            }
+
+            if (string.Equals(raw, "McpX", StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = "McpX";
+                return true;
+            }
+
+            normalized = string.Empty;
+            return false;
+        }
+
+        /// <summary>
+        /// 校验驱动提供方名称，非法时抛出可展示给用户的异常。
+        /// </summary>
+        public static string NormalizeDriverProviderOrThrow(string? driverProvider)
+        {
+            if (TryNormalizeDriverProvider(driverProvider, out string normalized))
+            {
+                return normalized;
+            }
+
+            throw new ArgumentException("PLC 驱动库仅支持 Hsl、HaoCommunication、McpX", nameof(driverProvider));
+        }
+
+        /// <summary>
         /// 将配置中的西门子 CPU 型号转换为 HslCommunication 使用的枚举。
         /// </summary>
         /// <remarks>未知型号按 S1200 处理，避免空配置导致连接创建失败。</remarks>

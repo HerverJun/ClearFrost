@@ -39,6 +39,7 @@ namespace ClearFrost.Services
         private string _lastIp = "127.0.0.1";
         private int _lastPort = 0;
         private string _lastTriggerAddress = string.Empty;
+        private bool _monitoringStopRequested;
         private PlcProtocolMode _lastProtocolMode = PlcProtocolMode.Legacy;
         private string _lastTriggerSeqAddress = string.Empty;
         private string _lastSiemensCpuModel = "S1200";
@@ -75,27 +76,37 @@ namespace ClearFrost.Services
         {
             if (_isConnecting) return false;
             _isConnecting = true;
-
-            const int maxRetries = 3;
-            options ??= new PlcConnectionOptions();
-            var protocolType = options.ProtocolType;
-
-            _lastProtocol = string.IsNullOrWhiteSpace(options.Protocol) ? protocolType.ToString() : options.Protocol;
-            _lastDriverProvider = string.IsNullOrWhiteSpace(options.DriverProvider) ? "Hsl" : options.DriverProvider;
-            _lastIp = options.Ip ?? string.Empty;
-            _lastPort = options.Port;
-            _lastSiemensCpuModel = string.IsNullOrWhiteSpace(options.SiemensCpuModel) ? "S1200" : options.SiemensCpuModel;
-            _lastSiemensRack = options.SiemensRack;
-            _lastSiemensSlot = options.SiemensSlot;
-            _lastTriggerAddress = options.TriggerAddress ?? string.Empty;
+            bool connectionResetStarted = false;
 
             try
             {
+                const int maxRetries = 3;
+                options ??= new PlcConnectionOptions();
+                var protocolType = options.ProtocolType;
+
+                string nextProtocol = string.IsNullOrWhiteSpace(options.Protocol) ? protocolType.ToString() : options.Protocol;
+                string nextDriverProvider = string.IsNullOrWhiteSpace(options.DriverProvider) ? "Hsl" : options.DriverProvider;
+                string nextTriggerAddress = NormalizeAddress(
+                    options.TriggerAddress ?? string.Empty,
+                    protocolType,
+                    nextDriverProvider,
+                    required: false);
+
                 // 停止旧的监听
                 await StopMonitoringAsync();
 
                 // 断开现有连接
+                connectionResetStarted = true;
                 Disconnect();
+
+                _lastProtocol = nextProtocol;
+                _lastDriverProvider = nextDriverProvider;
+                _lastIp = options.Ip ?? string.Empty;
+                _lastPort = options.Port;
+                _lastSiemensCpuModel = string.IsNullOrWhiteSpace(options.SiemensCpuModel) ? "S1200" : options.SiemensCpuModel;
+                _lastSiemensRack = options.SiemensRack;
+                _lastSiemensSlot = options.SiemensSlot;
+                _lastTriggerAddress = nextTriggerAddress;
 
                 Debug.WriteLine($"[PlcService] 正在连接 {_lastDriverProvider}/{protocolType} @ {_lastIp}:{_lastPort}");
 
@@ -149,7 +160,21 @@ namespace ClearFrost.Services
             {
                 LastError = ex.Message;
                 ErrorOccurred?.Invoke($"连接异常: {ex.Message}");
-                SetConnectionState(false);
+                if (connectionResetStarted)
+                {
+                    try
+                    {
+                        _plcDevice?.Disconnect();
+                    }
+                    catch (Exception disconnectEx)
+                    {
+                        Debug.WriteLine($"[PlcService] 连接异常后断开失败: {disconnectEx.Message}");
+                    }
+
+                    _plcDevice = null;
+                    SetConnectionState(false);
+                }
+
                 return false;
             }
             finally
@@ -188,19 +213,23 @@ namespace ClearFrost.Services
             if (_monitoringTask != null && !_monitoringTask.IsCompleted) return;
 
             options ??= new PlcMonitoringOptions();
-            _lastTriggerAddress = triggerAddress ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(_lastTriggerAddress))
+            try
             {
-                LastError = "触发地址不能为空";
-                ErrorOccurred?.Invoke(LastError);
+                _lastTriggerAddress = NormalizeAddressForCurrentDriver(triggerAddress ?? string.Empty, required: true);
+                _lastTriggerSeqAddress = NormalizeAddressForCurrentDriver(options.TriggerSeqAddress ?? string.Empty, required: false);
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                ErrorOccurred?.Invoke($"PLC监听地址无效: {ex.Message}");
                 return;
             }
 
             _lastPollingIntervalMs = Math.Max(50, pollingIntervalMs);
             _lastTriggerDelayMs = Math.Max(0, triggerDelayMs);
             _lastProtocolMode = options.ProtocolMode;
-            _lastTriggerSeqAddress = options.TriggerSeqAddress ?? string.Empty;
             Interlocked.Exchange(ref _lastAcceptedTriggerTicks, 0);
+            _monitoringStopRequested = false;
 
             _monitoringCts = new CancellationTokenSource();
             var token = _monitoringCts.Token;
@@ -217,6 +246,7 @@ namespace ClearFrost.Services
         {
             if (_monitoringCts != null)
             {
+                _monitoringStopRequested = true;
                 _monitoringCts.Cancel();
                 try
                 {
@@ -237,6 +267,7 @@ namespace ClearFrost.Services
         {
             if (_monitoringCts != null && !_monitoringCts.IsCancellationRequested)
             {
+                _monitoringStopRequested = true;
                 _monitoringCts.Cancel();
             }
             if (_monitoringTask != null)
@@ -309,12 +340,24 @@ namespace ClearFrost.Services
                         int? triggerSeq = null;
                         if (_lastProtocolMode == PlcProtocolMode.HandshakeV1)
                         {
-                            triggerSeq = await TryReadTriggerSeqAsync(plc);
+                            var triggerSeqResult = await TryReadTriggerSeqAsync(plc);
+                            if (!triggerSeqResult.Success)
+                            {
+                                throw new InvalidOperationException(LastError ?? "读取 TriggerSeq 失败");
+                            }
+
+                            triggerSeq = triggerSeqResult.Value;
                         }
 
                         // 收到触发信号，复位
                         bool resetSuccess = await plc.WriteInt16Async(address, 0);
                         Debug.WriteLine($"[PlcService] ↩ 复位信号 - {(resetSuccess ? "成功" : "失败")}");
+                        if (!resetSuccess)
+                        {
+                            LastError = plc.LastError ?? "复位触发信号失败";
+                            SyncConnectionStateFromDevice(plc);
+                            throw new InvalidOperationException(LastError);
+                        }
 
                         // 显式 2 秒防抖：窗口内只接受第一个触发
                         long nowTicks = DateTime.UtcNow.Ticks;
@@ -388,7 +431,12 @@ namespace ClearFrost.Services
                 }
             }
 
-            SetConnectionState(false);
+            if (!_monitoringStopRequested)
+            {
+                SetConnectionState(false);
+            }
+
+            _monitoringStopRequested = false;
             Debug.WriteLine($"[PlcService] ⏹ 监听循环结束 - 共轮询 {pollCount} 次");
         }
 
@@ -398,14 +446,18 @@ namespace ClearFrost.Services
 
         public async Task<bool> WriteResultAsync(string resultAddress, bool isQualified)
         {
-            if (!IsConnected || _plcDevice == null || string.IsNullOrWhiteSpace(resultAddress)) return false;
+            if (!TryGetConnectedDeviceForOperation(resultAddress, out var plc, out string address))
+            {
+                return false;
+            }
 
             try
             {
-                bool success = await _plcDevice.WriteInt16Async(resultAddress, (short)(isQualified ? 1 : 0));
+                bool success = await plc.WriteInt16Async(address, (short)(isQualified ? 1 : 0));
                 if (!success)
                 {
-                    LastError = _plcDevice.LastError;
+                    LastError = plc.LastError;
+                    SyncConnectionStateFromDevice(plc);
                     ErrorOccurred?.Invoke($"写入失败: {LastError}");
                 }
                 return success;
@@ -413,6 +465,7 @@ namespace ClearFrost.Services
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                SyncConnectionStateFromDevice(plc);
                 ErrorOccurred?.Invoke($"写入异常: {ex.Message}");
                 return false;
             }
@@ -420,14 +473,18 @@ namespace ClearFrost.Services
 
         public async Task<bool> WriteResultAsync(string resultAddress, short valueToWrite)
         {
-            if (!IsConnected || _plcDevice == null || string.IsNullOrWhiteSpace(resultAddress)) return false;
+            if (!TryGetConnectedDeviceForOperation(resultAddress, out var plc, out string address))
+            {
+                return false;
+            }
 
             try
             {
-                bool success = await _plcDevice.WriteInt16Async(resultAddress, valueToWrite);
+                bool success = await plc.WriteInt16Async(address, valueToWrite);
                 if (!success)
                 {
-                    LastError = _plcDevice.LastError;
+                    LastError = plc.LastError;
+                    SyncConnectionStateFromDevice(plc);
                     ErrorOccurred?.Invoke($"写入失败: {LastError}");
                 }
                 return success;
@@ -435,6 +492,7 @@ namespace ClearFrost.Services
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                SyncConnectionStateFromDevice(plc);
                 ErrorOccurred?.Invoke($"写入异常: {ex.Message}");
                 return false;
             }
@@ -442,14 +500,27 @@ namespace ClearFrost.Services
 
         public async Task<bool> WriteReleaseSignalAsync(string resultAddress)
         {
-            if (!IsConnected || _plcDevice == null || string.IsNullOrWhiteSpace(resultAddress)) return false;
+            if (!TryGetConnectedDeviceForOperation(resultAddress, out var plc, out string address))
+            {
+                return false;
+            }
 
             try
             {
-                return await _plcDevice.WriteInt16Async(resultAddress, 1);
+                bool success = await plc.WriteInt16Async(address, 1);
+                if (!success)
+                {
+                    LastError = plc.LastError;
+                    SyncConnectionStateFromDevice(plc);
+                    ErrorOccurred?.Invoke($"放行失败: {LastError}");
+                }
+
+                return success;
             }
             catch (Exception ex)
             {
+                LastError = ex.Message;
+                SyncConnectionStateFromDevice(plc);
                 ErrorOccurred?.Invoke($"放行失败: {ex.Message}");
                 return false;
             }
@@ -457,7 +528,7 @@ namespace ClearFrost.Services
 
         public async Task<(bool Success, string Value)> ReadStringAsync(string startAddress, int wordLength, string encodingName)
         {
-            if (!IsConnected || _plcDevice == null || string.IsNullOrWhiteSpace(startAddress))
+            if (!TryGetConnectedDeviceForOperation(startAddress, out var plc, out string address))
             {
                 return (false, string.Empty);
             }
@@ -466,10 +537,12 @@ namespace ClearFrost.Services
 
             try
             {
-                var (success, bytes) = await _plcDevice.ReadBytesAsync(startAddress, (ushort)(safeWordLength * 2));
+                ushort readLength = GetStringReadLength(safeWordLength);
+                var (success, bytes) = await plc.ReadBytesAsync(address, readLength);
                 if (!success)
                 {
-                    LastError = _plcDevice.LastError;
+                    LastError = plc.LastError;
+                    SyncConnectionStateFromDevice(plc);
                     ErrorOccurred?.Invoke($"读取条码失败: {LastError}");
                     return (false, string.Empty);
                 }
@@ -491,6 +564,7 @@ namespace ClearFrost.Services
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                SyncConnectionStateFromDevice(plc);
                 ErrorOccurred?.Invoke($"读取条码异常: {ex.Message}");
                 return (false, string.Empty);
             }
@@ -512,6 +586,81 @@ namespace ClearFrost.Services
             if (changed)
             {
                 ConnectionChanged?.Invoke(connected);
+            }
+        }
+
+        private bool TryGetConnectedDeviceForOperation(
+            string rawAddress,
+            out IPlcDevice plc,
+            out string normalizedAddress)
+        {
+            plc = null!;
+            normalizedAddress = string.Empty;
+
+            if (!IsConnected || _plcDevice == null || string.IsNullOrWhiteSpace(rawAddress))
+            {
+                return false;
+            }
+
+            if (!_plcDevice.IsConnected)
+            {
+                SyncConnectionStateFromDevice(_plcDevice);
+                LastError = string.IsNullOrWhiteSpace(_plcDevice.LastError)
+                    ? "PLC 未连接"
+                    : _plcDevice.LastError;
+                return false;
+            }
+
+            try
+            {
+                normalizedAddress = NormalizeAddressForCurrentDriver(rawAddress, required: true);
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                ErrorOccurred?.Invoke($"PLC地址无效: {ex.Message}");
+                return false;
+            }
+
+            plc = _plcDevice;
+            return true;
+        }
+
+        private string NormalizeAddressForCurrentDriver(string rawAddress, bool required)
+        {
+            return NormalizeAddress(
+                rawAddress,
+                PlcFactory.ParseProtocol(_lastProtocol),
+                _lastDriverProvider,
+                required);
+        }
+
+        private static string NormalizeAddress(
+            string rawAddress,
+            PlcProtocolType protocolType,
+            string driverProvider,
+            bool required)
+        {
+            if (string.IsNullOrWhiteSpace(rawAddress))
+            {
+                return required
+                    ? PlcAddressNormalizer.NormalizeOrThrow(rawAddress, protocolType)
+                    : string.Empty;
+            }
+
+            string normalized = PlcAddressNormalizer.NormalizeOrThrow(rawAddress, protocolType);
+            PlcAddressNormalizer.EnsureDriverSupportsAddress(
+                normalized,
+                protocolType,
+                driverProvider);
+            return normalized;
+        }
+
+        private void SyncConnectionStateFromDevice(IPlcDevice plc)
+        {
+            if (!plc.IsConnected)
+            {
+                SetConnectionState(false);
             }
         }
 
@@ -591,11 +740,11 @@ namespace ClearFrost.Services
             }
         }
 
-        private async Task<int?> TryReadTriggerSeqAsync(IPlcDevice plc)
+        private async Task<(bool Success, int? Value)> TryReadTriggerSeqAsync(IPlcDevice plc)
         {
             if (string.IsNullOrWhiteSpace(_lastTriggerSeqAddress))
             {
-                return null;
+                return (true, null);
             }
 
             try
@@ -604,17 +753,19 @@ namespace ClearFrost.Services
                 if (!success)
                 {
                     LastError = plc.LastError;
+                    SyncConnectionStateFromDevice(plc);
                     ErrorOccurred?.Invoke($"读取 TriggerSeq 失败: {LastError}");
-                    return null;
+                    return (false, null);
                 }
 
-                return value;
+                return (true, value);
             }
             catch (Exception ex)
             {
                 LastError = ex.Message;
+                SyncConnectionStateFromDevice(plc);
                 ErrorOccurred?.Invoke($"读取 TriggerSeq 异常: {ex.Message}");
-                return null;
+                return (false, null);
             }
         }
 
@@ -636,6 +787,17 @@ namespace ClearFrost.Services
         private static string GetConnectivityProbeAddress(PlcProtocolType protocolType, string preferredAddress)
         {
             return PlcAddressNormalizer.GetProbeAddress(protocolType, preferredAddress);
+        }
+
+        private ushort GetStringReadLength(int safeWordLength)
+        {
+            PlcProtocolType protocolType = PlcFactory.ParseProtocol(_lastProtocol);
+            if (protocolType == PlcProtocolType.Modbus_TCP)
+            {
+                return (ushort)safeWordLength;
+            }
+
+            return (ushort)(safeWordLength * 2);
         }
 
         private static string OffsetWordAddress(string startAddress, PlcProtocolType protocolType, int wordOffset)
