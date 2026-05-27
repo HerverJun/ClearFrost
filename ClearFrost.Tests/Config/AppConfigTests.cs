@@ -44,6 +44,12 @@ public class AppConfigTests
         config.ModelPackageDirectory.Should().Be("models");
         config.StrictModelPackageMode.Should().BeFalse();
         config.IsDebugMode.Should().BeFalse();
+        config.DataRetentionEnabled.Should().BeTrue();
+        config.ImageRetentionDays.Should().Be(30);
+        config.LogRetentionDays.Should().Be(180);
+        config.AuditLogRetentionDays.Should().Be(365);
+        config.ReportRetentionDays.Should().Be(365);
+        config.TraceRecordRetentionDays.Should().Be(365);
         config.TargetCount.Should().Be(4);
         config.VisionMode.Should().Be(0);
         config.Cameras.Should().ContainSingle();
@@ -56,6 +62,21 @@ public class AppConfigTests
         config.WireSequenceDirection.Should().Be("LeftToRight");
         config.WireSequenceExpectedCount.Should().Be(0);
         config.WireSequenceMinConfidence.Should().Be(0.0);
+        config.InspectionCycleSlaEnabled.Should().BeTrue();
+        config.InspectionCycleWarningMs.Should().Be(1500);
+        config.InspectionCycleCriticalMs.Should().Be(3000);
+        config.InspectionCycleMinSamples.Should().Be(10);
+        config.QualityYieldSlaEnabled.Should().BeTrue();
+        config.QualityYieldWarningPercent.Should().Be(95.0);
+        config.QualityYieldCriticalPercent.Should().Be(90.0);
+        config.QualityYieldMinSamples.Should().Be(30);
+        config.ConsecutiveNgAlarmEnabled.Should().BeTrue();
+        config.ConsecutiveNgWarningCount.Should().Be(3);
+        config.ConsecutiveNgCriticalCount.Should().Be(5);
+        config.PlcWriteRetryCount.Should().Be(1);
+        config.PlcWriteRetryIntervalMs.Should().Be(200);
+        config.RequireOperatorForProductionStart.Should().BeTrue();
+        config.OperatorSessionMaxHours.Should().Be(12);
     }
 
     [Fact]
@@ -87,6 +108,33 @@ public class AppConfigTests
         config.PlcVisionBusyAddress.Should().Be("D561");
         config.BarcodeAddress.Should().Be("D570");
         config.BarcodeWordLength.Should().Be(16);
+    }
+
+    [Fact]
+    public void 旧配置未包含生产操作员门禁时默认开启()
+    {
+        var config = AppConfig.FromJson("""
+        {
+          "TriggerSource": "PLC"
+        }
+        """);
+
+        config.RequireOperatorForProductionStart.Should().BeTrue();
+        config.OperatorSessionMaxHours.Should().Be(12);
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(200, 72)]
+    public void 操作员会话有效期_反序列化后限制在现场安全范围(int input, int expected)
+    {
+        var config = AppConfig.FromJson($$"""
+        {
+          "OperatorSessionMaxHours": {{input}}
+        }
+        """);
+
+        config.OperatorSessionMaxHours.Should().Be(expected);
     }
 
     [Fact]
@@ -382,6 +430,84 @@ public class AppConfigTests
         restored.SerialPhotoelectricBaudRate.Should().Be(115200);
         restored.SerialPhotoelectricDebounceMs.Should().Be(100);
         restored.SerialPhotoelectricTimeoutMs.Should().Be(2000);
+    }
+
+    [Fact]
+    public void 检测节拍SLA_Json序列化往返并归一化()
+    {
+        var config = AppConfig.FromJson("""
+        {
+          "InspectionCycleSlaEnabled": true,
+          "InspectionCycleWarningMs": 80,
+          "InspectionCycleCriticalMs": 50,
+          "InspectionCycleMinSamples": 500
+        }
+        """);
+
+        config.InspectionCycleSlaEnabled.Should().BeTrue();
+        config.InspectionCycleWarningMs.Should().Be(100);
+        config.InspectionCycleCriticalMs.Should().Be(100);
+        config.InspectionCycleMinSamples.Should().Be(200);
+    }
+
+    [Fact]
+    public void Plc写回重试_Json序列化往返并归一化()
+    {
+        var config = AppConfig.FromJson("""
+        {
+          "PlcWriteRetryCount": 10,
+          "PlcWriteRetryIntervalMs": -1
+        }
+        """);
+
+        config.PlcWriteRetryCount.Should().Be(5);
+        config.PlcWriteRetryIntervalMs.Should().Be(0);
+    }
+
+    [Fact]
+    public void 近期良率SLA_Json序列化往返并归一化()
+    {
+        var config = AppConfig.FromJson("""
+        {
+          "QualityYieldSlaEnabled": true,
+          "QualityYieldWarningPercent": 120,
+          "QualityYieldCriticalPercent": 99,
+          "QualityYieldMinSamples": 500,
+          "ConsecutiveNgAlarmEnabled": true,
+          "ConsecutiveNgWarningCount": 0,
+          "ConsecutiveNgCriticalCount": 0
+        }
+        """);
+
+        config.QualityYieldSlaEnabled.Should().BeTrue();
+        config.QualityYieldWarningPercent.Should().Be(100);
+        config.QualityYieldCriticalPercent.Should().Be(99);
+        config.QualityYieldMinSamples.Should().Be(200);
+        config.ConsecutiveNgAlarmEnabled.Should().BeTrue();
+        config.ConsecutiveNgWarningCount.Should().Be(1);
+        config.ConsecutiveNgCriticalCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void 数据保留策略_Json序列化往返并归一化()
+    {
+        var config = AppConfig.FromJson("""
+        {
+          "DataRetentionEnabled": true,
+          "ImageRetentionDays": 0,
+          "LogRetentionDays": 99999,
+          "AuditLogRetentionDays": -8,
+          "ReportRetentionDays": 14,
+          "TraceRecordRetentionDays": 30
+        }
+        """);
+
+        config.DataRetentionEnabled.Should().BeTrue();
+        config.ImageRetentionDays.Should().Be(1);
+        config.LogRetentionDays.Should().Be(3650);
+        config.AuditLogRetentionDays.Should().Be(1);
+        config.ReportRetentionDays.Should().Be(14);
+        config.TraceRecordRetentionDays.Should().Be(30);
     }
 
     [Fact]

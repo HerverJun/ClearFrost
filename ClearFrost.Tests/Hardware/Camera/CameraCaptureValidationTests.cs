@@ -85,6 +85,42 @@ namespace ClearFrost.Tests.Hardware.Camera
         }
 
         [Fact]
+        public void CameraService_SetPixelFormat_通过服务层设置活动相机()
+        {
+            using var camera = new ScriptedCamera(
+                IMVDefine.IMV_EPixelType.gvspPixelMono8,
+                16,
+                16,
+                16 * 16,
+                supportedPixelFormats: new[] { "Mono8" });
+            using var service = CreateStartedService(camera);
+
+            bool success = service.SetPixelFormat("Mono8");
+
+            success.Should().BeTrue();
+            service.LastError.Should().BeNull();
+            camera.LastPixelFormat.Should().Be("Mono8");
+        }
+
+        [Fact]
+        public void CameraService_SetPixelFormat_失败时记录错误()
+        {
+            using var camera = new ScriptedCamera(
+                IMVDefine.IMV_EPixelType.gvspPixelMono8,
+                16,
+                16,
+                16 * 16,
+                supportedPixelFormats: new[] { "Mono8" });
+            using var service = CreateStartedService(camera);
+
+            bool success = service.SetPixelFormat("BGR8");
+
+            success.Should().BeFalse();
+            service.LastError.Should().Contain("设置像素格式失败");
+            service.LastError.Should().Contain("BGR8");
+        }
+
+        [Fact]
         public void CaptureFrame_rejects_sdk_error_status_frame()
         {
             using var camera = new ScriptedCamera(
@@ -136,6 +172,47 @@ namespace ClearFrost.Tests.Hardware.Camera
             camera.ClearFrameBufferCount.Should().Be(1);
         }
 
+        [Fact]
+        public void CaptureFrame_采集意外停止_自动恢复抓取并返回图像()
+        {
+            using var camera = new ScriptedCamera(
+                IMVDefine.IMV_EPixelType.gvspPixelMono8,
+                16,
+                16,
+                16 * 16);
+            using var service = CreateStartedService(camera);
+
+            camera.ForceStopGrabbing();
+            using var frame = service.CaptureFrame();
+
+            frame.Should().NotBeNull();
+            service.LastError.Should().BeNull();
+            camera.StartGrabbingCount.Should().Be(2);
+            camera.ClearFrameBufferCount.Should().Be(1);
+        }
+
+        [Fact]
+        public void CaptureFrame_采集自动恢复失败_返回错误并触发错误事件()
+        {
+            using var camera = new ScriptedCamera(
+                IMVDefine.IMV_EPixelType.gvspPixelMono8,
+                16,
+                16,
+                16 * 16);
+            using var service = CreateStartedService(camera);
+            var errors = new List<string>();
+            service.ErrorOccurred += errors.Add;
+
+            camera.ForceStopGrabbing();
+            camera.FailNextStartGrabbing(-9001);
+            using var frame = service.CaptureFrame();
+
+            frame.Should().BeNull();
+            service.LastError.Should().Contain("自动恢复采集失败");
+            errors.Should().ContainSingle(error => error.Contains("自动恢复采集失败"));
+            camera.StartGrabbingCount.Should().Be(2);
+        }
+
         private static CameraService CreateStartedService(ScriptedCamera camera)
         {
             var config = new CameraConfig
@@ -164,6 +241,7 @@ namespace ClearFrost.Tests.Hardware.Camera
             private readonly uint _reportedSize;
             private readonly uint _status;
             private readonly HashSet<string>? _supportedPixelFormats;
+            private readonly Queue<int> _startGrabbingResults = new();
             private bool _isGrabbing;
             private bool _disposed;
 
@@ -198,9 +276,21 @@ namespace ClearFrost.Tests.Hardware.Camera
 
             public List<string> PixelFormatRequests { get; } = new();
 
+            public int StartGrabbingCount { get; private set; }
+
             public int ClearFrameBufferCount { get; private set; }
 
             public int ReleaseFrameCount { get; private set; }
+
+            public void ForceStopGrabbing()
+            {
+                _isGrabbing = false;
+            }
+
+            public void FailNextStartGrabbing(int errorCode)
+            {
+                _startGrabbingResults.Enqueue(errorCode);
+            }
 
             public int IMV_EnumDevices(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType) => IMVDefine.IMV_OK;
 
@@ -233,6 +323,17 @@ namespace ClearFrost.Tests.Hardware.Camera
 
             public int IMV_StartGrabbing()
             {
+                StartGrabbingCount++;
+                if (_startGrabbingResults.Count > 0)
+                {
+                    int result = _startGrabbingResults.Dequeue();
+                    if (result != IMVDefine.IMV_OK)
+                    {
+                        _isGrabbing = false;
+                        return result;
+                    }
+                }
+
                 _isGrabbing = true;
                 return IMVDefine.IMV_OK;
             }

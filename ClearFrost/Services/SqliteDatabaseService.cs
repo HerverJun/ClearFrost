@@ -1,4 +1,4 @@
-﻿using System;
+﻿﻿using System;
 using System.IO;
 using System.Diagnostics;
 using System.Collections.Generic;
@@ -32,8 +32,13 @@ namespace ClearFrost.Services
             "BarcodeReadSucceeded",
             "BarcodeError",
             "TraceStatus",
+            "OperatorName",
+            "OperatorRole",
+            "ShiftName",
             "ImagePath",
             "RenderedImagePath",
+            "ImageHash",
+            "RenderedImageHash",
             "ErrorStage",
             "ErrorCode",
             "ErrorMessage",
@@ -302,8 +307,13 @@ namespace ClearFrost.Services
                     BarcodeReadSucceeded INTEGER,
                     BarcodeError TEXT,
                     TraceStatus TEXT,
+                    OperatorName TEXT,
+                    OperatorRole TEXT,
+                    ShiftName TEXT,
                     ImagePath TEXT,
                     RenderedImagePath TEXT,
+                    ImageHash TEXT,
+                    RenderedImageHash TEXT,
                     ErrorStage TEXT,
                     ErrorCode TEXT,
                     ErrorMessage TEXT,
@@ -350,8 +360,13 @@ namespace ClearFrost.Services
             AddColumnIfMissing(connection, existingColumns, "BarcodeReadSucceeded", "INTEGER");
             AddColumnIfMissing(connection, existingColumns, "BarcodeError", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "TraceStatus", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "OperatorName", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "OperatorRole", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "ShiftName", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "ImagePath", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "RenderedImagePath", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "ImageHash", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "RenderedImageHash", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "ErrorStage", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "ErrorCode", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "ErrorMessage", "TEXT");
@@ -510,8 +525,13 @@ namespace ClearFrost.Services
                         BarcodeReadSucceeded,
                         BarcodeError,
                         TraceStatus,
+                        OperatorName,
+                        OperatorRole,
+                        ShiftName,
                         ImagePath,
                         RenderedImagePath,
+                        ImageHash,
+                        RenderedImageHash,
                         ErrorStage,
                         ErrorCode,
                         ErrorMessage,
@@ -551,8 +571,13 @@ namespace ClearFrost.Services
                         @BarcodeReadSucceeded,
                         @BarcodeError,
                         @TraceStatus,
+                        @OperatorName,
+                        @OperatorRole,
+                        @ShiftName,
                         @ImagePath,
                         @RenderedImagePath,
+                        @ImageHash,
+                        @RenderedImageHash,
                         @ErrorStage,
                         @ErrorCode,
                         @ErrorMessage,
@@ -597,8 +622,13 @@ namespace ClearFrost.Services
                         : DBNull.Value);
                 command.Parameters.AddWithValue("@BarcodeError", record.BarcodeError ?? "");
                 command.Parameters.AddWithValue("@TraceStatus", record.TraceStatus.ToString());
+                command.Parameters.AddWithValue("@OperatorName", record.OperatorName ?? "");
+                command.Parameters.AddWithValue("@OperatorRole", record.OperatorRole ?? "");
+                command.Parameters.AddWithValue("@ShiftName", record.ShiftName ?? "");
                 command.Parameters.AddWithValue("@ImagePath", record.ImagePath ?? "");
                 command.Parameters.AddWithValue("@RenderedImagePath", record.RenderedImagePath ?? "");
+                command.Parameters.AddWithValue("@ImageHash", record.ImageHash ?? "");
+                command.Parameters.AddWithValue("@RenderedImageHash", record.RenderedImageHash ?? "");
                 command.Parameters.AddWithValue("@ErrorStage", record.ErrorStage ?? "");
                 command.Parameters.AddWithValue("@ErrorCode", record.ErrorCode ?? "");
                 command.Parameters.AddWithValue("@ErrorMessage", record.ErrorMessage ?? "");
@@ -661,9 +691,9 @@ namespace ClearFrost.Services
                 command.Parameters.AddWithValue("@Limit", limit);
 
                 if (startDate.HasValue)
-                    command.Parameters.AddWithValue("@StartDate", startDate.Value.ToString("yyyy-MM-dd 00:00:00.000"));
+                    command.Parameters.AddWithValue("@StartDate", startDate.Value.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
                 if (endDate.HasValue)
-                    command.Parameters.AddWithValue("@EndDate", endDate.Value.ToString("yyyy-MM-dd 23:59:59.999"));
+                    command.Parameters.AddWithValue("@EndDate", endDate.Value.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
                 if (isQualified.HasValue)
                     command.Parameters.AddWithValue("@IsQualified", isQualified.Value ? 1 : 0);
 
@@ -683,8 +713,13 @@ namespace ClearFrost.Services
                         BarcodeReadSucceeded = GetNullableBool(reader, "BarcodeReadSucceeded"),
                         BarcodeError = GetStringOrDefault(reader, "BarcodeError"),
                         TraceStatus = ParseTraceStatus(GetStringOrDefault(reader, "TraceStatus")),
+                        OperatorName = GetStringOrDefault(reader, "OperatorName"),
+                        OperatorRole = GetStringOrDefault(reader, "OperatorRole"),
+                        ShiftName = GetStringOrDefault(reader, "ShiftName"),
                         ImagePath = GetStringOrDefault(reader, "ImagePath"),
                         RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
+                        ImageHash = GetStringOrDefault(reader, "ImageHash"),
+                        RenderedImageHash = GetStringOrDefault(reader, "RenderedImageHash"),
                         ErrorStage = GetStringOrDefault(reader, "ErrorStage"),
                         ErrorCode = GetStringOrDefault(reader, "ErrorCode"),
                         ErrorMessage = GetStringOrDefault(reader, "ErrorMessage"),
@@ -787,11 +822,16 @@ namespace ClearFrost.Services
                         IsQualified,
                         InspectionId,
                         ProductBarcode,
+                        OperatorName,
+                        OperatorRole,
+                        ShiftName,
                         ModelVersion,
                         ModelName,
                         CameraId,
                         ImagePath,
                         RenderedImagePath,
+                        ImageHash,
+                        RenderedImageHash,
                         ErrorStage,
                         ErrorCode,
                         ErrorMessage
@@ -822,11 +862,16 @@ namespace ClearFrost.Services
                         IsQualified = GetInt32OrDefault(reader, "IsQualified") == 1,
                         InspectionId = GetStringOrDefault(reader, "InspectionId"),
                         ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
+                        OperatorName = GetStringOrDefault(reader, "OperatorName"),
+                        OperatorRole = GetStringOrDefault(reader, "OperatorRole"),
+                        ShiftName = GetStringOrDefault(reader, "ShiftName"),
                         ModelVersion = GetStringOrDefault(reader, "ModelVersion"),
                         ModelName = GetStringOrDefault(reader, "ModelName"),
                         CameraId = GetStringOrDefault(reader, "CameraId"),
                         ImagePath = GetStringOrDefault(reader, "ImagePath"),
                         RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
+                        ImageHash = GetStringOrDefault(reader, "ImageHash"),
+                        RenderedImageHash = GetStringOrDefault(reader, "RenderedImageHash"),
                         ErrorStage = GetStringOrDefault(reader, "ErrorStage"),
                         ErrorCode = GetStringOrDefault(reader, "ErrorCode"),
                         ErrorMessage = GetStringOrDefault(reader, "ErrorMessage")

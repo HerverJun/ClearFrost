@@ -1,4 +1,4 @@
-﻿// ============================================================================
+﻿﻿// ============================================================================
 // 文件名: InspectionContext.cs
 // 描述:   单次检测追溯上下文
 // ============================================================================
@@ -17,6 +17,9 @@ namespace ClearFrost.Core.Inspection
         public string TriggerSource { get; init; } = string.Empty;
         public int? TriggerSeq { get; init; }
         public int? ResultSeq { get; set; }
+        public string OperatorName { get; init; } = string.Empty;
+        public string OperatorRole { get; init; } = string.Empty;
+        public string ShiftName { get; init; } = string.Empty;
         public InspectionStage CurrentStage { get; set; } = InspectionStage.Unknown;
         public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;
         public long CaptureMs { get; set; }
@@ -27,6 +30,7 @@ namespace ClearFrost.Core.Inspection
         public long SaveImageMs { get; set; }
         public long SaveRecordMs { get; set; }
         public long TotalMs { get; set; }
+        public bool? IsQualified { get; set; }
         public int FallbackAttemptCount { get; set; }
         public string FallbackSkippedReason { get; set; } = string.Empty;
         public long ImageQueuePending { get; set; }
@@ -39,6 +43,8 @@ namespace ClearFrost.Core.Inspection
         public string? BarcodeError { get; set; }
         public string? ImagePath { get; set; }
         public string? RenderedImagePath { get; set; }
+        public string? ImageHash { get; set; }
+        public string? RenderedImageHash { get; set; }
         public string? ErrorStage { get; set; }
         public string? ErrorCode { get; set; }
         public string? ErrorMessage { get; set; }

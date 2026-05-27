@@ -9,14 +9,17 @@ using System.IO;
 using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
+using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using ClearFrost.Core.Models;
 using ClearFrost.Core.Recipes;
 using ClearFrost.Core.Rules;
 using ClearFrost.Yolo;
@@ -187,23 +190,36 @@ namespace ClearFrost
             };
 
             // 绑定 WebUI 事件
-            _uiController.OnOpenCamera += (s, e) => SafeFireAndForget(btnOpenCamera_LogicAsync(), "打开相机");
-            _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(btnCapture_LogicAsync(), "手动检测"));
+            _uiController.OnOpenCamera += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(OpenCameraWithPermissionAsync(), "打开相机"));
+            _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(ManualDetectWithPermissionAsync(), "手动检测"));
             _uiController.OnCaptureCameraPreview += (s, json) => InvokeOnUIThread(() => SafeFireAndForget(CaptureCameraPreviewFrameAsync(json), "获取相机预览单帧"));
-            _uiController.OnManualRelease += (s, e) => SafeFireAndForget(fx_btn_LogicAsync(), "手动放行"); // Async void handler
+            _uiController.OnManualRelease += (s, json) => InvokeOnUIThread(() => SafeFireAndForget(ManualReleaseWithPermissionAsync(json), "手动放行"));
             _uiController.OnOpenSettings += (s, e) => InvokeOnUIThread(() => btnSettings_Logic());
             _uiController.OnCollectDataset += (s, e) => SafeFireAndForget(CollectDatasetAsync(), "数据集收集");
             _uiController.OnRunHistoryRulePreview += (s, json) => SafeFireAndForget(RunHistoryRulePreviewAsync(json), "历史图规则复判");
             _uiController.OnGetModelList += (s, e) => SafeFireAndForget(InitModelList(), "刷新模型列表");
-            _uiController.OnChangeModel += (s, modelName) => InvokeOnUIThread(() => ChangeModel_Logic(modelName));
-            _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC手动连接");
+            _uiController.OnImportModelPackage += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(ImportModelPackageWithPermissionAsync(), "导入模型包"));
+            _uiController.OnChangeModel += (s, modelName) => InvokeOnUIThread(() => SafeFireAndForget(ChangeModelWithPermissionAsync(modelName), "切换模型"));
+            _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcWithPermissionAsync(), "PLC手动连接");
             _uiController.OnRequestHealthSnapshot += (s, e) => SafeFireAndForget(SendHealthSnapshotToFrontendAsync(showToast: true), "前端刷新健康快照");
-            _uiController.OnThresholdChanged += (s, val) =>
+            _uiController.OnGetAlarms += (s, e) => SafeFireAndForget(SendAlarmSnapshotToFrontendAsync(), "刷新告警中心");
+            _uiController.OnAcknowledgeAlarm += (s, alarmId) => SafeFireAndForget(AcknowledgeAlarmAsync(alarmId), "确认告警");
+            _uiController.OnAcknowledgeAllAlarms += (s, e) => SafeFireAndForget(AcknowledgeAllAlarmsAsync(), "确认全部告警");
+            _uiController.OnOperatorSignIn += (s, json) => SafeFireAndForget(HandleOperatorSignInAsync(json), "操作员登录");
+            _uiController.OnOperatorSignOut += (s, e) => SafeFireAndForget(HandleOperatorSignOutAsync(), "操作员登出");
+            _uiController.OnThresholdChanged += async (s, val) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ChangeInspectionParameters, "更新IOU阈值"))
+                {
+                    return;
+                }
+
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                 _appConfig.IouThreshold = Math.Clamp(val / 100f, 0f, 1f);
                 if (_appConfig.Save())
                 {
                     TrySaveCurrentRecipeSnapshot("IOU阈值更新");
+                    WriteConfigChangeAudit("SetIouThreshold", beforeConfig);
                 }
             };
             _uiController.OnGetStatisticsHistory += async (s, e) =>
@@ -213,6 +229,11 @@ namespace ClearFrost
             };
             _uiController.OnClearStatisticsHistory += async (s, e) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ManageStatistics, "清空历史统计"))
+                {
+                    return;
+                }
+
                 _statisticsService.ClearHistory();
                 var (history, stats) = _statisticsService.GetStatisticsData();
                 await _uiController.SendStatisticsHistory(history, stats);
@@ -220,6 +241,11 @@ namespace ClearFrost
             };
             _uiController.OnResetStatistics += async (s, e) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ManageStatistics, "清除今日统计"))
+                {
+                    return;
+                }
+
                 _statisticsService.ResetToday();
                 await _uiController.UpdateUI(0, 0, 0);
                 await _uiController.LogToFrontend("✅ 今日统计已清除", "success");
@@ -296,6 +322,12 @@ namespace ClearFrost
 
             _uiController.OnSwitchCamera += async (s, cameraId) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ManageCamera, "切换生产相机"))
+                {
+                    return;
+                }
+
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                 try
                 {
                     var newCam = _cameraService is CameraService cameraService
@@ -315,7 +347,6 @@ namespace ClearFrost
 
                     if (newCam != null)
                     {
-                        cam = newCam.Camera;
                         if (newCam.IsOpen)
                         {
                             _cameraService.StartCapture();
@@ -330,6 +361,7 @@ namespace ClearFrost
                         if (_appConfig.Save())
                         {
                             TrySaveCurrentRecipeSnapshot("相机切换");
+                            WriteConfigChangeAudit("SwitchCamera", beforeConfig, $"CameraId={cameraId}");
                         }
                     }
                     else
@@ -342,6 +374,7 @@ namespace ClearFrost
                             if (_appConfig.Save())
                             {
                                 TrySaveCurrentRecipeSnapshot("相机切换");
+                                WriteConfigChangeAudit("SwitchCamera", beforeConfig, $"CameraId={cameraId}");
                             }
                             // 虽然离线，但更新了配置，后续点击"连接相机"时会尝试连接此相机
                             await _uiController.LogToFrontend($"ℹ️ 已切换到相机 (未连接): {cfgCam.DisplayName}", "warning");
@@ -360,6 +393,12 @@ namespace ClearFrost
 
             _uiController.OnAddCamera += async (s, json) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ManageCamera, "添加相机配置"))
+                {
+                    return;
+                }
+
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                 try
                 {
                     using var doc = JsonDocument.Parse(json);
@@ -419,6 +458,7 @@ namespace ClearFrost
                     if (_appConfig.Save())
                     {
                         TrySaveCurrentRecipeSnapshot("相机配置更新");
+                        WriteConfigChangeAudit("SaveCamera", beforeConfig, $"SerialNumber={serialNumber}");
                     }
 
                     // 刷新前端列表
@@ -442,6 +482,12 @@ namespace ClearFrost
 
             _uiController.OnDeleteCamera += async (s, cameraId) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ManageCamera, "删除相机配置"))
+                {
+                    return;
+                }
+
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                 try
                 {
                     var camToRemove = _appConfig.Cameras.FirstOrDefault(c => c.Id == cameraId);
@@ -456,6 +502,7 @@ namespace ClearFrost
                     if (_appConfig.Save())
                     {
                         TrySaveCurrentRecipeSnapshot("相机配置删除");
+                        WriteConfigChangeAudit("DeleteCamera", beforeConfig, $"CameraId={cameraId}");
                     }
 
                     await _uiController.LogToFrontend($"? 已删除相机: {camToRemove.DisplayName}");
@@ -577,6 +624,12 @@ namespace ClearFrost
             // 直接连接相机（无序列号过滤）
             _uiController.OnDirectConnectCamera += async (s, json) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ManageCamera, "直连相机配置"))
+                {
+                    return;
+                }
+
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                 try
                 {
                     using var doc = JsonDocument.Parse(json);
@@ -612,6 +665,7 @@ namespace ClearFrost
                         if (_appConfig.Save())
                         {
                             TrySaveCurrentRecipeSnapshot("相机直连配置");
+                            WriteConfigChangeAudit("DirectConnectCamera", beforeConfig, $"SerialNumber={sn}; Manufacturer={manufacturer}");
                         }
 
                         // 刷新前端相机列表
@@ -641,6 +695,505 @@ namespace ClearFrost
 
             // 注册窗体关闭事件
             this.FormClosing += OnFormClosingHandler;
+        }
+
+        private async Task HandleOperatorSignInAsync(string json)
+        {
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(json);
+                JsonElement root = doc.RootElement;
+                string operatorName = root.TryGetProperty("operatorName", out JsonElement nameElement)
+                    ? nameElement.GetString() ?? string.Empty
+                    : string.Empty;
+                string role = root.TryGetProperty("role", out JsonElement roleElement)
+                    ? roleElement.GetString() ?? OperatorSession.DefaultRole
+                    : OperatorSession.DefaultRole;
+                string? shiftName = root.TryGetProperty("shiftName", out JsonElement shiftElement)
+                    ? shiftElement.GetString()
+                    : null;
+
+                OperatorPermissionDecision roleGrant = OperatorPermissionService.AuthorizeRoleGrant(
+                    _operatorSessionService.Current,
+                    role,
+                    IsTrustedLocalAdministrator(),
+                    "登录操作员角色");
+                if (!roleGrant.Allowed)
+                {
+                    WriteAuditLogSafe(
+                        "Permission",
+                        "RoleGrantDenied",
+                        $"RequestedOperator={NormalizeAuditText(operatorName, 64)}; RequestedRole={roleGrant.RequiredRole}; Operator={roleGrant.OperatorName}; Role={roleGrant.OperatorRole}; Reason={roleGrant.Message}",
+                        success: false);
+                    await _uiController.LogToFrontend($"角色授权失败: {roleGrant.Message}", "warning");
+                    await _uiController.SendOperatorSession(_operatorSessionService.Current);
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = roleGrant.Message,
+                        type = "warning",
+                        durationMs = 3600
+                    });
+                    return;
+                }
+
+                OperatorSession session = _operatorSessionService.SignIn(operatorName, role, shiftName);
+                WriteAuditLogSafe("Operator", "SignIn", $"Operator={session.OperatorName}, Role={session.Role}, Shift={session.ShiftName}");
+                await _uiController.SendOperatorSession(session);
+                await _uiController.LogToFrontend($"操作员已登录: {session.OperatorName} / {session.ShiftName}", "success");
+                if (_appConfig.RequireOperatorForProductionStart &&
+                    IsCameraReadyForInspection(out _))
+                {
+                    SafeFireAndForget(StartTriggerSourceAsync(), "操作员登录后启动生产触发源");
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteAuditLogSafe("Operator", "SignIn", ex.Message, success: false);
+                await _uiController.LogToFrontend($"操作员登录失败: {ex.Message}", "error");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = $"操作员登录失败: {ex.Message}",
+                    type = "warning",
+                    durationMs = 2600
+                });
+            }
+        }
+
+        private async Task HandleOperatorSignOutAsync()
+        {
+            OperatorSession previous = _operatorSessionService.Current;
+            OperatorSession session = _operatorSessionService.SignOut();
+            WriteAuditLogSafe("Operator", "SignOut", $"Operator={previous.OperatorName}, Role={previous.Role}, Shift={previous.ShiftName}");
+            await _uiController.SendOperatorSession(session);
+            await _uiController.LogToFrontend("操作员已退出", "info");
+            if (_appConfig.RequireOperatorForProductionStart)
+            {
+                _serialTriggerService.Stop();
+                _plcService.StopMonitoring();
+                await _uiController.LogToFrontend("已退出操作员，自动生产触发监听已停止", "warning");
+            }
+        }
+
+        private Task SendOperatorSessionToFrontendAsync()
+        {
+            return _uiController.SendOperatorSession(_operatorSessionService.Current);
+        }
+
+        private string BuildOperatorAuditContext()
+        {
+            OperatorSession session = _operatorSessionService.Current;
+            return $"Operator={session.OperatorName}; Role={session.Role}; Shift={session.ShiftName}";
+        }
+
+        private static bool IsTrustedLocalAdministrator()
+        {
+            try
+            {
+                using WindowsIdentity identity = WindowsIdentity.GetCurrent();
+                var principal = new WindowsPrincipal(identity);
+                return principal.IsInRole(WindowsBuiltInRole.Administrator);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string NormalizeAuditText(string? value, int maxLength)
+        {
+            string normalized = (value ?? string.Empty)
+                .Trim()
+                .Replace('\r', ' ')
+                .Replace('\n', ' ')
+                .Replace('\t', ' ')
+                .Replace(';', '，');
+
+            while (normalized.Contains("  ", StringComparison.Ordinal))
+            {
+                normalized = normalized.Replace("  ", " ", StringComparison.Ordinal);
+            }
+
+            return normalized.Length <= maxLength ? normalized : normalized[..maxLength];
+        }
+
+        private static string ExtractManualReleaseReason(string? payloadJson)
+        {
+            if (string.IsNullOrWhiteSpace(payloadJson))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(payloadJson);
+                JsonElement root = doc.RootElement;
+                string? reason = root.ValueKind switch
+                {
+                    JsonValueKind.String => root.GetString(),
+                    JsonValueKind.Object when root.TryGetProperty("reason", out JsonElement reasonElement) => reasonElement.GetString(),
+                    JsonValueKind.Object when root.TryGetProperty("Reason", out JsonElement reasonElement) => reasonElement.GetString(),
+                    _ => null
+                };
+
+                return NormalizeAuditText(reason, 160);
+            }
+            catch (JsonException)
+            {
+                return NormalizeAuditText(payloadJson, 160);
+            }
+        }
+
+        private async Task<bool> EnsureProductionOperatorSessionAsync(string operation, string? inspectionId = null)
+        {
+            if (!_appConfig.RequireOperatorForProductionStart)
+            {
+                return true;
+            }
+
+            OperatorSession session = _operatorSessionService.Current;
+            if (session.IsSignedIn)
+            {
+                return true;
+            }
+
+            string message = $"{operation}已阻止: 当前未登录操作员，无法建立生产追溯";
+            RecordHealthError("Operator", message, inspectionId);
+            WriteAuditLogSafe(
+                "Permission",
+                "ProductionStartBlocked",
+                $"Operation={operation}; Operator={session.OperatorName}; Role={session.Role}; Required=Operator",
+                success: false);
+            await _uiController.LogToFrontend(message, "warning");
+            await _uiController.SendOperatorSession(session);
+            await _uiController.SendUiCommand("toast", new
+            {
+                message = "请先登录操作员，再启动自动生产触发",
+                type = "warning",
+                durationMs = 3200
+            });
+            return false;
+        }
+
+        private string SaveConfigVersionForAudit(string action, string changeSummary)
+        {
+            try
+            {
+                OperatorSession session = _operatorSessionService.Current;
+                ConfigVersionEntry version = _configVersionStore.SaveVersion(_appConfig, new ConfigVersionCreateOptions
+                {
+                    Reason = action,
+                    OperatorName = session.OperatorName,
+                    OperatorRole = session.Role,
+                    ShiftName = session.ShiftName,
+                    ChangeSummary = changeSummary
+                });
+                return $"ConfigVersion={version.VersionId}";
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ConfigVersion] 保存配置版本失败: {ex.Message}");
+                string message = ex.Message
+                    .Replace('\r', ' ')
+                    .Replace('\n', ' ')
+                    .Replace('\t', ' ');
+                return $"ConfigVersionError={message}";
+            }
+        }
+
+        private void WriteConfigChangeAudit(string action, ConfigurationSnapshot beforeSnapshot, string? detail = null)
+        {
+            ConfigurationSnapshot afterSnapshot = ConfigurationChangeTracker.Capture(_appConfig);
+            string changeSummary = ConfigurationChangeTracker.FormatChanges(beforeSnapshot.CompareTo(afterSnapshot));
+            string prefix = BuildOperatorAuditContext();
+            string versionDetail = SaveConfigVersionForAudit(action, changeSummary);
+            string fullDetail = string.IsNullOrWhiteSpace(detail)
+                ? $"{prefix}; {changeSummary}; {versionDetail}"
+                : $"{prefix}; {detail}; {changeSummary}; {versionDetail}";
+            WriteAuditLogSafe("ConfigChange", action, fullDetail, success: true);
+        }
+
+        private async Task<bool> EnsureOperatorPermissionAsync(OperatorPermission permission, string operation)
+        {
+            OperatorPermissionDecision decision = OperatorPermissionService.Authorize(
+                _operatorSessionService.Current,
+                permission,
+                operation);
+            if (decision.Allowed)
+            {
+                return true;
+            }
+
+            WriteAuditLogSafe(
+                "Permission",
+                "Denied",
+                $"Operation={decision.Operation}; Operator={decision.OperatorName}; Role={decision.OperatorRole}; Required={decision.RequiredRole}; Reason={decision.Message}",
+                success: false);
+            await _uiController.SendOperatorSession(_operatorSessionService.Current);
+            await _uiController.LogToFrontend($"权限不足: {decision.Message}", "warning");
+            await _uiController.SendUiCommand("toast", new
+            {
+                message = decision.Message,
+                type = "warning",
+                durationMs = 3200
+            });
+            return false;
+        }
+
+        private async Task OpenCameraWithPermissionAsync()
+        {
+            if (!await EnsureOperatorPermissionAsync(OperatorPermission.OperateProductionHardware, "打开生产相机"))
+            {
+                return;
+            }
+
+            await btnOpenCamera_LogicAsync();
+        }
+
+        private async Task ConnectPlcWithPermissionAsync()
+        {
+            if (!await EnsureOperatorPermissionAsync(OperatorPermission.OperateProductionHardware, "PLC手动连接"))
+            {
+                return;
+            }
+
+            await ConnectPlcViaServiceAsync();
+        }
+
+        private async Task ManualDetectWithPermissionAsync()
+        {
+            if (!await EnsureOperatorPermissionAsync(OperatorPermission.RunManualInspection, "手动检测"))
+            {
+                return;
+            }
+
+            WriteAuditLogSafe("Inspection", "ManualTrigger", BuildOperatorAuditContext(), success: true);
+            await btnCapture_LogicAsync();
+        }
+
+        private async Task ManualReleaseWithPermissionAsync(string payloadJson)
+        {
+            if (!await EnsureOperatorPermissionAsync(OperatorPermission.ManualRelease, "手动放行"))
+            {
+                return;
+            }
+
+            string reason = ExtractManualReleaseReason(payloadJson);
+            if (string.IsNullOrWhiteSpace(reason))
+            {
+                WriteAuditLogSafe(
+                    "PLC",
+                    "ManualReleaseBlocked",
+                    $"{BuildOperatorAuditContext()}; Address={_appConfig.PlcResultAddress}; Reason=MissingReleaseReason",
+                    success: false);
+                await _uiController.LogToFrontend("强制放行已阻止: 必须填写放行原因", "warning");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "强制放行必须填写原因",
+                    type = "warning",
+                    durationMs = 3200
+                });
+                return;
+            }
+
+            await fx_btn_LogicAsync(reason);
+        }
+
+        private async Task ChangeModelWithPermissionAsync(string modelName)
+        {
+            if (string.IsNullOrWhiteSpace(modelName))
+            {
+                return;
+            }
+
+            if (!await EnsureOperatorPermissionAsync(OperatorPermission.ChangeModel, "切换主模型"))
+            {
+                return;
+            }
+
+            模型名 = modelName;
+            await ChangeModelAsync(modelName);
+        }
+
+        private async Task ImportConfigMigrationWithPermissionAsync()
+        {
+            if (!await EnsureOperatorPermissionAsync(OperatorPermission.ImportConfiguration, "导入配置迁移包"))
+            {
+                return;
+            }
+
+            await ImportConfigMigrationAsync();
+        }
+
+        private async Task RestoreConfigVersionWithPermissionAsync(string versionId)
+        {
+            if (!await EnsureOperatorPermissionAsync(OperatorPermission.ImportConfiguration, "恢复配置版本"))
+            {
+                await _uiController.SendConfigVersionRestoreResult(false, "权限不足，已取消恢复配置版本");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(versionId))
+            {
+                await _uiController.SendConfigVersionRestoreResult(false, "配置版本号不能为空");
+                return;
+            }
+
+            try
+            {
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
+                ConfigVersionRestoreResult result = _configVersionStore.RestoreVersion(versionId, _appConfig);
+                await RefreshRuntimeConfigStateAsync();
+                WriteConfigChangeAudit(
+                    "RestoreConfigVersion",
+                    beforeConfig,
+                    $"RestoredVersion={result.Version.VersionId}; VersionCreatedAt={result.Version.CreatedAt:O}");
+                await _uiController.SendConfigVersionRestoreResult(true, "配置版本已恢复", result.Version);
+                await _uiController.SendConfigVersions(_configVersionStore.ListVersions(100));
+                await _uiController.LogToFrontend($"配置版本已恢复: {result.Version.VersionId}", "success");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "配置版本已恢复，运行参数已刷新",
+                    type = "success",
+                    durationMs = 2600
+                });
+            }
+            catch (Exception ex)
+            {
+                WriteAuditLogSafe(
+                    "ConfigChange",
+                    "RestoreConfigVersion",
+                    $"{BuildOperatorAuditContext()}; VersionId={versionId}; Error={ex.Message}",
+                    success: false);
+                await _uiController.SendConfigVersionRestoreResult(false, $"恢复配置版本失败: {ex.Message}");
+                await _uiController.LogToFrontend($"恢复配置版本失败: {ex.Message}", "error");
+            }
+        }
+
+        private async Task AcknowledgeAlarmAsync(string alarmId)
+        {
+            if (!await EnsureOperatorPermissionAsync(OperatorPermission.BasicOperation, "确认告警"))
+            {
+                await _uiController.SendAlarmActionResult(false, "权限不足，已取消确认告警");
+                return;
+            }
+
+            try
+            {
+                AlarmRecord alarm = _alarmCenterService.Acknowledge(alarmId, _operatorSessionService.Current);
+                WriteAuditLogSafe(
+                    "Alarm",
+                    "Acknowledge",
+                    $"{BuildOperatorAuditContext()}; AlarmId={alarm.AlarmId}; Severity={alarm.Severity}; Source={alarm.Source}; Message={alarm.Message}",
+                    success: true);
+                await _uiController.SendAlarmActionResult(true, "告警已确认", alarm);
+                await SendAlarmSnapshotToFrontendAsync();
+            }
+            catch (Exception ex)
+            {
+                WriteAuditLogSafe(
+                    "Alarm",
+                    "Acknowledge",
+                    $"{BuildOperatorAuditContext()}; AlarmId={alarmId}; Error={ex.Message}",
+                    success: false);
+                await _uiController.SendAlarmActionResult(false, $"确认告警失败: {ex.Message}");
+            }
+        }
+
+        private async Task AcknowledgeAllAlarmsAsync()
+        {
+            if (!await EnsureOperatorPermissionAsync(OperatorPermission.BasicOperation, "确认全部告警"))
+            {
+                await _uiController.SendAlarmActionResult(false, "权限不足，已取消确认全部告警");
+                return;
+            }
+
+            try
+            {
+                int count = _alarmCenterService.AcknowledgeAll(_operatorSessionService.Current);
+                WriteAuditLogSafe(
+                    "Alarm",
+                    "AcknowledgeAll",
+                    $"{BuildOperatorAuditContext()}; Count={count}",
+                    success: true);
+                await _uiController.SendAlarmActionResult(true, $"已确认 {count} 条告警");
+                await SendAlarmSnapshotToFrontendAsync();
+            }
+            catch (Exception ex)
+            {
+                WriteAuditLogSafe(
+                    "Alarm",
+                    "AcknowledgeAll",
+                    $"{BuildOperatorAuditContext()}; Error={ex.Message}",
+                    success: false);
+                await _uiController.SendAlarmActionResult(false, $"确认全部告警失败: {ex.Message}");
+            }
+        }
+
+        private async Task ExportDiagnosticPackageWithPermissionAsync()
+        {
+            if (!await EnsureOperatorPermissionAsync(OperatorPermission.ExportDiagnostics, "导出诊断包"))
+            {
+                return;
+            }
+
+            string selectedOutputDirectory = string.Empty;
+            try
+            {
+                using var dialog = new FolderBrowserDialog
+                {
+                    Description = "选择诊断包导出目录",
+                    UseDescriptionForTitle = true,
+                    SelectedPath = Directory.Exists(Path_System)
+                        ? Path_System
+                        : Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
+                };
+
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                selectedOutputDirectory = dialog.SelectedPath;
+                string packagePath = await _appRuntime.ExportDiagnosticPackageAsync(
+                    selectedOutputDirectory,
+                    _appShutdownCts.Token);
+                WriteAuditLogSafe(
+                    "Diagnostics",
+                    "ExportPackage",
+                    $"{BuildOperatorAuditContext()}; Path={packagePath}",
+                    success: true);
+                await _uiController.LogToFrontend($"诊断包已导出: {packagePath}", "success");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "诊断包已导出",
+                    type = "success",
+                    durationMs = 2200
+                });
+            }
+            catch (Exception ex)
+            {
+                WriteAuditLogSafe(
+                    "Diagnostics",
+                    "ExportPackage",
+                    $"{BuildOperatorAuditContext()}; OutputDirectory={selectedOutputDirectory}; Error={ex.Message}",
+                    success: false);
+                await _uiController.SendUiCommand("alert", new { message = $"导出诊断包失败: {ex.Message}" });
+            }
+        }
+
+        private async Task ImportModelPackageWithPermissionAsync()
+        {
+            if (!await EnsureOperatorPermissionAsync(OperatorPermission.ImportModelPackage, "导入模型包"))
+            {
+                await _uiController.SendModelPackageImportResult(new
+                {
+                    success = false,
+                    message = "权限不足，已取消导入模型包"
+                });
+                return;
+            }
+
+            await ImportModelPackageAsync();
         }
 
         private async void 主窗口_Load(object? sender, EventArgs e)
@@ -688,17 +1241,21 @@ namespace ClearFrost
 
                     var currentStats = _statisticsService.Current;
                     string[] modelNames = GetModelNames();
+                    HealthSnapshot healthSnapshot = _healthMonitor.GetSnapshot();
+                    AlarmSnapshot alarmSnapshot = _alarmCenterService.Evaluate(healthSnapshot);
                     await _uiController.SendBootstrapSnapshot(
                         _appConfig,
                         cameras,
                         _cameraManager.ActiveCameraId ?? _appConfig.ActiveCameraId,
                         modelNames,
                         currentStats,
-                        _healthMonitor.GetSnapshot(),
+                        healthSnapshot,
                         _appConfig.StoragePath);
+                    await _uiController.SendAlarmSnapshot(alarmSnapshot);
                     await _uiController.SendUiCommand("setRoi", new { rect = SnapshotCurrentROI() });
                     await _uiController.SendModelLabels(_detectionService.GetLabels());
                     await _uiController.SendProjectPresets(ProjectPresetStore.Load());
+                    await SendOperatorSessionToFrontendAsync();
 
                     if (currentStats.TotalCount > 0)
                     {
@@ -722,31 +1279,52 @@ namespace ClearFrost
             };
 
             // 订阅YOLO参数修改事件
-            _uiController.OnSetConfidence += (sender, conf) =>
+            _uiController.OnSetConfidence += async (sender, conf) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ChangeInspectionParameters, "更新置信度阈值"))
+                {
+                    return;
+                }
+
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                 _appConfig.Confidence = conf;
                 if (_appConfig.Save())
                 {
                     TrySaveCurrentRecipeSnapshot("置信度更新");
+                    WriteConfigChangeAudit("SetConfidence", beforeConfig);
                 }
             };
 
-            _uiController.OnSetIou += (sender, iou) =>
+            _uiController.OnSetIou += async (sender, iou) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ChangeInspectionParameters, "更新IOU阈值"))
+                {
+                    return;
+                }
+
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                 _appConfig.IouThreshold = Math.Clamp(iou, 0f, 1f);
                 if (_appConfig.Save())
                 {
                     TrySaveCurrentRecipeSnapshot("IOU阈值更新");
+                    WriteConfigChangeAudit("SetIou", beforeConfig);
                 }
             };
 
             // 订阅任务类型修改事件
-            _uiController.OnSetTaskType += (sender, taskType) =>
+            _uiController.OnSetTaskType += async (sender, taskType) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ChangeInspectionParameters, "更新YOLO任务类型"))
+                {
+                    return;
+                }
+
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                 _appConfig.TaskType = taskType;
                 if (_appConfig.Save())
                 {
                     TrySaveCurrentRecipeSnapshot("任务类型更新");
+                    WriteConfigChangeAudit("SetTaskType", beforeConfig);
                 }
                 // 使用检测服务更新任务类型
                 _detectionService.SetTaskMode(taskType);
@@ -754,6 +1332,12 @@ namespace ClearFrost
 
             _uiController.OnSetAuxiliary1Model += async (sender, modelName) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ChangeModel, "更新辅助模型1"))
+                {
+                    return;
+                }
+
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                 try
                 {
                     if (string.IsNullOrEmpty(modelName))
@@ -763,6 +1347,7 @@ namespace ClearFrost
                         if (_appConfig.Save())
                         {
                             TrySaveCurrentRecipeSnapshot("辅助模型1更新");
+                            WriteConfigChangeAudit("SetAuxiliary1Model", beforeConfig, "Model=-");
                         }
                         await _uiController.LogToFrontend("辅助模型1已卸载");
                     }
@@ -789,6 +1374,7 @@ namespace ClearFrost
                                 if (_appConfig.Save())
                                 {
                                     TrySaveCurrentRecipeSnapshot("辅助模型1更新");
+                                    WriteConfigChangeAudit("SetAuxiliary1Model", beforeConfig, $"Model={modelName}");
                                 }
                                 await _uiController.LogToFrontend($"? 辅助模型1已加载: {modelName}");
                             }
@@ -811,6 +1397,12 @@ namespace ClearFrost
 
             _uiController.OnSetAuxiliary2Model += async (sender, modelName) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ChangeModel, "更新辅助模型2"))
+                {
+                    return;
+                }
+
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                 try
                 {
                     if (string.IsNullOrEmpty(modelName))
@@ -820,6 +1412,7 @@ namespace ClearFrost
                         if (_appConfig.Save())
                         {
                             TrySaveCurrentRecipeSnapshot("辅助模型2更新");
+                            WriteConfigChangeAudit("SetAuxiliary2Model", beforeConfig, "Model=-");
                         }
                         await _uiController.LogToFrontend("辅助模型2已卸载");
                     }
@@ -846,6 +1439,7 @@ namespace ClearFrost
                                 if (_appConfig.Save())
                                 {
                                     TrySaveCurrentRecipeSnapshot("辅助模型2更新");
+                                    WriteConfigChangeAudit("SetAuxiliary2Model", beforeConfig, $"Model={modelName}");
                                 }
                                 await _uiController.LogToFrontend($"? 辅助模型2已加载: {modelName}");
                             }
@@ -868,11 +1462,18 @@ namespace ClearFrost
 
             _uiController.OnToggleMultiModelFallback += async (sender, enabled) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ChangeModel, "更新多模型策略"))
+                {
+                    return;
+                }
+
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                 _appConfig.EnableMultiModelFallback = enabled;
                 _detectionService.SetEnableFallback(enabled);
                 if (_appConfig.Save())
                 {
                     TrySaveCurrentRecipeSnapshot("多模型策略更新");
+                    WriteConfigChangeAudit("ToggleMultiModelFallback", beforeConfig, $"Enabled={enabled}");
                 }
                 await _uiController.LogToFrontend(enabled ? "? 多模型自动切换已启用" : "多模型自动切换已禁用");
             };
@@ -892,6 +1493,11 @@ namespace ClearFrost
 
             _uiController.OnSaveProjectPreset += async (sender, payloadJson) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ManageProjectPreset, "保存项目预设"))
+                {
+                    return;
+                }
+
                 try
                 {
                     var snapshot = ProjectPresetStore.SavePreset(payloadJson);
@@ -906,6 +1512,11 @@ namespace ClearFrost
 
             _uiController.OnDeleteProjectPreset += async (sender, presetId) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ManageProjectPreset, "删除项目预设"))
+                {
+                    return;
+                }
+
                 try
                 {
                     var snapshot = ProjectPresetStore.DeletePreset(presetId);
@@ -922,13 +1533,37 @@ namespace ClearFrost
                 InvokeOnUIThread(() => SafeFireAndForget(ExportConfigMigrationAsync(), "导出配置迁移"));
 
             _uiController.OnImportConfigMigration += (sender, e) =>
-                InvokeOnUIThread(() => SafeFireAndForget(ImportConfigMigrationAsync(), "导入配置迁移"));
+                InvokeOnUIThread(() => SafeFireAndForget(ImportConfigMigrationWithPermissionAsync(), "导入配置迁移"));
+
+            _uiController.OnGetConfigVersions += async (sender, e) =>
+            {
+                try
+                {
+                    await _uiController.SendConfigVersions(_configVersionStore.ListVersions(100));
+                }
+                catch (Exception ex)
+                {
+                    await _uiController.LogToFrontend($"加载配置版本失败: {ex.Message}", "error");
+                }
+            };
+
+            _uiController.OnRestoreConfigVersion += (sender, versionId) =>
+                InvokeOnUIThread(() => SafeFireAndForget(RestoreConfigVersionWithPermissionAsync(versionId), "恢复配置版本"));
+
+            _uiController.OnExportDiagnosticPackage += (sender, e) =>
+                InvokeOnUIThread(() => SafeFireAndForget(ExportDiagnosticPackageWithPermissionAsync(), "导出诊断包"));
 
             // 订阅配置保存事件
             _uiController.OnSaveSettings += async (sender, configJson) =>
             {
+                if (!await EnsureOperatorPermissionAsync(OperatorPermission.ManageSettings, "保存系统设置"))
+                {
+                    return;
+                }
+
                 try
                 {
+                    ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                     // 使用 JsonDocument 解析，允许部分更新
                     using (JsonDocument doc = JsonDocument.Parse(configJson))
                     {
@@ -936,6 +1571,47 @@ namespace ClearFrost
 
                         // 逐个读取并更新配置属性
                         if (root.TryGetProperty("StoragePath", out var sp)) _appConfig.StoragePath = sp.GetString() ?? _appConfig.StoragePath;
+                        if (root.TryGetProperty("DataRetentionEnabled", out var dre)) _appConfig.DataRetentionEnabled = dre.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("RequireOperatorForProductionStart", out var rops))
+                        {
+                            _appConfig.RequireOperatorForProductionStart = rops.ValueKind == JsonValueKind.True;
+                        }
+                        if (root.TryGetProperty("OperatorSessionMaxHours", out var osmh))
+                        {
+                            _appConfig.OperatorSessionMaxHours = osmh.TryGetInt32(out int osmhVal)
+                                ? Math.Clamp(osmhVal, 1, 72)
+                                : _appConfig.OperatorSessionMaxHours;
+                        }
+                        if (root.TryGetProperty("ImageRetentionDays", out var ird))
+                        {
+                            _appConfig.ImageRetentionDays = ird.TryGetInt32(out int irdVal)
+                                ? Math.Clamp(irdVal, 1, 3650)
+                                : _appConfig.ImageRetentionDays;
+                        }
+                        if (root.TryGetProperty("LogRetentionDays", out var lrd))
+                        {
+                            _appConfig.LogRetentionDays = lrd.TryGetInt32(out int lrdVal)
+                                ? Math.Clamp(lrdVal, 1, 3650)
+                                : _appConfig.LogRetentionDays;
+                        }
+                        if (root.TryGetProperty("AuditLogRetentionDays", out var ard))
+                        {
+                            _appConfig.AuditLogRetentionDays = ard.TryGetInt32(out int ardVal)
+                                ? Math.Clamp(ardVal, 1, 3650)
+                                : _appConfig.AuditLogRetentionDays;
+                        }
+                        if (root.TryGetProperty("ReportRetentionDays", out var rrd))
+                        {
+                            _appConfig.ReportRetentionDays = rrd.TryGetInt32(out int rrdVal)
+                                ? Math.Clamp(rrdVal, 1, 3650)
+                                : _appConfig.ReportRetentionDays;
+                        }
+                        if (root.TryGetProperty("TraceRecordRetentionDays", out var trrd))
+                        {
+                            _appConfig.TraceRecordRetentionDays = trrd.TryGetInt32(out int trrdVal)
+                                ? Math.Clamp(trrdVal, 1, 3650)
+                                : _appConfig.TraceRecordRetentionDays;
+                        }
 
                         string plcProtocol = _appConfig.PlcProtocol;
                         string plcDriverProvider = _appConfig.PlcDriverProvider;
@@ -1175,6 +1851,79 @@ namespace ClearFrost
                                 ? Math.Clamp(rimVal, 0, 60000)
                                 : _appConfig.RetryIntervalMs;
                         }
+                        if (root.TryGetProperty("PlcWriteRetryCount", out var plcWriteRetryCount))
+                        {
+                            _appConfig.PlcWriteRetryCount = plcWriteRetryCount.TryGetInt32(out int retryCountVal)
+                                ? Math.Clamp(retryCountVal, 0, 5)
+                                : _appConfig.PlcWriteRetryCount;
+                        }
+                        if (root.TryGetProperty("PlcWriteRetryIntervalMs", out var plcWriteRetryInterval))
+                        {
+                            _appConfig.PlcWriteRetryIntervalMs = plcWriteRetryInterval.TryGetInt32(out int retryIntervalVal)
+                                ? Math.Clamp(retryIntervalVal, 0, 60000)
+                                : _appConfig.PlcWriteRetryIntervalMs;
+                        }
+                        if (root.TryGetProperty("InspectionCycleSlaEnabled", out var cycleEnabled))
+                        {
+                            _appConfig.InspectionCycleSlaEnabled = cycleEnabled.ValueKind == JsonValueKind.True;
+                        }
+                        if (root.TryGetProperty("InspectionCycleWarningMs", out var cycleWarn))
+                        {
+                            _appConfig.InspectionCycleWarningMs = cycleWarn.TryGetInt32(out int cycleWarnVal)
+                                ? Math.Clamp(cycleWarnVal, 100, 600000)
+                                : _appConfig.InspectionCycleWarningMs;
+                        }
+                        if (root.TryGetProperty("InspectionCycleCriticalMs", out var cycleCritical))
+                        {
+                            _appConfig.InspectionCycleCriticalMs = cycleCritical.TryGetInt32(out int cycleCriticalVal)
+                                ? Math.Clamp(cycleCriticalVal, _appConfig.InspectionCycleWarningMs, 600000)
+                                : _appConfig.InspectionCycleCriticalMs;
+                        }
+                        if (root.TryGetProperty("InspectionCycleMinSamples", out var cycleSamples))
+                        {
+                            _appConfig.InspectionCycleMinSamples = cycleSamples.TryGetInt32(out int cycleSamplesVal)
+                                ? Math.Clamp(cycleSamplesVal, 1, 200)
+                                : _appConfig.InspectionCycleMinSamples;
+                        }
+                        if (root.TryGetProperty("QualityYieldSlaEnabled", out var yieldEnabled))
+                        {
+                            _appConfig.QualityYieldSlaEnabled = yieldEnabled.ValueKind == JsonValueKind.True;
+                        }
+                        if (root.TryGetProperty("QualityYieldWarningPercent", out var yieldWarn) &&
+                            yieldWarn.TryGetDouble(out double yieldWarnVal))
+                        {
+                            _appConfig.QualityYieldWarningPercent = Math.Clamp(yieldWarnVal, 0d, 100d);
+                        }
+                        if (root.TryGetProperty("QualityYieldCriticalPercent", out var yieldCritical) &&
+                            yieldCritical.TryGetDouble(out double yieldCriticalVal))
+                        {
+                            _appConfig.QualityYieldCriticalPercent = Math.Clamp(
+                                yieldCriticalVal,
+                                0d,
+                                _appConfig.QualityYieldWarningPercent);
+                        }
+                        if (root.TryGetProperty("QualityYieldMinSamples", out var yieldSamples))
+                        {
+                            _appConfig.QualityYieldMinSamples = yieldSamples.TryGetInt32(out int yieldSamplesVal)
+                                ? Math.Clamp(yieldSamplesVal, 1, 200)
+                                : _appConfig.QualityYieldMinSamples;
+                        }
+                        if (root.TryGetProperty("ConsecutiveNgAlarmEnabled", out var ngEnabled))
+                        {
+                            _appConfig.ConsecutiveNgAlarmEnabled = ngEnabled.ValueKind == JsonValueKind.True;
+                        }
+                        if (root.TryGetProperty("ConsecutiveNgWarningCount", out var ngWarn))
+                        {
+                            _appConfig.ConsecutiveNgWarningCount = ngWarn.TryGetInt32(out int ngWarnVal)
+                                ? Math.Clamp(ngWarnVal, 1, 200)
+                                : _appConfig.ConsecutiveNgWarningCount;
+                        }
+                        if (root.TryGetProperty("ConsecutiveNgCriticalCount", out var ngCritical))
+                        {
+                            _appConfig.ConsecutiveNgCriticalCount = ngCritical.TryGetInt32(out int ngCriticalVal)
+                                ? Math.Clamp(ngCriticalVal, _appConfig.ConsecutiveNgWarningCount, 200)
+                                : _appConfig.ConsecutiveNgCriticalCount;
+                        }
                         if (root.TryGetProperty("TaskType", out var taskType)) _appConfig.TaskType = taskType.TryGetInt32(out int taskTypeVal) ? taskTypeVal : _appConfig.TaskType;
                         if (root.TryGetProperty("Confidence", out var conf) && conf.TryGetDouble(out double confVal)) _appConfig.Confidence = (float)Math.Clamp(confVal, 0d, 1d);
                         if (root.TryGetProperty("IouThreshold", out var iou) && iou.TryGetDouble(out double iouVal)) _appConfig.IouThreshold = (float)Math.Clamp(iouVal, 0d, 1d);
@@ -1199,6 +1948,7 @@ namespace ClearFrost
                         SaveCurrentRecipeSnapshot();
 
                         // 更新相关路径
+                        _appRuntime.ApplyRuntimeStoragePath();
                         _uiController.ImageBasePath = Path_Images;
                         _uiController.LogBasePath = Path_Logs;
                         InitDirectories();
@@ -1215,11 +1965,22 @@ namespace ClearFrost
                         await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
                         await _uiController.InitSettings(_appConfig);
                         await SendHealthSnapshotToFrontendAsync();
+                        string changeSummary = ConfigurationChangeTracker.FormatChanges(
+                            beforeConfig.CompareTo(ConfigurationChangeTracker.Capture(_appConfig)));
+                        string versionDetail = SaveConfigVersionForAudit("SaveSettings", changeSummary);
+                        WriteAuditLogSafe(
+                            "Settings",
+                            "Save",
+                            $"{BuildOperatorAuditContext()}; {changeSummary}; {versionDetail}; StoragePath={_appConfig.StoragePath}; Camera={_appConfig.ActiveCamera?.DisplayName ?? "-"}; " +
+                            $"TriggerSource={_appConfig.TriggerSource}; PLC={_appConfig.PlcDriverProvider}/{_appConfig.PlcProtocol}@{_appConfig.PlcIp}:{_appConfig.PlcPort}; " +
+                            $"Model={_appConfig.CurrentModelFileName}; Confidence={_appConfig.Confidence}; Iou={_appConfig.IouThreshold}",
+                            success: true);
                         await _uiController.LogToFrontend("? 系统设置已更新", "success");
                     }
                 }
                 catch (Exception ex)
                 {
+                    WriteAuditLogSafe("Settings", "Save", $"Error={ex.Message}", success: false);
                     await _uiController.SendUiCommand("alert", new { message = $"保存失败: {ex.Message}" });
                 }
             };
@@ -1229,6 +1990,11 @@ namespace ClearFrost
             {
                 InvokeOnUIThread(async () =>
                 {
+                    if (!await EnsureOperatorPermissionAsync(OperatorPermission.ManageStorage, "选择存储目录"))
+                    {
+                        return;
+                    }
+
                     using (var fbd = new FolderBrowserDialog())
                     {
                         fbd.Description = "选择数据存储根目录";
@@ -1280,8 +2046,237 @@ namespace ClearFrost
             // 触发监听在相机打开成功后启动，避免软件刚启动时现场信号误入检测链路。
         }
 
+        private async Task ImportModelPackageAsync()
+        {
+            string selectedModelPath = string.Empty;
+            ModelPackageDialogData? dialogData = null;
+            ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
+            try
+            {
+                using var openDialog = new OpenFileDialog
+                {
+                    Title = "导入 ONNX 模型并生成模型包",
+                    Filter = "ONNX 模型 (*.onnx)|*.onnx|所有文件 (*.*)|*.*",
+                    CheckFileExists = true,
+                    Multiselect = false,
+                    InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
+                };
+
+                if (openDialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    await _uiController.SendModelPackageImportResult(new
+                    {
+                        success = false,
+                        message = "已取消导入"
+                    });
+                    return;
+                }
+
+                selectedModelPath = openDialog.FileName;
+                dialogData = ShowModelPackageImportDialog(openDialog.FileName);
+                if (dialogData == null)
+                {
+                    await _uiController.SendModelPackageImportResult(new
+                    {
+                        success = false,
+                        message = "已取消导入"
+                    });
+                    return;
+                }
+
+                ModelPackageImportResult result = _appRuntime.ImportModelPackage(new ModelPackageImportOptions
+                {
+                    SourceModelPath = openDialog.FileName,
+                    OnnxDirectory = 模型路径,
+                    ModelId = dialogData.ModelId,
+                    Version = dialogData.Version,
+                    Labels = dialogData.Labels,
+                    Description = dialogData.Description,
+                    OverwriteExisting = dialogData.OverwriteExisting,
+                    StrictValidation = dialogData.StrictValidation,
+                    Warmup = dialogData.StrictValidation ? null : (_, _) => true
+                });
+
+                if (!result.Success)
+                {
+                    await _uiController.SendModelPackageImportResult(new
+                    {
+                        success = false,
+                        message = result.Message
+                    });
+                    WriteAuditLogSafe(
+                        "ModelPackage",
+                        "Import",
+                        $"Source={Path.GetFileName(selectedModelPath)}; ModelId={dialogData.ModelId}; Version={dialogData.Version}; Error={result.Message}",
+                        success: false);
+                    await _uiController.LogToFrontend($"模型包导入失败: {result.Message}", "error");
+                    return;
+                }
+
+                string modelFileName = !string.IsNullOrWhiteSpace(result.PublishedOnnxPath)
+                    ? Path.GetFileName(result.PublishedOnnxPath)
+                    : result.RegistryEntry?.UsedModelName ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(modelFileName))
+                {
+                    模型名 = modelFileName;
+                    _appConfig.CurrentModelFileName = modelFileName;
+                    if (_appConfig.Save())
+                    {
+                        TrySaveCurrentRecipeSnapshot("模型包导入");
+                        WriteConfigChangeAudit("ImportModelPackage", beforeConfig, $"ModelFile={modelFileName}");
+                    }
+                }
+
+                await InitModelList();
+                await InitYoloAsync();
+                RefreshStartupDiagnostics();
+                await _uiController.InitSettings(_appConfig);
+                await SendHealthSnapshotToFrontendAsync();
+
+                await _uiController.SendModelPackageImportResult(new
+                {
+                    success = true,
+                    modelId = result.Manifest?.ModelId ?? result.RegistryEntry?.ModelId ?? dialogData.ModelId,
+                    version = result.Manifest?.Version ?? dialogData.Version,
+                    modelFileName,
+                    packageDirectory = result.PackageDirectory,
+                    manifestPath = result.ManifestPath,
+                    message = result.Message
+                });
+                WriteAuditLogSafe(
+                    "ModelPackage",
+                    "Import",
+                    $"Source={Path.GetFileName(selectedModelPath)}; ModelId={result.Manifest?.ModelId ?? dialogData.ModelId}; " +
+                    $"Version={result.Manifest?.Version ?? dialogData.Version}; ModelFile={modelFileName}; Package={result.PackageDirectory}",
+                    success: true);
+                await _uiController.LogToFrontend($"模型包导入完成: {result.PackageDirectory}", "success");
+            }
+            catch (Exception ex)
+            {
+                await _uiController.SendModelPackageImportResult(new
+                {
+                    success = false,
+                    message = ex.Message
+                });
+                WriteAuditLogSafe(
+                    "ModelPackage",
+                    "Import",
+                    $"Source={Path.GetFileName(selectedModelPath)}; ModelId={dialogData?.ModelId ?? "-"}; Error={ex.Message}",
+                    success: false);
+                await _uiController.LogToFrontend($"模型包导入异常: {ex.Message}", "error");
+            }
+        }
+
+        private ModelPackageDialogData? ShowModelPackageImportDialog(string sourceModelPath)
+        {
+            string defaultModelId = Path.GetFileNameWithoutExtension(sourceModelPath) ?? "model";
+            string defaultVersion = DateTime.Now.ToString("yyyyMMdd.HHmmss", CultureInfo.InvariantCulture);
+            string[] existingLabels = _detectionService.GetLabels() ?? Array.Empty<string>();
+            string defaultLabels = existingLabels.Length > 0
+                ? string.Join(",", existingLabels.Where(label => !string.IsNullOrWhiteSpace(label)))
+                : _appConfig.TargetLabel;
+
+            using var dialog = new Form
+            {
+                Text = "模型包信息",
+                StartPosition = FormStartPosition.CenterParent,
+                Width = 520,
+                Height = 360,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                ShowInTaskbar = false
+            };
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(14),
+                ColumnCount = 2,
+                RowCount = 7
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            for (int i = 0; i < 7; i++)
+            {
+                layout.RowStyles.Add(new RowStyle(i == 6 ? SizeType.Percent : SizeType.Absolute, i == 6 ? 100 : 36));
+            }
+
+            var modelIdBox = new TextBox { Text = defaultModelId, Dock = DockStyle.Fill };
+            var versionBox = new TextBox { Text = defaultVersion, Dock = DockStyle.Fill };
+            var labelsBox = new TextBox { Text = defaultLabels, Dock = DockStyle.Fill };
+            var descriptionBox = new TextBox { Dock = DockStyle.Fill, Multiline = true, Height = 70 };
+            var overwriteBox = new CheckBox { Text = "覆盖同名模型包和同名 ONNX 文件", AutoSize = true };
+            var strictBox = new CheckBox { Text = "严格 warmup 验收 ONNX 结构", AutoSize = true };
+
+            AddDialogRow(layout, 0, "模型包 ID", modelIdBox);
+            AddDialogRow(layout, 1, "版本", versionBox);
+            AddDialogRow(layout, 2, "标签", labelsBox);
+            AddDialogRow(layout, 3, "", overwriteBox);
+            AddDialogRow(layout, 4, "", strictBox);
+            AddDialogRow(layout, 5, "说明", descriptionBox);
+
+            var buttons = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.RightToLeft,
+                Dock = DockStyle.Fill
+            };
+            var okButton = new Button { Text = "导入", DialogResult = DialogResult.OK, Width = 88 };
+            var cancelButton = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Width = 88 };
+            buttons.Controls.Add(okButton);
+            buttons.Controls.Add(cancelButton);
+            layout.Controls.Add(buttons, 0, 6);
+            layout.SetColumnSpan(buttons, 2);
+
+            dialog.Controls.Add(layout);
+            dialog.AcceptButton = okButton;
+            dialog.CancelButton = cancelButton;
+
+            if (dialog.ShowDialog(this) != DialogResult.OK)
+            {
+                return null;
+            }
+
+            return new ModelPackageDialogData(
+                modelIdBox.Text.Trim(),
+                versionBox.Text.Trim(),
+                SplitLabels(labelsBox.Text),
+                descriptionBox.Text.Trim(),
+                overwriteBox.Checked,
+                strictBox.Checked);
+        }
+
+        private static void AddDialogRow(TableLayoutPanel layout, int row, string label, Control editor)
+        {
+            layout.Controls.Add(new Label
+            {
+                Text = label,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft
+            }, 0, row);
+            layout.Controls.Add(editor, 1, row);
+        }
+
+        private static string[] SplitLabels(string labels)
+        {
+            return (labels ?? string.Empty)
+                .Split(new[] { ',', ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(label => !string.IsNullOrWhiteSpace(label))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        private sealed record ModelPackageDialogData(
+            string ModelId,
+            string Version,
+            string[] Labels,
+            string Description,
+            bool OverwriteExisting,
+            bool StrictValidation);
+
         private async Task ExportConfigMigrationAsync()
         {
+            string selectedExportPath = string.Empty;
             try
             {
                 using var dialog = new SaveFileDialog
@@ -1300,8 +2295,14 @@ namespace ClearFrost
                     return;
                 }
 
+                selectedExportPath = dialog.FileName;
                 string appVersion = AppVersion.InformationalVersion;
                 ConfigMigrationExportResult result = ConfigMigrationService.Export(_appConfig, dialog.FileName, appVersion);
+                WriteAuditLogSafe(
+                    "ConfigMigration",
+                    "Export",
+                    $"Path={result.Path}; Presets={result.PresetCount}; AppVersion={appVersion}",
+                    success: true);
                 await _uiController.LogToFrontend($"配置迁移文件已导出: {result.Path}", "success");
                 await _uiController.SendUiCommand("toast", new
                 {
@@ -1312,12 +2313,14 @@ namespace ClearFrost
             }
             catch (Exception ex)
             {
+                WriteAuditLogSafe("ConfigMigration", "Export", $"Path={selectedExportPath}; Error={ex.Message}", success: false);
                 await _uiController.SendUiCommand("alert", new { message = $"导出配置迁移失败: {ex.Message}" });
             }
         }
 
         private async Task ImportConfigMigrationAsync()
         {
+            string selectedImportPath = string.Empty;
             try
             {
                 using var dialog = new OpenFileDialog
@@ -1334,6 +2337,7 @@ namespace ClearFrost
                     return;
                 }
 
+                selectedImportPath = dialog.FileName;
                 ConfigMigrationImportPreview preview = ConfigMigrationService.PreviewImport(dialog.FileName);
                 DialogResult confirmResult = MessageBox.Show(
                     this,
@@ -1346,6 +2350,7 @@ namespace ClearFrost
                     return;
                 }
 
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
                 ConfigMigrationImportResult result = ConfigMigrationService.ImportFromFile(dialog.FileName, _appConfig);
                 bool refreshSucceeded = true;
                 try
@@ -1365,6 +2370,19 @@ namespace ClearFrost
                 await _uiController.LogToFrontend(
                     BuildConfigMigrationImportLogText(result),
                     refreshSucceeded ? "success" : "warning");
+                if (result.HasConfig)
+                {
+                    WriteConfigChangeAudit(
+                        "ImportConfigMigration",
+                        beforeConfig,
+                        $"Path={selectedImportPath}; Kind={result.Kind}; RefreshSucceeded={refreshSucceeded}");
+                }
+
+                WriteAuditLogSafe(
+                    "ConfigMigration",
+                    "Import",
+                    $"Path={selectedImportPath}; HasConfig={result.HasConfig}; Presets={result.PresetCount}; RefreshSucceeded={refreshSucceeded}",
+                    success: refreshSucceeded);
                 await _uiController.SendUiCommand("toast", new
                 {
                     message = refreshSucceeded
@@ -1376,6 +2394,7 @@ namespace ClearFrost
             }
             catch (Exception ex)
             {
+                WriteAuditLogSafe("ConfigMigration", "Import", $"Path={selectedImportPath}; Error={ex.Message}", success: false);
                 await _uiController.SendUiCommand("alert", new { message = $"导入配置迁移失败: {ex.Message}" });
             }
         }
@@ -1416,41 +2435,51 @@ namespace ClearFrost
         {
             if (result.HasConfig)
             {
-                try
-                {
-                    _cameraService.StopCapture();
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[ConfigMigration] StopCapture before camera reload failed: {ex.Message}");
-                }
-
-                _cameraManager.ReloadFromConfig(_appConfig);
-                CameraInstance? activeCamera = _cameraManager.ActiveCamera;
-                cam = activeCamera?.Camera ?? new RealCamera();
-
-                SaveCurrentRecipeSnapshot();
-                YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
-                _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
-                _detectionService.SetTaskMode(_appConfig.TaskType);
-
-                _uiController.ImageBasePath = Path_Images;
-                _uiController.LogBasePath = Path_Logs;
-                InitDirectories();
-                _uiController.SetImageMapping(Path_Images);
-
-                模型名 = _appConfig.CurrentModelFileName?.Trim() ?? string.Empty;
-                await WarnMissingImportedModelFilesAsync();
-                InitYolo();
-                RefreshStartupDiagnostics();
-                _ = StartTriggerSourceAsync();
-
-                await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
-                await _uiController.InitSettings(_appConfig);
-                await _uiController.SendModelList(GetModelNames());
+                await RefreshRuntimeConfigStateAsync();
             }
 
             await _uiController.SendProjectPresets(ProjectPresetStore.Load());
+            if (!result.HasConfig)
+            {
+                await SendConfiguredCameraListToFrontendAsync();
+                await SendHealthSnapshotToFrontendAsync();
+            }
+        }
+
+        private async Task RefreshRuntimeConfigStateAsync()
+        {
+            try
+            {
+                _cameraService.StopCapture();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ConfigRefresh] StopCapture before camera reload failed: {ex.Message}");
+            }
+
+            _cameraManager.ReloadFromConfig(_appConfig);
+
+            SaveCurrentRecipeSnapshot();
+            YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
+            _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
+            _detectionService.SetTaskMode(_appConfig.TaskType);
+
+            _appRuntime.ApplyRuntimeStoragePath();
+            _uiController.ImageBasePath = Path_Images;
+            _uiController.LogBasePath = Path_Logs;
+            InitDirectories();
+            _uiController.SetImageMapping(Path_Images);
+
+            模型名 = _appConfig.CurrentModelFileName?.Trim() ?? string.Empty;
+            await WarnMissingImportedModelFilesAsync();
+            _appRuntime.RefreshModelRegistry();
+            InitYolo();
+            RefreshStartupDiagnostics();
+            _ = StartTriggerSourceAsync();
+
+            await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
+            await _uiController.InitSettings(_appConfig);
+            await _uiController.SendModelList(GetModelNames());
             await SendConfiguredCameraListToFrontendAsync();
             await SendHealthSnapshotToFrontendAsync();
         }
@@ -1503,6 +2532,13 @@ namespace ClearFrost
         /// </summary>
         private async Task StartTriggerSourceAsync()
         {
+            if (!await EnsureProductionOperatorSessionAsync("自动生产触发监听"))
+            {
+                _serialTriggerService.Stop();
+                _plcService.StopMonitoring();
+                return;
+            }
+
             if (_appConfig.TriggerSource == TriggerSource.SerialPhotoelectric)
             {
                 _plcService.StopMonitoring();
@@ -1565,6 +2601,9 @@ namespace ClearFrost
         private async Task InitModelList()
         {
             await _uiController.LogToFrontend("开始加载模型列表...");
+            _appRuntime.RefreshModelRegistry();
+            RefreshStartupDiagnostics();
+            await SendHealthSnapshotToFrontendAsync();
 
             if (!Directory.Exists(模型路径))
             {
@@ -1608,10 +2647,53 @@ namespace ClearFrost
             {
                 while (!停止)
                 {
-                    _storageService?.CleanOldData(30);
+                    await RunDataRetentionCleanupAsync();
                     await Task.Delay(TimeSpan.FromHours(24));
                 }
             });
+        }
+
+        private async Task RunDataRetentionCleanupAsync()
+        {
+            if (!_appConfig.DataRetentionEnabled)
+            {
+                return;
+            }
+
+            try
+            {
+                var service = new DataRetentionService(BaseStoragePath);
+                DataRetentionCleanupSummary summary = await service.CleanupAsync(new DataRetentionPolicy
+                {
+                    Enabled = _appConfig.DataRetentionEnabled,
+                    ImageRetentionDays = _appConfig.ImageRetentionDays,
+                    LogRetentionDays = _appConfig.LogRetentionDays,
+                    AuditLogRetentionDays = _appConfig.AuditLogRetentionDays,
+                    ReportRetentionDays = _appConfig.ReportRetentionDays,
+                    TraceRecordRetentionDays = _appConfig.TraceRecordRetentionDays
+                }, _databaseService);
+
+                string detail = FormatDataRetentionSummary(summary);
+                WriteAuditLogSafe("DataRetention", "Cleanup", detail, summary.ErrorCount == 0);
+
+                if (summary.TotalDeletedItems > 0 || summary.ErrorCount > 0)
+                {
+                    string type = summary.ErrorCount == 0 ? "info" : "warning";
+                    SafeFireAndForget(_uiController.LogToFrontend($"数据保留清理完成: {detail}", type), "数据保留清理日志");
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteAuditLogSafe("DataRetention", "Cleanup", $"Error={ex.Message}", success: false);
+                Debug.WriteLine($"[DataRetention] 清理异常: {ex.Message}");
+            }
+        }
+
+        private static string FormatDataRetentionSummary(DataRetentionCleanupSummary summary)
+        {
+            return $"Images={summary.ImageDirectoriesDeleted}; LogDirs={summary.LogDirectoriesDeleted}; " +
+                   $"LogFiles={summary.LogFilesDeleted}; Reports={summary.ReportFilesDeleted}; " +
+                   $"TraceRecords={summary.TraceRecordsDeleted}; Errors={summary.ErrorCount}";
         }
 
         private void StartEmergencyCleanupMonitor()
@@ -1897,7 +2979,10 @@ namespace ClearFrost
         {
             try
             {
-                await _uiController.SendHealthSnapshot(_healthMonitor.GetSnapshot());
+                HealthSnapshot healthSnapshot = _healthMonitor.GetSnapshot();
+                AlarmSnapshot alarmSnapshot = _alarmCenterService.Evaluate(healthSnapshot);
+                await _uiController.SendHealthSnapshot(healthSnapshot);
+                await _uiController.SendAlarmSnapshot(alarmSnapshot);
                 if (showToast)
                 {
                     await _uiController.SendUiCommand("toast", new
@@ -1911,6 +2996,18 @@ namespace ClearFrost
             catch (Exception ex)
             {
                 Debug.WriteLine($"[HealthMonitor] 推送健康快照失败: {ex.Message}");
+            }
+        }
+
+        private async Task SendAlarmSnapshotToFrontendAsync()
+        {
+            try
+            {
+                await _uiController.SendAlarmSnapshot(_alarmCenterService.GetSnapshot());
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AlarmCenter] 推送告警快照失败: {ex.Message}");
             }
         }
 

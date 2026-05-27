@@ -143,6 +143,298 @@ public class HealthMonitorTests
         }
     }
 
+    [Fact]
+    public void GetSnapshot_良率较历史基线明显下降_生成趋势和维护建议()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(new RecordingDatabaseService());
+            var statistics = new FakeStatisticsService(
+                new StatisticsSnapshot
+                {
+                    CurrentDate = "2026-05-27",
+                    TotalCount = 100,
+                    QualifiedCount = 84,
+                    UnqualifiedCount = 16,
+                    QualifiedPercentage = 84
+                },
+                new[]
+                {
+                    new DailyStatisticsRecord { Date = "2026-05-24", TotalCount = 100, QualifiedCount = 98, UnqualifiedCount = 2 },
+                    new DailyStatisticsRecord { Date = "2026-05-25", TotalCount = 100, QualifiedCount = 97, UnqualifiedCount = 3 },
+                    new DailyStatisticsRecord { Date = "2026-05-26", TotalCount = 100, QualifiedCount = 99, UnqualifiedCount = 1 }
+                });
+            var monitor = new HealthMonitor(
+                new FakeCameraService(),
+                new FakePlcService(),
+                new FakeDetectionService(),
+                new FakeStorageService(tempDir),
+                imageQueue,
+                recordQueue,
+                statisticsService: statistics);
+
+            HealthSnapshot snapshot = monitor.GetSnapshot();
+
+            snapshot.HealthLevel.Should().Be(HealthLevel.Critical);
+            snapshot.Trends.Should().ContainSingle(t =>
+                t.Name == "QualifiedRate" &&
+                t.Level == HealthLevel.Critical &&
+                t.Change < -10);
+            snapshot.MaintenanceAdvices.Should().Contain(a =>
+                a.Source == "QualifiedRate" &&
+                a.Action.Contains("光源") &&
+                a.Action.Contains("复判"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void GetSnapshot_统计历史样本不足_不生成良率趋势()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(new RecordingDatabaseService());
+            var statistics = new FakeStatisticsService(
+                new StatisticsSnapshot
+                {
+                    CurrentDate = "2026-05-27",
+                    TotalCount = 100,
+                    QualifiedCount = 96,
+                    UnqualifiedCount = 4,
+                    QualifiedPercentage = 96
+                },
+                new[]
+                {
+                    new DailyStatisticsRecord { Date = "2026-05-26", TotalCount = 100, QualifiedCount = 98, UnqualifiedCount = 2 }
+                });
+            var monitor = new HealthMonitor(
+                new FakeCameraService(),
+                new FakePlcService(),
+                new FakeDetectionService(),
+                new FakeStorageService(tempDir),
+                imageQueue,
+                recordQueue,
+                statisticsService: statistics);
+
+            HealthSnapshot snapshot = monitor.GetSnapshot();
+
+            snapshot.Trends.Should().BeEmpty();
+            snapshot.MaintenanceAdvices.Should().NotContain(a => a.Source == "QualifiedRate");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void GetSnapshot_检测节拍超过SLA_生成维护建议()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(new RecordingDatabaseService());
+            var monitor = new HealthMonitor(
+                new FakeCameraService(),
+                new FakePlcService(),
+                new FakeDetectionService(),
+                new FakeStorageService(tempDir),
+                imageQueue,
+                recordQueue,
+                inspectionCycleSlaProvider: () => new InspectionCycleSlaOptions
+                {
+                    Enabled = true,
+                    WarningMs = 1000,
+                    CriticalMs = 2000,
+                    MinSamples = 3
+                });
+
+            monitor.RecordInspection(new InspectionContext { InspectionId = "CF-1", TotalMs = 900 });
+            monitor.RecordInspection(new InspectionContext { InspectionId = "CF-2", TotalMs = 1500 });
+            monitor.RecordInspection(new InspectionContext { InspectionId = "CF-3", TotalMs = 2200 });
+
+            HealthSnapshot snapshot = monitor.GetSnapshot();
+
+            snapshot.HealthLevel.Should().Be(HealthLevel.Critical);
+            snapshot.RecentInspectionSampleCount.Should().Be(3);
+            snapshot.InspectionCycleMinSamples.Should().Be(3);
+            snapshot.RecentInspectionP95Ms.Should().Be(2200);
+            snapshot.MaintenanceAdvices.Should().Contain(a =>
+                a.Source == "InspectionCycle" &&
+                a.Level == HealthLevel.Critical &&
+                a.Message.Contains("P95=2200"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void GetSnapshot_近期良率低于SLA_生成维护建议()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(new RecordingDatabaseService());
+            var monitor = new HealthMonitor(
+                new FakeCameraService(),
+                new FakePlcService(),
+                new FakeDetectionService(),
+                new FakeStorageService(tempDir),
+                imageQueue,
+                recordQueue,
+                qualityYieldSlaProvider: () => new QualityYieldSlaOptions
+                {
+                    Enabled = true,
+                    WarningPercent = 80,
+                    CriticalPercent = 50,
+                    MinSamples = 4
+                });
+
+            monitor.RecordInspection(new InspectionContext { InspectionId = "CF-Y1", TotalMs = 100, IsQualified = true });
+            monitor.RecordInspection(new InspectionContext { InspectionId = "CF-Y2", TotalMs = 100, IsQualified = false });
+            monitor.RecordInspection(new InspectionContext { InspectionId = "CF-Y3", TotalMs = 100, IsQualified = false });
+            monitor.RecordInspection(new InspectionContext { InspectionId = "CF-Y4", TotalMs = 100, IsQualified = true });
+
+            HealthSnapshot snapshot = monitor.GetSnapshot();
+
+            snapshot.HealthLevel.Should().Be(HealthLevel.Critical);
+            snapshot.RecentInspectionQualifiedCount.Should().Be(2);
+            snapshot.RecentInspectionUnqualifiedCount.Should().Be(2);
+            snapshot.RecentInspectionQualifiedRatePercent.Should().Be(50);
+            snapshot.QualityYieldMinSamples.Should().Be(4);
+            snapshot.MaintenanceAdvices.Should().Contain(a =>
+                a.Source == "QualityYield" &&
+                a.Level == HealthLevel.Critical &&
+                a.Message.Contains("50.00%"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void GetSnapshot_连续NG超过阈值_生成维护建议()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(new RecordingDatabaseService());
+            var monitor = new HealthMonitor(
+                new FakeCameraService(),
+                new FakePlcService(),
+                new FakeDetectionService(),
+                new FakeStorageService(tempDir),
+                imageQueue,
+                recordQueue,
+                consecutiveNgSlaProvider: () => new ConsecutiveNgSlaOptions
+                {
+                    Enabled = true,
+                    WarningCount = 2,
+                    CriticalCount = 3
+                });
+
+            monitor.RecordInspection(new InspectionContext { InspectionId = "CF-NG1", TotalMs = 100, IsQualified = true });
+            monitor.RecordInspection(new InspectionContext { InspectionId = "CF-NG2", TotalMs = 100, IsQualified = false });
+            monitor.RecordInspection(new InspectionContext { InspectionId = "CF-NG3", TotalMs = 100, IsQualified = false });
+            monitor.RecordInspection(new InspectionContext { InspectionId = "CF-NG4", TotalMs = 100, IsQualified = false });
+
+            HealthSnapshot snapshot = monitor.GetSnapshot();
+
+            snapshot.HealthLevel.Should().Be(HealthLevel.Critical);
+            snapshot.ConsecutiveNgCount.Should().Be(3);
+            snapshot.ConsecutiveNgWarningCount.Should().Be(2);
+            snapshot.ConsecutiveNgCriticalCount.Should().Be(3);
+            snapshot.MaintenanceAdvices.Should().Contain(a =>
+                a.Source == "ConsecutiveNG" &&
+                a.Level == HealthLevel.Critical &&
+                a.Message.Contains("连续 NG 已达 3 件"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void GetSnapshot_PLC写回反复失败_升级维护建议()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(new RecordingDatabaseService());
+            var monitor = new HealthMonitor(
+                new FakeCameraService(),
+                new FakePlcService(),
+                new FakeDetectionService(),
+                new FakeStorageService(tempDir),
+                imageQueue,
+                recordQueue);
+
+            monitor.RecordError("PLC", "PLC写入失败: 结果未成功落地", "CF-PLC-1");
+            monitor.RecordError("PLC.HandshakeV1", "HandshakeV1写入失败: InspectionDone@D102=1", "CF-PLC-2");
+            monitor.RecordError("PLC", "PLC写入异常: timeout", "CF-PLC-3");
+
+            HealthSnapshot snapshot = monitor.GetSnapshot();
+
+            snapshot.HealthLevel.Should().Be(HealthLevel.Critical);
+            MaintenanceAdvice advice = snapshot.MaintenanceAdvices
+                .Single(advice => advice.Source == "PLC.WriteBack");
+            advice.Level.Should().Be(HealthLevel.Critical);
+            advice.Message.Should().Contain("3 次");
+            advice.Message.Should().Contain("CF-PLC-3");
+            advice.Action.Should().Contain("结果地址");
+            advice.Action.Should().Contain("OK/NG");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
     private static void SetPendingCount(object queue, long value)
     {
         var field = queue.GetType().GetField(
@@ -163,6 +455,7 @@ public class HealthMonitorTests
         public string? LastError => null;
         public Mat? LastFrame => null;
         public bool IsGrabbing => true;
+        public bool IsMockCamera => false;
 
         public bool Open(string serialNumber, string manufacturer) => true;
         public void Close() { }
@@ -172,6 +465,7 @@ public class HealthMonitorTests
         public Mat? CaptureFrame(int timeoutMs = 3000) => null;
         public void SetExposure(double exposureUs) { }
         public void SetGain(double gain) { }
+        public bool SetPixelFormat(string pixelFormat) => true;
         public void Dispose() { }
     }
 
@@ -243,6 +537,41 @@ public class HealthMonitorTests
         public void Dispose() { }
     }
 
+    private sealed class FakeStatisticsService : IStatisticsService
+    {
+        private readonly StatisticsSnapshot _current;
+        private readonly IReadOnlyList<DailyStatisticsRecord> _history;
+        private readonly StatisticsHistory _statisticsHistory = new StatisticsHistory();
+        private readonly DetectionStatistics _detectionStatistics = new DetectionStatistics();
+
+        public FakeStatisticsService(
+            StatisticsSnapshot current,
+            IReadOnlyList<DailyStatisticsRecord> history)
+        {
+            _current = current;
+            _history = history;
+        }
+
+        public event Action<StatisticsSnapshot>? StatisticsUpdated;
+        public event Action? DayReset;
+
+        public StatisticsSnapshot Current => _current;
+        public int TodayQualified => _current.QualifiedCount;
+        public int TodayUnqualified => _current.UnqualifiedCount;
+        public int TodayTotal => _current.TotalCount;
+        public IReadOnlyList<DailyStatisticsRecord> History => _history;
+
+        public void RecordDetection(bool isQualified) { }
+        public void ResetToday() { }
+        public bool CheckAndResetForNewDay() => false;
+        public void SaveAll() { }
+        public void ClearHistory() { }
+        public void LoadAll() { }
+        public (StatisticsHistory history, DetectionStatistics stats) GetStatisticsData()
+            => (_statisticsHistory, _detectionStatistics);
+        public void Dispose() { }
+    }
+
     private sealed class FakeStorageService : IStorageService
     {
         public FakeStorageService(string basePath)
@@ -262,6 +591,7 @@ public class HealthMonitorTests
         public void WriteDetectionLog(string content, bool isQualified) { }
         public void WriteStartupLog(string action, string? serialNumber = null) { }
         public void WriteErrorLog(string message) { }
+        public void WriteAuditLog(string category, string action, string detail, bool success = true) { }
         public void CleanOldData(int retainDays) { }
         public double GetDiskFreeSpaceGb() => 100.0;
         public double PerformEmergencyCleanup() => 100.0;

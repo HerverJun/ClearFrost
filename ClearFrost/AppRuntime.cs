@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -52,7 +53,10 @@ namespace ClearFrost
             RecipeManager? recipeManager = null,
             ModelRegistry? modelRegistry = null,
             StartupDiagnostics? startupDiagnostics = null,
-            DiagnosticPackageExporter? diagnosticPackageExporter = null)
+            DiagnosticPackageExporter? diagnosticPackageExporter = null,
+            OperatorSessionService? operatorSessionService = null,
+            ConfigVersionStore? configVersionStore = null,
+            AlarmCenterService? alarmCenterService = null)
         {
             AppConfig = appConfig ?? throw new ArgumentNullException(nameof(appConfig));
             CameraManager = cameraManager ?? throw new ArgumentNullException(nameof(cameraManager));
@@ -60,7 +64,12 @@ namespace ClearFrost
             PlcService = plcService ?? new PlcService();
             DetectionService = detectionService ?? new DetectionService(appConfig.EnableGpu, appConfig.GpuIndex);
             StorageService = storageService ?? new StorageService(appConfig.StoragePath);
-            StatisticsService = statisticsService ?? new StatisticsService(StorageService.SystemPath.Replace("\\System", ""));
+            OperatorSessionService = operatorSessionService ?? new OperatorSessionService(
+                StorageService.SystemPath,
+                TimeSpan.FromHours(appConfig.OperatorSessionMaxHours));
+            ConfigVersionStore = configVersionStore ?? new ConfigVersionStore(StorageService.SystemPath);
+            AlarmCenterService = alarmCenterService ?? new AlarmCenterService(StorageService.SystemPath);
+            StatisticsService = statisticsService ?? new StatisticsService(GetStorageRoot(StorageService));
             DatabaseService = databaseService ?? new SqliteDatabaseService();
             ImageSaveQueue = imageSaveQueue ?? new ImageSaveQueue();
             DetectionRecordQueue = detectionRecordQueue ?? new DetectionRecordQueue(DatabaseService);
@@ -74,11 +83,33 @@ namespace ClearFrost
                 DetectionService,
                 StorageService,
                 ImageSaveQueue,
-                DetectionRecordQueue);
+                DetectionRecordQueue,
+                StatisticsService,
+                () => new InspectionCycleSlaOptions
+                {
+                    Enabled = AppConfig.InspectionCycleSlaEnabled,
+                    WarningMs = AppConfig.InspectionCycleWarningMs,
+                    CriticalMs = AppConfig.InspectionCycleCriticalMs,
+                    MinSamples = AppConfig.InspectionCycleMinSamples
+                },
+                () => new QualityYieldSlaOptions
+                {
+                    Enabled = AppConfig.QualityYieldSlaEnabled,
+                    WarningPercent = AppConfig.QualityYieldWarningPercent,
+                    CriticalPercent = AppConfig.QualityYieldCriticalPercent,
+                    MinSamples = AppConfig.QualityYieldMinSamples
+                },
+                () => new ConsecutiveNgSlaOptions
+                {
+                    Enabled = AppConfig.ConsecutiveNgAlarmEnabled,
+                    WarningCount = AppConfig.ConsecutiveNgWarningCount,
+                    CriticalCount = AppConfig.ConsecutiveNgCriticalCount
+                });
             WebUIController = webUIController ?? new WebUIController();
             StartupDiagnostics = startupDiagnostics ?? new StartupDiagnostics();
             StartupDiagnostics.Run(AppConfig, StorageService, ModelRegistry);
             DiagnosticPackageExporter = diagnosticPackageExporter ?? new DiagnosticPackageExporter();
+            TryEnsureBaselineConfigVersion();
         }
 
         public AppConfig AppConfig { get; }
@@ -92,6 +123,12 @@ namespace ClearFrost
         public IDetectionService DetectionService { get; }
 
         public IStorageService StorageService { get; }
+
+        public OperatorSessionService OperatorSessionService { get; }
+
+        public ConfigVersionStore ConfigVersionStore { get; }
+
+        public AlarmCenterService AlarmCenterService { get; }
 
         public IStatisticsService StatisticsService { get; }
 
@@ -114,6 +151,73 @@ namespace ClearFrost
         public WebUIController WebUIController { get; }
 
         public bool IsStartupReady => StartupDiagnostics.CurrentReport.IsReady;
+
+        public void ApplyRuntimeStoragePath()
+        {
+            string storageRoot = ClearFrost.Services.StorageService.ResolveStoragePath(AppConfig.StoragePath);
+            if (StorageService is ClearFrost.Services.StorageService concreteStorageService)
+            {
+                concreteStorageService.Reconfigure(storageRoot);
+            }
+
+            OperatorSessionService.Reconfigure(
+                StorageService.SystemPath,
+                TimeSpan.FromHours(AppConfig.OperatorSessionMaxHours));
+            ConfigVersionStore.Reconfigure(StorageService.SystemPath);
+            AlarmCenterService.Reconfigure(StorageService.SystemPath);
+            TryEnsureBaselineConfigVersion();
+
+            if (StatisticsService is ClearFrost.Services.StatisticsService concreteStatisticsService)
+            {
+                concreteStatisticsService.Reconfigure(storageRoot);
+            }
+        }
+
+        private void TryEnsureBaselineConfigVersion()
+        {
+            try
+            {
+                ConfigVersionStore.EnsureBaseline(AppConfig, OperatorSessionService.Current);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AppRuntime] 配置基线版本创建失败: {ex.Message}");
+            }
+        }
+
+        public IReadOnlyList<ModelRegistryEntry> RefreshModelRegistry()
+        {
+            return ModelRegistry.Scan(CreateModelRegistryScanOptions(AppConfig));
+        }
+
+        public ModelPackageImportResult ImportModelPackage(ModelPackageImportOptions options)
+        {
+            if (options == null) throw new ArgumentNullException(nameof(options));
+
+            ModelRegistryScanOptions scanOptions = CreateModelRegistryScanOptions(AppConfig);
+            var result = ModelPackageImporter.Import(new ModelPackageImportOptions
+            {
+                SourceModelPath = options.SourceModelPath,
+                PackageDirectory = string.IsNullOrWhiteSpace(options.PackageDirectory)
+                    ? scanOptions.PackageDirectory
+                    : options.PackageDirectory,
+                OnnxDirectory = string.IsNullOrWhiteSpace(options.OnnxDirectory)
+                    ? scanOptions.OnnxDirectory
+                    : options.OnnxDirectory,
+                ModelId = options.ModelId,
+                Version = options.Version,
+                ModelFileName = options.ModelFileName,
+                Labels = options.Labels,
+                Description = options.Description,
+                OverwriteExisting = options.OverwriteExisting,
+                PublishToOnnxDirectory = options.PublishToOnnxDirectory,
+                StrictValidation = options.StrictValidation,
+                Warmup = options.Warmup
+            });
+            RefreshModelRegistry();
+            StartupDiagnostics.Run(AppConfig, StorageService, ModelRegistry);
+            return result;
+        }
 
         public string StartupBlockingSummary =>
             string.Join(
@@ -138,6 +242,7 @@ namespace ClearFrost
                     ModelEntries = ModelRegistry.Entries,
                     StartupDiagnostics = StartupDiagnostics.CurrentReport,
                     HealthSnapshot = HealthMonitor.GetSnapshot(),
+                    AlarmSnapshot = AlarmCenterService.GetSnapshot(),
                     RecentRecords = recentRecords,
                     LogsDirectory = StorageService.LogBasePath
                 },
@@ -376,6 +481,16 @@ namespace ClearFrost
                 OnnxDirectory = Path.Combine(baseDirectory, "ONNX"),
                 StrictPackageMode = appConfig.StrictModelPackageMode
             };
+        }
+
+        private static string GetStorageRoot(IStorageService storageService)
+        {
+            if (storageService is ClearFrost.Services.StorageService concreteStorageService)
+            {
+                return concreteStorageService.BaseStoragePath;
+            }
+
+            return Path.GetDirectoryName(storageService.SystemPath) ?? storageService.SystemPath;
         }
     }
 }

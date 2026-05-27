@@ -1,8 +1,9 @@
-﻿using System;
+﻿﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using ClearFrost.Config;
 using ClearFrost.Core.Inspection;
@@ -91,9 +92,13 @@ public class InspectionPipelineServiceTests
             database.SavedRecords.Should().ContainSingle();
             database.SavedRecords[0].InspectionId.Should().Be(context.InspectionId);
             database.SavedRecords[0].ProductBarcode.Should().Be("SN-001");
+            database.SavedRecords[0].OperatorName.Should().Be("OP-PIPE");
+            database.SavedRecords[0].ShiftName.Should().Be("A班");
             database.SavedRecords[0].IsQualified.Should().BeTrue();
             database.SavedRecords[0].ActualCount.Should().Be(1);
             File.Exists(database.SavedRecords[0].ImagePath).Should().BeTrue();
+            database.SavedRecords[0].ImageHash.Should().HaveLength(64);
+            ComputeSha256(database.SavedRecords[0].ImagePath).Should().Be(database.SavedRecords[0].ImageHash);
         }
         finally
         {
@@ -195,6 +200,60 @@ public class InspectionPipelineServiceTests
             plc.WrittenValues.Should().Contain(config.PlcNgValue);
             database.SavedRecords.Should().ContainSingle();
             database.SavedRecords[0].ErrorCode.Should().Be("CaptureFrameFailed");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_Plc结果写入首次失败_按配置重试后成功()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            config.PlcWriteRetryCount = 1;
+            config.PlcWriteRetryIntervalMs = 0;
+            var camera = new FakeCameraService(new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService { FailWriteAttempts = 1 };
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
+                    UsedModelName = "primary.onnx",
+                    UsedModelLabels = new[] { "part" }
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue);
+            InspectionContext context = CreateContext("CF-PLC-RETRY", triggerSeq: null);
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("手动", context.InspectionId, context.TriggerSeq, context),
+                default);
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeTrue();
+            context.ErrorCode.Should().BeNullOrEmpty();
+            plc.WriteCallCount.Should().Be(2);
+            plc.WrittenValues.Should().Equal(config.PlcOkValue, config.PlcOkValue);
+            database.SavedRecords.Should().ContainSingle();
+            database.SavedRecords[0].IsQualified.Should().BeTrue();
         }
         finally
         {
@@ -360,6 +419,9 @@ public class InspectionPipelineServiceTests
             TriggerTime = DateTimeOffset.Now,
             TriggerSource = "TEST",
             TriggerSeq = triggerSeq,
+            OperatorName = "OP-PIPE",
+            OperatorRole = "Operator",
+            ShiftName = "A班",
             CurrentStage = InspectionStage.Triggered,
             TraceStatus = TraceStatus.Unknown
         };
@@ -390,6 +452,12 @@ public class InspectionPipelineServiceTests
         }
     }
 
+    private static string ComputeSha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+    }
+
     private sealed class FakeCameraService : ICameraService
     {
         private readonly Mat? _frame;
@@ -411,6 +479,7 @@ public class InspectionPipelineServiceTests
         public string? LastError => LastErrorOverride;
         public Mat? LastFrame => _frame;
         public bool IsGrabbing => true;
+        public bool IsMockCamera => false;
 
         public bool Open(string serialNumber, string manufacturer) => true;
         public void Close() { }
@@ -426,6 +495,7 @@ public class InspectionPipelineServiceTests
 
         public void SetExposure(double exposureUs) { }
         public void SetGain(double gain) { }
+        public bool SetPixelFormat(string pixelFormat) => true;
         public void Dispose() => _frame?.Dispose();
     }
 
@@ -440,6 +510,8 @@ public class InspectionPipelineServiceTests
         public string ProtocolName => "Fake";
         public string? LastError { get; init; }
         public string BarcodeValue { get; init; } = "SN-DEFAULT";
+        public int FailWriteAttempts { get; init; }
+        public int WriteCallCount { get; private set; }
         public List<short> WrittenValues { get; } = new List<short>();
 
         public Task<bool> ConnectAsync(PlcConnectionOptions options) => Task.FromResult(true);
@@ -457,8 +529,9 @@ public class InspectionPipelineServiceTests
 
         public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite)
         {
+            WriteCallCount++;
             WrittenValues.Add(valueToWrite);
-            return Task.FromResult(true);
+            return Task.FromResult(WriteCallCount > FailWriteAttempts);
         }
 
         public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
@@ -590,6 +663,7 @@ public class InspectionPipelineServiceTests
         public void WriteDetectionLog(string content, bool isQualified) => DetectionLogs.Add(content);
         public void WriteStartupLog(string action, string? serialNumber = null) { }
         public void WriteErrorLog(string message) => ErrorLogs.Add(message);
+        public void WriteAuditLog(string category, string action, string detail, bool success = true) { }
         public void CleanOldData(int retainDays) { }
         public double GetDiskFreeSpaceGb() => 100.0;
         public double PerformEmergencyCleanup() => 100.0;

@@ -48,22 +48,27 @@ namespace ClearFrost.Services
             if (config == null) throw new ArgumentNullException(nameof(config));
             if (storageService == null) throw new ArgumentNullException(nameof(storageService));
 
+            string resolvedStoragePath = StorageService.ResolveStoragePath(config.StoragePath);
             var items = new List<StartupDiagnosticItem>
             {
                 CheckWebView2Runtime(),
                 CheckNativeDll("OpenCV native dll", "OpenCvSharpExtern.dll", isBlocking: false),
                 CheckNativeDll("Camera SDK dll", "MVSDK_Net.dll", isBlocking: false),
                 CheckWritableDirectory("Database directory", Path.GetDirectoryName(RuntimePaths.DatabasePath) ?? RuntimePaths.DataDirectory, isBlocking: true),
-                CheckWritableDirectory("Storage directory", config.StoragePath, isBlocking: true),
+                CheckStoragePathResolution(config.StoragePath, resolvedStoragePath),
+                CheckWritableDirectory("Storage directory", resolvedStoragePath, isBlocking: true),
                 CheckWritableDirectory("Log directory", storageService.LogBasePath, isBlocking: true),
+                CheckTriggerSourceConfig(config),
                 CheckPlcAddresses(config),
+                CheckVisionParameters(config),
                 CheckCameraConfig(config),
-                CheckDiskFreeSpace(config.StoragePath)
+                CheckDiskFreeSpace(resolvedStoragePath)
             };
 
             if (modelRegistry != null)
             {
                 items.Add(CheckModelRegistry(modelRegistry));
+                items.Add(CheckConfiguredModel(config, modelRegistry));
             }
 
             CurrentReport = new StartupDiagnosticReport
@@ -117,6 +122,135 @@ namespace ClearFrost.Services
             {
                 return Fail(name, "Directory is not writable.", ex.Message, isBlocking);
             }
+        }
+
+        private static StartupDiagnosticItem CheckStoragePathResolution(string configuredPath, string resolvedPath)
+        {
+            if (PathsEqual(configuredPath, resolvedPath))
+            {
+                return Pass("Storage path config", "Storage path resolved.", resolvedPath, isBlocking: false);
+            }
+
+            return Warn(
+                "Storage path config",
+                "Configured storage path is unavailable; runtime fallback is active.",
+                $"{configuredPath} -> {resolvedPath}",
+                isBlocking: false);
+        }
+
+        private static StartupDiagnosticItem CheckTriggerSourceConfig(AppConfig config)
+        {
+            try
+            {
+                switch (config.TriggerSource)
+                {
+                    case TriggerSource.PLC:
+                        ValidatePlcEndpoint(config);
+                        return Pass("Trigger source config", "PLC trigger source config is valid.", $"{config.PlcIp}:{config.PlcPort}", isBlocking: true);
+
+                    case TriggerSource.SerialPhotoelectric:
+                        if (string.IsNullOrWhiteSpace(config.SerialPhotoelectricPortName))
+                        {
+                            throw new InvalidOperationException("串口光电触发已启用，但 COM 口为空。");
+                        }
+
+                        if (config.SerialPhotoelectricBaudRate < 1200)
+                        {
+                            throw new InvalidOperationException("串口光电波特率不能低于 1200。");
+                        }
+
+                        if (config.SerialPhotoelectricDebounceMs < 0)
+                        {
+                            throw new InvalidOperationException("串口光电去抖时间不能为负数。");
+                        }
+
+                        if (config.SerialPhotoelectricTimeoutMs < 100)
+                        {
+                            throw new InvalidOperationException("串口光电读取超时不能低于 100 ms。");
+                        }
+
+                        return Pass("Trigger source config", "Serial photoelectric trigger config is valid.", config.SerialPhotoelectricPortName, isBlocking: true);
+
+                    default:
+                        throw new InvalidOperationException($"未知触发源: {config.TriggerSource}");
+                }
+            }
+            catch (Exception ex)
+            {
+                return Fail("Trigger source config", "Trigger source validation failed.", ex.Message, isBlocking: true);
+            }
+        }
+
+        private static void ValidatePlcEndpoint(AppConfig config)
+        {
+            if (string.IsNullOrWhiteSpace(config.PlcIp))
+            {
+                throw new InvalidOperationException("PLC IP/主机名为空。");
+            }
+
+            UriHostNameType hostNameType = Uri.CheckHostName(config.PlcIp.Trim());
+            if (hostNameType == UriHostNameType.Unknown)
+            {
+                throw new InvalidOperationException($"PLC IP/主机名无效: {config.PlcIp}");
+            }
+
+            if (config.PlcPort < 1 || config.PlcPort > 65535)
+            {
+                throw new InvalidOperationException($"PLC 端口超出范围: {config.PlcPort}");
+            }
+        }
+
+        private static StartupDiagnosticItem CheckVisionParameters(AppConfig config)
+        {
+            var failures = new List<string>();
+            var warnings = new List<string>();
+
+            if (!IsUnitInterval(config.Confidence))
+            {
+                failures.Add($"Confidence 必须在 0~1 之间，当前 {config.Confidence}。");
+            }
+
+            if (!IsUnitInterval(config.IouThreshold))
+            {
+                failures.Add($"IouThreshold 必须在 0~1 之间，当前 {config.IouThreshold}。");
+            }
+
+            if (config.TargetCount < 0)
+            {
+                failures.Add($"TargetCount 不能为负数，当前 {config.TargetCount}。");
+            }
+
+            if (config.MaxRetryCount < 0 || config.MaxRetryCount > 5)
+            {
+                warnings.Add($"MaxRetryCount 建议在 0~5 之间，运行时会夹紧，当前 {config.MaxRetryCount}。");
+            }
+
+            if (config.RetryIntervalMs < 0)
+            {
+                warnings.Add($"RetryIntervalMs 不能为负数，运行时会按 0 处理，当前 {config.RetryIntervalMs}。");
+            }
+
+            if (config.PlcWriteRetryCount < 0 || config.PlcWriteRetryCount > 5)
+            {
+                warnings.Add($"PlcWriteRetryCount 建议在 0~5 之间，运行时会夹紧，当前 {config.PlcWriteRetryCount}。");
+            }
+
+            if (config.PlcWriteRetryIntervalMs < 0)
+            {
+                warnings.Add($"PlcWriteRetryIntervalMs 不能为负数，运行时会按 0 处理，当前 {config.PlcWriteRetryIntervalMs}。");
+            }
+
+            if (failures.Count > 0)
+            {
+                return Fail("Vision parameter config", "Vision parameter validation failed.", string.Join(" ", failures), isBlocking: true);
+            }
+
+            if (warnings.Count > 0)
+            {
+                return Warn("Vision parameter config", "Vision parameters have compatibility warnings.", string.Join(" ", warnings), isBlocking: false);
+            }
+
+            return Pass("Vision parameter config", "Vision parameters are valid.", $"Confidence={config.Confidence:F3}, IoU={config.IouThreshold:F3}", isBlocking: false);
         }
 
         private static StartupDiagnosticItem CheckPlcAddresses(AppConfig config)
@@ -191,6 +325,62 @@ namespace ClearFrost.Services
             return Pass("Camera config", "Active camera config is present.", $"{active.DisplayName}/{active.SerialNumber}", isBlocking: false);
         }
 
+        private static StartupDiagnosticItem CheckConfiguredModel(AppConfig config, ModelRegistry modelRegistry)
+        {
+            if (modelRegistry.Entries.Count == 0)
+            {
+                return Fail("Configured model", "No model entries are available for primary model resolution.", string.Empty, isBlocking: true);
+            }
+
+            string configuredModel = config.CurrentModelFileName?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(configuredModel))
+            {
+                return Warn(
+                    "Configured model",
+                    "No primary model is configured; startup will auto-select the first available model.",
+                    string.Empty,
+                    isBlocking: false);
+            }
+
+            ModelRegistryEntry? entry = modelRegistry.Resolve(configuredModel);
+            if (entry == null)
+            {
+                return Warn(
+                    "Configured model",
+                    "Configured primary model was not found in the model registry.",
+                    configuredModel,
+                    isBlocking: false);
+            }
+
+            if (entry.Status == ModelRegistryStatus.Blocked)
+            {
+                return Fail(
+                    "Configured model",
+                    "Configured primary model is blocked.",
+                    $"{entry.ModelId}: {entry.Message}",
+                    isBlocking: true);
+            }
+
+            if (entry.Status == ModelRegistryStatus.Warning)
+            {
+                return Warn(
+                    "Configured model",
+                    "Configured primary model has compatibility warnings.",
+                    $"{entry.ModelId}: {entry.Message}",
+                    isBlocking: false);
+            }
+
+            return Pass("Configured model", "Configured primary model is ready.", $"{entry.ModelId}/{entry.Version}", isBlocking: true);
+        }
+
+        private static bool IsUnitInterval(float value)
+        {
+            return !float.IsNaN(value) &&
+                   !float.IsInfinity(value) &&
+                   value >= 0f &&
+                   value <= 1f;
+        }
+
         private static StartupDiagnosticItem CheckDiskFreeSpace(string path)
         {
             try
@@ -259,6 +449,21 @@ namespace ClearFrost.Services
             };
 
             return candidates.FirstOrDefault(File.Exists);
+        }
+
+        private static bool PathsEqual(string left, string right)
+        {
+            try
+            {
+                return string.Equals(
+                    Path.GetFullPath(left ?? string.Empty),
+                    Path.GetFullPath(right ?? string.Empty),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         private static StartupDiagnosticItem Pass(string name, string message, string details = "", bool isBlocking = false)

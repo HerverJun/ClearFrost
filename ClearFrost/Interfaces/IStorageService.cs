@@ -70,6 +70,11 @@ namespace ClearFrost.Interfaces
         /// </summary>
         void WriteErrorLog(string message);
 
+        /// <summary>
+        /// 写入操作审计日志
+        /// </summary>
+        void WriteAuditLog(string category, string action, string detail, bool success = true);
+
         #endregion
 
         #region 数据清理

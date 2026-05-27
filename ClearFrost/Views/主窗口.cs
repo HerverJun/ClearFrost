@@ -37,18 +37,6 @@ namespace ClearFrost
             _cameraManager = _appRuntime.CameraManager;
             _cameraService = _appRuntime.CameraService;
 
-            // 向后兼容：从 CameraManager 获取活动相机
-            var activeCam = _cameraManager.ActiveCamera;
-            if (activeCam != null)
-            {
-                cam = activeCam.Camera;
-            }
-            else
-            {
-                // 未注册活动相机时仅创建真实相机占位，避免配置异常时静默进入模拟相机。
-                cam = new RealCamera();
-            }
-
             // 使用系统原生标题栏，启动时保持最大化
             this.FormBorderStyle = FormBorderStyle.Sizable;
             this.WindowState = FormWindowState.Maximized;
@@ -63,9 +51,13 @@ namespace ClearFrost
             _plcService = _appRuntime.PlcService;
             _detectionService = _appRuntime.DetectionService;
             _storageService = _appRuntime.StorageService;
+            _operatorSessionService = _appRuntime.OperatorSessionService;
+            _configVersionStore = _appRuntime.ConfigVersionStore;
+            _alarmCenterService = _appRuntime.AlarmCenterService;
             _statisticsService = _appRuntime.StatisticsService;
             _databaseService = _appRuntime.DatabaseService;
             _uiController.DatabaseService = _databaseService;
+            _uiController.OperatorSessionProvider = () => _operatorSessionService.Current;
             SafeFireAndForget(_databaseService.InitializeAsync(), "数据库初始化");
             _imageSaveQueue = _appRuntime.ImageSaveQueue;
             _detectionRecordQueue = _appRuntime.DetectionRecordQueue;

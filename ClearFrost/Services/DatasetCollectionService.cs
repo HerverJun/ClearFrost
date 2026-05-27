@@ -21,7 +21,7 @@ namespace ClearFrost.Services
         public DatasetCollectionService(string dbPath, string storagePath)
         {
             _dbPath = dbPath ?? throw new ArgumentNullException(nameof(dbPath));
-            _storagePath = storagePath ?? throw new ArgumentNullException(nameof(storagePath));
+            _storagePath = StorageService.ResolveStoragePath(storagePath);
         }
 
         /// <summary>
@@ -65,16 +65,30 @@ namespace ClearFrost.Services
             else
             {
                 // 过滤出磁盘上实际存在的原图，避免渲染框污染训练数据。
-                validRecords = allRecords
+                var resolvedRecords = allRecords
                     .Select(r => ResolveImagePath(r))
-                    .Where(r => !string.IsNullOrWhiteSpace(r.EffectiveImagePath) && File.Exists(r.EffectiveImagePath))
+                    .ToList();
+                validRecords = resolvedRecords
+                    .Where(HasExistingEffectiveImage)
                     .ToList();
 
-                // 若数据库路径全部失效，尝试根据 Timestamp 在标准目录中自动查找
-                if (validRecords.Count == 0)
+                var unresolvedRecords = resolvedRecords
+                    .Where(r => !HasExistingEffectiveImage(r))
+                    .ToList();
+
+                // 对部分失效记录也按标准目录增量兜底，避免“部分有路径、部分缺路径”时漏收样本。
+                if (unresolvedRecords.Count > 0)
                 {
-                    progress?.Report("数据库中图片路径为空，尝试根据时间戳自动匹配...");
-                    validRecords = TryResolvePathsFromStandardDirectories(allRecords);
+                    progress?.Report("检测记录中存在失效图片路径，尝试根据标准目录自动匹配...");
+                    var recoveredRecords = TryResolvePathsFromStandardDirectories(unresolvedRecords);
+                    if (recoveredRecords.Count > 0)
+                    {
+                        validRecords = validRecords
+                            .Concat(recoveredRecords)
+                            .GroupBy(r => r.Id)
+                            .Select(g => g.First())
+                            .ToList();
+                    }
                 }
 
                 // 若仍无有效记录，回退到直接扫描图片文件夹
@@ -195,14 +209,33 @@ namespace ClearFrost.Services
                 }
             }, cancellationToken);
 
-            string message = $"成功复制 {failCopied + passCopied} 张图片（NG {failCopied} / OK {passCopied}）";
+            int copiedCount = failCopied + passCopied;
+            if (copiedCount == 0)
+            {
+                string detail = copyErrors.Count > 0
+                    ? $"全部图片复制失败。首个错误: {copyErrors[0]}"
+                    : "没有图片被复制。";
+                return new DatasetCollectionResult
+                {
+                    Success = false,
+                    OutputDirectory = outputDir,
+                    FailCopied = failCopied,
+                    PassCopied = passCopied,
+                    TotalRequested = totalCount,
+                    Message = detail
+                };
+            }
+
+            string message = copyErrors.Count > 0
+                ? $"部分成功复制 {copiedCount} 张图片（NG {failCopied} / OK {passCopied}）"
+                : $"成功复制 {copiedCount} 张图片（NG {failCopied} / OK {passCopied}）";
             if (copyErrors.Count > 0)
             {
                 message += $"，{copyErrors.Count} 张复制失败。";
             }
-            if (failCopied + passCopied < totalCount)
+            if (copiedCount < totalCount)
             {
-                message += $" 因可用图片不足，目标从 {totalCount} 张调整为实际 {failCopied + passCopied} 张。";
+                message += $" 因可用图片不足，目标从 {totalCount} 张调整为实际 {copiedCount} 张。";
             }
 
             return new DatasetCollectionResult
@@ -364,6 +397,12 @@ namespace ClearFrost.Services
 
             record.EffectiveImagePath = record.ImagePath;
             return record;
+        }
+
+        private static bool HasExistingEffectiveImage(DetectionRecordLite record)
+        {
+            return !string.IsNullOrWhiteSpace(record.EffectiveImagePath) &&
+                   File.Exists(record.EffectiveImagePath);
         }
 
         /// <summary>

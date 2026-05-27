@@ -24,7 +24,7 @@ namespace ClearFrost.Services
     {
         #region 私有字段
 
-        private readonly string _basePath;
+        private string _basePath;
         private DetectionStatistics _detectionStats;
         private StatisticsHistory _statisticsHistory;
         private System.Timers.Timer _checkDayTimer;
@@ -296,6 +296,29 @@ namespace ClearFrost.Services
             {
                 Debug.WriteLine($"[StatisticsService] 加载失败: {ex.Message}");
             }
+        }
+
+        public void Reconfigure(string basePath)
+        {
+            if (string.IsNullOrWhiteSpace(basePath))
+            {
+                throw new ArgumentException("统计存储路径不能为空", nameof(basePath));
+            }
+
+            SaveAll();
+
+            StatisticsSnapshot snapshot;
+            lock (_statsLock)
+            {
+                _basePath = basePath;
+                _detectionStats = DetectionStatistics.Load(_basePath);
+                _statisticsHistory = StatisticsHistory.Load(_basePath);
+                _pendingSaveCount = 0;
+                snapshot = CreateSnapshotUnsafe();
+            }
+
+            StatisticsUpdated?.Invoke(snapshot);
+            Debug.WriteLine($"[StatisticsService] 存储路径已切换: {_basePath}");
         }
 
         #endregion

@@ -1,4 +1,4 @@
-﻿using System;
+﻿﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using ClearFrost.Core.Inspection;
@@ -21,8 +21,13 @@ namespace ClearFrost.Interfaces
         public bool? BarcodeReadSucceeded { get; set; }
         public string BarcodeError { get; set; } = "";
         public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;
+        public string OperatorName { get; set; } = "";
+        public string OperatorRole { get; set; } = "";
+        public string ShiftName { get; set; } = "";
         public string ImagePath { get; set; } = "";
         public string RenderedImagePath { get; set; } = "";
+        public string ImageHash { get; set; } = "";
+        public string RenderedImageHash { get; set; } = "";
         public string ErrorStage { get; set; } = "";
         public string ErrorCode { get; set; } = "";
         public string ErrorMessage { get; set; } = "";
@@ -61,11 +66,16 @@ namespace ClearFrost.Interfaces
         public bool IsQualified { get; set; }
         public string InspectionId { get; set; } = "";
         public string ProductBarcode { get; set; } = "";
+        public string OperatorName { get; set; } = "";
+        public string OperatorRole { get; set; } = "";
+        public string ShiftName { get; set; } = "";
         public string ModelVersion { get; set; } = "";
         public string ModelName { get; set; } = "";
         public string CameraId { get; set; } = "";
         public string ImagePath { get; set; } = "";
         public string RenderedImagePath { get; set; } = "";
+        public string ImageHash { get; set; } = "";
+        public string RenderedImageHash { get; set; } = "";
         public string ErrorStage { get; set; } = "";
         public string ErrorCode { get; set; } = "";
         public string ErrorMessage { get; set; } = "";

@@ -63,11 +63,13 @@ namespace ClearFrost
         /// </summary>
         private async Task ConnectPlcViaServiceAsync(bool startTriggerMonitoring = true)
         {
+            string operatorContext = BuildOperatorAuditContext();
             string driverProvider = _appConfig.PlcDriverProvider;
             string protocol = _appConfig.PlcProtocol;
             string ip = _appConfig.PlcIp;
             int port = _appConfig.PlcPort;
             string triggerAddress = _appConfig.PlcTriggerAddress;
+            string endpointDetail = $"{operatorContext}; {driverProvider}/{protocol} @ {ip}:{port}; Trigger={triggerAddress}; Mode={_appConfig.PlcProtocolMode}";
 
             await _uiController.LogToFrontend($"正在连接 PLC: {driverProvider}/{protocol} @ {ip}:{port}", "info");
 
@@ -85,6 +87,7 @@ namespace ClearFrost
 
             if (success)
             {
+                string monitoringState = "NotStarted";
                 bool shouldStartPlcTrigger =
                     _appConfig.TriggerSource == TriggerSource.PLC &&
                     startTriggerMonitoring;
@@ -92,6 +95,7 @@ namespace ClearFrost
                 if (shouldStartPlcTrigger && !IsCameraReadyForInspection(out string cameraBlockReason))
                 {
                     shouldStartPlcTrigger = false;
+                    monitoringState = $"BlockedByCamera: {cameraBlockReason}";
                     await _uiController.LogToFrontend(
                         $"PLC已连接，但相机未就绪，暂未启动触发监听: {cameraBlockReason}",
                         "warning");
@@ -99,7 +103,15 @@ namespace ClearFrost
 
                 if (shouldStartPlcTrigger && !await EnsureStartupReadyForProductionAsync("PLC触发监听"))
                 {
+                    WriteAuditLogSafe("PLC", "Connect", $"{endpointDetail}; Monitoring=BlockedByStartupDiagnostics", success: true);
                     await _uiController.LogToFrontend("PLC已连接，但启动诊断未通过，未启动触发监听", "warning");
+                    await SendHealthSnapshotToFrontendAsync();
+                    return;
+                }
+
+                if (shouldStartPlcTrigger && !await EnsureProductionOperatorSessionAsync("PLC触发监听"))
+                {
+                    WriteAuditLogSafe("PLC", "Connect", $"{endpointDetail}; Monitoring=BlockedByOperatorSession", success: true);
                     await SendHealthSnapshotToFrontendAsync();
                     return;
                 }
@@ -118,6 +130,7 @@ namespace ClearFrost
                         });
                     await _uiController.LogToFrontend(
                         $"✅ PLC连接成功，开始监听 {triggerAddress} ({_appConfig.PlcProtocolMode})", "success");
+                    monitoringState = $"Started: {triggerAddress}";
                 }
                 else
                 {
@@ -127,14 +140,20 @@ namespace ClearFrost
                         : "PLC触发监听暂未启动";
                     await _uiController.LogToFrontend(
                         $"✅ PLC连接成功（{modeText}）", "success");
+                    if (monitoringState == "NotStarted")
+                    {
+                        monitoringState = modeText;
+                    }
                 }
 
+                WriteAuditLogSafe("PLC", "Connect", $"{endpointDetail}; Monitoring={monitoringState}", success: true);
                 WriteHealthSnapshotLog("PLC连接成功");
                 await SendHealthSnapshotToFrontendAsync();
             }
             else
             {
                 string err = _plcService.LastError ?? "未知错误";
+                WriteAuditLogSafe("PLC", "Connect", $"{endpointDetail}; Error={err}", success: false);
                 RecordHealthError("PLC", $"PLC连接失败: {err}");
                 await _uiController.LogToFrontend(
                     $"❌ PLC连接失败: {err}（协议: {protocol}, 地址: {ip}:{port}）", "error");
@@ -172,6 +191,13 @@ namespace ClearFrost
             {
                 _plcService.StopMonitoring();
                 await _uiController.LogToFrontend("PLC已连接，但启动诊断未通过，未启动触发监听", "warning");
+                await SendHealthSnapshotToFrontendAsync();
+                return;
+            }
+
+            if (!await EnsureProductionOperatorSessionAsync("PLC触发监听"))
+            {
+                _plcService.StopMonitoring();
                 await SendHealthSnapshotToFrontendAsync();
                 return;
             }
@@ -215,22 +241,26 @@ namespace ClearFrost
         /// <summary>
         /// 手动放行
         /// </summary>
-        private async Task fx_btn_LogicAsync()
+        private async Task fx_btn_LogicAsync(string releaseReason)
         {
+            string detail = $"{BuildOperatorAuditContext()}; Address={_appConfig.PlcResultAddress}; Value=1; Reason={NormalizeAuditText(releaseReason, 160)}";
             try
             {
                 bool success = await _plcService.WriteReleaseSignalAsync(_appConfig.PlcResultAddress);
                 if (success)
                 {
+                    WriteAuditLogSafe("PLC", "ManualRelease", detail, success: true);
                     await _uiController.LogToFrontend("手动放行信号已发送", "success");
                 }
                 else
                 {
+                    WriteAuditLogSafe("PLC", "ManualRelease", $"{detail}; Error=PLC未连接或写入错误", success: false);
                     await _uiController.LogToFrontend("放行失败: PLC未连接或写入错误", "error");
                 }
             }
             catch (Exception ex)
             {
+                WriteAuditLogSafe("PLC", "ManualRelease", $"{detail}; Error={ex.Message}", success: false);
                 await _uiController.LogToFrontend($"放行异常: {ex.Message}", "error");
             }
         }

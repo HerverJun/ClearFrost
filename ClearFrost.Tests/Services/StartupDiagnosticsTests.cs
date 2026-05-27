@@ -249,11 +249,182 @@ public class StartupDiagnosticsTests
         }
     }
 
+    [Fact]
+    public void Run_Plc端口非法会产生阻塞失败()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                PlcPort = 70000
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                CreateBareModelRegistry(tempDir));
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Trigger source config" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking &&
+                i.Details.Contains("PLC 端口"));
+            report.IsReady.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_串口光电启用但端口为空会产生阻塞失败()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                TriggerSource = TriggerSource.SerialPhotoelectric,
+                SerialPhotoelectricPortName = ""
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                CreateBareModelRegistry(tempDir));
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Trigger source config" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking &&
+                i.Details.Contains("COM"));
+            report.IsReady.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_视觉参数越界会产生阻塞失败()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                Confidence = 1.5f,
+                IouThreshold = -0.1f,
+                TargetCount = -1
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                CreateBareModelRegistry(tempDir));
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Vision parameter config" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking &&
+                i.Details.Contains("Confidence") &&
+                i.Details.Contains("IouThreshold") &&
+                i.Details.Contains("TargetCount"));
+            report.IsReady.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_Plc写回重试参数越界会产生非阻塞告警()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                PlcWriteRetryCount = 9,
+                PlcWriteRetryIntervalMs = -1
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                CreateBareModelRegistry(tempDir));
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Vision parameter config" &&
+                i.Status == StartupDiagnosticStatus.Warning &&
+                !i.IsBlocking &&
+                i.Details.Contains("PlcWriteRetryCount") &&
+                i.Details.Contains("PlcWriteRetryIntervalMs"));
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_当前模型配置不存在会产生非阻塞告警()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                CurrentModelFileName = "missing.onnx"
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                CreateBareModelRegistry(tempDir));
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Configured model" &&
+                i.Status == StartupDiagnosticStatus.Warning &&
+                !i.IsBlocking &&
+                i.Details.Contains("missing.onnx"));
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(StartupDiagnosticsTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static ModelRegistry CreateBareModelRegistry(string tempDir)
+    {
+        string onnxDir = Path.Combine(tempDir, "ONNX");
+        Directory.CreateDirectory(onnxDir);
+        File.WriteAllBytes(Path.Combine(onnxDir, "model.onnx"), new byte[] { 1, 2, 3 });
+
+        var registry = new ModelRegistry();
+        registry.Scan(new ModelRegistryScanOptions { OnnxDirectory = onnxDir });
+        return registry;
     }
 
     private static void DeleteDirectory(string path)

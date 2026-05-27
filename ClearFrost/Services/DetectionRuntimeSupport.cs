@@ -1,5 +1,7 @@
-﻿using System;
+﻿﻿using System;
 using System.Diagnostics;
+using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -124,8 +126,13 @@ namespace ClearFrost.Services
         public bool? BarcodeReadSucceeded { get; init; }
         public string BarcodeError { get; init; } = string.Empty;
         public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;
+        public string OperatorName { get; init; } = string.Empty;
+        public string OperatorRole { get; init; } = string.Empty;
+        public string ShiftName { get; init; } = string.Empty;
         public string ImagePath { get; set; } = string.Empty;
         public string RenderedImagePath { get; set; } = string.Empty;
+        public string ImageHash { get; set; } = string.Empty;
+        public string RenderedImageHash { get; set; } = string.Empty;
         public string ErrorStage { get; set; } = string.Empty;
         public string ErrorCode { get; set; } = string.Empty;
         public string ErrorMessage { get; set; } = string.Empty;
@@ -167,8 +174,13 @@ namespace ClearFrost.Services
                 BarcodeReadSucceeded = BarcodeReadSucceeded,
                 BarcodeError = BarcodeError,
                 TraceStatus = TraceStatus,
+                OperatorName = OperatorName,
+                OperatorRole = OperatorRole,
+                ShiftName = ShiftName,
                 ImagePath = ImagePath,
                 RenderedImagePath = RenderedImagePath,
+                ImageHash = ImageHash,
+                RenderedImageHash = RenderedImageHash,
                 ErrorStage = ErrorStage,
                 ErrorCode = ErrorCode,
                 ErrorMessage = ErrorMessage,
@@ -205,12 +217,16 @@ namespace ClearFrost.Services
             Mat image,
             string path,
             int? jpegQuality = null,
-            ImageSavePurpose purpose = ImageSavePurpose.General)
+            ImageSavePurpose purpose = ImageSavePurpose.General,
+            byte[]? encodedBytes = null,
+            string? sha256 = null)
         {
             Image = image ?? throw new ArgumentNullException(nameof(image));
             Path = path ?? throw new ArgumentNullException(nameof(path));
             JpegQuality = jpegQuality.HasValue ? Math.Clamp(jpegQuality.Value, 1, 100) : null;
             Purpose = purpose;
+            EncodedBytes = encodedBytes;
+            Sha256 = sha256 ?? string.Empty;
         }
 
         public Mat Image { get; }
@@ -220,6 +236,10 @@ namespace ClearFrost.Services
         public int? JpegQuality { get; }
 
         public ImageSavePurpose Purpose { get; }
+
+        public byte[]? EncodedBytes { get; }
+
+        public string Sha256 { get; }
 
         public static ImageSavePayload Create(
             Mat image,
@@ -245,9 +265,64 @@ namespace ClearFrost.Services
             return new ImageSavePayload(ownedView, path, jpegQuality, purpose);
         }
 
+        public static ImageSavePayload CreateEncoded(
+            Mat image,
+            string path,
+            int? jpegQuality = null,
+            ImageSavePurpose purpose = ImageSavePurpose.General)
+        {
+            if (image == null) throw new ArgumentNullException(nameof(image));
+            if (image.Empty()) throw new ArgumentException("图像为空", nameof(image));
+
+            Mat ownedView = image.SubMat(new Rect(0, 0, image.Width, image.Height));
+            try
+            {
+                int? normalizedQuality = jpegQuality.HasValue ? Math.Clamp(jpegQuality.Value, 1, 100) : null;
+                string extension = System.IO.Path.GetExtension(path);
+                if (string.IsNullOrWhiteSpace(extension))
+                {
+                    extension = ".jpg";
+                }
+
+                Cv2.ImEncode(extension, ownedView, out byte[] encoded, BuildEncodingParams(path, normalizedQuality));
+                if (encoded.Length == 0)
+                {
+                    throw new IOException($"OpenCV returned empty encoded buffer for {path}");
+                }
+
+                string sha256 = Convert.ToHexString(SHA256.HashData(encoded)).ToLowerInvariant();
+                return new ImageSavePayload(ownedView, path, normalizedQuality, purpose, encoded, sha256);
+            }
+            catch
+            {
+                ownedView.Dispose();
+                throw;
+            }
+        }
+
+        internal static ImageEncodingParam[] BuildEncodingParams(string path, int? jpegQuality)
+        {
+            if (jpegQuality.HasValue && IsJpegPath(path))
+            {
+                return new[]
+                {
+                    new ImageEncodingParam(ImwriteFlags.JpegQuality, jpegQuality.Value)
+                };
+            }
+
+            return Array.Empty<ImageEncodingParam>();
+        }
+
         public void Dispose()
         {
             Image.Dispose();
+        }
+
+        private static bool IsJpegPath(string path)
+        {
+            string extension = System.IO.Path.GetExtension(path);
+            return string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(extension, ".jpeg", StringComparison.OrdinalIgnoreCase);
         }
     }
 

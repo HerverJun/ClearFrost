@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: StorageService.cs
 // 描述:   存储服务实现
 //
@@ -29,7 +29,8 @@ namespace ClearFrost.Services
     {
         #region 私有字段
 
-        private readonly string _baseStoragePath;
+        private string _baseStoragePath;
+        private readonly object _logWriteLock = new();
         private bool _disposed;
 
         #endregion
@@ -45,6 +46,8 @@ namespace ClearFrost.Services
         /// </summary>
         public string StartupLogPath => Path.Combine(LogBasePath, "SoftwareStartLog.txt");
 
+        public string BaseStoragePath => _baseStoragePath;
+
         #endregion
 
         #region 构造函数
@@ -55,7 +58,7 @@ namespace ClearFrost.Services
             EnsureDirectoriesExist();
         }
 
-        private string ResolveStoragePath(string? path)
+        public static string ResolveStoragePath(string? path)
         {
             if (string.IsNullOrWhiteSpace(path))
             {
@@ -77,6 +80,19 @@ namespace ClearFrost.Services
             }
 
             return path;
+        }
+
+        public void Reconfigure(string? storagePath)
+        {
+            string resolvedPath = ResolveStoragePath(storagePath);
+            if (string.Equals(_baseStoragePath, resolvedPath, StringComparison.OrdinalIgnoreCase))
+            {
+                EnsureDirectoriesExist();
+                return;
+            }
+
+            _baseStoragePath = resolvedPath;
+            EnsureDirectoriesExist();
         }
 
         #endregion
@@ -182,45 +198,125 @@ namespace ClearFrost.Services
             }
         }
 
+        public void WriteAuditLog(string category, string action, string detail, bool success = true)
+        {
+            try
+            {
+                DateTime now = DateTime.Now;
+                string dir = Path.Combine(LogBasePath, "AuditLogs", now.ToString("yyyy年MM月dd日"));
+                Directory.CreateDirectory(dir);
+
+                string filePath = Path.Combine(dir, $"{now:yyyyMMddHH}.txt");
+                string timestamp = now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+                string status = success ? "成功" : "失败";
+                string normalizedCategory = NormalizeLogField(category);
+                string normalizedAction = NormalizeLogField(action);
+                string normalizedDetail = NormalizeLogField(detail);
+
+                lock (_logWriteLock)
+                {
+                    bool shouldWriteHeader = !File.Exists(filePath);
+                    string previousHash = shouldWriteHeader
+                        ? AuditLogIntegrity.GenesisHash
+                        : ReadLastAuditHash(filePath);
+                    string hash = AuditLogIntegrity.ComputeHash(
+                        timestamp,
+                        status,
+                        normalizedCategory,
+                        normalizedAction,
+                        normalizedDetail,
+                        previousHash);
+                    string line = string.Join('\t',
+                        timestamp,
+                        status,
+                        normalizedCategory,
+                        normalizedAction,
+                        normalizedDetail,
+                        previousHash,
+                        hash);
+
+                    using FileStream fs = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite, 4096, FileOptions.SequentialScan);
+                    using StreamWriter writer = new StreamWriter(fs, Encoding.UTF8, 4096);
+                    if (shouldWriteHeader)
+                    {
+                        writer.WriteLine(AuditLogIntegrity.Header);
+                    }
+
+                    writer.WriteLine(line);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[StorageService] WriteAuditLog Error: {ex.Message}");
+            }
+        }
+
+        private static string ReadLastAuditHash(string filePath)
+        {
+            try
+            {
+                if (!File.Exists(filePath))
+                {
+                    return AuditLogIntegrity.GenesisHash;
+                }
+
+                foreach (string line in File.ReadLines(filePath).Reverse())
+                {
+                    if (string.IsNullOrWhiteSpace(line) ||
+                        line.TrimStart('\uFEFF').StartsWith("时间\t", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    string[] parts = line.Split('\t');
+                    if (parts.Length >= 7 && AuditLogIntegrity.IsSha256Hash(parts[6]))
+                    {
+                        return parts[6].ToLowerInvariant();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[StorageService] ReadLastAuditHash Error: {ex.Message}");
+            }
+
+            return AuditLogIntegrity.GenesisHash;
+        }
+
+        private static string NormalizeLogField(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return "-";
+            }
+
+            return value
+                .Replace('\r', ' ')
+                .Replace('\n', ' ')
+                .Replace('\t', ' ')
+                .Trim();
+        }
+
         #endregion
 
         #region 数据清理
 
         public void CleanOldData(int retainDays)
         {
-            try
+            int days = Math.Clamp(retainDays <= 0 ? 30 : retainDays, 1, 3650);
+            var service = new DataRetentionService(_baseStoragePath);
+            DataRetentionCleanupSummary summary = service.CleanupAsync(new DataRetentionPolicy
             {
-                DateTime limit = DateTime.Now.Date.AddDays(-retainDays);
-                string[] types = { "Qualified", "Unqualified" };
+                ImageRetentionDays = days,
+                LogRetentionDays = days,
+                AuditLogRetentionDays = days,
+                ReportRetentionDays = days,
+                TraceRecordRetentionDays = days
+            }).GetAwaiter().GetResult();
 
-                foreach (var type in types)
-                {
-                    string typePath = Path.Combine(ImageBasePath, type);
-                    if (!Directory.Exists(typePath)) continue;
-
-                    foreach (var dir in Directory.GetDirectories(typePath))
-                    {
-                        string dirName = Path.GetFileName(dir);
-
-                        // 支持新旧两种日期格式
-                        bool isLegacy = DateTime.TryParseExact(
-                            dirName, "yyyyMMdd", null, DateTimeStyles.None, out DateTime fdLegacy);
-                        bool isNew = DateTime.TryParseExact(
-                            dirName, "yyyy年MM月dd日", null, DateTimeStyles.None, out DateTime fdNew);
-
-                        DateTime? folderDate = isNew ? fdNew : (isLegacy ? fdLegacy : null);
-
-                        if (folderDate.HasValue && folderDate.Value < limit)
-                        {
-                            Directory.Delete(dir, true);
-                            Debug.WriteLine($"[StorageService] Deleted old folder: {dir}");
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
+            if (summary.ErrorCount > 0)
             {
-                WriteErrorLog($"CleanOldData Error: {ex.Message}");
+                WriteErrorLog($"CleanOldData Error: {string.Join("; ", summary.Errors)}");
             }
         }
 

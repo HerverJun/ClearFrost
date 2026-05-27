@@ -203,6 +203,67 @@ public class DatasetCollectionServiceTests
     }
 
     [Fact]
+    public async Task CollectAsync_部分路径失效_增量标准目录兜底()
+    {
+        string tempDir = CreateTempDirectory();
+        string storagePath = CreateTempDirectory();
+        string dbPath = Path.Combine(tempDir, "detection.db");
+        string validPassPath = Path.Combine(tempDir, "valid-pass.jpg");
+        File.WriteAllBytes(validPassPath, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+
+        DateTime failTimestamp = DateTime.Now.Date.AddHours(11).AddMinutes(12).AddSeconds(13);
+        string failInspectionId = "INS-PARTIAL-FALLBACK";
+        string failImageDir = Path.Combine(
+            storagePath,
+            "Images",
+            "Unqualified",
+            failTimestamp.ToString("yyyy年MM月dd日"),
+            failTimestamp.ToString("HH"));
+        Directory.CreateDirectory(failImageDir);
+        File.WriteAllBytes(
+            Path.Combine(failImageDir, $"FAIL_{failInspectionId}.jpg"),
+            new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+
+        CreateDatabaseWithCustomRecords(
+            dbPath,
+            new[]
+            {
+                (DateTime.Now, true, (string?)validPassPath, (string?)null, "INS-VALID-PASS"),
+                (failTimestamp, false, Path.Combine(tempDir, "missing-fail.jpg"), (string?)null, failInspectionId)
+            });
+        var service = new DatasetCollectionService(dbPath, storagePath);
+
+        var result = await service.CollectAsync(maxDays: 15, totalCount: 2, failRatio: 0.5);
+
+        result.Success.Should().BeTrue();
+        result.PassCopied.Should().Be(1);
+        result.FailCopied.Should().Be(1);
+        Directory.GetFiles(Path.Combine(result.OutputDirectory, "Pass")).Should().ContainSingle();
+        Directory.GetFiles(Path.Combine(result.OutputDirectory, "Fail")).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task CollectAsync_复制阶段全部失败_返回失败()
+    {
+        string tempDir = CreateTempDirectory();
+        string storagePath = CreateTempDirectory();
+        string dbPath = Path.Combine(tempDir, "detection.db");
+        string imagePath = Path.Combine(tempDir, "locked-source.jpg");
+        File.WriteAllBytes(imagePath, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+        CreateDatabaseWithSingleRecord(dbPath, DateTime.Now, isQualified: false, imagePath, renderedPath: null, "INS-LOCKED");
+        var service = new DatasetCollectionService(dbPath, storagePath);
+
+        await using var lockedSource = new FileStream(imagePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        var result = await service.CollectAsync(maxDays: 15, totalCount: 1, failRatio: 1.0);
+
+        result.Success.Should().BeFalse();
+        result.FailCopied.Should().Be(0);
+        result.PassCopied.Should().Be(0);
+        result.Message.Should().Contain("全部图片复制失败");
+    }
+
+    [Fact]
     public async Task CollectAsync_渲染图缺失_回退复制原图()
     {
         string tempDir = CreateTempDirectory();
@@ -394,6 +455,53 @@ public class DatasetCollectionServiceTests
         insertCommand.Parameters.AddWithValue("$recipeId", "recipe-test");
         insertCommand.Parameters.AddWithValue("$inspectionId", inspectionId);
         insertCommand.ExecuteNonQuery();
+    }
+
+    private static void CreateDatabaseWithCustomRecords(
+        string dbPath,
+        IEnumerable<(DateTime timestamp, bool isQualified, string? imagePath, string? renderedPath, string inspectionId)> records)
+    {
+        string directory = Path.GetDirectoryName(dbPath) ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+
+        using var createCommand = connection.CreateCommand();
+        createCommand.CommandText = @"
+            CREATE TABLE IF NOT EXISTS DetectionRecords (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Timestamp TEXT NOT NULL,
+                IsQualified INTEGER NOT NULL,
+                ImagePath TEXT,
+                RenderedImagePath TEXT,
+                ModelName TEXT,
+                RecipeId TEXT,
+                InspectionId TEXT
+            );
+        ";
+        createCommand.ExecuteNonQuery();
+
+        foreach (var (timestamp, isQualified, imagePath, renderedPath, inspectionId) in records)
+        {
+            using var insertCommand = connection.CreateCommand();
+            insertCommand.CommandText = @"
+                INSERT INTO DetectionRecords
+                (Timestamp, IsQualified, ImagePath, RenderedImagePath, ModelName, RecipeId, InspectionId)
+                VALUES ($timestamp, $isQualified, $imagePath, $renderedPath, $modelName, $recipeId, $inspectionId);
+            ";
+            insertCommand.Parameters.AddWithValue("$timestamp", timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            insertCommand.Parameters.AddWithValue("$isQualified", isQualified ? 1 : 0);
+            insertCommand.Parameters.AddWithValue("$imagePath", (object?)imagePath ?? DBNull.Value);
+            insertCommand.Parameters.AddWithValue("$renderedPath", (object?)renderedPath ?? DBNull.Value);
+            insertCommand.Parameters.AddWithValue("$modelName", "model-test");
+            insertCommand.Parameters.AddWithValue("$recipeId", "recipe-test");
+            insertCommand.Parameters.AddWithValue("$inspectionId", inspectionId);
+            insertCommand.ExecuteNonQuery();
+        }
     }
 
     private static void CreateDatabaseWithRecords(string dbPath, string? imageDir, List<(DateTime timestamp, bool isQualified, string model)> records)

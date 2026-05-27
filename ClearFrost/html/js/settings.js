@@ -71,6 +71,10 @@
             IndustrialRenderMode: true,
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
+            PlcWriteRetryCount: 1,
+            PlcWriteRetryIntervalMs: 200,
+            RequireOperatorForProductionStart: true,
+            OperatorSessionMaxHours: 12,
             StoragePath: "C:\\GreeVisionData",
             CameraManufacturer: "Huaray",
         },
@@ -114,6 +118,10 @@
             IndustrialRenderMode: true,
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
+            PlcWriteRetryCount: 1,
+            PlcWriteRetryIntervalMs: 200,
+            RequireOperatorForProductionStart: true,
+            OperatorSessionMaxHours: 12,
             StoragePath: "C:\\GreeVisionData",
             CameraManufacturer: "Huaray",
         },
@@ -157,6 +165,10 @@
             IndustrialRenderMode: true,
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
+            PlcWriteRetryCount: 1,
+            PlcWriteRetryIntervalMs: 200,
+            RequireOperatorForProductionStart: true,
+            OperatorSessionMaxHours: 12,
             StoragePath: "C:\\GreeVisionData",
             CameraManufacturer: "Huaray",
         },
@@ -200,6 +212,10 @@
             IndustrialRenderMode: true,
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
+            PlcWriteRetryCount: 1,
+            PlcWriteRetryIntervalMs: 200,
+            RequireOperatorForProductionStart: true,
+            OperatorSessionMaxHours: 12,
             StoragePath: "C:\\GreeVisionData",
             CameraManufacturer: "Huaray",
         },
@@ -243,6 +259,10 @@
             IndustrialRenderMode: true,
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
+            PlcWriteRetryCount: 1,
+            PlcWriteRetryIntervalMs: 200,
+            RequireOperatorForProductionStart: true,
+            OperatorSessionMaxHours: 12,
             StoragePath: "C:\\GreeVisionData",
             CameraManufacturer: "Huaray",
         },
@@ -286,6 +306,10 @@
             IndustrialRenderMode: true,
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
+            PlcWriteRetryCount: 1,
+            PlcWriteRetryIntervalMs: 200,
+            RequireOperatorForProductionStart: true,
+            OperatorSessionMaxHours: 12,
             StoragePath: "C:\\GreeVisionData",
             CameraManufacturer: "Huaray",
         },
@@ -1048,6 +1072,14 @@
 
         const mapping = {
             StoragePath: "cfg-storage-path",
+            DataRetentionEnabled: "cfg-retention-enabled",
+            RequireOperatorForProductionStart: "cfg-require-operator-production",
+            OperatorSessionMaxHours: "cfg-operator-session-max-hours",
+            ImageRetentionDays: "cfg-image-retention-days",
+            LogRetentionDays: "cfg-log-retention-days",
+            AuditLogRetentionDays: "cfg-audit-retention-days",
+            ReportRetentionDays: "cfg-report-retention-days",
+            TraceRecordRetentionDays: "cfg-trace-record-retention-days",
             TriggerSource: "cfg-trigger-source",
             SerialPhotoelectricPortName: "cfg-serial-port",
             SerialPhotoelectricBaudRate: "cfg-serial-baud",
@@ -1085,6 +1117,19 @@
             GainRaw: "cfg-cam-gain",
             MaxRetryCount: "cfg-logic-retry-count",
             RetryIntervalMs: "cfg-logic-retry-interval",
+            PlcWriteRetryCount: "cfg-plc-write-retry-count",
+            PlcWriteRetryIntervalMs: "cfg-plc-write-retry-interval",
+            InspectionCycleSlaEnabled: "cfg-cycle-sla-enabled",
+            InspectionCycleWarningMs: "cfg-cycle-warning-ms",
+            InspectionCycleCriticalMs: "cfg-cycle-critical-ms",
+            InspectionCycleMinSamples: "cfg-cycle-min-samples",
+            QualityYieldSlaEnabled: "cfg-yield-sla-enabled",
+            QualityYieldWarningPercent: "cfg-yield-warning-percent",
+            QualityYieldCriticalPercent: "cfg-yield-critical-percent",
+            QualityYieldMinSamples: "cfg-yield-min-samples",
+            ConsecutiveNgAlarmEnabled: "cfg-consecutive-ng-enabled",
+            ConsecutiveNgWarningCount: "cfg-consecutive-ng-warning",
+            ConsecutiveNgCriticalCount: "cfg-consecutive-ng-critical",
             EnableGpu: "cfg-yolo-gpu",
             GpuIndex: "cfg-yolo-gpu-index",
             IndustrialRenderMode: "cfg-industrial-render-mode",
@@ -1319,9 +1364,43 @@
         bridge.sendCommand("import_config_migration");
     }
 
+    function setModelPackageImportButtonBusy(isBusy) {
+        const btn = byId("btn-import-model-package");
+        if (!btn) return;
+        btn.disabled = !!isBusy;
+        btn.innerHTML = isBusy
+            ? "等待导入..."
+            : `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 3v12m0-12 4 4m-4-4-4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
+                </svg>
+                导入 ONNX 并生成模型包`;
+    }
+
+    function importModelPackage() {
+        const resultDiv = byId("model-package-import-result");
+        setModelPackageImportButtonBusy(true);
+
+        if (resultDiv) {
+            resultDiv.className = "mt-2 text-[10px] text-ink-400";
+            resultDiv.textContent = "请选择 ONNX 文件并填写模型包信息。";
+            resultDiv.classList.remove("hidden");
+        }
+
+        bridge.sendCommand("import_model_package");
+    }
+
     function collectSettingsData() {
         const fieldMapping = {
             "cfg-storage-path": "StoragePath",
+            "cfg-retention-enabled": "DataRetentionEnabled",
+            "cfg-require-operator-production": "RequireOperatorForProductionStart",
+            "cfg-operator-session-max-hours": "OperatorSessionMaxHours",
+            "cfg-image-retention-days": "ImageRetentionDays",
+            "cfg-log-retention-days": "LogRetentionDays",
+            "cfg-audit-retention-days": "AuditLogRetentionDays",
+            "cfg-report-retention-days": "ReportRetentionDays",
+            "cfg-trace-record-retention-days": "TraceRecordRetentionDays",
             "cfg-trigger-source": "TriggerSource",
             "cfg-serial-port": "SerialPhotoelectricPortName",
             "cfg-serial-baud": "SerialPhotoelectricBaudRate",
@@ -1359,6 +1438,19 @@
             "cfg-cam-gain": "GainRaw",
             "cfg-logic-retry-count": "MaxRetryCount",
             "cfg-logic-retry-interval": "RetryIntervalMs",
+            "cfg-plc-write-retry-count": "PlcWriteRetryCount",
+            "cfg-plc-write-retry-interval": "PlcWriteRetryIntervalMs",
+            "cfg-cycle-sla-enabled": "InspectionCycleSlaEnabled",
+            "cfg-cycle-warning-ms": "InspectionCycleWarningMs",
+            "cfg-cycle-critical-ms": "InspectionCycleCriticalMs",
+            "cfg-cycle-min-samples": "InspectionCycleMinSamples",
+            "cfg-yield-sla-enabled": "QualityYieldSlaEnabled",
+            "cfg-yield-warning-percent": "QualityYieldWarningPercent",
+            "cfg-yield-critical-percent": "QualityYieldCriticalPercent",
+            "cfg-yield-min-samples": "QualityYieldMinSamples",
+            "cfg-consecutive-ng-enabled": "ConsecutiveNgAlarmEnabled",
+            "cfg-consecutive-ng-warning": "ConsecutiveNgWarningCount",
+            "cfg-consecutive-ng-critical": "ConsecutiveNgCriticalCount",
             "cfg-yolo-gpu": "EnableGpu",
             "cfg-yolo-gpu-index": "GpuIndex",
             "cfg-industrial-render-mode": "IndustrialRenderMode",
@@ -1371,7 +1463,12 @@
         const numericFields = new Set([
             "PlcPort", "PlcTriggerDelayMs", "PlcPollingIntervalMs", "PlcOkValue", "PlcNgValue",
             "PlcSiemensRack", "PlcSiemensSlot", "ExposureTime", "GainRaw",
-            "MaxRetryCount", "RetryIntervalMs", "GpuIndex", "BarcodeWordLength",
+            "MaxRetryCount", "RetryIntervalMs", "PlcWriteRetryCount", "PlcWriteRetryIntervalMs", "GpuIndex", "BarcodeWordLength",
+            "ImageRetentionDays", "LogRetentionDays", "AuditLogRetentionDays",
+            "ReportRetentionDays", "TraceRecordRetentionDays", "OperatorSessionMaxHours",
+            "InspectionCycleWarningMs", "InspectionCycleCriticalMs", "InspectionCycleMinSamples",
+            "QualityYieldWarningPercent", "QualityYieldCriticalPercent", "QualityYieldMinSamples",
+            "ConsecutiveNgWarningCount", "ConsecutiveNgCriticalCount",
             "SerialPhotoelectricBaudRate", "SerialPhotoelectricDebounceMs", "SerialPhotoelectricTimeoutMs",
         ]);
         const data = {};
@@ -1575,8 +1672,24 @@
             "cfg-cam-gain": preset.GainRaw ?? preset.Gain ?? 1.1,
             "cfg-logic-retry-count": preset.MaxRetryCount ?? 1,
             "cfg-logic-retry-interval": preset.RetryIntervalMs ?? 2000,
+            "cfg-plc-write-retry-count": preset.PlcWriteRetryCount ?? 1,
+            "cfg-plc-write-retry-interval": preset.PlcWriteRetryIntervalMs ?? 200,
+            "cfg-operator-session-max-hours": preset.OperatorSessionMaxHours ?? 12,
+            "cfg-cycle-warning-ms": preset.InspectionCycleWarningMs ?? 1500,
+            "cfg-cycle-critical-ms": preset.InspectionCycleCriticalMs ?? 3000,
+            "cfg-cycle-min-samples": preset.InspectionCycleMinSamples ?? 10,
+            "cfg-yield-warning-percent": preset.QualityYieldWarningPercent ?? 95.0,
+            "cfg-yield-critical-percent": preset.QualityYieldCriticalPercent ?? 90.0,
+            "cfg-yield-min-samples": preset.QualityYieldMinSamples ?? 30,
+            "cfg-consecutive-ng-warning": preset.ConsecutiveNgWarningCount ?? 3,
+            "cfg-consecutive-ng-critical": preset.ConsecutiveNgCriticalCount ?? 5,
             "cfg-yolo-gpu-index": preset.GpuIndex ?? 0,
             "cfg-storage-path": preset.StoragePath ?? "C:\\GreeVisionData",
+            "cfg-image-retention-days": preset.ImageRetentionDays ?? 30,
+            "cfg-log-retention-days": preset.LogRetentionDays ?? 180,
+            "cfg-audit-retention-days": preset.AuditLogRetentionDays ?? 365,
+            "cfg-report-retention-days": preset.ReportRetentionDays ?? 365,
+            "cfg-trace-record-retention-days": preset.TraceRecordRetentionDays ?? 365,
         };
         Object.entries(textAssignments).forEach(([id, value]) => {
             const input = byId(id);
@@ -1589,6 +1702,11 @@
             "cfg-barcode-required": preset.BarcodeRequired ?? false,
             "cfg-yolo-gpu": preset.EnableGpu ?? false,
             "cfg-industrial-render-mode": preset.IndustrialRenderMode ?? true,
+            "cfg-cycle-sla-enabled": preset.InspectionCycleSlaEnabled ?? true,
+            "cfg-yield-sla-enabled": preset.QualityYieldSlaEnabled ?? true,
+            "cfg-consecutive-ng-enabled": preset.ConsecutiveNgAlarmEnabled ?? true,
+            "cfg-retention-enabled": preset.DataRetentionEnabled ?? true,
+            "cfg-require-operator-production": preset.RequireOperatorForProductionStart ?? true,
         };
         Object.entries(checkboxAssignments).forEach(([id, value]) => {
             const cb = byId(id);
@@ -1657,6 +1775,23 @@
         resultDiv.classList.remove("hidden");
     }
 
+    function handleModelPackageImportResult(data) {
+        const resultDiv = byId("model-package-import-result");
+        setModelPackageImportButtonBusy(false);
+
+        if (!resultDiv) return;
+
+        if (data?.success) {
+            resultDiv.className = "mt-2 text-[10px] text-green-600";
+            resultDiv.textContent = `✅ 模型包已导入：${data.modelId || "-"}，版本 ${data.version || "-"}。${data.modelFileName ? `当前模型：${data.modelFileName}` : ""}`;
+        } else {
+            resultDiv.className = "mt-2 text-[10px] text-red-500";
+            resultDiv.textContent = `❌ 模型包导入失败：${data?.message || "未知错误"}`;
+        }
+
+        resultDiv.classList.remove("hidden");
+    }
+
     Object.assign(window, {
         activateSettingsTab,
         applyMultiModelUiState,
@@ -1664,6 +1799,7 @@
         deleteSelectedProjectPreset,
         exportConfigMigration,
         handleProjectPresets,
+        importModelPackage,
         importConfigMigration,
         initModelList,
         initSettings,
@@ -1692,6 +1828,7 @@
         updateTaskType,
         collectDataset,
         handleDatasetCollectResult,
+        handleModelPackageImportResult,
         handleSerialPortsDetected,
         updateTriggerSourceUi,
     });
@@ -1705,5 +1842,6 @@
     });
     bridge.registerMessageHandler("projectPresets", handleProjectPresets);
     bridge.registerMessageHandler("datasetCollectResult", handleDatasetCollectResult);
+    bridge.registerMessageHandler("modelPackageImportResult", handleModelPackageImportResult);
     bridge.registerMessageHandler("serialPortsDetected", handleSerialPortsDetected);
 })();

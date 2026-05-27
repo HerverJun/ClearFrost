@@ -53,6 +53,7 @@ namespace ClearFrost
 
             bool useGpu = _appConfig.EnableGpu;
             int gpuIndex = Math.Max(0, _appConfig.GpuIndex);
+            _appRuntime.RefreshModelRegistry();
 
             if (!Directory.Exists(模型路径))
             {
@@ -99,6 +100,9 @@ namespace ClearFrost
                             }
                         }
 
+                        _appRuntime.RefreshModelRegistry();
+                        RefreshStartupDiagnostics();
+                        await SendHealthSnapshotToFrontendAsync();
                         await _uiController.LogToFrontend(BuildModelLoadStatusMessage($"模型加载成功: {模型名}"), "success");
                         await RestoreMultiModelConfigAsync();
                     }
@@ -606,6 +610,7 @@ namespace ClearFrost
             try
             {
                 await _uiController.LogToFrontend($"正在切换模型: {modelName}", "info");
+                ConfigurationSnapshot beforeConfig = ConfigurationChangeTracker.Capture(_appConfig);
 
                 string modelFileName = modelName.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)
                     ? modelName
@@ -625,7 +630,11 @@ namespace ClearFrost
                     if (_appConfig.Save())
                     {
                         TrySaveCurrentRecipeSnapshot("主模型切换");
+                        WriteConfigChangeAudit("ChangeModel", beforeConfig, $"ModelFile={modelFileName}");
                     }
+                    _appRuntime.RefreshModelRegistry();
+                    RefreshStartupDiagnostics();
+                    await SendHealthSnapshotToFrontendAsync();
                     await _uiController.LogToFrontend(BuildModelLoadStatusMessage($"模型切换成功: {modelFileName}"), "success");
                 }
                 else
@@ -767,6 +776,12 @@ namespace ClearFrost
                 return;
             }
 
+            if (!IsManualTriggerSource(triggerSource) &&
+                !await EnsureProductionOperatorSessionAsync($"{triggerSource}自动检测"))
+            {
+                return;
+            }
+
             if (!await EnsureCameraReadyForManualInspectionAsync(triggerSource))
             {
                 return;
@@ -780,12 +795,16 @@ namespace ClearFrost
 
             DateTimeOffset triggerTime = DateTimeOffset.Now;
             string inspectionId = InspectionIdGenerator.Next(triggerSource, triggerTime);
+            OperatorSession operatorSession = _operatorSessionService.SnapshotFor(triggerTime.LocalDateTime);
             var context = new InspectionContext
             {
                 InspectionId = inspectionId,
                 TriggerTime = triggerTime,
                 TriggerSource = triggerSource,
                 TriggerSeq = triggerSeq,
+                OperatorName = operatorSession.OperatorName,
+                OperatorRole = operatorSession.Role,
+                ShiftName = operatorSession.ShiftName,
                 CurrentStage = InspectionStage.Triggered,
                 TraceStatus = TraceStatus.Unknown
             };
@@ -820,6 +839,7 @@ namespace ClearFrost
             catch (Exception ex)
             {
                 context.MarkFailed(InspectionStage.Unknown, "UnhandledDetectionException", ex.Message);
+                context.IsQualified = false;
                 DiagLog($"❌ [{request.TriggerSource}] [{request.InspectionId}] 检测异常: {ex.Message}");
                 await _uiController.LogToFrontend($"检测异常({request.InspectionId}): {ex.Message}", "error");
                 await _uiController.SendInspectionUpdate(
@@ -1099,11 +1119,16 @@ namespace ClearFrost
 
         private List<ImageSavePayload>? CreateImageSavePayloads(Mat image, bool isQualified, Mat? renderedImage = null)
         {
+            DateTimeOffset triggerTime = DateTimeOffset.Now;
+            OperatorSession operatorSession = _operatorSessionService.SnapshotFor(triggerTime.LocalDateTime);
             var context = new InspectionContext
             {
                 InspectionId = InspectionIdGenerator.Next("TEST"),
-                TriggerTime = DateTimeOffset.Now,
-                TriggerSource = "TEST"
+                TriggerTime = triggerTime,
+                TriggerSource = "TEST",
+                OperatorName = operatorSession.OperatorName,
+                OperatorRole = operatorSession.Role,
+                ShiftName = operatorSession.ShiftName
             };
 
             return CreateImageSavePayloads(context, image, isQualified, renderedImage);

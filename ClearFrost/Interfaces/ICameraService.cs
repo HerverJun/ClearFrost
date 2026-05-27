@@ -63,6 +63,11 @@ namespace ClearFrost.Interfaces
         /// </summary>
         bool IsGrabbing { get; }
 
+        /// <summary>
+        /// 当前活动相机是否为模拟相机
+        /// </summary>
+        bool IsMockCamera { get; }
+
         #endregion
 
         #region 方法
@@ -111,6 +116,13 @@ namespace ClearFrost.Interfaces
         /// 设置增益
         /// </summary>
         void SetGain(double gain);
+
+        /// <summary>
+        /// 设置像素格式
+        /// </summary>
+        /// <param name="pixelFormat">像素格式，例如 Mono8、BGR8、RGB8</param>
+        /// <returns>是否设置成功</returns>
+        bool SetPixelFormat(string pixelFormat);
 
         #endregion
     }

@@ -61,6 +61,7 @@ namespace ClearFrost.Services
         public bool IsOpen => _cameraManager.ActiveCamera?.IsOpen ?? false;
         public string CameraName => _cameraManager.ActiveCamera?.Config.DisplayName ?? "未连接";
         public bool IsGrabbing => _cameraManager.ActiveCamera?.Camera.IMV_IsGrabbing() ?? false;
+        public bool IsMockCamera => _cameraManager.ActiveCamera?.Camera is MockCamera;
         public string? LastError { get; private set; }
 
         public Mat? LastFrame
@@ -426,75 +427,157 @@ namespace ClearFrost.Services
             _cameraOperationLock.Wait();
             try
             {
-            var camera = _cameraManager.ActiveCamera?.Camera;
-            if (camera == null)
-            {
-                LastError = "未找到活动相机实例";
-                return null;
-            }
-
-            IMVDefine.IMV_Frame frame = new IMVDefine.IMV_Frame();
-            bool shouldReleaseFrame = false;
-
-            try
-            {
-                int clearRes = camera.IMV_ClearFrameBuffer();
-                if (clearRes != IMVDefine.IMV_OK)
+                var activeCamera = _cameraManager.ActiveCamera;
+                if (activeCamera == null)
                 {
-                    Debug.WriteLine($"[CameraService] ClearFrameBuffer failed: {clearRes}");
-                }
-
-                int res = camera.IMV_ExecuteCommandFeature("TriggerSoftware");
-                if (res != IMVDefine.IMV_OK)
-                {
-                    LastError = $"软触发失败: {res}";
+                    LastError = "未找到活动相机实例";
                     return null;
                 }
 
-                res = camera.IMV_GetFrame(ref frame, timeoutMs);
-                shouldReleaseFrame = res == IMVDefine.IMV_OK;
-                if (!shouldReleaseFrame)
+                ICamera camera;
+                try
                 {
-                    LastError = $"取帧失败: {res}";
+                    camera = activeCamera.Camera;
+                }
+                catch (Exception ex)
+                {
+                    LastError = $"获取活动相机实例失败: {ex.Message}";
+                    ErrorOccurred?.Invoke(LastError);
                     return null;
                 }
 
-                if (frame.frameInfo.size == 0 || frame.pData == IntPtr.Zero)
+                if (!EnsureCameraReadyForCapture(activeCamera, camera))
                 {
-                    LastError = "SDK 返回空帧";
                     return null;
                 }
 
-                if (!TryValidateFrame(frame, out string validationError))
+                IMVDefine.IMV_Frame frame = new IMVDefine.IMV_Frame();
+                bool shouldReleaseFrame = false;
+
+                try
                 {
-                    LastError = validationError;
-                    Debug.WriteLine($"[CameraService] Invalid frame rejected: {validationError}");
+                    int clearRes = camera.IMV_ClearFrameBuffer();
+                    if (clearRes != IMVDefine.IMV_OK)
+                    {
+                        Debug.WriteLine($"[CameraService] ClearFrameBuffer failed: {clearRes}");
+                    }
+
+                    int res = camera.IMV_ExecuteCommandFeature("TriggerSoftware");
+                    if (res != IMVDefine.IMV_OK)
+                    {
+                        LastError = $"软触发失败: {res}";
+                        return null;
+                    }
+
+                    res = camera.IMV_GetFrame(ref frame, timeoutMs);
+                    shouldReleaseFrame = res == IMVDefine.IMV_OK;
+                    if (!shouldReleaseFrame && IsCaptureStopped(camera) && TryRestartGrabbing(activeCamera, camera, "取帧时采集停止"))
+                    {
+                        res = camera.IMV_GetFrame(ref frame, timeoutMs);
+                        shouldReleaseFrame = res == IMVDefine.IMV_OK;
+                    }
+
+                    if (!shouldReleaseFrame)
+                    {
+                        LastError = $"取帧失败: {res}";
+                        return null;
+                    }
+
+                    if (frame.frameInfo.size == 0 || frame.pData == IntPtr.Zero)
+                    {
+                        LastError = "SDK 返回空帧";
+                        return null;
+                    }
+
+                    if (!TryValidateFrame(frame, out string validationError))
+                    {
+                        LastError = validationError;
+                        Debug.WriteLine($"[CameraService] Invalid frame rejected: {validationError}");
+                        return null;
+                    }
+
+                    Mat mat = ConvertFrameToMat(frame);
+                    CacheLastFrameReference(mat);
+
+                    LastError = null;
+                    return mat;
+                }
+                catch (Exception ex)
+                {
+                    LastError = $"采集转换失败: {ex.Message}";
+                    Debug.WriteLine($"[CameraService] CaptureFrame failed: {ex.Message}");
                     return null;
                 }
-
-                Mat mat = ConvertFrameToMat(frame);
-                CacheLastFrameReference(mat);
-
-                LastError = null;
-                return mat;
-            }
-            catch (Exception ex)
-            {
-                LastError = $"采集转换失败: {ex.Message}";
-                Debug.WriteLine($"[CameraService] CaptureFrame failed: {ex.Message}");
-                return null;
-            }
-            finally
-            {
-                if (shouldReleaseFrame)
+                finally
                 {
-                    camera.IMV_ReleaseFrame(ref frame);
+                    if (shouldReleaseFrame)
+                    {
+                        camera.IMV_ReleaseFrame(ref frame);
+                    }
                 }
-            }
             }
             finally
             {
                 _cameraOperationLock.Release();
+            }
+        }
+
+        private bool EnsureCameraReadyForCapture(CameraInstance activeCamera, ICamera camera)
+        {
+            if (!activeCamera.IsOpen || !camera.IsConnected)
+            {
+                LastError = "相机连接已断开，已停止采集";
+                activeCamera.SetGrabbing(false);
+                CloseCore();
+                ErrorOccurred?.Invoke(LastError);
+                return false;
+            }
+
+            if (!IsCaptureStopped(camera))
+            {
+                activeCamera.SetGrabbing(true);
+                return true;
+            }
+
+            return TryRestartGrabbing(activeCamera, camera, "采集未运行");
+        }
+
+        private bool TryRestartGrabbing(CameraInstance activeCamera, ICamera camera, string reason)
+        {
+            try
+            {
+                int result = camera.IMV_StartGrabbing();
+                if (result == IMVDefine.IMV_OK)
+                {
+                    activeCamera.SetGrabbing(true);
+                    LastError = null;
+                    Debug.WriteLine($"[CameraService] {reason}，已自动恢复采集");
+                    return true;
+                }
+
+                activeCamera.SetGrabbing(false);
+                LastError = $"{reason}，自动恢复采集失败: {result}";
+                ErrorOccurred?.Invoke(LastError);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                activeCamera.SetGrabbing(false);
+                LastError = $"{reason}，自动恢复采集异常: {ex.Message}";
+                ErrorOccurred?.Invoke(LastError);
+                return false;
+            }
+        }
+
+        private static bool IsCaptureStopped(ICamera camera)
+        {
+            try
+            {
+                return !camera.IMV_IsGrabbing();
+            }
+            catch
+            {
+                return true;
             }
         }
 
@@ -781,6 +864,54 @@ namespace ClearFrost.Services
             catch (Exception ex)
             {
                 ErrorOccurred?.Invoke($"设置增益失败: {ex.Message}");
+            }
+            finally
+            {
+                _cameraOperationLock.Release();
+            }
+        }
+
+        public bool SetPixelFormat(string pixelFormat)
+        {
+            _cameraOperationLock.Wait();
+            try
+            {
+                var activeCamera = _cameraManager.ActiveCamera;
+                if (activeCamera == null)
+                {
+                    LastError = "未找到活动相机实例";
+                    return false;
+                }
+
+                string normalizedPixelFormat = string.IsNullOrWhiteSpace(pixelFormat)
+                    ? "Mono8"
+                    : pixelFormat.Trim();
+                int result;
+                if (activeCamera.Camera is ICameraProvider provider)
+                {
+                    bool success = provider.SetPixelFormat(normalizedPixelFormat);
+                    result = success ? IMVDefine.IMV_OK : -1;
+                }
+                else
+                {
+                    result = activeCamera.Camera.IMV_SetEnumFeatureSymbol("PixelFormat", normalizedPixelFormat);
+                }
+
+                if (result == IMVDefine.IMV_OK)
+                {
+                    LastError = null;
+                    return true;
+                }
+
+                LastError = $"设置像素格式失败: {normalizedPixelFormat}, 错误码: {result}";
+                ErrorOccurred?.Invoke(LastError);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                LastError = $"设置像素格式异常: {ex.Message}";
+                ErrorOccurred?.Invoke(LastError);
+                return false;
             }
             finally
             {

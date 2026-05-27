@@ -2,8 +2,11 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading.Tasks;
 using ClearFrost.Config;
+using ClearFrost.Core.Models;
 using ClearFrost.Core.Rules;
 using ClearFrost.Hardware;
 using ClearFrost.Interfaces;
@@ -133,6 +136,193 @@ namespace ClearFrost.Tests
             }
         }
 
+        [Fact]
+        public async Task ApplyRuntimeStoragePath_刷新存储和统计服务路径()
+        {
+            string firstDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            string secondDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(firstDir);
+            Directory.CreateDirectory(secondDir);
+
+            var order = new List<string>();
+            var appConfig = new AppConfig { StoragePath = firstDir };
+            using var cameraManager = new CameraManager(true);
+            var runtime = new AppRuntime(
+                appConfig,
+                cameraManager,
+                new FakeCameraService(order),
+                new FakePlcService(order),
+                new FakeDetectionService(order),
+                storageService: null,
+                statisticsService: null,
+                databaseService: new FakeDatabaseService(order),
+                imageSaveQueue: null,
+                detectionRecordQueue: null,
+                webUIController: new WebUIController());
+
+            try
+            {
+                appConfig.StoragePath = secondDir;
+
+                runtime.ApplyRuntimeStoragePath();
+                runtime.StatisticsService.RecordDetection(true);
+                runtime.StatisticsService.SaveAll();
+
+                var storageService = (StorageService)runtime.StorageService;
+                storageService.BaseStoragePath.Should().Be(secondDir);
+                Directory.Exists(Path.Combine(secondDir, "Images")).Should().BeTrue();
+                File.Exists(Path.Combine(secondDir, "System", "statistics.json")).Should().BeTrue();
+            }
+            finally
+            {
+                await runtime.DisposeAsync();
+                if (Directory.Exists(firstDir))
+                {
+                    Directory.Delete(firstDir, true);
+                }
+
+                if (Directory.Exists(secondDir))
+                {
+                    Directory.Delete(secondDir, true);
+                }
+            }
+        }
+
+        [Fact]
+        public async Task RefreshModelRegistry_运行中新增模型包_刷新追溯注册表()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            string packageRoot = Path.Combine(tempDir, "models");
+            Directory.CreateDirectory(packageRoot);
+
+            var order = new List<string>();
+            var appConfig = new AppConfig
+            {
+                StoragePath = tempDir,
+                ModelPackageDirectory = packageRoot
+            };
+            using var cameraManager = new CameraManager(true);
+            var runtime = new AppRuntime(
+                appConfig,
+                cameraManager,
+                new FakeCameraService(order),
+                new FakePlcService(order),
+                new FakeDetectionService(order),
+                storageService: null,
+                statisticsService: null,
+                databaseService: new FakeDatabaseService(order),
+                imageSaveQueue: null,
+                detectionRecordQueue: null,
+                webUIController: new WebUIController());
+
+            try
+            {
+                runtime.ModelRegistry.Resolve("pkg-runtime").Should().BeNull();
+
+                string packageDir = Path.Combine(packageRoot, "pkg-runtime");
+                Directory.CreateDirectory(packageDir);
+                string modelPath = Path.Combine(packageDir, "runtime.onnx");
+                File.WriteAllBytes(modelPath, new byte[] { 7, 8, 9 });
+                WriteModelPackageManifest(packageDir, modelPath);
+
+                runtime.RefreshModelRegistry();
+
+                ModelRegistryEntry? entry = runtime.ModelRegistry.Resolve("pkg-runtime");
+                entry.Should().NotBeNull();
+                entry!.ModelId.Should().Be("pkg-runtime");
+                entry.ModelHash.Should().Be(ComputeSha256(modelPath));
+                runtime.ModelRegistry.Resolve("runtime.onnx").Should().BeSameAs(entry);
+            }
+            finally
+            {
+                await runtime.DisposeAsync();
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Fact]
+        public async Task ImportModelPackage_导入后刷新注册表和启动诊断()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            string packageRoot = Path.Combine(tempDir, "models");
+            string onnxDir = Path.Combine(tempDir, "ONNX");
+            Directory.CreateDirectory(tempDir);
+            string sourcePath = Path.Combine(tempDir, "incoming.onnx");
+            File.WriteAllBytes(sourcePath, new byte[] { 4, 5, 6 });
+
+            var order = new List<string>();
+            var appConfig = new AppConfig
+            {
+                StoragePath = tempDir,
+                ModelPackageDirectory = packageRoot
+            };
+            using var cameraManager = new CameraManager(true);
+            var runtime = new AppRuntime(
+                appConfig,
+                cameraManager,
+                new FakeCameraService(order),
+                new FakePlcService(order),
+                new FakeDetectionService(order),
+                storageService: null,
+                statisticsService: null,
+                databaseService: new FakeDatabaseService(order),
+                imageSaveQueue: null,
+                detectionRecordQueue: null,
+                webUIController: new WebUIController());
+
+            try
+            {
+                ModelPackageImportResult result = runtime.ImportModelPackage(new ModelPackageImportOptions
+                {
+                    SourceModelPath = sourcePath,
+                    OnnxDirectory = onnxDir,
+                    ModelId = "runtime-import",
+                    Version = "2026.05",
+                    Labels = new[] { "screw" },
+                    Warmup = (_, _) => true
+                });
+
+                result.Success.Should().BeTrue();
+                runtime.ModelRegistry.Resolve("runtime-import").Should().NotBeNull();
+                File.Exists(Path.Combine(onnxDir, "incoming.onnx")).Should().BeTrue();
+                runtime.StartupDiagnostics.CurrentReport.Items.Should().Contain(i =>
+                    i.Name == "Model registry" &&
+                    i.Status != StartupDiagnosticStatus.Fail);
+            }
+            finally
+            {
+                await runtime.DisposeAsync();
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        private static void WriteModelPackageManifest(string packageDir, string modelPath)
+        {
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "pkg-runtime",
+                    Version = "2026.05",
+                    ModelFileName = Path.GetFileName(modelPath),
+                    ModelHash = ComputeSha256(modelPath),
+                    Labels = new List<string> { "screw" }
+                }));
+        }
+
+        private static string ComputeSha256(string path)
+        {
+            using var stream = File.OpenRead(path);
+            using var sha256 = SHA256.Create();
+            return Convert.ToHexString(sha256.ComputeHash(stream)).ToLowerInvariant();
+        }
+
         private sealed class FakeCameraService : ICameraService
         {
             private readonly List<string> _order;
@@ -148,6 +338,7 @@ namespace ClearFrost.Tests
             public string? LastError => null;
             public Mat? LastFrame => null;
             public bool IsGrabbing => false;
+            public bool IsMockCamera => false;
 
             public bool Open(string serialNumber, string manufacturer) => true;
             public void Close() => _order.Add("camera-close");
@@ -157,6 +348,7 @@ namespace ClearFrost.Tests
             public Mat? CaptureFrame(int timeoutMs = 3000) => null;
             public void SetExposure(double exposureUs) { }
             public void SetGain(double gain) { }
+            public bool SetPixelFormat(string pixelFormat) => true;
             public void Dispose() => _order.Add("camera-dispose");
         }
 
@@ -260,6 +452,7 @@ namespace ClearFrost.Tests
             public void WriteDetectionLog(string content, bool isQualified) { }
             public void WriteStartupLog(string action, string? serialNumber = null) { }
             public void WriteErrorLog(string message) { }
+            public void WriteAuditLog(string category, string action, string detail, bool success = true) { }
             public void CleanOldData(int retainDays) { }
             public double GetDiskFreeSpaceGb() => 100.0;
             public double PerformEmergencyCleanup() => 100.0;

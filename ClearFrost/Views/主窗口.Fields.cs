@@ -34,6 +34,9 @@ namespace ClearFrost
         private readonly IPlcService _plcService;
         private readonly IDetectionService _detectionService;
         private readonly IStorageService _storageService;
+        private readonly OperatorSessionService _operatorSessionService;
+        private readonly ConfigVersionStore _configVersionStore;
+        private readonly AlarmCenterService _alarmCenterService;
         private readonly IStatisticsService _statisticsService;
         private readonly IDatabaseService _databaseService;
         private readonly ICameraService _cameraService;
@@ -55,30 +58,7 @@ namespace ClearFrost
         {
             get
             {
-                string? path = _appConfig?.StoragePath;
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    return @"C:\GreeVisionData";
-                }
-
-                // Check if the drive exists
-                try
-                {
-                    string? root = Path.GetPathRoot(path);
-                    if (!string.IsNullOrEmpty(root) && !Directory.Exists(root))
-                    {
-                        // Fallback if configured drive doesn't exist
-                        return @"C:\GreeVisionData";
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // 忽略驱动器检查异常，直接回退默认路径
-                    Debug.WriteLine($"Error checking drive: {ex.Message}");
-                    return @"C:\GreeVisionData";
-                }
-
-                return path;
+                return StorageService.ResolveStoragePath(_appConfig?.StoragePath);
             }
         }
         private string Path_Images => Path.Combine(BaseStoragePath, "Images");
@@ -95,10 +75,8 @@ namespace ClearFrost
         // ====================== 相机管理 ======================
         // 架构说明:
         // - _cameraManager: 多相机配置管理器,负责相机列表和切换
-        // - cam: 当前活动相机的 SDK 句柄,用于直接硬件操作
-        // TODO: 后续版本考虑将 cam 的 SDK 调用封装到 ICameraService
+        // - _cameraService: 统一相机操作入口，窗口层不直接持有 SDK 句柄
         private CameraManager _cameraManager;
-        private ICamera cam; // 活动相机 SDK 句柄 (由 _cameraManager.ActiveCamera 提供)
         private volatile bool _isCameraOpening = false;
         private CancellationTokenSource _appShutdownCts = new();
         private readonly object _shutdownTaskSync = new();
@@ -150,6 +128,18 @@ namespace ClearFrost
                     Debug.WriteLine($"[SafeFireAndForget] {name} 异常处理失败: {callbackEx.Message}");
                 }
             }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default).Unwrap();
+        }
+
+        private void WriteAuditLogSafe(string category, string action, string detail, bool success = true)
+        {
+            try
+            {
+                _storageService?.WriteAuditLog(category, action, detail, success);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AuditLog] 写入操作审计日志失败: {ex.Message}");
+            }
         }
 
         #endregion

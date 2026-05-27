@@ -58,6 +58,10 @@
             </div>
         </div>
         <nav class="stitch-nav-actions" aria-label="操作">
+            <button id="operator-session-chip" class="stitch-operator-chip" data-action="signInOperator" title="登录/切换操作员" aria-label="登录/切换操作员">
+                <span id="operator-chip-name">未登录</span>
+                <small id="operator-chip-shift">班次</small>
+            </button>
             <button data-action="openSettingsModal" title="系统设置" aria-label="系统设置">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -70,6 +74,15 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4m-4 5a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4" />
                 </svg>
+            </button>
+            <button id="alarm-center-button" class="stitch-alarm-button" data-action="openAlarmCenterModal" title="告警中心" aria-label="告警中心">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 3a6 6 0 0 0-6 6v4.6L4.5 17h15L18 13.6V9a6 6 0 0 0-6-6Z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M10 20a2 2 0 0 0 4 0" />
+                </svg>
+                <span id="alarm-count-badge" class="stitch-alarm-badge hidden">0</span>
             </button>
             <button data-action="openGalleryModal" title="记录追溯" aria-label="记录追溯">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -100,6 +113,30 @@
                 <div class="stitch-okng-grid">
                     <div><span>OK</span><strong id="val-ok">0</strong></div>
                     <div><span>NG</span><strong id="val-ng">0</strong></div>
+                </div>
+            </section>
+
+            <section class="stitch-section">
+                <h3>健康趋势 (Health Trends)</h3>
+                <div id="health-insights-list" class="stitch-health-insights">
+                    <div class="stitch-health-insight is-ok">
+                        <strong>待刷新</strong>
+                        <span>点击顶部健康状态刷新按钮获取维护建议</span>
+                    </div>
+                </div>
+                <div id="health-cycle-sla" class="stitch-cycle-sla is-ok" aria-label="检测节拍 SLA">
+                    <div><span>P95</span><strong id="health-cycle-p95">-</strong></div>
+                    <div><span>P99</span><strong id="health-cycle-p99">-</strong></div>
+                    <div><span>样本</span><strong id="health-cycle-samples">0/10</strong></div>
+                    <div><span>阈值</span><strong id="health-cycle-threshold">1500/3000ms</strong></div>
+                </div>
+                <div id="health-quality-sla" class="stitch-cycle-sla is-ok" aria-label="近期良率 SLA">
+                    <div><span>良率</span><strong id="health-yield-rate">-</strong></div>
+                    <div><span>OK/NG</span><strong id="health-yield-counts">0/0</strong></div>
+                    <div><span>连续NG</span><strong id="health-ng-streak">0</strong></div>
+                    <div><span>样本</span><strong id="health-yield-samples">0/30</strong></div>
+                    <div><span>阈值</span><strong id="health-yield-threshold">95/90%</strong></div>
+                    <div><span>连NG阈值</span><strong id="health-ng-threshold">3/5</strong></div>
                 </div>
             </section>
 
@@ -211,12 +248,40 @@
                         </svg>
                         手动拍照
                     </button>
-                    <button data-cmd="manual_release">
+                    <button data-cmd="manual_release" data-confirm="强制放行会向 PLC 写入放行信号，确认继续？"
+                        data-prompt="请输入强制放行原因（会写入审计日志）" data-prompt-required="true"
+                        data-prompt-key="reason">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M9 12 11 14 15.5 9.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                         </svg>
                         强制放行
+                    </button>
+                    <button data-action="openAuditLogModal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 12h6M9 16h6M8 4h8l3 3v13H5V4h3Z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 4v4h4" />
+                        </svg>
+                        操作审计
+                    </button>
+                    <button data-action="openConfigVersionModal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 8v5l3 2M4 5v5h5M20 19v-5h-5" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M5.6 9A7 7 0 0 1 18 6.1M18.4 15A7 7 0 0 1 6 17.9" />
+                        </svg>
+                        配置版本
+                    </button>
+                    <button data-action="exportDiagnosticPackage">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 3v10m0 0 4-4m-4 4-4-4M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M7 5h2m6 0h2M7 9h1m8 0h1" />
+                        </svg>
+                        诊断包
                     </button>
                 </div>
             </div>
@@ -224,6 +289,53 @@
     </div>
 
     <!-- MODALS: 瓷感磨砂 -->
+
+    <!-- Operator Session Modal -->
+    <div id="operator-session-modal"
+        class="fixed inset-0 bg-ink-900/60 z-[70] hidden flex items-center justify-center p-4">
+        <div class="glass-panel-lite cf-ornate-modal cf-operator-modal w-full max-w-md rounded-2xl overflow-hidden shadow-2xl flex flex-col">
+            <div
+                class="h-14 border-b border-celadon-100 flex justify-between items-center px-6 bg-porcelain-50/60 shrink-0 cf-ornate-header">
+                <h3 class="text-base font-serif font-black text-ink-800 tracking-widest">操作员会话</h3>
+                <button type="button" data-action="closeOperatorSessionModal"
+                    class="p-2 hover:bg-red-50 text-ink-400 hover:text-vermilion rounded-full transition-[background-color,color] text-xl">&times;</button>
+            </div>
+            <form id="operator-session-form" class="cf-operator-form">
+                <label>
+                    <span>工号/姓名</span>
+                    <input id="operator-session-name" name="operatorName" type="text" maxlength="64"
+                        autocomplete="username" class="tech-input">
+                </label>
+                <label>
+                    <span>角色</span>
+                    <select id="operator-session-role" name="role" class="tech-input">
+                        <option value="Operator">Operator</option>
+                        <option value="Technician">Technician</option>
+                        <option value="Engineer">Engineer</option>
+                        <option value="Administrator">Administrator</option>
+                    </select>
+                    <small class="text-[10px] text-ink-400 leading-snug">Technician 及以上角色需要当前同级/更高级账号确认，或本机管理员上下文。</small>
+                </label>
+                <label>
+                    <span>班次</span>
+                    <select id="operator-session-shift" name="shiftName" class="tech-input">
+                        <option value="">自动班次</option>
+                        <option value="A班">A班</option>
+                        <option value="B班">B班</option>
+                        <option value="夜班">夜班</option>
+                    </select>
+                </label>
+                <div class="cf-operator-current">
+                    <span>当前</span>
+                    <strong id="operator-session-current">未登录 / 班次 / Operator</strong>
+                </div>
+                <div class="cf-operator-actions">
+                    <button type="button" id="operator-session-signout" data-action="signOutOperator">退出</button>
+                    <button type="submit">登录/切换</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Settings Modal -->
     <div id="settings-modal"
@@ -372,6 +484,18 @@
                             </button>
                         </div>
                         <div class="col-span-2">
+                            <label class="text-[10px] font-bold text-ink-400 mb-1 block">模型包验收</label>
+                            <button id="btn-import-model-package" type="button" data-action="importModelPackage"
+                                class="w-full py-2 bg-celadon-600 text-white hover:bg-celadon-700 text-[10px] font-bold rounded-lg transition-[background-color,color,box-shadow] inline-flex items-center justify-center gap-2">
+                                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 3v12m0-12 4 4m-4-4-4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
+                                </svg>
+                                导入 ONNX 并生成模型包
+                            </button>
+                            <div id="model-package-import-result" class="mt-2 text-[10px] hidden"></div>
+                        </div>
+                        <div class="col-span-2">
                             <label class="text-[10px] font-bold text-ink-400 mb-1 block">本地验证</label>
                             <button data-cmd="test_yolo" title="选择本地图片并执行一次模型推理"
                                 class="w-full py-2 bg-ink-700 text-white hover:bg-ink-800 text-[10px] font-bold rounded-lg transition-[background-color,color,box-shadow] inline-flex items-center justify-center gap-2">
@@ -414,6 +538,89 @@
                                 <label class="text-[10px] font-bold text-ink-400 mb-1 block">重拍间隔 (毫秒)</label>
                                 <input id="cfg-logic-retry-interval" type="number" step="100" min="0"
                                     class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="2000">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">PLC写回重试</label>
+                                <input id="cfg-plc-write-retry-count" type="number" min="0" max="5"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="1">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">PLC重试间隔 (毫秒)</label>
+                                <input id="cfg-plc-write-retry-interval" type="number" step="50" min="0"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="200">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input id="cfg-require-operator-production" type="checkbox" checked
+                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
+                                    <span class="text-[10px] font-bold text-ink-500">自动生产触发要求已登录操作员</span>
+                                </label>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">操作员会话有效期 (小时)</label>
+                                <input id="cfg-operator-session-max-hours" type="number" min="1" max="72"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="12">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input id="cfg-cycle-sla-enabled" type="checkbox" checked
+                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
+                                    <span class="text-[10px] font-bold text-ink-500">启用检测节拍 SLA 告警</span>
+                                </label>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">节拍预警 P95 (毫秒)</label>
+                                <input id="cfg-cycle-warning-ms" type="number" step="100" min="100"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="1500">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">节拍严重 P99 (毫秒)</label>
+                                <input id="cfg-cycle-critical-ms" type="number" step="100" min="100"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="3000">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">最少样本数</label>
+                                <input id="cfg-cycle-min-samples" type="number" step="1" min="1" max="200"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="10">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input id="cfg-yield-sla-enabled" type="checkbox" checked
+                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
+                                    <span class="text-[10px] font-bold text-ink-500">启用近期良率 SLA 告警</span>
+                                </label>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">良率预警 (%)</label>
+                                <input id="cfg-yield-warning-percent" type="number" step="0.1" min="0" max="100"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="95.0">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">良率严重 (%)</label>
+                                <input id="cfg-yield-critical-percent" type="number" step="0.1" min="0" max="100"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="90.0">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">良率最少样本数</label>
+                                <input id="cfg-yield-min-samples" type="number" step="1" min="1" max="200"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="30">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input id="cfg-consecutive-ng-enabled" type="checkbox" checked
+                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
+                                    <span class="text-[10px] font-bold text-ink-500">启用连续 NG 快速告警</span>
+                                </label>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">连续 NG 预警件数</label>
+                                <input id="cfg-consecutive-ng-warning" type="number" step="1" min="1" max="200"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="3">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">连续 NG 严重件数</label>
+                                <input id="cfg-consecutive-ng-critical" type="number" step="1" min="1" max="200"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="5">
                             </div>
                             <div class="col-span-2">
                                 <label class="flex items-center gap-2 cursor-pointer">
@@ -901,6 +1108,38 @@
                                         class="px-6 text-xs font-bold bg-white border border-slate-200 text-ink-600 hover:border-celadon-400 rounded-xl transition-[background-color,border-color,color,box-shadow] shadow-sm">浏览</button>
                                 </div>
                             </div>
+                            <div class="col-span-2">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input id="cfg-retention-enabled" type="checkbox" checked
+                                        class="accent-celadon-600 w-3.5 h-3.5 rounded">
+                                    <span class="text-[10px] font-bold text-ink-500">启用数据保留策略自动清理</span>
+                                </label>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">图片保留天数</label>
+                                <input id="cfg-image-retention-days" type="number" min="1" max="3650" step="1"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="30">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">检测日志保留天数</label>
+                                <input id="cfg-log-retention-days" type="number" min="1" max="3650" step="1"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="180">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">审计日志保留天数</label>
+                                <input id="cfg-audit-retention-days" type="number" min="1" max="3650" step="1"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="365">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">追溯记录保留天数</label>
+                                <input id="cfg-trace-record-retention-days" type="number" min="1" max="3650" step="1"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="365">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">报表保留天数</label>
+                                <input id="cfg-report-retention-days" type="number" min="1" max="3650" step="1"
+                                    class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="365">
+                            </div>
                             <div>
                                 <label class="text-[10px] font-bold text-ink-400 mb-1 block">生产报表</label>
                                 <button data-cmd="reset_statistics" data-confirm="确定要清除今日统计数据吗？此操作不可撤销！"
@@ -991,6 +1230,7 @@
                             <option value="">08:00 - 09:00</option>
                         </select>
                         <button type="button" data-action="searchTraceImages">搜索</button>
+                        <button type="button" data-action="exportTraceReport">导出CSV</button>
                     </div>
                     <div class="h-4 w-px bg-slate-200"></div>
                     <span id="gallery-count"
@@ -1072,6 +1312,159 @@
         </div>
     </div>
 
+    <!-- Alarm Center Modal -->
+    <div id="alarm-center-modal"
+        class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
+        <div class="glass-panel-lite cf-ornate-modal w-full max-w-6xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[82vh]">
+            <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0 cf-ornate-header">
+                <div class="flex items-center gap-4">
+                    <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">告警中心 (Alarm Center)</h3>
+                    <span id="alarm-active-count-badge"
+                        class="px-2 py-0.5 text-[10px] font-bold bg-celadon-50 text-celadon-600 rounded-full">0 条</span>
+                    <span id="alarm-status-label"
+                        class="text-[10px] text-ink-400 font-bold uppercase tracking-widest">Ready</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button data-action="refreshAlarms"
+                        class="px-4 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">刷新告警</button>
+                    <button data-action="acknowledgeAllAlarms"
+                        data-confirm="确认当前全部活动告警？"
+                        class="px-4 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">全部确认</button>
+                    <button data-action="closeAlarmCenterModal"
+                        class="text-2xl text-ink-400 hover:text-vermilion transition-colors">&times;</button>
+                </div>
+            </div>
+            <div class="flex-1 overflow-auto p-6 scroller bg-slate-50/30">
+                <div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-soft">
+                    <table class="w-full text-left border-collapse min-w-[1040px]">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200">
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">级别</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">状态</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">来源</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">告警与建议</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">时间</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest text-right">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="alarm-center-table"
+                            class="text-[11px] text-ink-600 font-mono divide-y divide-slate-100">
+                            <tr>
+                                <td colspan="6" class="px-4 py-10 text-center text-ink-300 italic">暂无告警</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
+                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Alarm lifecycle: active / cleared / acknowledged</span>
+                <span class="text-[10px] text-ink-400 font-bold">确认告警需要已登录操作员，操作会进入审计</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Config Version Modal -->
+    <div id="config-version-modal"
+        class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
+        <div class="glass-panel-lite cf-ornate-modal w-full max-w-6xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[82vh]">
+            <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0 cf-ornate-header">
+                <div class="flex items-center gap-4">
+                    <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">配置版本 (Config Versions)</h3>
+                    <span id="config-version-count-badge"
+                        class="px-2 py-0.5 text-[10px] font-bold bg-celadon-50 text-celadon-600 rounded-full">0 个</span>
+                    <span id="config-version-status"
+                        class="text-[10px] text-ink-400 font-bold uppercase tracking-widest"></span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button data-action="refreshConfigVersions"
+                        class="px-4 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">刷新版本</button>
+                    <button data-action="closeConfigVersionModal"
+                        class="text-2xl text-ink-400 hover:text-vermilion transition-colors">&times;</button>
+                </div>
+            </div>
+            <div class="flex-1 overflow-auto p-6 scroller bg-slate-50/30">
+                <div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-soft">
+                    <table class="w-full text-left border-collapse min-w-[1040px]">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200">
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">时间</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">原因</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">人员</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">变更摘要</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest text-right">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="config-version-table"
+                            class="text-[11px] text-ink-600 font-mono divide-y divide-slate-100">
+                            <tr>
+                                <td colspan="5" class="px-4 py-10 text-center text-ink-300 italic">点击"刷新版本"加载配置版本...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
+                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Protected restore requires Engineer role or higher</span>
+                <span class="text-[10px] text-ink-400 font-bold">恢复后会刷新相机、模型、触发源和前端设置</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audit Log Modal -->
+    <div id="audit-log-modal"
+        class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
+        <div class="glass-panel-lite cf-ornate-modal w-full max-w-6xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[85vh]">
+            <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0 cf-ornate-header">
+                <div class="flex items-center gap-4">
+                    <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">操作审计 (Audit Logs)</h3>
+                    <select id="audit-status-filter" class="tech-input rounded-lg px-3 py-1.5 text-xs font-bold"
+                        data-change-action="refreshAuditLogTable">
+                        <option value="">全部结果</option>
+                        <option value="true">成功</option>
+                        <option value="false">失败</option>
+                    </select>
+                    <input id="audit-search-input" type="search" placeholder="搜索类别/操作/详情"
+                        data-key-action="refreshAuditLogTable" data-key="Enter"
+                        class="tech-input rounded-lg px-4 py-1.5 text-xs font-bold w-56">
+                    <span id="audit-count-badge"
+                        class="px-2 py-0.5 text-[10px] font-bold bg-celadon-50 text-celadon-600 rounded-full">0 条</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button data-action="refreshAuditLogTable"
+                        class="px-4 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">刷新审计</button>
+                    <button data-action="closeAuditLogModal"
+                        class="text-2xl text-ink-400 hover:text-vermilion transition-colors">&times;</button>
+                </div>
+            </div>
+            <div class="flex-1 overflow-auto p-6 scroller bg-slate-50/30">
+                <div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-soft">
+                    <table class="w-full text-left border-collapse min-w-[980px]">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200">
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">时间</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest text-center">结果</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest text-center">完整性</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">类别</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">操作</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">详情</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audit-log-table"
+                            class="text-[11px] text-ink-600 font-mono divide-y divide-slate-100">
+                            <tr>
+                                <td colspan="6" class="px-4 py-10 text-center text-ink-300 italic">点击"刷新审计"加载操作记录...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
+                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Latest 300 audit entries</span>
+                <span class="text-[10px] text-ink-400 font-bold">权限拒绝、配置变更、模型导入、相机/PLC 操作会进入审计</span>
+            </div>
+        </div>
+    </div>
+
     <!-- Log History Modal -->
     <div id="log-history-modal"
         class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
@@ -1122,7 +1515,7 @@
             <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
                 <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Showing latest 500
                     records</span>
-                <button type="button" disabled title="CSV 导出将在后续版本开放"
+                <button type="button" data-action="exportDetectionReport" title="导出最近 500 条生产流水 CSV"
                     class="px-4 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-ink-600 hover:text-celadon-600 hover:border-celadon-300 transition-[background-color,border-color,color,box-shadow] flex items-center gap-2">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

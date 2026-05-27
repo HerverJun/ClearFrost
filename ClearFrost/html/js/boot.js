@@ -6,6 +6,106 @@
 
     let windowDragging = false;
 
+    function cleanText(value) {
+        return value === undefined || value === null ? "" : String(value).trim();
+    }
+
+    function getOperatorSession() {
+        return window.CF_STORE?.state?.operatorSession || {};
+    }
+
+    function pickSessionText(session, ...keys) {
+        for (const key of keys) {
+            const value = cleanText(session?.[key]);
+            if (value) return value;
+        }
+        return "";
+    }
+
+    function renderOperatorSession(session) {
+        const current = session || getOperatorSession();
+        const operatorName = pickSessionText(current, "operatorName", "OperatorName") || "未登录";
+        const role = pickSessionText(current, "role", "Role", "operatorRole", "OperatorRole") || "Operator";
+        const shiftName = pickSessionText(current, "shiftName", "ShiftName") || "班次";
+        const chip = document.getElementById("operator-session-chip");
+        const name = document.getElementById("operator-chip-name");
+        const shift = document.getElementById("operator-chip-shift");
+        if (name) name.textContent = operatorName;
+        if (shift) shift.textContent = `${shiftName} / ${role}`;
+        if (chip) {
+            chip.title = `操作员: ${operatorName}\n班次: ${shiftName}\n角色: ${role}`;
+            chip.classList.toggle("is-signed-in", Boolean(current.isSignedIn || current.IsSignedIn));
+        }
+    }
+
+    function setSelectValue(select, value, fallback) {
+        if (!select) return;
+        const normalized = cleanText(value);
+        const hasOption = Array.from(select.options).some((option) => option.value === normalized);
+        select.value = hasOption ? normalized : fallback;
+    }
+
+    function openOperatorSessionModal() {
+        const modal = document.getElementById("operator-session-modal");
+        if (!modal) return;
+
+        const current = getOperatorSession();
+        const signedIn = Boolean(current.isSignedIn || current.IsSignedIn);
+        const operatorName = pickSessionText(current, "operatorName", "OperatorName");
+        const role = pickSessionText(current, "role", "Role", "operatorRole", "OperatorRole") || "Operator";
+        const shiftName = pickSessionText(current, "shiftName", "ShiftName");
+        const nameInput = document.getElementById("operator-session-name");
+        const roleSelect = document.getElementById("operator-session-role");
+        const shiftSelect = document.getElementById("operator-session-shift");
+        const currentLabel = document.getElementById("operator-session-current");
+        const signOutButton = document.getElementById("operator-session-signout");
+
+        if (nameInput) {
+            nameInput.value = signedIn ? operatorName : "";
+        }
+        setSelectValue(roleSelect, role, "Operator");
+        setSelectValue(shiftSelect, shiftName, "");
+        if (currentLabel) {
+            currentLabel.textContent = `${operatorName || "未登录"} / ${shiftName || "班次"} / ${role}`;
+        }
+        if (signOutButton) {
+            signOutButton.disabled = !signedIn;
+        }
+
+        modal.classList.remove("hidden");
+        setTimeout(() => nameInput?.focus?.(), 0);
+    }
+
+    function closeOperatorSessionModal() {
+        document.getElementById("operator-session-modal")?.classList.add("hidden");
+    }
+
+    function signInOperator() {
+        openOperatorSessionModal();
+    }
+
+    function submitOperatorSessionForm(event) {
+        event?.preventDefault?.();
+        const operatorName = cleanText(document.getElementById("operator-session-name")?.value);
+        if (!operatorName) {
+            window.addLog?.("操作员工号/姓名不能为空", "warning");
+            document.getElementById("operator-session-name")?.focus?.();
+            return;
+        }
+
+        window.sendCommand("operator_sign_in", {
+            operatorName,
+            role: cleanText(document.getElementById("operator-session-role")?.value) || "Operator",
+            shiftName: cleanText(document.getElementById("operator-session-shift")?.value),
+        });
+        closeOperatorSessionModal();
+    }
+
+    function signOutOperator() {
+        window.sendCommand("operator_sign_out");
+        closeOperatorSessionModal();
+    }
+
     function startDrag(event) {
         if (
             event?.target?.closest?.("button") ||
@@ -82,13 +182,37 @@
         return !message || window.confirm(message);
     }
 
+    function collectPromptPayload(element) {
+        const message = element.dataset.prompt;
+        if (!message) return undefined;
+
+        const raw = window.prompt(message, element.dataset.promptDefault || "");
+        if (raw === null) return null;
+
+        const value = raw.trim();
+        if (element.dataset.promptRequired === "true" && !value) {
+            window.showToast?.("必须填写操作原因", "warning", 1800);
+            return null;
+        }
+
+        const key = element.dataset.promptKey || "value";
+        return { [key]: value };
+    }
+
     function setupDelegatedActions() {
         document.addEventListener("click", (event) => {
             const commandElement = event.target.closest("[data-cmd]");
             if (commandElement) {
                 const cmd = commandElement.dataset.cmd;
                 if (!cmd || !confirmIfNeeded(commandElement)) return;
-                const value = parseDatasetValue(commandElement.dataset.value);
+                let value = parseDatasetValue(commandElement.dataset.value);
+                const promptPayload = collectPromptPayload(commandElement);
+                if (promptPayload === null) return;
+                if (promptPayload !== undefined) {
+                    value = value && typeof value === "object" && !Array.isArray(value)
+                        ? { ...value, ...promptPayload }
+                        : promptPayload;
+                }
                 window.sendCommand(cmd, value === undefined ? null : value);
                 return;
             }
@@ -138,23 +262,49 @@
         });
     }
 
+    function setupOperatorSessionModal() {
+        const modal = document.getElementById("operator-session-modal");
+        document.getElementById("operator-session-form")?.addEventListener("submit", submitOperatorSessionForm);
+        modal?.addEventListener("click", (event) => {
+            if (event.target === modal) closeOperatorSessionModal();
+        });
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && modal && !modal.classList.contains("hidden")) {
+                closeOperatorSessionModal();
+            }
+        });
+    }
+
     document.addEventListener("mouseup", () => {
         windowDragging = false;
     });
 
     document.addEventListener("DOMContentLoaded", () => {
         setupDelegatedActions();
+        setupOperatorSessionModal();
         window.moveVisionControlsToSettings?.();
         window.initRoiInteractions?.();
         window.updatePlcAddressUi?.();
         window.updatePlcProtocolModeUi?.();
         window.renderRecentInspections?.();
         window.CF_RENDER?.renderAll?.();
+        renderOperatorSession();
         setTimeout(() => window.sendCommand("app_ready"), 500);
+    });
+
+    window.CF_BRIDGE?.registerMessageHandler?.("operatorSession", (session) => {
+        window.CF_STORE?.applyOperatorSession?.(session);
+        renderOperatorSession(session);
     });
 
     Object.assign(window, {
         startDrag,
         toggleDrawer,
+        openOperatorSessionModal,
+        closeOperatorSessionModal,
+        signInOperator,
+        signOutOperator,
+        submitOperatorSessionForm,
+        renderOperatorSession,
     });
 })();

@@ -106,6 +106,8 @@
         stats: { total: 0, ok: 0, ng: 0 },
         inspection: {},
         health: {},
+        alarms: {},
+        operatorSession: {},
         recentInspections: [],
         settings: {},
         modelList: [],
@@ -126,6 +128,8 @@
     state.stats = state.stats || { total: 0, ok: 0, ng: 0 };
     state.inspection = state.inspection || {};
     state.health = state.health || {};
+    state.alarms = state.alarms || {};
+    state.operatorSession = state.operatorSession || {};
     state.recentInspections = state.recentInspections || [];
     state.history = state.history || {};
     window.CF_STATE = state;
@@ -233,6 +237,9 @@
             barcodeReadSucceeded: pickValue(data, "barcodeReadSucceeded", "BarcodeReadSucceeded"),
             barcodeError: pickValue(data, "barcodeError", "BarcodeError"),
             traceStatus: pickValue(data, "traceStatus", "TraceStatus"),
+            operatorName: pickValue(data, "operatorName", "OperatorName"),
+            operatorRole: pickValue(data, "operatorRole", "OperatorRole"),
+            shiftName: pickValue(data, "shiftName", "ShiftName"),
             currentStage: pickValue(data, "currentStage", "CurrentStage"),
             errorStage: pickValue(data, "errorStage", "ErrorStage"),
             errorCode: pickValue(data, "errorCode", "ErrorCode"),
@@ -328,17 +335,25 @@
         notify("health");
     }
 
+    function applyAlarmSnapshot(snapshot) {
+        if (!snapshot) return;
+        state.alarms = snapshot;
+        notify("alarms");
+    }
+
     function applyBootstrapSnapshot(snapshot) {
         if (!snapshot) return;
 
         const stats = snapshot.stats || snapshot.Stats;
         const health = snapshot.health || snapshot.Health;
+        const alarms = snapshot.alarms || snapshot.Alarms;
         const config = snapshot.config || snapshot.Config;
         const models = snapshot.models || snapshot.Models;
         const modelLabels = snapshot.modelLabels || snapshot.ModelLabels;
         const cameras = snapshot.cameras || snapshot.Cameras;
         const activeCameraId = pickValue(snapshot, "activeCameraId", "ActiveCameraId");
         const storagePath = pickValue(snapshot, "storagePath", "StoragePath");
+        const operatorSession = snapshot.operatorSession || snapshot.OperatorSession;
 
         if (config) state.settings = config;
         if (Array.isArray(models)) state.modelList = models;
@@ -346,14 +361,28 @@
         if (Array.isArray(cameras)) state.cameraList = cameras;
         if (activeCameraId !== undefined) state.activeCameraId = activeCameraId || "";
         if (storagePath !== undefined) state.storagePath = storagePath || "";
+        if (operatorSession) applyOperatorSession(operatorSession, false);
         if (stats) {
             state.stats.total = pickValue(stats, "total", "Total", "totalCount", "TotalCount") ?? state.stats.total;
             state.stats.ok = pickValue(stats, "ok", "Ok", "qualifiedCount", "QualifiedCount") ?? state.stats.ok;
             state.stats.ng = pickValue(stats, "ng", "Ng", "unqualifiedCount", "UnqualifiedCount") ?? state.stats.ng;
         }
         if (health) state.health = health;
+        if (alarms) state.alarms = alarms;
 
         notify("bootstrap");
+    }
+
+    function applyOperatorSession(payload, shouldNotify = true) {
+        if (!payload) return;
+        state.operatorSession = {
+            operatorName: pickValue(payload, "operatorName", "OperatorName") || "未登录",
+            role: pickValue(payload, "role", "Role", "operatorRole", "OperatorRole") || "Operator",
+            shiftName: pickValue(payload, "shiftName", "ShiftName") || "",
+            signedInAt: pickValue(payload, "signedInAt", "SignedInAt") || "",
+            isSignedIn: Boolean(pickValue(payload, "isSignedIn", "IsSignedIn")),
+        };
+        if (shouldNotify) notify("operatorSession");
     }
 
     window.CF_UTILS = {
@@ -376,7 +405,9 @@
         applyInspectionUpdate,
         applyStatsUpdate,
         applyHealthSnapshot,
+        applyAlarmSnapshot,
         applyBootstrapSnapshot,
+        applyOperatorSession,
     };
 })();
 
@@ -402,6 +433,7 @@
     let logFlushTimer = null;
     let detectionLogFlushTimer = null;
     let lastQueueAdviceKey = "";
+    let lastMaintenanceAdviceKey = "";
     let resultOverlayTimer = null;
     let lastPreviewFrameId = 0;
     let openCameraCooldownUntil = 0;
@@ -410,7 +442,7 @@
     let exitAppPending = false;
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
-    const KnownRenderReasons = new Set(["inspection", "stats", "health", "bootstrap", "state"]);
+    const KnownRenderReasons = new Set(["inspection", "stats", "health", "alarms", "operatorSession", "bootstrap", "state"]);
     const KeyLogPatterns = [
         /PLC/i,
         /Plc/i,
@@ -701,6 +733,7 @@
             const detail = [
                 detectionSummary,
                 objectSummary && objectSummary !== detectionSummary ? objectSummary : null,
+                item.operatorName ? `${item.shiftName || "-"} / ${item.operatorName}` : null,
                 item.totalMs ? `${item.totalMs}ms` : null,
                 performanceDetail,
             ].filter(Boolean).join(" / ");
@@ -833,6 +866,161 @@
         addLog(`队列压力偏高: ${items.join("，")}；建议检查磁盘/数据库写入速度或降低触发频率`, "warning");
     }
 
+    function normalizeHealthLevelText(value) {
+        if (value === 0 || value === "0" || value === "Ok") return "Ok";
+        if (value === 1 || value === "1" || value === "Warning") return "Warning";
+        if (value === 2 || value === "2" || value === "Critical") return "Critical";
+        return value || "Ok";
+    }
+
+    function getHealthArray(health, camelName, pascalName) {
+        const value = getHealthValue(health, camelName, pascalName);
+        return Array.isArray(value) ? value : [];
+    }
+
+    function formatMsValue(value) {
+        const number = toFiniteNumber(value);
+        return number > 0 ? `${Math.round(number)}ms` : "-";
+    }
+
+    function formatPercentValue(value) {
+        const number = toFiniteNumber(value);
+        return Number.isFinite(number) ? `${number.toFixed(1)}%` : "-";
+    }
+
+    function renderInspectionCycleSla(health) {
+        const panel = el("health-cycle-sla");
+        if (!panel) return;
+
+        const p95 = Math.max(0, Math.round(toFiniteNumber(getHealthValue(health, "recentInspectionP95Ms", "RecentInspectionP95Ms"))));
+        const p99 = Math.max(0, Math.round(toFiniteNumber(getHealthValue(health, "recentInspectionP99Ms", "RecentInspectionP99Ms"))));
+        const samples = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "recentInspectionSampleCount", "RecentInspectionSampleCount"))));
+        const warningMs = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "inspectionCycleWarningMs", "InspectionCycleWarningMs"))));
+        const criticalMs = Math.max(warningMs, Math.trunc(toFiniteNumber(getHealthValue(health, "inspectionCycleCriticalMs", "InspectionCycleCriticalMs"))));
+        const minSamples = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "inspectionCycleMinSamples", "InspectionCycleMinSamples"))));
+        const level = criticalMs > 0 && (p99 >= criticalMs || p95 >= criticalMs)
+            ? "critical"
+            : (warningMs > 0 && p95 >= warningMs ? "warning" : "ok");
+
+        setText("health-cycle-p95", formatMsValue(p95));
+        setText("health-cycle-p99", formatMsValue(p99));
+        setText("health-cycle-samples", minSamples > 0 ? `${samples}/${minSamples}` : String(samples));
+        setText("health-cycle-threshold", warningMs > 0 || criticalMs > 0 ? `${warningMs}/${criticalMs}ms` : "-");
+        panel.classList.remove("is-ok", "is-warning", "is-critical");
+        panel.classList.add(`is-${level}`);
+    }
+
+    function renderQualityYieldSla(health) {
+        const panel = el("health-quality-sla");
+        if (!panel) return;
+
+        const qualified = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "recentInspectionQualifiedCount", "RecentInspectionQualifiedCount"))));
+        const unqualified = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "recentInspectionUnqualifiedCount", "RecentInspectionUnqualifiedCount"))));
+        const samples = qualified + unqualified;
+        const rate = toFiniteNumber(getHealthValue(health, "recentInspectionQualifiedRatePercent", "RecentInspectionQualifiedRatePercent"));
+        const warningPercent = Math.max(0, toFiniteNumber(getHealthValue(health, "qualityYieldWarningPercent", "QualityYieldWarningPercent")));
+        const criticalPercent = Math.min(warningPercent, Math.max(0, toFiniteNumber(getHealthValue(health, "qualityYieldCriticalPercent", "QualityYieldCriticalPercent"))));
+        const minSamples = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "qualityYieldMinSamples", "QualityYieldMinSamples"))));
+        const ngStreak = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "consecutiveNgCount", "ConsecutiveNgCount"))));
+        const ngWarning = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "consecutiveNgWarningCount", "ConsecutiveNgWarningCount"))));
+        const ngCritical = Math.max(ngWarning, Math.trunc(toFiniteNumber(getHealthValue(health, "consecutiveNgCriticalCount", "ConsecutiveNgCriticalCount"))));
+        const yieldLevel = samples >= minSamples && warningPercent > 0 && rate <= criticalPercent
+            ? 2
+            : (samples >= minSamples && warningPercent > 0 && rate <= warningPercent ? 1 : 0);
+        const streakLevel = ngCritical > 0 && ngStreak >= ngCritical
+            ? 2
+            : (ngWarning > 0 && ngStreak >= ngWarning ? 1 : 0);
+        const level = Math.max(yieldLevel, streakLevel) === 2 ? "critical" : (Math.max(yieldLevel, streakLevel) === 1 ? "warning" : "ok");
+
+        setText("health-yield-rate", samples > 0 ? formatPercentValue(rate) : "-");
+        setText("health-yield-counts", `${qualified}/${unqualified}`);
+        setText("health-ng-streak", String(ngStreak));
+        setText("health-yield-samples", minSamples > 0 ? `${samples}/${minSamples}` : String(samples));
+        setText("health-yield-threshold", warningPercent > 0 ? `${warningPercent}/${criticalPercent}%` : "-");
+        setText("health-ng-threshold", ngWarning > 0 || ngCritical > 0 ? `${ngWarning}/${ngCritical}` : "-");
+        panel.classList.remove("is-ok", "is-warning", "is-critical");
+        panel.classList.add(`is-${level}`);
+    }
+
+    function formatHealthInsightTitle(item, fallbackSource) {
+        const source = item.source || item.Source || fallbackSource || "Health";
+        const level = normalizeHealthLevelText(item.level ?? item.Level);
+        const levelText = level === "Critical" ? "严重" : (level === "Warning" ? "预警" : "正常");
+        return `${source} · ${levelText}`;
+    }
+
+    function renderHealthInsights(health) {
+        const container = el("health-insights-list");
+        if (!container) return;
+
+        const advices = getHealthArray(health, "maintenanceAdvices", "MaintenanceAdvices");
+        const trends = getHealthArray(health, "trends", "Trends");
+        container.innerHTML = "";
+
+        const items = advices.length > 0
+            ? advices.slice(0, 3).map((advice) => ({
+                level: normalizeHealthLevelText(advice.level ?? advice.Level),
+                title: formatHealthInsightTitle(advice, "Maintenance"),
+                message: advice.message || advice.Message || "",
+                action: advice.action || advice.Action || "",
+            }))
+            : trends.slice(0, 1).map((trend) => ({
+                level: normalizeHealthLevelText(trend.level ?? trend.Level),
+                title: trend.name || trend.Name || "趋势",
+                message: trend.message || trend.Message || "",
+                action: "保持当前点检节奏",
+            }));
+
+        if (items.length === 0) {
+            items.push({
+                level: "Ok",
+                title: "健康状态正常",
+                message: "当前无维护建议",
+                action: "保持当前点检节奏",
+            });
+        }
+
+        const fragment = document.createDocumentFragment();
+        items.forEach((item) => {
+            const card = document.createElement("div");
+            const levelClass = item.level === "Critical" ? "is-critical" : (item.level === "Warning" ? "is-warning" : "is-ok");
+            card.className = `stitch-health-insight ${levelClass}`;
+
+            const title = document.createElement("strong");
+            title.textContent = item.title;
+            card.appendChild(title);
+
+            const message = document.createElement("span");
+            message.textContent = item.action ? `${item.message}；${item.action}` : item.message;
+            card.appendChild(message);
+
+            fragment.appendChild(card);
+        });
+
+        container.appendChild(fragment);
+    }
+
+    function logMaintenanceAdvice(health) {
+        const advices = getHealthArray(health, "maintenanceAdvices", "MaintenanceAdvices")
+            .filter((advice) => normalizeHealthLevelText(advice.level ?? advice.Level) !== "Ok")
+            .slice(0, 2);
+        if (advices.length === 0) {
+            lastMaintenanceAdviceKey = "";
+            return;
+        }
+
+        const key = advices
+            .map((advice) => `${advice.source || advice.Source}:${advice.message || advice.Message}`)
+            .join("|");
+        if (key === lastMaintenanceAdviceKey) return;
+
+        lastMaintenanceAdviceKey = key;
+        const summary = advices
+            .map((advice) => `${advice.source || advice.Source}: ${advice.message || advice.Message}`)
+            .join("；");
+        addLog(`维护建议: ${summary}`, "warning");
+    }
+
     function renderHealthSnapshot(state) {
         const health = state?.health || {};
         const cameraStatus = health.cameraStatus || health.CameraStatus || "";
@@ -845,6 +1033,42 @@
             updateConnection("plc", /^Connected/i.test(String(plcStatus)));
         }
         logQueuePressureAdvice(health);
+        renderInspectionCycleSla(health);
+        renderQualityYieldSla(health);
+        renderHealthInsights(health);
+        logMaintenanceAdvice(health);
+    }
+
+    function normalizeAlarmSeverity(value) {
+        if (value === 2 || value === "2" || value === "Critical") return "Critical";
+        if (value === 1 || value === "1" || value === "Warning") return "Warning";
+        return value || "Info";
+    }
+
+    function renderAlarmSummary(state) {
+        const alarms = state?.alarms || {};
+        const activeCount = Number(alarms.activeCount ?? alarms.ActiveCount ?? 0) || 0;
+        const unacknowledgedCount = Number(alarms.unacknowledgedCount ?? alarms.UnacknowledgedCount ?? activeCount) || 0;
+        const severity = normalizeAlarmSeverity(alarms.highestSeverity ?? alarms.HighestSeverity);
+        const button = el("alarm-center-button");
+        const badge = el("alarm-count-badge");
+
+        if (badge) {
+            badge.textContent = String(unacknowledgedCount || activeCount);
+            badge.classList.toggle("hidden", activeCount <= 0);
+        }
+
+        if (button) {
+            button.classList.remove("is-warning", "is-critical");
+            if (activeCount > 0) {
+                button.classList.add(severity === "Critical" ? "is-critical" : "is-warning");
+                button.title = `活动告警 ${activeCount} 条，未确认 ${unacknowledgedCount} 条`;
+                button.setAttribute("aria-label", button.title);
+            } else {
+                button.title = "告警中心";
+                button.setAttribute("aria-label", "告警中心");
+            }
+        }
     }
 
     function renderAll(state, reasons = []) {
@@ -858,6 +1082,9 @@
         }
         if (hasRenderReason(reasons, "health")) {
             renderHealthSnapshot(state);
+        }
+        if (hasRenderReason(reasons, "alarms")) {
+            renderAlarmSummary(state);
         }
     }
 
@@ -1366,6 +1593,10 @@
             IndustrialRenderMode: true,
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
+            PlcWriteRetryCount: 1,
+            PlcWriteRetryIntervalMs: 200,
+            RequireOperatorForProductionStart: true,
+            OperatorSessionMaxHours: 12,
             StoragePath: "C:\\GreeVisionData",
             CameraManufacturer: "Huaray",
         },
@@ -1409,6 +1640,10 @@
             IndustrialRenderMode: true,
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
+            PlcWriteRetryCount: 1,
+            PlcWriteRetryIntervalMs: 200,
+            RequireOperatorForProductionStart: true,
+            OperatorSessionMaxHours: 12,
             StoragePath: "C:\\GreeVisionData",
             CameraManufacturer: "Huaray",
         },
@@ -1452,6 +1687,10 @@
             IndustrialRenderMode: true,
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
+            PlcWriteRetryCount: 1,
+            PlcWriteRetryIntervalMs: 200,
+            RequireOperatorForProductionStart: true,
+            OperatorSessionMaxHours: 12,
             StoragePath: "C:\\GreeVisionData",
             CameraManufacturer: "Huaray",
         },
@@ -1495,6 +1734,10 @@
             IndustrialRenderMode: true,
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
+            PlcWriteRetryCount: 1,
+            PlcWriteRetryIntervalMs: 200,
+            RequireOperatorForProductionStart: true,
+            OperatorSessionMaxHours: 12,
             StoragePath: "C:\\GreeVisionData",
             CameraManufacturer: "Huaray",
         },
@@ -1538,6 +1781,10 @@
             IndustrialRenderMode: true,
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
+            PlcWriteRetryCount: 1,
+            PlcWriteRetryIntervalMs: 200,
+            RequireOperatorForProductionStart: true,
+            OperatorSessionMaxHours: 12,
             StoragePath: "C:\\GreeVisionData",
             CameraManufacturer: "Huaray",
         },
@@ -1581,6 +1828,10 @@
             IndustrialRenderMode: true,
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
+            PlcWriteRetryCount: 1,
+            PlcWriteRetryIntervalMs: 200,
+            RequireOperatorForProductionStart: true,
+            OperatorSessionMaxHours: 12,
             StoragePath: "C:\\GreeVisionData",
             CameraManufacturer: "Huaray",
         },
@@ -2343,6 +2594,14 @@
 
         const mapping = {
             StoragePath: "cfg-storage-path",
+            DataRetentionEnabled: "cfg-retention-enabled",
+            RequireOperatorForProductionStart: "cfg-require-operator-production",
+            OperatorSessionMaxHours: "cfg-operator-session-max-hours",
+            ImageRetentionDays: "cfg-image-retention-days",
+            LogRetentionDays: "cfg-log-retention-days",
+            AuditLogRetentionDays: "cfg-audit-retention-days",
+            ReportRetentionDays: "cfg-report-retention-days",
+            TraceRecordRetentionDays: "cfg-trace-record-retention-days",
             TriggerSource: "cfg-trigger-source",
             SerialPhotoelectricPortName: "cfg-serial-port",
             SerialPhotoelectricBaudRate: "cfg-serial-baud",
@@ -2380,6 +2639,19 @@
             GainRaw: "cfg-cam-gain",
             MaxRetryCount: "cfg-logic-retry-count",
             RetryIntervalMs: "cfg-logic-retry-interval",
+            PlcWriteRetryCount: "cfg-plc-write-retry-count",
+            PlcWriteRetryIntervalMs: "cfg-plc-write-retry-interval",
+            InspectionCycleSlaEnabled: "cfg-cycle-sla-enabled",
+            InspectionCycleWarningMs: "cfg-cycle-warning-ms",
+            InspectionCycleCriticalMs: "cfg-cycle-critical-ms",
+            InspectionCycleMinSamples: "cfg-cycle-min-samples",
+            QualityYieldSlaEnabled: "cfg-yield-sla-enabled",
+            QualityYieldWarningPercent: "cfg-yield-warning-percent",
+            QualityYieldCriticalPercent: "cfg-yield-critical-percent",
+            QualityYieldMinSamples: "cfg-yield-min-samples",
+            ConsecutiveNgAlarmEnabled: "cfg-consecutive-ng-enabled",
+            ConsecutiveNgWarningCount: "cfg-consecutive-ng-warning",
+            ConsecutiveNgCriticalCount: "cfg-consecutive-ng-critical",
             EnableGpu: "cfg-yolo-gpu",
             GpuIndex: "cfg-yolo-gpu-index",
             IndustrialRenderMode: "cfg-industrial-render-mode",
@@ -2614,9 +2886,43 @@
         bridge.sendCommand("import_config_migration");
     }
 
+    function setModelPackageImportButtonBusy(isBusy) {
+        const btn = byId("btn-import-model-package");
+        if (!btn) return;
+        btn.disabled = !!isBusy;
+        btn.innerHTML = isBusy
+            ? "等待导入..."
+            : `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 3v12m0-12 4 4m-4-4-4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
+                </svg>
+                导入 ONNX 并生成模型包`;
+    }
+
+    function importModelPackage() {
+        const resultDiv = byId("model-package-import-result");
+        setModelPackageImportButtonBusy(true);
+
+        if (resultDiv) {
+            resultDiv.className = "mt-2 text-[10px] text-ink-400";
+            resultDiv.textContent = "请选择 ONNX 文件并填写模型包信息。";
+            resultDiv.classList.remove("hidden");
+        }
+
+        bridge.sendCommand("import_model_package");
+    }
+
     function collectSettingsData() {
         const fieldMapping = {
             "cfg-storage-path": "StoragePath",
+            "cfg-retention-enabled": "DataRetentionEnabled",
+            "cfg-require-operator-production": "RequireOperatorForProductionStart",
+            "cfg-operator-session-max-hours": "OperatorSessionMaxHours",
+            "cfg-image-retention-days": "ImageRetentionDays",
+            "cfg-log-retention-days": "LogRetentionDays",
+            "cfg-audit-retention-days": "AuditLogRetentionDays",
+            "cfg-report-retention-days": "ReportRetentionDays",
+            "cfg-trace-record-retention-days": "TraceRecordRetentionDays",
             "cfg-trigger-source": "TriggerSource",
             "cfg-serial-port": "SerialPhotoelectricPortName",
             "cfg-serial-baud": "SerialPhotoelectricBaudRate",
@@ -2654,6 +2960,19 @@
             "cfg-cam-gain": "GainRaw",
             "cfg-logic-retry-count": "MaxRetryCount",
             "cfg-logic-retry-interval": "RetryIntervalMs",
+            "cfg-plc-write-retry-count": "PlcWriteRetryCount",
+            "cfg-plc-write-retry-interval": "PlcWriteRetryIntervalMs",
+            "cfg-cycle-sla-enabled": "InspectionCycleSlaEnabled",
+            "cfg-cycle-warning-ms": "InspectionCycleWarningMs",
+            "cfg-cycle-critical-ms": "InspectionCycleCriticalMs",
+            "cfg-cycle-min-samples": "InspectionCycleMinSamples",
+            "cfg-yield-sla-enabled": "QualityYieldSlaEnabled",
+            "cfg-yield-warning-percent": "QualityYieldWarningPercent",
+            "cfg-yield-critical-percent": "QualityYieldCriticalPercent",
+            "cfg-yield-min-samples": "QualityYieldMinSamples",
+            "cfg-consecutive-ng-enabled": "ConsecutiveNgAlarmEnabled",
+            "cfg-consecutive-ng-warning": "ConsecutiveNgWarningCount",
+            "cfg-consecutive-ng-critical": "ConsecutiveNgCriticalCount",
             "cfg-yolo-gpu": "EnableGpu",
             "cfg-yolo-gpu-index": "GpuIndex",
             "cfg-industrial-render-mode": "IndustrialRenderMode",
@@ -2666,7 +2985,12 @@
         const numericFields = new Set([
             "PlcPort", "PlcTriggerDelayMs", "PlcPollingIntervalMs", "PlcOkValue", "PlcNgValue",
             "PlcSiemensRack", "PlcSiemensSlot", "ExposureTime", "GainRaw",
-            "MaxRetryCount", "RetryIntervalMs", "GpuIndex", "BarcodeWordLength",
+            "MaxRetryCount", "RetryIntervalMs", "PlcWriteRetryCount", "PlcWriteRetryIntervalMs", "GpuIndex", "BarcodeWordLength",
+            "ImageRetentionDays", "LogRetentionDays", "AuditLogRetentionDays",
+            "ReportRetentionDays", "TraceRecordRetentionDays", "OperatorSessionMaxHours",
+            "InspectionCycleWarningMs", "InspectionCycleCriticalMs", "InspectionCycleMinSamples",
+            "QualityYieldWarningPercent", "QualityYieldCriticalPercent", "QualityYieldMinSamples",
+            "ConsecutiveNgWarningCount", "ConsecutiveNgCriticalCount",
             "SerialPhotoelectricBaudRate", "SerialPhotoelectricDebounceMs", "SerialPhotoelectricTimeoutMs",
         ]);
         const data = {};
@@ -2870,8 +3194,24 @@
             "cfg-cam-gain": preset.GainRaw ?? preset.Gain ?? 1.1,
             "cfg-logic-retry-count": preset.MaxRetryCount ?? 1,
             "cfg-logic-retry-interval": preset.RetryIntervalMs ?? 2000,
+            "cfg-plc-write-retry-count": preset.PlcWriteRetryCount ?? 1,
+            "cfg-plc-write-retry-interval": preset.PlcWriteRetryIntervalMs ?? 200,
+            "cfg-operator-session-max-hours": preset.OperatorSessionMaxHours ?? 12,
+            "cfg-cycle-warning-ms": preset.InspectionCycleWarningMs ?? 1500,
+            "cfg-cycle-critical-ms": preset.InspectionCycleCriticalMs ?? 3000,
+            "cfg-cycle-min-samples": preset.InspectionCycleMinSamples ?? 10,
+            "cfg-yield-warning-percent": preset.QualityYieldWarningPercent ?? 95.0,
+            "cfg-yield-critical-percent": preset.QualityYieldCriticalPercent ?? 90.0,
+            "cfg-yield-min-samples": preset.QualityYieldMinSamples ?? 30,
+            "cfg-consecutive-ng-warning": preset.ConsecutiveNgWarningCount ?? 3,
+            "cfg-consecutive-ng-critical": preset.ConsecutiveNgCriticalCount ?? 5,
             "cfg-yolo-gpu-index": preset.GpuIndex ?? 0,
             "cfg-storage-path": preset.StoragePath ?? "C:\\GreeVisionData",
+            "cfg-image-retention-days": preset.ImageRetentionDays ?? 30,
+            "cfg-log-retention-days": preset.LogRetentionDays ?? 180,
+            "cfg-audit-retention-days": preset.AuditLogRetentionDays ?? 365,
+            "cfg-report-retention-days": preset.ReportRetentionDays ?? 365,
+            "cfg-trace-record-retention-days": preset.TraceRecordRetentionDays ?? 365,
         };
         Object.entries(textAssignments).forEach(([id, value]) => {
             const input = byId(id);
@@ -2884,6 +3224,11 @@
             "cfg-barcode-required": preset.BarcodeRequired ?? false,
             "cfg-yolo-gpu": preset.EnableGpu ?? false,
             "cfg-industrial-render-mode": preset.IndustrialRenderMode ?? true,
+            "cfg-cycle-sla-enabled": preset.InspectionCycleSlaEnabled ?? true,
+            "cfg-yield-sla-enabled": preset.QualityYieldSlaEnabled ?? true,
+            "cfg-consecutive-ng-enabled": preset.ConsecutiveNgAlarmEnabled ?? true,
+            "cfg-retention-enabled": preset.DataRetentionEnabled ?? true,
+            "cfg-require-operator-production": preset.RequireOperatorForProductionStart ?? true,
         };
         Object.entries(checkboxAssignments).forEach(([id, value]) => {
             const cb = byId(id);
@@ -2952,6 +3297,23 @@
         resultDiv.classList.remove("hidden");
     }
 
+    function handleModelPackageImportResult(data) {
+        const resultDiv = byId("model-package-import-result");
+        setModelPackageImportButtonBusy(false);
+
+        if (!resultDiv) return;
+
+        if (data?.success) {
+            resultDiv.className = "mt-2 text-[10px] text-green-600";
+            resultDiv.textContent = `✅ 模型包已导入：${data.modelId || "-"}，版本 ${data.version || "-"}。${data.modelFileName ? `当前模型：${data.modelFileName}` : ""}`;
+        } else {
+            resultDiv.className = "mt-2 text-[10px] text-red-500";
+            resultDiv.textContent = `❌ 模型包导入失败：${data?.message || "未知错误"}`;
+        }
+
+        resultDiv.classList.remove("hidden");
+    }
+
     Object.assign(window, {
         activateSettingsTab,
         applyMultiModelUiState,
@@ -2959,6 +3321,7 @@
         deleteSelectedProjectPreset,
         exportConfigMigration,
         handleProjectPresets,
+        importModelPackage,
         importConfigMigration,
         initModelList,
         initSettings,
@@ -2987,6 +3350,7 @@
         updateTaskType,
         collectDataset,
         handleDatasetCollectResult,
+        handleModelPackageImportResult,
         handleSerialPortsDetected,
         updateTriggerSourceUi,
     });
@@ -3000,6 +3364,7 @@
     });
     bridge.registerMessageHandler("projectPresets", handleProjectPresets);
     bridge.registerMessageHandler("datasetCollectResult", handleDatasetCollectResult);
+    bridge.registerMessageHandler("modelPackageImportResult", handleModelPackageImportResult);
     bridge.registerMessageHandler("serialPortsDetected", handleSerialPortsDetected);
 })();
 
@@ -3283,7 +3648,7 @@
     bridge.registerMessageHandler("discoveredCameras", receiveSuperSearchResult);
 })();
 
-// ==========================================
+﻿// ==========================================
 // ClearFrost history, logs and gallery
 // ==========================================
 (function () {
@@ -3411,9 +3776,14 @@
             const resultClass = record.isQualified ? "ok" : "ng";
             const reviewLabel = record.hasRenderedImage ? "复查图" : "无复查图";
             const model = record.modelVersion || record.modelName || "-";
+            const operatorLine = [record.shiftName, record.operatorName].filter(Boolean).join(" / ");
+            const hashText = formatTraceHash(record.hasRenderedImage ? record.renderedImageHash : record.imageHash);
             const adviceText = getTraceAdviceText(record, "建议");
             const adviceMarkup = adviceText
                 ? `<p class="cf-trace-advice">${escapeHtml(adviceText)}</p>`
+                : "";
+            const hashMarkup = hashText
+                ? `<p>证据: ${escapeHtml(hashText)}</p>`
                 : "";
             const imageMarkup = url
                 ? `<img src="${url}" loading="lazy" decoding="async" alt="${escapeHtml(record.inspectionId)}">`
@@ -3429,8 +3799,10 @@
                         <p>${escapeHtml(record.productBarcode || "-")}</p>
                         <p>${escapeHtml(record.timestamp || "-")}</p>
                         <p>ID: ${escapeHtml(record.inspectionId || "-")}</p>
+                        <p>人员: ${escapeHtml(operatorLine || "-")}</p>
                         <p>模型: ${escapeHtml(model)}</p>
                         <p>相机: ${escapeHtml(record.cameraId || "-")}</p>
+                        ${hashMarkup}
                         ${adviceMarkup}
                     </div>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
@@ -3485,6 +3857,38 @@
         updateTracePaginationUi();
     }
 
+    function exportTraceReport() {
+        syncTraceControls();
+        const date = byId("gallery-date-picker")?.value || window.currentNGDate;
+        const hour = byId("trace-hour-select")?.value || window.currentNGHour || "";
+        if (!date) {
+            window.addLog?.("请先选择日期后再导出追溯报表", "warning");
+            return;
+        }
+
+        window.currentNGDate = date;
+        window.currentNGHour = hour;
+        bridge.sendCommand("export_trace_report", { date, hour });
+        window.addLog?.("正在导出NG追溯CSV报表...", "info");
+    }
+
+    function exportDiagnosticPackage() {
+        bridge.sendCommand("export_diagnostic_package");
+        window.addLog?.("正在准备诊断包导出...", "info");
+    }
+
+    function handleTraceReportExported(payload) {
+        const success = toBoolean(payload?.success ?? payload?.Success);
+        const message = payload?.message || payload?.Message || (success ? "追溯报表已导出" : "追溯报表导出失败");
+        const path = payload?.path || payload?.Path || "";
+        window.addLog?.(path ? `${message}: ${path}` : message, success ? "success" : "error");
+    }
+
+    function exportDetectionReport() {
+        bridge.sendCommand("export_detection_report");
+        window.addLog?.("正在导出最近 500 条生产流水 CSV...", "info");
+    }
+
     function loadPreviousTracePage() {
         if (tracePagerState.pageIndex <= 0) return;
         tracePagerState.pageIndex -= 1;
@@ -3526,6 +3930,274 @@
 
     function closeLogHistoryModal() {
         byId("log-history-modal")?.classList.add("hidden");
+    }
+
+    function openAuditLogModal() {
+        byId("audit-log-modal")?.classList.remove("hidden");
+        refreshAuditLogTable();
+    }
+
+    function closeAuditLogModal() {
+        byId("audit-log-modal")?.classList.add("hidden");
+    }
+
+    function openAlarmCenterModal() {
+        byId("alarm-center-modal")?.classList.remove("hidden");
+        refreshAlarms();
+    }
+
+    function closeAlarmCenterModal() {
+        byId("alarm-center-modal")?.classList.add("hidden");
+    }
+
+    function openConfigVersionModal() {
+        byId("config-version-modal")?.classList.remove("hidden");
+        refreshConfigVersions();
+    }
+
+    function closeConfigVersionModal() {
+        byId("config-version-modal")?.classList.add("hidden");
+    }
+
+    function refreshAuditLogTable() {
+        const tbody = byId("audit-log-table");
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 italic">加载中...</td></tr>';
+        }
+
+        const statusValue = byId("audit-status-filter")?.value || "";
+        const searchText = byId("audit-search-input")?.value || "";
+        bridge.sendCommand("get_audit_logs", {
+            limit: 300,
+            success: statusValue === "" ? null : statusValue === "true",
+            searchText,
+        });
+    }
+
+    function refreshAlarms() {
+        const status = byId("alarm-status-label");
+        if (status) status.textContent = "Loading";
+        bridge.sendCommand("get_alarms");
+    }
+
+    function normalizeAlarmSeverity(value) {
+        if (value === 2 || value === "2" || value === "Critical") return "Critical";
+        if (value === 1 || value === "1" || value === "Warning") return "Warning";
+        return value || "Info";
+    }
+
+    function normalizeAlarmState(value) {
+        if (value === 1 || value === "1" || value === "Cleared") return "Cleared";
+        return value || "Active";
+    }
+
+    function formatAlarmTime(value) {
+        if (!value) return "-";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return date.toLocaleString();
+    }
+
+    function normalizeAlarmRecord(item) {
+        return {
+            alarmId: item?.alarmId || item?.AlarmId || "",
+            severity: normalizeAlarmSeverity(item?.severity ?? item?.Severity),
+            state: normalizeAlarmState(item?.state ?? item?.State),
+            source: item?.source || item?.Source || "-",
+            message: item?.message || item?.Message || "",
+            recommendedAction: item?.recommendedAction || item?.RecommendedAction || "",
+            lastInspectionId: item?.lastInspectionId || item?.LastInspectionId || "",
+            raisedAt: item?.raisedAt || item?.RaisedAt || "",
+            lastSeenAt: item?.lastSeenAt || item?.LastSeenAt || "",
+            clearedAt: item?.clearedAt || item?.ClearedAt || "",
+            acknowledgedBy: item?.acknowledgedBy || item?.AcknowledgedBy || "",
+            acknowledgedAt: item?.acknowledgedAt || item?.AcknowledgedAt || "",
+            occurrenceCount: Number(item?.occurrenceCount ?? item?.OccurrenceCount ?? 1) || 1,
+            isAcknowledged: toBoolean(item?.isAcknowledged ?? item?.IsAcknowledged),
+        };
+    }
+
+    function updateAlarmTable(snapshot) {
+        const data = snapshot || window.CF_STORE?.state?.alarms || {};
+        const active = data.activeAlarms || data.ActiveAlarms || [];
+        const recent = data.recentAlarms || data.RecentAlarms || [];
+        const records = (active.length ? active : recent).map(normalizeAlarmRecord);
+        const activeCount = Number(data.activeCount ?? data.ActiveCount ?? active.length) || 0;
+        const unacknowledgedCount = Number(data.unacknowledgedCount ?? data.UnacknowledgedCount ?? 0) || 0;
+        const tbody = byId("alarm-center-table");
+        const badge = byId("alarm-active-count-badge");
+        const status = byId("alarm-status-label");
+        if (!tbody) return;
+
+        if (badge) badge.textContent = `${activeCount} 条`;
+        if (status) status.textContent = activeCount > 0 ? `${unacknowledgedCount} unack` : "Ready";
+
+        if (!records.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-10 text-center text-slate-400 italic">暂无告警</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = records.slice(0, 100).map((alarm) => {
+            const severityClass = alarm.severity === "Critical"
+                ? "bg-rouge-50 text-rouge-600 border-rouge-200"
+                : alarm.severity === "Warning"
+                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : "bg-slate-50 text-slate-600 border-slate-200";
+            const stateClass = alarm.state === "Active"
+                ? "bg-celadon-50 text-celadon-600 border-celadon-200"
+                : "bg-slate-50 text-slate-500 border-slate-200";
+            const ackText = alarm.isAcknowledged
+                ? `已确认: ${alarm.acknowledgedBy || "-"} ${formatAlarmTime(alarm.acknowledgedAt)}`
+                : "未确认";
+            const actionValue = escapeHtml(JSON.stringify(alarm.alarmId));
+            const actionMarkup = alarm.state === "Active" && !alarm.isAcknowledged
+                ? `<button type="button" data-action="acknowledgeAlarm" data-value="${actionValue}"
+                        class="px-3 py-1.5 text-[10px] font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">
+                        确认
+                    </button>`
+                : `<span class="text-[10px] text-slate-400">${escapeHtml(ackText)}</span>`;
+            const traceText = alarm.lastInspectionId ? `<div class="text-[9px] text-ink-300 mt-1">ID ${escapeHtml(alarm.lastInspectionId)}</div>` : "";
+
+            return `
+                <tr class="${alarm.state === "Active" ? "bg-white" : "bg-slate-50/60"} hover:bg-slate-50 transition-colors">
+                    <td class="px-4 py-3 whitespace-nowrap">
+                        <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${severityClass}">
+                            ${escapeHtml(alarm.severity)}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                        <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${stateClass}">
+                            ${escapeHtml(alarm.state)}
+                        </span>
+                        <div class="text-[9px] text-slate-400 mt-1">${escapeHtml(ackText)}</div>
+                    </td>
+                    <td class="px-4 py-3 font-bold text-slate-600 whitespace-nowrap">${escapeHtml(alarm.source)}</td>
+                    <td class="px-4 py-3 text-slate-500 max-w-xl whitespace-normal break-words leading-snug">
+                        <div class="font-bold text-slate-700">${escapeHtml(alarm.message || "-")}</div>
+                        <div>${escapeHtml(alarm.recommendedAction || "-")}</div>
+                        ${traceText}
+                    </td>
+                    <td class="px-4 py-3 text-slate-500 whitespace-nowrap">
+                        <div>触发 ${escapeHtml(formatAlarmTime(alarm.raisedAt))}</div>
+                        <div>最近 ${escapeHtml(formatAlarmTime(alarm.lastSeenAt))}</div>
+                        <div>次数 ${escapeHtml(alarm.occurrenceCount)}</div>
+                    </td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">${actionMarkup}</td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    function handleAlarmSnapshot(snapshot) {
+        window.CF_STORE?.applyAlarmSnapshot?.(snapshot);
+        updateAlarmTable(snapshot);
+    }
+
+    function acknowledgeAlarm(alarmId) {
+        if (!alarmId) {
+            window.addLog?.("告警编号为空，无法确认", "warning");
+            return;
+        }
+
+        bridge.sendCommand("acknowledge_alarm", { alarmId });
+    }
+
+    function acknowledgeAllAlarms() {
+        bridge.sendCommand("acknowledge_all_alarms");
+    }
+
+    function handleAlarmActionResult(data) {
+        const success = toBoolean(data?.success ?? data?.Success);
+        const message = data?.message || data?.Message || (success ? "告警操作完成" : "告警操作失败");
+        window.addLog?.(message, success ? "success" : "error");
+        refreshAlarms();
+    }
+
+    function refreshConfigVersions() {
+        const tbody = byId("config-version-table");
+        const status = byId("config-version-status");
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 italic">加载中...</td></tr>';
+        }
+        if (status) status.textContent = "Loading";
+        bridge.sendCommand("get_config_versions");
+    }
+
+    function normalizeConfigVersion(item) {
+        return {
+            versionId: item?.versionId || item?.VersionId || "",
+            createdAt: item?.createdAt || item?.CreatedAt || "-",
+            reason: item?.reason || item?.Reason || "-",
+            operatorName: item?.operatorName || item?.OperatorName || "-",
+            operatorRole: item?.operatorRole || item?.OperatorRole || "-",
+            shiftName: item?.shiftName || item?.ShiftName || "",
+            changeSummary: item?.changeSummary || item?.ChangeSummary || "",
+            configHash: item?.configHash || item?.ConfigHash || "",
+        };
+    }
+
+    function updateConfigVersionTable(data) {
+        const versions = (Array.isArray(data) ? data : (data?.versions || data?.Versions || [])).map(normalizeConfigVersion);
+        const tbody = byId("config-version-table");
+        const badge = byId("config-version-count-badge");
+        const status = byId("config-version-status");
+        if (!tbody) return;
+
+        if (badge) badge.textContent = `${versions.length} 个`;
+        if (status) status.textContent = versions.length ? "Ready" : "No versions";
+
+        if (!versions.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 italic">暂无配置版本</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = versions.slice(0, 100).map((version, index) => {
+            const isLatest = index === 0;
+            const operatorLine = [version.operatorName, version.operatorRole, version.shiftName].filter(Boolean).join(" / ");
+            const hashLine = version.configHash ? `<div class="text-[9px] text-ink-300 mt-1">SHA256 ${escapeHtml(version.configHash.slice(0, 12))}</div>` : "";
+            const restoreValue = escapeHtml(JSON.stringify(version.versionId));
+            return `
+                <tr class="${isLatest ? "bg-celadon-50/40" : "hover:bg-slate-50"} transition-colors">
+                    <td class="px-4 py-3 font-mono text-slate-600 whitespace-nowrap">
+                        ${escapeHtml(version.createdAt)}
+                        ${isLatest ? '<div class="text-[9px] text-celadon-600 font-bold mt-1">最新版本</div>' : ""}
+                    </td>
+                    <td class="px-4 py-3 font-bold text-slate-600 whitespace-nowrap">${escapeHtml(version.reason)}</td>
+                    <td class="px-4 py-3 text-slate-500 whitespace-nowrap">${escapeHtml(operatorLine || "-")}</td>
+                    <td class="px-4 py-3 text-slate-500 max-w-xl whitespace-normal break-words leading-snug" title="${escapeHtml(version.changeSummary)}">
+                        ${escapeHtml(version.changeSummary || "-")}
+                        ${hashLine}
+                    </td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                        <button type="button" data-action="restoreConfigVersion" data-value="${restoreValue}"
+                            data-confirm="确认恢复该配置版本？当前运行配置会被覆盖。"
+                            class="px-3 py-1.5 text-[10px] font-bold text-rouge-600 bg-rouge-50 hover:bg-rouge-100 rounded-lg transition-colors">
+                            恢复
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    function restoreConfigVersion(versionId) {
+        if (!versionId) {
+            window.addLog?.("配置版本号为空，无法恢复", "warning");
+            return;
+        }
+
+        const status = byId("config-version-status");
+        if (status) status.textContent = "Restoring";
+        bridge.sendCommand("restore_config_version", { versionId });
+    }
+
+    function handleConfigVersionRestoreResult(data) {
+        const success = toBoolean(data?.success ?? data?.Success);
+        const message = data?.message || data?.Message || (success ? "配置版本已恢复" : "配置版本恢复失败");
+        const status = byId("config-version-status");
+        if (status) status.textContent = success ? "Restored" : "Failed";
+        window.addLog?.(message, success ? "success" : "error");
+        if (success) refreshConfigVersions();
     }
 
     function openGalleryModal() {
@@ -3622,6 +4294,66 @@
                     </td>
                     <td class="px-4 py-3 text-slate-500 max-w-md whitespace-normal break-words leading-snug" title="${escapeHtml(details)}">
                         ${escapeHtml(details || "-")}
+                    </td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    function updateAuditLogTable(data) {
+        if (data === undefined) {
+            refreshAuditLogTable();
+            return;
+        }
+
+        const logs = Array.isArray(data) ? data : (data?.logs || data?.Logs || []);
+        const tbody = byId("audit-log-table");
+        const badge = byId("audit-count-badge");
+        if (!tbody) return;
+
+        if (!logs.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-10 text-center text-slate-400 italic">暂无审计记录</td></tr>';
+            if (badge) badge.textContent = "0 条";
+            return;
+        }
+
+        if (badge) badge.textContent = `${logs.length} 条`;
+        tbody.innerHTML = logs.slice(0, 500).map((log) => {
+            const success = toBoolean(log.success ?? log.Success);
+            const status = log.status || log.Status || (success ? "成功" : "失败");
+            const statusClass = success
+                ? "bg-bamboo-50 text-bamboo-600 border-bamboo-200"
+                : "bg-rouge-50 text-rouge-600 border-rouge-200";
+            const integrity = String(log.integrityStatus || log.IntegrityStatus || "Legacy");
+            const integrityClass = integrity === "Valid"
+                ? "bg-bamboo-50 text-bamboo-600 border-bamboo-200"
+                : integrity === "Tampered"
+                    ? "bg-rouge-50 text-rouge-600 border-rouge-200"
+                    : "bg-slate-50 text-slate-500 border-slate-200";
+            const integrityLabel = integrity === "Valid"
+                ? "有效"
+                : integrity === "Tampered"
+                    ? "异常"
+                    : "旧版";
+            const auditHash = String(log.auditHash || log.AuditHash || "");
+            const detail = String(log.detail || log.Detail || "");
+            return `
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-4 py-3 font-mono text-slate-600 whitespace-nowrap">${escapeHtml(log.timestamp || log.Timestamp || "-")}</td>
+                    <td class="px-4 py-3 text-center">
+                        <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusClass}">
+                            ${escapeHtml(status)}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-center" title="${escapeHtml(auditHash)}">
+                        <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${integrityClass}">
+                            ${integrityLabel}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 font-bold text-slate-600 whitespace-nowrap">${escapeHtml(log.category || log.Category || "-")}</td>
+                    <td class="px-4 py-3 text-slate-600 whitespace-nowrap">${escapeHtml(log.action || log.Action || "-")}</td>
+                    <td class="px-4 py-3 text-slate-500 max-w-xl whitespace-normal break-words leading-snug" title="${escapeHtml(detail)}">
+                        ${escapeHtml(detail || "-")}
                     </td>
                 </tr>
             `;
@@ -3750,6 +4482,8 @@
                 isQualified: false,
                 imageUrl: url,
                 renderedImageUrl: "",
+                imageHash: "",
+                renderedImageHash: "",
                 thumbnailUrl: url,
                 displayImageUrl: url,
                 hasRenderedImage: false,
@@ -3768,6 +4502,9 @@
         return {
             inspectionId: pickTraceValue(record, "inspectionId", "InspectionId") || "-",
             productBarcode: pickTraceValue(record, "productBarcode", "ProductBarcode") || "-",
+            operatorName: pickTraceValue(record, "operatorName", "OperatorName") || "",
+            operatorRole: pickTraceValue(record, "operatorRole", "OperatorRole") || "",
+            shiftName: pickTraceValue(record, "shiftName", "ShiftName") || "",
             timestamp: pickTraceValue(record, "timestamp", "Timestamp") || "-",
             isQualified: toBoolean(pickTraceValue(record, "isQualified", "IsQualified")),
             modelVersion: pickTraceValue(record, "modelVersion", "ModelVersion") || "",
@@ -3778,6 +4515,8 @@
             errorMessage: pickTraceValue(record, "errorMessage", "ErrorMessage") || "",
             imagePath: pickTraceValue(record, "imagePath", "ImagePath") || "",
             renderedImagePath: pickTraceValue(record, "renderedImagePath", "RenderedImagePath") || "",
+            imageHash: pickTraceValue(record, "imageHash", "ImageHash") || "",
+            renderedImageHash: pickTraceValue(record, "renderedImageHash", "RenderedImageHash") || "",
             imageUrl,
             renderedImageUrl,
             thumbnailUrl: pickTraceValue(record, "thumbnailUrl", "ThumbnailUrl") || renderedImageUrl || imageUrl,
@@ -3785,6 +4524,13 @@
             hasRenderedImage,
             missingRenderedImage: hasRenderedImageValue !== "" ? !toBoolean(hasRenderedImageValue) : !renderedImageUrl || toBoolean(missingRenderedImageValue),
         };
+    }
+
+    function formatTraceHash(value) {
+        const hash = String(value || "").trim();
+        if (!hash) return "";
+        if (hash.length <= 16) return hash;
+        return `${hash.slice(0, 12)}...${hash.slice(-4)}`;
     }
 
     function getTraceAdviceText(record, prefix = "处理建议") {
@@ -3917,11 +4663,19 @@
             const statusText = normalized.hasRenderedImage ? "复查图" : "无复查图";
             const canRulePreview = Boolean(normalized.imagePath || normalized.renderedImagePath || originalUrl || reviewUrl);
             const adviceText = getTraceAdviceText(normalized);
+            const operatorLine = [normalized.shiftName, normalized.operatorName].filter(Boolean).join(" / ") || "-";
+            const activeHash = activeMode === "original"
+                ? normalized.imageHash
+                : (normalized.renderedImageHash || normalized.imageHash);
+            const hashText = formatTraceHash(activeHash);
+            const hashMeta = hashText ? `<span>证据 ${escapeHtml(hashText)}</span>` : "";
             info.innerHTML = `
                 <div class="cf-trace-viewer-toolbar">
                     <div class="cf-trace-viewer-meta">
                         <strong>${escapeHtml(normalized.inspectionId)}</strong>
                         <span>${escapeHtml(normalized.timestamp)}</span>
+                        <span>${escapeHtml(operatorLine)}</span>
+                        ${hashMeta}
                         <em>${escapeHtml(statusText)}</em>
                     </div>
                     <div class="cf-trace-viewer-actions">
@@ -3979,11 +4733,25 @@
     }
 
     Object.assign(window, {
+        acknowledgeAlarm,
+        acknowledgeAllAlarms,
+        closeAlarmCenterModal,
+        closeAuditLogModal,
+        closeConfigVersionModal,
         closeGalleryModal,
         closeImageViewer,
         closeLogHistoryModal,
         closeStatisticsHistoryModal,
+        exportDetectionReport,
+        exportDiagnosticPackage,
+        exportTraceReport,
+        handleAlarmActionResult,
+        handleAlarmSnapshot,
+        handleConfigVersionRestoreResult,
+        openAlarmCenterModal,
         openGalleryModal,
+        openAuditLogModal,
+        openConfigVersionModal,
         openLogHistoryModal,
         openStatisticsHistoryModal,
         loadNextTracePage,
@@ -3993,6 +4761,13 @@
         runHistoryRulePreview,
         searchTraceImages,
         selectTraceHour,
+        refreshAlarms,
+        refreshConfigVersions,
+        refreshAuditLogTable,
+        restoreConfigVersion,
+        updateAlarmTable,
+        updateAuditLogTable,
+        updateConfigVersionTable,
         updateDetectionLogTable,
         updateNGDates,
         updateNGHours,
@@ -4000,12 +4775,18 @@
         updateHistoryRulePreview,
     });
 
+    bridge.registerMessageHandler("alarmSnapshot", handleAlarmSnapshot);
+    bridge.registerMessageHandler("alarmActionResult", handleAlarmActionResult);
     bridge.registerMessageHandler("statisticsHistory", receiveStatisticsHistory);
+    bridge.registerMessageHandler("auditLogTable", updateAuditLogTable);
+    bridge.registerMessageHandler("configVersionList", updateConfigVersionTable);
+    bridge.registerMessageHandler("configVersionRestoreResult", handleConfigVersionRestoreResult);
     bridge.registerMessageHandler("detectionLogTable", updateDetectionLogTable);
     bridge.registerMessageHandler("historyDates", updateNGDates);
     bridge.registerMessageHandler("historyHours", updateNGHours);
     bridge.registerMessageHandler("historyImages", updateNGImages);
     bridge.registerMessageHandler("historyRulePreview", updateHistoryRulePreview);
+    bridge.registerMessageHandler("traceReportExported", handleTraceReportExported);
 })();
 
 // ==========================================
@@ -4184,6 +4965,106 @@
 
     let windowDragging = false;
 
+    function cleanText(value) {
+        return value === undefined || value === null ? "" : String(value).trim();
+    }
+
+    function getOperatorSession() {
+        return window.CF_STORE?.state?.operatorSession || {};
+    }
+
+    function pickSessionText(session, ...keys) {
+        for (const key of keys) {
+            const value = cleanText(session?.[key]);
+            if (value) return value;
+        }
+        return "";
+    }
+
+    function renderOperatorSession(session) {
+        const current = session || getOperatorSession();
+        const operatorName = pickSessionText(current, "operatorName", "OperatorName") || "未登录";
+        const role = pickSessionText(current, "role", "Role", "operatorRole", "OperatorRole") || "Operator";
+        const shiftName = pickSessionText(current, "shiftName", "ShiftName") || "班次";
+        const chip = document.getElementById("operator-session-chip");
+        const name = document.getElementById("operator-chip-name");
+        const shift = document.getElementById("operator-chip-shift");
+        if (name) name.textContent = operatorName;
+        if (shift) shift.textContent = `${shiftName} / ${role}`;
+        if (chip) {
+            chip.title = `操作员: ${operatorName}\n班次: ${shiftName}\n角色: ${role}`;
+            chip.classList.toggle("is-signed-in", Boolean(current.isSignedIn || current.IsSignedIn));
+        }
+    }
+
+    function setSelectValue(select, value, fallback) {
+        if (!select) return;
+        const normalized = cleanText(value);
+        const hasOption = Array.from(select.options).some((option) => option.value === normalized);
+        select.value = hasOption ? normalized : fallback;
+    }
+
+    function openOperatorSessionModal() {
+        const modal = document.getElementById("operator-session-modal");
+        if (!modal) return;
+
+        const current = getOperatorSession();
+        const signedIn = Boolean(current.isSignedIn || current.IsSignedIn);
+        const operatorName = pickSessionText(current, "operatorName", "OperatorName");
+        const role = pickSessionText(current, "role", "Role", "operatorRole", "OperatorRole") || "Operator";
+        const shiftName = pickSessionText(current, "shiftName", "ShiftName");
+        const nameInput = document.getElementById("operator-session-name");
+        const roleSelect = document.getElementById("operator-session-role");
+        const shiftSelect = document.getElementById("operator-session-shift");
+        const currentLabel = document.getElementById("operator-session-current");
+        const signOutButton = document.getElementById("operator-session-signout");
+
+        if (nameInput) {
+            nameInput.value = signedIn ? operatorName : "";
+        }
+        setSelectValue(roleSelect, role, "Operator");
+        setSelectValue(shiftSelect, shiftName, "");
+        if (currentLabel) {
+            currentLabel.textContent = `${operatorName || "未登录"} / ${shiftName || "班次"} / ${role}`;
+        }
+        if (signOutButton) {
+            signOutButton.disabled = !signedIn;
+        }
+
+        modal.classList.remove("hidden");
+        setTimeout(() => nameInput?.focus?.(), 0);
+    }
+
+    function closeOperatorSessionModal() {
+        document.getElementById("operator-session-modal")?.classList.add("hidden");
+    }
+
+    function signInOperator() {
+        openOperatorSessionModal();
+    }
+
+    function submitOperatorSessionForm(event) {
+        event?.preventDefault?.();
+        const operatorName = cleanText(document.getElementById("operator-session-name")?.value);
+        if (!operatorName) {
+            window.addLog?.("操作员工号/姓名不能为空", "warning");
+            document.getElementById("operator-session-name")?.focus?.();
+            return;
+        }
+
+        window.sendCommand("operator_sign_in", {
+            operatorName,
+            role: cleanText(document.getElementById("operator-session-role")?.value) || "Operator",
+            shiftName: cleanText(document.getElementById("operator-session-shift")?.value),
+        });
+        closeOperatorSessionModal();
+    }
+
+    function signOutOperator() {
+        window.sendCommand("operator_sign_out");
+        closeOperatorSessionModal();
+    }
+
     function startDrag(event) {
         if (
             event?.target?.closest?.("button") ||
@@ -4260,13 +5141,37 @@
         return !message || window.confirm(message);
     }
 
+    function collectPromptPayload(element) {
+        const message = element.dataset.prompt;
+        if (!message) return undefined;
+
+        const raw = window.prompt(message, element.dataset.promptDefault || "");
+        if (raw === null) return null;
+
+        const value = raw.trim();
+        if (element.dataset.promptRequired === "true" && !value) {
+            window.showToast?.("必须填写操作原因", "warning", 1800);
+            return null;
+        }
+
+        const key = element.dataset.promptKey || "value";
+        return { [key]: value };
+    }
+
     function setupDelegatedActions() {
         document.addEventListener("click", (event) => {
             const commandElement = event.target.closest("[data-cmd]");
             if (commandElement) {
                 const cmd = commandElement.dataset.cmd;
                 if (!cmd || !confirmIfNeeded(commandElement)) return;
-                const value = parseDatasetValue(commandElement.dataset.value);
+                let value = parseDatasetValue(commandElement.dataset.value);
+                const promptPayload = collectPromptPayload(commandElement);
+                if (promptPayload === null) return;
+                if (promptPayload !== undefined) {
+                    value = value && typeof value === "object" && !Array.isArray(value)
+                        ? { ...value, ...promptPayload }
+                        : promptPayload;
+                }
                 window.sendCommand(cmd, value === undefined ? null : value);
                 return;
             }
@@ -4316,24 +5221,50 @@
         });
     }
 
+    function setupOperatorSessionModal() {
+        const modal = document.getElementById("operator-session-modal");
+        document.getElementById("operator-session-form")?.addEventListener("submit", submitOperatorSessionForm);
+        modal?.addEventListener("click", (event) => {
+            if (event.target === modal) closeOperatorSessionModal();
+        });
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && modal && !modal.classList.contains("hidden")) {
+                closeOperatorSessionModal();
+            }
+        });
+    }
+
     document.addEventListener("mouseup", () => {
         windowDragging = false;
     });
 
     document.addEventListener("DOMContentLoaded", () => {
         setupDelegatedActions();
+        setupOperatorSessionModal();
         window.moveVisionControlsToSettings?.();
         window.initRoiInteractions?.();
         window.updatePlcAddressUi?.();
         window.updatePlcProtocolModeUi?.();
         window.renderRecentInspections?.();
         window.CF_RENDER?.renderAll?.();
+        renderOperatorSession();
         setTimeout(() => window.sendCommand("app_ready"), 500);
+    });
+
+    window.CF_BRIDGE?.registerMessageHandler?.("operatorSession", (session) => {
+        window.CF_STORE?.applyOperatorSession?.(session);
+        renderOperatorSession(session);
     });
 
     Object.assign(window, {
         startDrag,
         toggleDrawer,
+        openOperatorSessionModal,
+        closeOperatorSessionModal,
+        signInOperator,
+        signOutOperator,
+        submitOperatorSessionForm,
+        renderOperatorSession,
     });
 })();
 

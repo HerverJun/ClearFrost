@@ -1,4 +1,4 @@
-﻿using ClearFrost.Config;
+﻿﻿using ClearFrost.Config;
 using ClearFrost.Models;
 // ============================================================================
 // 文件名: WebUIController.cs
@@ -23,6 +23,7 @@ using ClearFrost.Models;
 // ============================================================================
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -68,10 +69,11 @@ namespace ClearFrost
         public event EventHandler? OnOpenCamera;
         public event EventHandler? OnManualDetect;
         public event EventHandler<string>? OnCaptureCameraPreview;
-        public event EventHandler? OnManualRelease;
+        public event EventHandler<string>? OnManualRelease;
         public event EventHandler? OnOpenSettings;
         public event EventHandler? OnGetModelList;
         public event EventHandler<string>? OnChangeModel;
+        public event EventHandler? OnImportModelPackage;
         public event EventHandler<int>? OnThresholdChanged;
         public event EventHandler? OnAppReady;
         public event EventHandler? OnTestYolo;
@@ -81,6 +83,11 @@ namespace ClearFrost
         public event EventHandler? OnStartDrag;
         public event EventHandler? OnConnectPlc;
         public event EventHandler? OnRequestHealthSnapshot;
+        public event EventHandler? OnGetAlarms;
+        public event EventHandler<string>? OnAcknowledgeAlarm;
+        public event EventHandler? OnAcknowledgeAllAlarms;
+        public event EventHandler<string>? OnOperatorSignIn;
+        public event EventHandler? OnOperatorSignOut;
         public event EventHandler<float[]>? OnUpdateROI;
         public event EventHandler<float>? OnSetConfidence;
         public event EventHandler<float>? OnSetIou;
@@ -91,6 +98,9 @@ namespace ClearFrost
         public event EventHandler? OnGetProjectPresets;
         public event EventHandler? OnExportConfigMigration;
         public event EventHandler? OnImportConfigMigration;
+        public event EventHandler? OnGetConfigVersions;
+        public event EventHandler<string>? OnRestoreConfigVersion;
+        public event EventHandler? OnExportDiagnosticPackage;
         public event EventHandler? OnSelectStorageFolder;
         public event EventHandler? OnGetStatisticsHistory;
         public event EventHandler? OnClearStatisticsHistory;
@@ -670,7 +680,11 @@ namespace ClearFrost
                                         : "{}");
                                 break;
                             case "manual_release":
-                                OnManualRelease?.Invoke(this, EventArgs.Empty);
+                                OnManualRelease?.Invoke(
+                                    this,
+                                    root.TryGetProperty("value", out JsonElement manualReleaseElement)
+                                        ? manualReleaseElement.GetRawText()
+                                        : "{}");
                                 break;
                             case "open_settings":
                                 OnOpenSettings?.Invoke(this, EventArgs.Empty);
@@ -683,6 +697,24 @@ namespace ClearFrost
                                 break;
                             case "import_config_migration":
                                 OnImportConfigMigration?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "export_diagnostic_package":
+                                OnExportDiagnosticPackage?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "get_config_versions":
+                                OnGetConfigVersions?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "restore_config_version":
+                                if (root.TryGetProperty("value", out JsonElement restoreVersionElement))
+                                {
+                                    string versionId = restoreVersionElement.ValueKind switch
+                                    {
+                                        JsonValueKind.Object => TryGetStringProperty(restoreVersionElement, "versionId") ?? string.Empty,
+                                        JsonValueKind.String => restoreVersionElement.GetString() ?? string.Empty,
+                                        _ => string.Empty
+                                    };
+                                    OnRestoreConfigVersion?.Invoke(this, versionId);
+                                }
                                 break;
                             case "save_project_preset":
                                 if (root.TryGetProperty("value", out JsonElement presetSaveElement))
@@ -704,6 +736,9 @@ namespace ClearFrost
                                 break;
                             case "get_model_list":
                                 OnGetModelList?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "import_model_package":
+                                OnImportModelPackage?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "app_ready":
                                 OnAppReady?.Invoke(this, EventArgs.Empty);
@@ -755,6 +790,33 @@ namespace ClearFrost
                                 break;
                             case "request_health_snapshot":
                                 OnRequestHealthSnapshot?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "get_alarms":
+                                OnGetAlarms?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "acknowledge_alarm":
+                                if (root.TryGetProperty("value", out JsonElement acknowledgeAlarmElement))
+                                {
+                                    string alarmId = acknowledgeAlarmElement.ValueKind switch
+                                    {
+                                        JsonValueKind.Object => TryGetStringProperty(acknowledgeAlarmElement, "alarmId") ?? string.Empty,
+                                        JsonValueKind.String => acknowledgeAlarmElement.GetString() ?? string.Empty,
+                                        _ => string.Empty
+                                    };
+                                    OnAcknowledgeAlarm?.Invoke(this, alarmId);
+                                }
+                                break;
+                            case "acknowledge_all_alarms":
+                                OnAcknowledgeAllAlarms?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "operator_sign_in":
+                                if (root.TryGetProperty("value", out JsonElement operatorSignInElement))
+                                {
+                                    OnOperatorSignIn?.Invoke(this, operatorSignInElement.GetRawText());
+                                }
+                                break;
+                            case "operator_sign_out":
+                                OnOperatorSignOut?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "set_confidence":
                                 if (root.TryGetProperty("value", out JsonElement confElement))
@@ -834,6 +896,17 @@ namespace ClearFrost
                                     await SendNGImages(date, hour, pageSize, afterTimestamp, afterId, requestId);
                                 }
                                 break;
+                            case "export_trace_report":
+                                if (root.TryGetProperty("value", out JsonElement reportElement))
+                                {
+                                    string date = TryGetStringProperty(reportElement, "date") ?? "";
+                                    string hour = TryGetStringProperty(reportElement, "hour") ?? "";
+                                    await ExportTraceReport(date, hour, requestId);
+                                }
+                                break;
+                            case "export_detection_report":
+                                await ExportDetectionReport(requestId);
+                                break;
                             case "run_history_rule_preview":
                                 if (root.TryGetProperty("value", out JsonElement historyRuleElement))
                                 {
@@ -845,6 +918,16 @@ namespace ClearFrost
                                 break;
                             case "get_detection_logs":
                                 await SendDetectionLogs();
+                                break;
+                            case "get_audit_logs":
+                                if (root.TryGetProperty("value", out JsonElement auditQueryElement))
+                                {
+                                    await SendAuditLogs(auditQueryElement);
+                                }
+                                else
+                                {
+                                    await SendAuditLogs();
+                                }
                                 break;
                             case "get_statistics_history":
                                 OnGetStatisticsHistory?.Invoke(this, EventArgs.Empty);
@@ -1166,6 +1249,9 @@ namespace ClearFrost
                 barcodeReadSucceeded = barcodeReadSucceeded,
                 barcodeError = barcodeError,
                 traceStatus = context.TraceStatus.ToString(),
+                operatorName = context.OperatorName,
+                operatorRole = context.OperatorRole,
+                shiftName = context.ShiftName,
                 currentStage = context.CurrentStage.ToString(),
                 errorStage = context.ErrorStage,
                 errorCode = context.ErrorCode,
@@ -1302,6 +1388,134 @@ namespace ClearFrost
             }
         }
 
+        private async Task ExportTraceReport(string date, string hour, string? requestId)
+        {
+            if (_webView == null) return;
+
+            try
+            {
+                if (DatabaseService == null || !TryParseTraceDate(date, out DateTime traceDate))
+                {
+                    await SendTraceReportExportResult(false, "请选择有效日期后再导出", null, 0, requestId);
+                    return;
+                }
+
+                DateTime startTime = traceDate.Date;
+                DateTime endTime = traceDate.Date.AddDays(1).AddMilliseconds(-1);
+                string hourPart = "ALL";
+                if (TryParseTraceHour(hour, out int traceHour))
+                {
+                    startTime = traceDate.Date.AddHours(traceHour);
+                    endTime = startTime.AddHours(1).AddMilliseconds(-1);
+                    hourPart = traceHour.ToString("00", CultureInfo.InvariantCulture);
+                }
+
+                List<DetectionRecord> records = await DatabaseService.GetRecordsAsync(
+                    startTime,
+                    endTime,
+                    isQualified: false,
+                    limit: 10000);
+
+                string reportsRoot = string.IsNullOrWhiteSpace(LogBasePath)
+                    ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Reports")
+                    : Path.Combine(LogBasePath, "Reports");
+                string reportDirectory = Path.Combine(reportsRoot, traceDate.ToString("yyyy年MM月dd日", CultureInfo.InvariantCulture));
+                string reportPath = Path.Combine(reportDirectory, $"ClearFrost_NG_Trace_{traceDate:yyyyMMdd}_{hourPart}_{DateTime.Now:HHmmss}.csv");
+
+                var exporter = new ProductionReportExporter();
+                OperatorSession? operatorSession = OperatorSessionProvider?.Invoke();
+                ProductionReportExportResult result = exporter.Export(records, new ProductionReportExportOptions
+                {
+                    FilePath = reportPath,
+                    StartTime = startTime,
+                    EndTime = endTime,
+                    IsQualified = false,
+                    OperatorName = operatorSession?.OperatorName ?? Environment.UserName,
+                    Title = "ClearFrost NG 追溯报表"
+                });
+
+                await SendTraceReportExportResult(
+                    true,
+                    $"NG追溯报表已导出: {result.TotalCount} 条",
+                    result.FilePath,
+                    result.TotalCount,
+                    requestId);
+                await LogToFrontend($"NG追溯报表已导出: {result.FilePath}", "success");
+            }
+            catch (Exception ex)
+            {
+                await SendTraceReportExportResult(false, $"导出追溯报表失败: {ex.Message}", null, 0, requestId);
+                await LogToFrontend($"导出追溯报表失败: {ex.Message}", "error");
+            }
+        }
+
+        private async Task SendTraceReportExportResult(
+            bool success,
+            string message,
+            string? path,
+            int recordCount,
+            string? requestId)
+        {
+            PostMessage("traceReportExported", new
+            {
+                success,
+                message,
+                path,
+                recordCount
+            }, requestId);
+
+            await SendUiCommand("toast", new
+            {
+                message,
+                type = success ? "success" : "warning",
+                durationMs = success ? 2600 : 3200
+            });
+        }
+
+        private async Task ExportDetectionReport(string? requestId)
+        {
+            if (_webView == null) return;
+
+            try
+            {
+                if (DatabaseService == null)
+                {
+                    await SendTraceReportExportResult(false, "数据库未初始化，无法导出生产流水", null, 0, requestId);
+                    return;
+                }
+
+                const int maxRecords = 500;
+                List<DetectionRecord> records = await DatabaseService.GetRecordsAsync(limit: maxRecords);
+                string reportsRoot = string.IsNullOrWhiteSpace(LogBasePath)
+                    ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Reports")
+                    : Path.Combine(LogBasePath, "Reports");
+                string reportDirectory = Path.Combine(reportsRoot, DateTime.Now.ToString("yyyy年MM月dd日", CultureInfo.InvariantCulture));
+                string reportPath = Path.Combine(reportDirectory, $"ClearFrost_Production_Latest500_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+
+                var exporter = new ProductionReportExporter();
+                OperatorSession? operatorSession = OperatorSessionProvider?.Invoke();
+                ProductionReportExportResult result = exporter.Export(records, new ProductionReportExportOptions
+                {
+                    FilePath = reportPath,
+                    OperatorName = operatorSession?.OperatorName ?? Environment.UserName,
+                    Title = "ClearFrost 最近生产流水"
+                });
+
+                await SendTraceReportExportResult(
+                    true,
+                    $"生产流水CSV已导出: {result.TotalCount} 条",
+                    result.FilePath,
+                    result.TotalCount,
+                    requestId);
+                await LogToFrontend($"生产流水CSV已导出: {result.FilePath}", "success");
+            }
+            catch (Exception ex)
+            {
+                await SendTraceReportExportResult(false, $"导出生产流水CSV失败: {ex.Message}", null, 0, requestId);
+                await LogToFrontend($"导出生产流水CSV失败: {ex.Message}", "error");
+            }
+        }
+
         private object BuildTraceRecordPayload(
             DetectionTraceRecord record,
             IDictionary<string, IReadOnlyList<string>>? imageFileCache = null)
@@ -1323,6 +1537,9 @@ namespace ClearFrost
                 id = record.Id,
                 inspectionId = record.InspectionId,
                 productBarcode = record.ProductBarcode,
+                operatorName = record.OperatorName,
+                operatorRole = record.OperatorRole,
+                shiftName = record.ShiftName,
                 timestamp = record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"),
                 isQualified = record.IsQualified,
                 modelVersion = record.ModelVersion,
@@ -1333,6 +1550,8 @@ namespace ClearFrost
                 errorMessage = record.ErrorMessage,
                 imagePath = resolution.ImagePath,
                 renderedImagePath = resolution.RenderedImagePath,
+                imageHash = record.ImageHash,
+                renderedImageHash = record.RenderedImageHash,
                 imageUrl = imageUrl,
                 renderedImageUrl = renderedImageUrl,
                 thumbnailUrl = renderedImageUrl ?? imageUrl,
@@ -1532,6 +1751,7 @@ namespace ClearFrost
         /// Base path for detection logs (e.g., StoragePath\Logs)
         /// </summary>
         public string LogBasePath { get; set; } = "";
+        public Func<OperatorSession>? OperatorSessionProvider { get; set; }
 
         /// <summary>
         /// Reads and parses the last N detection log entries and sends to frontend.
@@ -1625,6 +1845,131 @@ namespace ClearFrost
                 await LogToFrontend($"读取检测日志失败: {ex.Message}", "error");
                 PostMessage("detectionLogTable", Array.Empty<object>());
             }
+        }
+
+        public Task SendAuditLogs(JsonElement? queryElement = null)
+        {
+            if (string.IsNullOrEmpty(LogBasePath) || !IsWebViewControlUsable(_webView))
+            {
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                AuditLogQuery query = BuildAuditLogQuery(queryElement);
+                IReadOnlyList<AuditLogRecord> records = AuditLogReader.Read(LogBasePath, query);
+                PostMessage("auditLogTable", records.Select(record => new
+                {
+                    timestamp = record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture),
+                    success = record.Success,
+                    status = record.Success ? "成功" : "失败",
+                    category = record.Category,
+                    action = record.Action,
+                    detail = record.Detail,
+                    integrityStatus = record.IntegrityStatus,
+                    auditHash = record.Hash
+                }).ToArray());
+            }
+            catch (Exception ex)
+            {
+                PostMessage("auditLogTable", Array.Empty<object>());
+                _ = LogToFrontend($"读取审计日志失败: {ex.Message}", "error");
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task SendConfigVersions(IEnumerable<ConfigVersionEntry> versions)
+        {
+            ConfigVersionEntry[] versionArray = versions?.ToArray() ?? Array.Empty<ConfigVersionEntry>();
+            PostMessage("configVersionList", new
+            {
+                versions = versionArray.Select(version => new
+                {
+                    versionId = version.VersionId,
+                    createdAt = version.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                    createdAtIso = version.CreatedAt.ToString("O", CultureInfo.InvariantCulture),
+                    reason = version.Reason,
+                    operatorName = version.OperatorName,
+                    operatorRole = version.OperatorRole,
+                    shiftName = version.ShiftName,
+                    changeSummary = version.ChangeSummary,
+                    configHash = version.ConfigHash
+                }).ToArray()
+            });
+            return Task.CompletedTask;
+        }
+
+        public Task SendConfigVersionRestoreResult(bool success, string message, ConfigVersionEntry? version = null)
+        {
+            PostMessage("configVersionRestoreResult", new
+            {
+                success,
+                message,
+                version = version == null ? null : new
+                {
+                    versionId = version.VersionId,
+                    createdAt = version.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                    reason = version.Reason,
+                    operatorName = version.OperatorName,
+                    operatorRole = version.OperatorRole,
+                    shiftName = version.ShiftName,
+                    changeSummary = version.ChangeSummary,
+                    configHash = version.ConfigHash
+                }
+            });
+            return Task.CompletedTask;
+        }
+
+        private static AuditLogQuery BuildAuditLogQuery(JsonElement? queryElement)
+        {
+            if (!queryElement.HasValue || queryElement.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                return new AuditLogQuery();
+            }
+
+            JsonElement root = queryElement.Value;
+            int limit = TryGetInt32Property(root, "limit") ?? 300;
+            bool? success = TryGetNullableBoolProperty(root, "success");
+            string? category = TryGetStringProperty(root, "category");
+            string? action = TryGetStringProperty(root, "action");
+            string? searchText = TryGetStringProperty(root, "searchText");
+
+            DateTime? startTime = null;
+            DateTime? endTime = null;
+            if (DateTime.TryParse(TryGetStringProperty(root, "startTime"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime start))
+            {
+                startTime = start;
+            }
+
+            if (DateTime.TryParse(TryGetStringProperty(root, "endTime"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime end))
+            {
+                endTime = end;
+            }
+
+            return new AuditLogQuery
+            {
+                StartTime = startTime,
+                EndTime = endTime,
+                Success = success,
+                Category = category,
+                Action = action,
+                SearchText = searchText,
+                Limit = limit
+            };
+        }
+
+        private static bool? TryGetNullableBoolProperty(JsonElement element, string propertyName)
+        {
+            if (!element.TryGetProperty(propertyName, out JsonElement property))
+            {
+                return null;
+            }
+
+            if (property.ValueKind == JsonValueKind.True) return true;
+            if (property.ValueKind == JsonValueKind.False) return false;
+            if (property.ValueKind == JsonValueKind.String && bool.TryParse(property.GetString(), out bool value)) return value;
+            return null;
         }
 
         /// <summary>
@@ -1753,6 +2098,11 @@ namespace ClearFrost
                 OnStartDrag = null;
                 OnConnectPlc = null;
                 OnRequestHealthSnapshot = null;
+                OnGetAlarms = null;
+                OnAcknowledgeAlarm = null;
+                OnAcknowledgeAllAlarms = null;
+                OnOperatorSignIn = null;
+                OnOperatorSignOut = null;
                 OnUpdateROI = null;
                 OnSetConfidence = null;
                 OnSetIou = null;
@@ -1763,6 +2113,9 @@ namespace ClearFrost
                 OnGetProjectPresets = null;
                 OnExportConfigMigration = null;
                 OnImportConfigMigration = null;
+                OnGetConfigVersions = null;
+                OnRestoreConfigVersion = null;
+                OnExportDiagnosticPackage = null;
                 OnSelectStorageFolder = null;
                 OnGetStatisticsHistory = null;
                 OnClearStatisticsHistory = null;
@@ -1782,6 +2135,7 @@ namespace ClearFrost
                 OnSerialAutoDetectPorts = null;
                 OnSerialTestTrigger = null;
                 OnSerialSimulateTrigger = null;
+                OperatorSessionProvider = null;
                 _webView = null;
             }
         }

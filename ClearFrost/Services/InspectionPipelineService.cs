@@ -1,4 +1,4 @@
-﻿// ============================================================================
+﻿﻿// ============================================================================
 // 文件名: InspectionPipelineService.cs
 // 描述:   单次检测管线服务
 //
@@ -411,6 +411,7 @@ namespace ClearFrost.Services
                 imageQueued: false,
                 progressAsync).ConfigureAwait(false);
             context.CurrentStage = InspectionStage.Failed;
+            context.IsQualified = false;
             pipelineResult.FinalQualified = false;
             pipelineResult.FinalResultCount = 0;
             pipelineResult.StatusMessage = detail;
@@ -648,6 +649,7 @@ namespace ClearFrost.Services
                 }
 
                 pipelineResult.FinalQualified = isQualified;
+                context.IsQualified = isQualified;
                 context.ResultSeq = context.TriggerSeq;
 
                 context.CurrentStage = InspectionStage.PlcWrite;
@@ -700,6 +702,7 @@ namespace ClearFrost.Services
                     ? InspectionStage.Inference
                     : context.CurrentStage;
                 context.MarkFailed(failedStage, "DetectionCycleException", ex.Message);
+                context.IsQualified = false;
                 DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 检测流程异常: {ex.Message}");
                 await PublishLogAsync(
                     progressAsync,
@@ -899,11 +902,13 @@ namespace ClearFrost.Services
                 string fileName = BuildTraceImageFileName(isQualified, safeInspectionId, context.ProductBarcode);
                 string filePath = Path.Combine(directory, fileName);
                 context.ImagePath = filePath;
-                payloads.Add(ImageSavePayload.CreateReadOnlyView(
+                ImageSavePayload originalPayload = ImageSavePayload.CreateEncoded(
                     image,
                     filePath,
                     jpegQuality: 70,
-                    purpose: ImageSavePurpose.TraceOriginal));
+                    purpose: ImageSavePurpose.TraceOriginal);
+                context.ImageHash = originalPayload.Sha256;
+                payloads.Add(originalPayload);
 
                 if (renderedImage != null && !renderedImage.Empty())
                 {
@@ -913,11 +918,13 @@ namespace ClearFrost.Services
                     string renderedFileName = AddFileNameSuffix(fileName, "_rendered");
                     string renderedPath = Path.Combine(renderedDirectory, renderedFileName);
                     context.RenderedImagePath = renderedPath;
-                    payloads.Add(ImageSavePayload.CreateReadOnlyView(
+                    ImageSavePayload renderedPayload = ImageSavePayload.CreateEncoded(
                         renderedImage,
                         renderedPath,
                         jpegQuality: 95,
-                        purpose: ImageSavePurpose.TraceRendered));
+                        purpose: ImageSavePurpose.TraceRendered);
+                    context.RenderedImageHash = renderedPayload.Sha256;
+                    payloads.Add(renderedPayload);
                 }
 
                 return payloads;
@@ -1009,6 +1016,8 @@ namespace ClearFrost.Services
             context.CurrentStage = InspectionStage.SaveRecord;
             payload.ImagePath = context.ImagePath ?? string.Empty;
             payload.RenderedImagePath = context.RenderedImagePath ?? string.Empty;
+            payload.ImageHash = context.ImageHash ?? string.Empty;
+            payload.RenderedImageHash = context.RenderedImageHash ?? string.Empty;
             payload.ErrorStage = context.ErrorStage ?? string.Empty;
             payload.ErrorCode = context.ErrorCode ?? string.Empty;
             payload.ErrorMessage = context.ErrorMessage ?? string.Empty;
@@ -1072,8 +1081,13 @@ namespace ClearFrost.Services
                 BarcodeReadSucceeded = context.BarcodeReadSucceeded,
                 BarcodeError = context.BarcodeError ?? string.Empty,
                 TraceStatus = context.TraceStatus,
+                OperatorName = context.OperatorName,
+                OperatorRole = context.OperatorRole,
+                ShiftName = context.ShiftName,
                 ImagePath = context.ImagePath ?? string.Empty,
                 RenderedImagePath = context.RenderedImagePath ?? string.Empty,
+                ImageHash = context.ImageHash ?? string.Empty,
+                RenderedImageHash = context.RenderedImageHash ?? string.Empty,
                 ErrorStage = context.ErrorStage ?? string.Empty,
                 ErrorCode = context.ErrorCode ?? string.Empty,
                 ErrorMessage = context.ErrorMessage ?? string.Empty,
@@ -1181,7 +1195,12 @@ namespace ClearFrost.Services
 
             try
             {
-                bool success = await _plcService.WriteResultAsync(address, value).ConfigureAwait(false);
+                bool success = await WritePlcWordWithRetryAsync(
+                    address,
+                    value,
+                    $"HandshakeV1 {signalName}",
+                    context,
+                    progressAsync: null).ConfigureAwait(false);
                 if (!success)
                 {
                     string message = $"HandshakeV1写入失败: {signalName}@{address}={value}";
@@ -1224,7 +1243,12 @@ namespace ClearFrost.Services
             try
             {
                 short writeValue = isQualified ? _appConfig.PlcOkValue : _appConfig.PlcNgValue;
-                bool success = await _plcService.WriteResultAsync(_appConfig.PlcResultAddress, writeValue).ConfigureAwait(false);
+                bool success = await WritePlcWordWithRetryAsync(
+                    _appConfig.PlcResultAddress,
+                    writeValue,
+                    "PLC结果",
+                    context,
+                    progressAsync).ConfigureAwait(false);
                 DiagLog($"PLC结果写入[{context.InspectionId}]: 地址={_appConfig.PlcResultAddress}, 值={writeValue}, 判定={(isQualified ? "OK" : "NG")}, 结果={(success ? "成功" : "失败")}");
                 if (!success)
                 {
@@ -1259,6 +1283,63 @@ namespace ClearFrost.Services
                     "error").ConfigureAwait(false);
                 return false;
             }
+        }
+
+        private async Task<bool> WritePlcWordWithRetryAsync(
+            string address,
+            short value,
+            string operationName,
+            InspectionContext context,
+            Func<InspectionPipelineProgress, Task>? progressAsync)
+        {
+            int retryCount = Math.Clamp(_appConfig.PlcWriteRetryCount, 0, 5);
+            int totalAttempts = retryCount + 1;
+            int retryDelayMs = Math.Clamp(_appConfig.PlcWriteRetryIntervalMs, 0, 60000);
+
+            for (int attempt = 1; attempt <= totalAttempts; attempt++)
+            {
+                if (!_plcService.IsConnected)
+                {
+                    DiagLog($"{operationName}写入中止[{context.InspectionId}]: PLC未连接, 地址={address}, 值={value}, 尝试={attempt}/{totalAttempts}");
+                    return false;
+                }
+
+                try
+                {
+                    bool success = await _plcService.WriteResultAsync(address, value).ConfigureAwait(false);
+                    if (success)
+                    {
+                        if (attempt > 1)
+                        {
+                            DiagLog($"{operationName}写入重试成功[{context.InspectionId}]: 地址={address}, 值={value}, 尝试={attempt}/{totalAttempts}");
+                        }
+
+                        return true;
+                    }
+
+                    DiagLog($"{operationName}写入失败[{context.InspectionId}]: 地址={address}, 值={value}, 尝试={attempt}/{totalAttempts}");
+                }
+                catch (Exception ex)
+                {
+                    DiagLog($"{operationName}写入异常[{context.InspectionId}]: 地址={address}, 值={value}, 尝试={attempt}/{totalAttempts}, {ex.Message}");
+                }
+
+                if (attempt < totalAttempts)
+                {
+                    await PublishLogAsync(
+                        progressAsync,
+                        context,
+                        $"{operationName}写入失败，准备重试 {attempt}/{retryCount}",
+                        "warning").ConfigureAwait(false);
+
+                    if (retryDelayMs > 0)
+                    {
+                        await Task.Delay(retryDelayMs).ConfigureAwait(false);
+                    }
+                }
+            }
+
+            return false;
         }
 
         private void RecordHealthError(string source, string message, string? inspectionId = null)

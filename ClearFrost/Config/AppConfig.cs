@@ -97,6 +97,16 @@ namespace ClearFrost.Config
         public TriggerSource TriggerSource { get; set; } = TriggerSource.PLC;
 
         /// <summary>
+        /// 自动生产触发启动前是否要求已登录操作员，用于保证生产记录可追溯。
+        /// </summary>
+        public bool RequireOperatorForProductionStart { get; set; } = true;
+
+        /// <summary>
+        /// 操作员会话最长有效期（小时），超时后自动回到未登录状态。
+        /// </summary>
+        public int OperatorSessionMaxHours { get; set; } = 12;
+
+        /// <summary>
         /// 串口光电 COM 口名称
         /// </summary>
         public string SerialPhotoelectricPortName { get; set; } = "";
@@ -142,6 +152,12 @@ namespace ClearFrost.Config
         // ================== System Settings ==================
         public string StoragePath { get; set; } = @"C:\GreeVisionData";
         public bool IsDebugMode { get; set; } = false;
+        public bool DataRetentionEnabled { get; set; } = true;
+        public int ImageRetentionDays { get; set; } = 30;
+        public int LogRetentionDays { get; set; } = 180;
+        public int AuditLogRetentionDays { get; set; } = 365;
+        public int ReportRetentionDays { get; set; } = 365;
+        public int TraceRecordRetentionDays { get; set; } = 365;
 
         // ================== YOLO Settings ==================
         public float Confidence { get; set; } = 0.5f;
@@ -182,6 +198,19 @@ namespace ClearFrost.Config
         public int TargetCount { get; set; } = 4;
         public int MaxRetryCount { get; set; } = 1;
         public int RetryIntervalMs { get; set; } = 2000;
+        public int PlcWriteRetryCount { get; set; } = 1;
+        public int PlcWriteRetryIntervalMs { get; set; } = 200;
+        public bool InspectionCycleSlaEnabled { get; set; } = true;
+        public int InspectionCycleWarningMs { get; set; } = 1500;
+        public int InspectionCycleCriticalMs { get; set; } = 3000;
+        public int InspectionCycleMinSamples { get; set; } = 10;
+        public bool QualityYieldSlaEnabled { get; set; } = true;
+        public double QualityYieldWarningPercent { get; set; } = 95.0;
+        public double QualityYieldCriticalPercent { get; set; } = 90.0;
+        public int QualityYieldMinSamples { get; set; } = 30;
+        public bool ConsecutiveNgAlarmEnabled { get; set; } = true;
+        public int ConsecutiveNgWarningCount { get; set; } = 3;
+        public int ConsecutiveNgCriticalCount { get; set; } = 5;
 
         // ================== Inspection Rule Settings ==================
         /// <summary>
@@ -483,6 +512,22 @@ namespace ClearFrost.Config
             NormalizeSequenceJudgeSettings();
             NormalizeInspectionRuleSetSettings();
             NormalizeCameraPixelFormats();
+            ImageRetentionDays = Math.Clamp(ImageRetentionDays, 1, 3650);
+            LogRetentionDays = Math.Clamp(LogRetentionDays, 1, 3650);
+            AuditLogRetentionDays = Math.Clamp(AuditLogRetentionDays, 1, 3650);
+            ReportRetentionDays = Math.Clamp(ReportRetentionDays, 1, 3650);
+            TraceRecordRetentionDays = Math.Clamp(TraceRecordRetentionDays, 1, 3650);
+            OperatorSessionMaxHours = Math.Clamp(OperatorSessionMaxHours, 1, 72);
+            InspectionCycleWarningMs = Math.Clamp(InspectionCycleWarningMs, 100, 600000);
+            InspectionCycleCriticalMs = Math.Clamp(InspectionCycleCriticalMs, InspectionCycleWarningMs, 600000);
+            InspectionCycleMinSamples = Math.Clamp(InspectionCycleMinSamples, 1, 200);
+            PlcWriteRetryCount = Math.Clamp(PlcWriteRetryCount, 0, 5);
+            PlcWriteRetryIntervalMs = Math.Clamp(PlcWriteRetryIntervalMs, 0, 60000);
+            QualityYieldWarningPercent = Math.Clamp(QualityYieldWarningPercent, 0.0, 100.0);
+            QualityYieldCriticalPercent = Math.Clamp(QualityYieldCriticalPercent, 0.0, QualityYieldWarningPercent);
+            QualityYieldMinSamples = Math.Clamp(QualityYieldMinSamples, 1, 200);
+            ConsecutiveNgWarningCount = Math.Clamp(ConsecutiveNgWarningCount, 1, 200);
+            ConsecutiveNgCriticalCount = Math.Clamp(ConsecutiveNgCriticalCount, ConsecutiveNgWarningCount, 200);
         }
 
         public InspectionRuleSet GetInspectionRuleSet()

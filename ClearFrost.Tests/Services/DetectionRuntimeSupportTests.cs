@@ -1,7 +1,8 @@
-﻿using System;
+﻿﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
@@ -93,6 +94,42 @@ namespace ClearFrost.Tests.Services
             parameters.Should().ContainSingle();
             parameters[0].EncodingId.Should().Be(ImwriteFlags.JpegQuality);
             parameters[0].Value.Should().Be(70);
+        }
+
+        [Fact]
+        public async Task ImageSavePayload_CreateEncoded会生成与落盘文件一致的哈希()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostImageHashTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            string imagePath = Path.Combine(tempDir, "trace.jpg");
+
+            try
+            {
+                using var source = new Mat(8, 8, MatType.CV_8UC3, new Scalar(10, 20, 30));
+                ImageSavePayload payload = ImageSavePayload.CreateEncoded(
+                    source,
+                    imagePath,
+                    jpegQuality: 80,
+                    purpose: ImageSavePurpose.TraceOriginal);
+                string expectedHash = payload.Sha256;
+
+                payload.EncodedBytes.Should().NotBeNull();
+                expectedHash.Should().HaveLength(64);
+
+                using var queue = new ImageSaveQueue();
+                queue.Enqueue(payload).Should().BeTrue();
+                await queue.StopAsync();
+
+                File.Exists(imagePath).Should().BeTrue();
+                ComputeSha256(imagePath).Should().Be(expectedHash);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, recursive: true);
+                }
+            }
         }
 
         [Fact]
@@ -288,6 +325,12 @@ namespace ClearFrost.Tests.Services
             public void Dispose()
             {
             }
+        }
+
+        private static string ComputeSha256(string path)
+        {
+            using var stream = File.OpenRead(path);
+            return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
         }
     }
 }

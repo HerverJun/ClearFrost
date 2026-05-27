@@ -13,6 +13,8 @@
         stats: { total: 0, ok: 0, ng: 0 },
         inspection: {},
         health: {},
+        alarms: {},
+        operatorSession: {},
         recentInspections: [],
         settings: {},
         modelList: [],
@@ -33,6 +35,8 @@
     state.stats = state.stats || { total: 0, ok: 0, ng: 0 };
     state.inspection = state.inspection || {};
     state.health = state.health || {};
+    state.alarms = state.alarms || {};
+    state.operatorSession = state.operatorSession || {};
     state.recentInspections = state.recentInspections || [];
     state.history = state.history || {};
     window.CF_STATE = state;
@@ -140,6 +144,9 @@
             barcodeReadSucceeded: pickValue(data, "barcodeReadSucceeded", "BarcodeReadSucceeded"),
             barcodeError: pickValue(data, "barcodeError", "BarcodeError"),
             traceStatus: pickValue(data, "traceStatus", "TraceStatus"),
+            operatorName: pickValue(data, "operatorName", "OperatorName"),
+            operatorRole: pickValue(data, "operatorRole", "OperatorRole"),
+            shiftName: pickValue(data, "shiftName", "ShiftName"),
             currentStage: pickValue(data, "currentStage", "CurrentStage"),
             errorStage: pickValue(data, "errorStage", "ErrorStage"),
             errorCode: pickValue(data, "errorCode", "ErrorCode"),
@@ -235,17 +242,25 @@
         notify("health");
     }
 
+    function applyAlarmSnapshot(snapshot) {
+        if (!snapshot) return;
+        state.alarms = snapshot;
+        notify("alarms");
+    }
+
     function applyBootstrapSnapshot(snapshot) {
         if (!snapshot) return;
 
         const stats = snapshot.stats || snapshot.Stats;
         const health = snapshot.health || snapshot.Health;
+        const alarms = snapshot.alarms || snapshot.Alarms;
         const config = snapshot.config || snapshot.Config;
         const models = snapshot.models || snapshot.Models;
         const modelLabels = snapshot.modelLabels || snapshot.ModelLabels;
         const cameras = snapshot.cameras || snapshot.Cameras;
         const activeCameraId = pickValue(snapshot, "activeCameraId", "ActiveCameraId");
         const storagePath = pickValue(snapshot, "storagePath", "StoragePath");
+        const operatorSession = snapshot.operatorSession || snapshot.OperatorSession;
 
         if (config) state.settings = config;
         if (Array.isArray(models)) state.modelList = models;
@@ -253,14 +268,28 @@
         if (Array.isArray(cameras)) state.cameraList = cameras;
         if (activeCameraId !== undefined) state.activeCameraId = activeCameraId || "";
         if (storagePath !== undefined) state.storagePath = storagePath || "";
+        if (operatorSession) applyOperatorSession(operatorSession, false);
         if (stats) {
             state.stats.total = pickValue(stats, "total", "Total", "totalCount", "TotalCount") ?? state.stats.total;
             state.stats.ok = pickValue(stats, "ok", "Ok", "qualifiedCount", "QualifiedCount") ?? state.stats.ok;
             state.stats.ng = pickValue(stats, "ng", "Ng", "unqualifiedCount", "UnqualifiedCount") ?? state.stats.ng;
         }
         if (health) state.health = health;
+        if (alarms) state.alarms = alarms;
 
         notify("bootstrap");
+    }
+
+    function applyOperatorSession(payload, shouldNotify = true) {
+        if (!payload) return;
+        state.operatorSession = {
+            operatorName: pickValue(payload, "operatorName", "OperatorName") || "未登录",
+            role: pickValue(payload, "role", "Role", "operatorRole", "OperatorRole") || "Operator",
+            shiftName: pickValue(payload, "shiftName", "ShiftName") || "",
+            signedInAt: pickValue(payload, "signedInAt", "SignedInAt") || "",
+            isSignedIn: Boolean(pickValue(payload, "isSignedIn", "IsSignedIn")),
+        };
+        if (shouldNotify) notify("operatorSession");
     }
 
     window.CF_UTILS = {
@@ -283,6 +312,8 @@
         applyInspectionUpdate,
         applyStatsUpdate,
         applyHealthSnapshot,
+        applyAlarmSnapshot,
         applyBootstrapSnapshot,
+        applyOperatorSession,
     };
 })();

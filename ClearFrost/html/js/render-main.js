@@ -20,6 +20,7 @@
     let logFlushTimer = null;
     let detectionLogFlushTimer = null;
     let lastQueueAdviceKey = "";
+    let lastMaintenanceAdviceKey = "";
     let resultOverlayTimer = null;
     let lastPreviewFrameId = 0;
     let openCameraCooldownUntil = 0;
@@ -28,7 +29,7 @@
     let exitAppPending = false;
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
-    const KnownRenderReasons = new Set(["inspection", "stats", "health", "bootstrap", "state"]);
+    const KnownRenderReasons = new Set(["inspection", "stats", "health", "alarms", "operatorSession", "bootstrap", "state"]);
     const KeyLogPatterns = [
         /PLC/i,
         /Plc/i,
@@ -319,6 +320,7 @@
             const detail = [
                 detectionSummary,
                 objectSummary && objectSummary !== detectionSummary ? objectSummary : null,
+                item.operatorName ? `${item.shiftName || "-"} / ${item.operatorName}` : null,
                 item.totalMs ? `${item.totalMs}ms` : null,
                 performanceDetail,
             ].filter(Boolean).join(" / ");
@@ -451,6 +453,161 @@
         addLog(`队列压力偏高: ${items.join("，")}；建议检查磁盘/数据库写入速度或降低触发频率`, "warning");
     }
 
+    function normalizeHealthLevelText(value) {
+        if (value === 0 || value === "0" || value === "Ok") return "Ok";
+        if (value === 1 || value === "1" || value === "Warning") return "Warning";
+        if (value === 2 || value === "2" || value === "Critical") return "Critical";
+        return value || "Ok";
+    }
+
+    function getHealthArray(health, camelName, pascalName) {
+        const value = getHealthValue(health, camelName, pascalName);
+        return Array.isArray(value) ? value : [];
+    }
+
+    function formatMsValue(value) {
+        const number = toFiniteNumber(value);
+        return number > 0 ? `${Math.round(number)}ms` : "-";
+    }
+
+    function formatPercentValue(value) {
+        const number = toFiniteNumber(value);
+        return Number.isFinite(number) ? `${number.toFixed(1)}%` : "-";
+    }
+
+    function renderInspectionCycleSla(health) {
+        const panel = el("health-cycle-sla");
+        if (!panel) return;
+
+        const p95 = Math.max(0, Math.round(toFiniteNumber(getHealthValue(health, "recentInspectionP95Ms", "RecentInspectionP95Ms"))));
+        const p99 = Math.max(0, Math.round(toFiniteNumber(getHealthValue(health, "recentInspectionP99Ms", "RecentInspectionP99Ms"))));
+        const samples = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "recentInspectionSampleCount", "RecentInspectionSampleCount"))));
+        const warningMs = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "inspectionCycleWarningMs", "InspectionCycleWarningMs"))));
+        const criticalMs = Math.max(warningMs, Math.trunc(toFiniteNumber(getHealthValue(health, "inspectionCycleCriticalMs", "InspectionCycleCriticalMs"))));
+        const minSamples = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "inspectionCycleMinSamples", "InspectionCycleMinSamples"))));
+        const level = criticalMs > 0 && (p99 >= criticalMs || p95 >= criticalMs)
+            ? "critical"
+            : (warningMs > 0 && p95 >= warningMs ? "warning" : "ok");
+
+        setText("health-cycle-p95", formatMsValue(p95));
+        setText("health-cycle-p99", formatMsValue(p99));
+        setText("health-cycle-samples", minSamples > 0 ? `${samples}/${minSamples}` : String(samples));
+        setText("health-cycle-threshold", warningMs > 0 || criticalMs > 0 ? `${warningMs}/${criticalMs}ms` : "-");
+        panel.classList.remove("is-ok", "is-warning", "is-critical");
+        panel.classList.add(`is-${level}`);
+    }
+
+    function renderQualityYieldSla(health) {
+        const panel = el("health-quality-sla");
+        if (!panel) return;
+
+        const qualified = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "recentInspectionQualifiedCount", "RecentInspectionQualifiedCount"))));
+        const unqualified = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "recentInspectionUnqualifiedCount", "RecentInspectionUnqualifiedCount"))));
+        const samples = qualified + unqualified;
+        const rate = toFiniteNumber(getHealthValue(health, "recentInspectionQualifiedRatePercent", "RecentInspectionQualifiedRatePercent"));
+        const warningPercent = Math.max(0, toFiniteNumber(getHealthValue(health, "qualityYieldWarningPercent", "QualityYieldWarningPercent")));
+        const criticalPercent = Math.min(warningPercent, Math.max(0, toFiniteNumber(getHealthValue(health, "qualityYieldCriticalPercent", "QualityYieldCriticalPercent"))));
+        const minSamples = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "qualityYieldMinSamples", "QualityYieldMinSamples"))));
+        const ngStreak = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "consecutiveNgCount", "ConsecutiveNgCount"))));
+        const ngWarning = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "consecutiveNgWarningCount", "ConsecutiveNgWarningCount"))));
+        const ngCritical = Math.max(ngWarning, Math.trunc(toFiniteNumber(getHealthValue(health, "consecutiveNgCriticalCount", "ConsecutiveNgCriticalCount"))));
+        const yieldLevel = samples >= minSamples && warningPercent > 0 && rate <= criticalPercent
+            ? 2
+            : (samples >= minSamples && warningPercent > 0 && rate <= warningPercent ? 1 : 0);
+        const streakLevel = ngCritical > 0 && ngStreak >= ngCritical
+            ? 2
+            : (ngWarning > 0 && ngStreak >= ngWarning ? 1 : 0);
+        const level = Math.max(yieldLevel, streakLevel) === 2 ? "critical" : (Math.max(yieldLevel, streakLevel) === 1 ? "warning" : "ok");
+
+        setText("health-yield-rate", samples > 0 ? formatPercentValue(rate) : "-");
+        setText("health-yield-counts", `${qualified}/${unqualified}`);
+        setText("health-ng-streak", String(ngStreak));
+        setText("health-yield-samples", minSamples > 0 ? `${samples}/${minSamples}` : String(samples));
+        setText("health-yield-threshold", warningPercent > 0 ? `${warningPercent}/${criticalPercent}%` : "-");
+        setText("health-ng-threshold", ngWarning > 0 || ngCritical > 0 ? `${ngWarning}/${ngCritical}` : "-");
+        panel.classList.remove("is-ok", "is-warning", "is-critical");
+        panel.classList.add(`is-${level}`);
+    }
+
+    function formatHealthInsightTitle(item, fallbackSource) {
+        const source = item.source || item.Source || fallbackSource || "Health";
+        const level = normalizeHealthLevelText(item.level ?? item.Level);
+        const levelText = level === "Critical" ? "严重" : (level === "Warning" ? "预警" : "正常");
+        return `${source} · ${levelText}`;
+    }
+
+    function renderHealthInsights(health) {
+        const container = el("health-insights-list");
+        if (!container) return;
+
+        const advices = getHealthArray(health, "maintenanceAdvices", "MaintenanceAdvices");
+        const trends = getHealthArray(health, "trends", "Trends");
+        container.innerHTML = "";
+
+        const items = advices.length > 0
+            ? advices.slice(0, 3).map((advice) => ({
+                level: normalizeHealthLevelText(advice.level ?? advice.Level),
+                title: formatHealthInsightTitle(advice, "Maintenance"),
+                message: advice.message || advice.Message || "",
+                action: advice.action || advice.Action || "",
+            }))
+            : trends.slice(0, 1).map((trend) => ({
+                level: normalizeHealthLevelText(trend.level ?? trend.Level),
+                title: trend.name || trend.Name || "趋势",
+                message: trend.message || trend.Message || "",
+                action: "保持当前点检节奏",
+            }));
+
+        if (items.length === 0) {
+            items.push({
+                level: "Ok",
+                title: "健康状态正常",
+                message: "当前无维护建议",
+                action: "保持当前点检节奏",
+            });
+        }
+
+        const fragment = document.createDocumentFragment();
+        items.forEach((item) => {
+            const card = document.createElement("div");
+            const levelClass = item.level === "Critical" ? "is-critical" : (item.level === "Warning" ? "is-warning" : "is-ok");
+            card.className = `stitch-health-insight ${levelClass}`;
+
+            const title = document.createElement("strong");
+            title.textContent = item.title;
+            card.appendChild(title);
+
+            const message = document.createElement("span");
+            message.textContent = item.action ? `${item.message}；${item.action}` : item.message;
+            card.appendChild(message);
+
+            fragment.appendChild(card);
+        });
+
+        container.appendChild(fragment);
+    }
+
+    function logMaintenanceAdvice(health) {
+        const advices = getHealthArray(health, "maintenanceAdvices", "MaintenanceAdvices")
+            .filter((advice) => normalizeHealthLevelText(advice.level ?? advice.Level) !== "Ok")
+            .slice(0, 2);
+        if (advices.length === 0) {
+            lastMaintenanceAdviceKey = "";
+            return;
+        }
+
+        const key = advices
+            .map((advice) => `${advice.source || advice.Source}:${advice.message || advice.Message}`)
+            .join("|");
+        if (key === lastMaintenanceAdviceKey) return;
+
+        lastMaintenanceAdviceKey = key;
+        const summary = advices
+            .map((advice) => `${advice.source || advice.Source}: ${advice.message || advice.Message}`)
+            .join("；");
+        addLog(`维护建议: ${summary}`, "warning");
+    }
+
     function renderHealthSnapshot(state) {
         const health = state?.health || {};
         const cameraStatus = health.cameraStatus || health.CameraStatus || "";
@@ -463,6 +620,42 @@
             updateConnection("plc", /^Connected/i.test(String(plcStatus)));
         }
         logQueuePressureAdvice(health);
+        renderInspectionCycleSla(health);
+        renderQualityYieldSla(health);
+        renderHealthInsights(health);
+        logMaintenanceAdvice(health);
+    }
+
+    function normalizeAlarmSeverity(value) {
+        if (value === 2 || value === "2" || value === "Critical") return "Critical";
+        if (value === 1 || value === "1" || value === "Warning") return "Warning";
+        return value || "Info";
+    }
+
+    function renderAlarmSummary(state) {
+        const alarms = state?.alarms || {};
+        const activeCount = Number(alarms.activeCount ?? alarms.ActiveCount ?? 0) || 0;
+        const unacknowledgedCount = Number(alarms.unacknowledgedCount ?? alarms.UnacknowledgedCount ?? activeCount) || 0;
+        const severity = normalizeAlarmSeverity(alarms.highestSeverity ?? alarms.HighestSeverity);
+        const button = el("alarm-center-button");
+        const badge = el("alarm-count-badge");
+
+        if (badge) {
+            badge.textContent = String(unacknowledgedCount || activeCount);
+            badge.classList.toggle("hidden", activeCount <= 0);
+        }
+
+        if (button) {
+            button.classList.remove("is-warning", "is-critical");
+            if (activeCount > 0) {
+                button.classList.add(severity === "Critical" ? "is-critical" : "is-warning");
+                button.title = `活动告警 ${activeCount} 条，未确认 ${unacknowledgedCount} 条`;
+                button.setAttribute("aria-label", button.title);
+            } else {
+                button.title = "告警中心";
+                button.setAttribute("aria-label", "告警中心");
+            }
+        }
     }
 
     function renderAll(state, reasons = []) {
@@ -476,6 +669,9 @@
         }
         if (hasRenderReason(reasons, "health")) {
             renderHealthSnapshot(state);
+        }
+        if (hasRenderReason(reasons, "alarms")) {
+            renderAlarmSummary(state);
         }
     }
 

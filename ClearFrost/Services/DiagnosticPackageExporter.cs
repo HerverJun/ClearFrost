@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -25,8 +26,43 @@ namespace ClearFrost.Services
         public IReadOnlyList<ModelRegistryEntry> ModelEntries { get; init; } = Array.Empty<ModelRegistryEntry>();
         public StartupDiagnosticReport? StartupDiagnostics { get; init; }
         public HealthSnapshot? HealthSnapshot { get; init; }
+        public AlarmSnapshot? AlarmSnapshot { get; init; }
         public IReadOnlyList<DetectionRecord> RecentRecords { get; init; } = Array.Empty<DetectionRecord>();
         public string LogsDirectory { get; init; } = RuntimePaths.LogsDirectory;
+    }
+
+    public sealed class DiagnosticPackageManifest
+    {
+        public string Schema { get; init; } = "ClearFrost.DiagnosticPackage.v1";
+        public DateTimeOffset GeneratedAt { get; init; } = DateTimeOffset.Now;
+        public int EntryCount { get; init; }
+        public IReadOnlyList<DiagnosticPackageEntryManifest> Entries { get; init; } = Array.Empty<DiagnosticPackageEntryManifest>();
+    }
+
+    public sealed class DiagnosticPackageEntryManifest
+    {
+        public string Path { get; init; } = string.Empty;
+        public long SizeBytes { get; init; }
+        public string Sha256 { get; init; } = string.Empty;
+    }
+
+    public sealed class DiagnosticAuditIntegritySummary
+    {
+        public int TotalRecords { get; init; }
+        public int ValidRecords { get; init; }
+        public int TamperedRecords { get; init; }
+        public int LegacyRecords { get; init; }
+        public IReadOnlyList<DiagnosticAuditIntegrityFinding> Findings { get; init; } = Array.Empty<DiagnosticAuditIntegrityFinding>();
+    }
+
+    public sealed class DiagnosticAuditIntegrityFinding
+    {
+        public DateTime Timestamp { get; init; }
+        public string IntegrityStatus { get; init; } = string.Empty;
+        public string Category { get; init; } = string.Empty;
+        public string Action { get; init; } = string.Empty;
+        public string Detail { get; init; } = string.Empty;
+        public string SourceFile { get; init; } = string.Empty;
     }
 
     public sealed class DiagnosticPackageExporter
@@ -56,15 +92,24 @@ namespace ClearFrost.Services
             }
 
             using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
+            var manifestEntries = new List<DiagnosticPackageEntryManifest>();
 
-            AddText(archive, "config.sanitized.json", BuildSanitizedConfigJson(request.AppConfig));
-            AddJson(archive, "recipe.json", request.Recipe);
-            AddJson(archive, "model_registry.json", request.ModelEntries);
-            AddJson(archive, "startup_diagnostics.json", request.StartupDiagnostics);
-            AddJson(archive, "health.json", request.HealthSnapshot);
-            AddJson(archive, "recent_records.json", request.RecentRecords);
-            AddText(archive, "system_info.txt", BuildSystemInfo());
-            await AddLogsAsync(archive, request.LogsDirectory, cancellationToken).ConfigureAwait(false);
+            manifestEntries.Add(AddText(archive, "config.sanitized.json", BuildSanitizedConfigJson(request.AppConfig)));
+            manifestEntries.Add(AddJson(archive, "recipe.json", request.Recipe));
+            manifestEntries.Add(AddJson(archive, "model_registry.json", request.ModelEntries));
+            manifestEntries.Add(AddJson(archive, "startup_diagnostics.json", request.StartupDiagnostics));
+            manifestEntries.Add(AddJson(archive, "health.json", request.HealthSnapshot));
+            manifestEntries.Add(AddJson(archive, "alarms.json", request.AlarmSnapshot));
+            manifestEntries.Add(AddJson(archive, "recent_records.json", request.RecentRecords));
+            manifestEntries.Add(AddJson(archive, "audit_integrity_summary.json", BuildAuditIntegritySummary(request.LogsDirectory)));
+            manifestEntries.Add(AddText(archive, "system_info.txt", BuildSystemInfo()));
+            manifestEntries.AddRange(await AddLogsAsync(archive, request.LogsDirectory, cancellationToken).ConfigureAwait(false));
+            manifestEntries.Add(AddJson(archive, "package_manifest.json", new DiagnosticPackageManifest
+            {
+                GeneratedAt = DateTimeOffset.Now,
+                EntryCount = manifestEntries.Count,
+                Entries = manifestEntries
+            }));
 
             return zipPath;
         }
@@ -88,14 +133,39 @@ namespace ClearFrost.Services
             return sb.ToString();
         }
 
-        private static async Task AddLogsAsync(
+        private static DiagnosticAuditIntegritySummary BuildAuditIntegritySummary(string logsDirectory)
+        {
+            IReadOnlyList<AuditLogRecord> records = AuditLogReader.Read(logsDirectory, new AuditLogQuery { Limit = 2000 });
+            return new DiagnosticAuditIntegritySummary
+            {
+                TotalRecords = records.Count,
+                ValidRecords = records.Count(record => string.Equals(record.IntegrityStatus, AuditLogIntegrity.ValidStatus, StringComparison.Ordinal)),
+                TamperedRecords = records.Count(record => string.Equals(record.IntegrityStatus, AuditLogIntegrity.TamperedStatus, StringComparison.Ordinal)),
+                LegacyRecords = records.Count(record => string.Equals(record.IntegrityStatus, AuditLogIntegrity.LegacyStatus, StringComparison.Ordinal)),
+                Findings = records
+                    .Where(record => !string.Equals(record.IntegrityStatus, AuditLogIntegrity.ValidStatus, StringComparison.Ordinal))
+                    .Take(50)
+                    .Select(record => new DiagnosticAuditIntegrityFinding
+                    {
+                        Timestamp = record.Timestamp,
+                        IntegrityStatus = record.IntegrityStatus,
+                        Category = record.Category,
+                        Action = record.Action,
+                        Detail = record.Detail,
+                        SourceFile = record.SourceFile
+                    })
+                    .ToArray()
+            };
+        }
+
+        private static async Task<IReadOnlyList<DiagnosticPackageEntryManifest>> AddLogsAsync(
             ZipArchive archive,
             string logsDirectory,
             CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(logsDirectory) || !Directory.Exists(logsDirectory))
             {
-                return;
+                return Array.Empty<DiagnosticPackageEntryManifest>();
             }
 
             var files = Directory.EnumerateFiles(logsDirectory, "*.*", SearchOption.AllDirectories)
@@ -105,6 +175,7 @@ namespace ClearFrost.Services
                 .Take(MaxLogFiles)
                 .ToList();
 
+            var entries = new List<DiagnosticPackageEntryManifest>();
             foreach (FileInfo file in files)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -112,11 +183,25 @@ namespace ClearFrost.Services
                     .Replace(Path.DirectorySeparatorChar, '/')
                     .Replace(Path.AltDirectorySeparatorChar, '/');
                 string entryName = $"logs/{relative}";
-                ZipArchiveEntry entry = archive.CreateEntry(entryName, CompressionLevel.Fastest);
-                await using Stream entryStream = entry.Open();
-                await using FileStream source = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                await source.CopyToAsync(entryStream, cancellationToken).ConfigureAwait(false);
+                byte[] bytes = await ReadSharedFileBytesAsync(file.FullName, cancellationToken).ConfigureAwait(false);
+                entries.Add(AddBytes(archive, entryName, bytes));
             }
+
+            return entries;
+        }
+
+        private static async Task<byte[]> ReadSharedFileBytesAsync(string filePath, CancellationToken cancellationToken)
+        {
+            await using var source = new FileStream(
+                filePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite,
+                bufferSize: 81920,
+                FileOptions.SequentialScan);
+            using var buffer = new MemoryStream();
+            await source.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+            return buffer.ToArray();
         }
 
         private static bool IsAllowedLogFile(FileInfo info)
@@ -142,18 +227,29 @@ namespace ClearFrost.Services
             return true;
         }
 
-        private static void AddJson<T>(ZipArchive archive, string entryName, T value)
+        private static DiagnosticPackageEntryManifest AddJson<T>(ZipArchive archive, string entryName, T value)
         {
             string json = JsonSerializer.Serialize(value, JsonOptions);
-            AddText(archive, entryName, json);
+            return AddText(archive, entryName, json);
         }
 
-        private static void AddText(ZipArchive archive, string entryName, string content)
+        private static DiagnosticPackageEntryManifest AddText(ZipArchive archive, string entryName, string content)
+        {
+            var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+            return AddBytes(archive, entryName, encoding.GetPreamble().Concat(encoding.GetBytes(content ?? string.Empty)).ToArray());
+        }
+
+        private static DiagnosticPackageEntryManifest AddBytes(ZipArchive archive, string entryName, byte[] content)
         {
             ZipArchiveEntry entry = archive.CreateEntry(entryName, CompressionLevel.Fastest);
             using Stream stream = entry.Open();
-            using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            writer.Write(content ?? string.Empty);
+            stream.Write(content, 0, content.Length);
+            return new DiagnosticPackageEntryManifest
+            {
+                Path = entryName,
+                SizeBytes = content.Length,
+                Sha256 = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant()
+            };
         }
     }
 }

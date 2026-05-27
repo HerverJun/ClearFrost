@@ -1,4 +1,4 @@
-﻿// ============================================================================
+﻿﻿// ============================================================================
 // 文件名: ImageSaveQueue.cs
 // 描述:   图像异步保存队列（有界队列，满时丢弃最旧项）
 // ============================================================================
@@ -40,7 +40,8 @@ namespace ClearFrost.Services
             _capacity = capacity;
             _channel = Channel.CreateBounded<ImageSavePayload>(new BoundedChannelOptions(capacity)
             {
-                SingleReader = true,
+                // 生产者在线程满载时会读取并丢弃最旧项，不能声明单读者。
+                SingleReader = false,
                 SingleWriter = false,
                 FullMode = BoundedChannelFullMode.Wait
             });
@@ -84,7 +85,9 @@ namespace ClearFrost.Services
 
         internal bool Enqueue(ImageSavePayload payload)
         {
-            if (_disposed || payload == null || payload.Image.Empty() || string.IsNullOrWhiteSpace(payload.Path))
+            bool hasEncodedBytes = payload?.EncodedBytes is { Length: > 0 };
+            bool hasImage = payload != null && !payload.Image.Empty();
+            if (_disposed || payload == null || (!hasEncodedBytes && !hasImage) || string.IsNullOrWhiteSpace(payload.Path))
             {
                 return false;
             }
@@ -153,10 +156,17 @@ namespace ClearFrost.Services
                                 Directory.CreateDirectory(dir);
                             }
 
-                            bool written = Cv2.ImWrite(item.Path, item.Image, BuildEncodingParams(item));
-                            if (!written)
+                            if (item.EncodedBytes is { Length: > 0 } encodedBytes)
                             {
-                                throw new IOException($"OpenCV returned false for {item.Path}");
+                                File.WriteAllBytes(item.Path, encodedBytes);
+                            }
+                            else
+                            {
+                                bool written = Cv2.ImWrite(item.Path, item.Image, BuildEncodingParams(item));
+                                if (!written)
+                                {
+                                    throw new IOException($"OpenCV returned false for {item.Path}");
+                                }
                             }
 
                             Interlocked.Increment(ref _savedCount);
@@ -218,22 +228,7 @@ namespace ClearFrost.Services
 
         internal static ImageEncodingParam[] BuildEncodingParams(ImageSavePayload payload)
         {
-            if (payload.JpegQuality.HasValue && IsJpegPath(payload.Path))
-            {
-                return new[]
-                {
-                    new ImageEncodingParam(ImwriteFlags.JpegQuality, payload.JpegQuality.Value)
-                };
-            }
-
-            return Array.Empty<ImageEncodingParam>();
-        }
-
-        private static bool IsJpegPath(string path)
-        {
-            string extension = Path.GetExtension(path);
-            return string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(extension, ".jpeg", StringComparison.OrdinalIgnoreCase);
+            return ImageSavePayload.BuildEncodingParams(payload.Path, payload.JpegQuality);
         }
     }
 }

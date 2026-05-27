@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+﻿﻿using System.Reflection;
 using ClearFrost.Core.Inspection;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
@@ -109,7 +109,9 @@ public class SqliteDatabaseServiceTests
                 "UsedModelName",
                 "ProductBarcode",
                 "BarcodeReadSucceeded",
-                "BarcodeError"
+                "BarcodeError",
+                "ImageHash",
+                "RenderedImageHash"
             });
 
             CountRows(dbPath).Should().Be(1);
@@ -182,7 +184,13 @@ public class SqliteDatabaseServiceTests
                 ProductBarcode = "SN-20260504-0001",
                 BarcodeReadSucceeded = true,
                 BarcodeError = "",
+                OperatorName = "OP-01",
+                OperatorRole = "Engineer",
+                ShiftName = "A班",
                 ImagePath = @"C:\Trace\FAIL_CF-20260429-153012000-MANUAL-000001.jpg",
+                ImageHash = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                RenderedImagePath = @"C:\Trace\Rendered\FAIL_CF-20260429-153012000-MANUAL-000001_rendered.jpg",
+                RenderedImageHash = "60303ae22b99886149b5212913143d75e4698065518779977bc4a7d1d100d8c5",
                 ErrorStage = "Capture",
                 ErrorCode = "CaptureFrameFailed",
                 ErrorMessage = "相机拍照失败",
@@ -208,12 +216,71 @@ public class SqliteDatabaseServiceTests
             record.ProductBarcode.Should().Be("SN-20260504-0001");
             record.BarcodeReadSucceeded.Should().BeTrue();
             record.BarcodeError.Should().BeEmpty();
+            record.OperatorName.Should().Be("OP-01");
+            record.OperatorRole.Should().Be("Engineer");
+            record.ShiftName.Should().Be("A班");
             record.ErrorCode.Should().Be("CaptureFrameFailed");
             record.ImagePath.Should().Contain("FAIL_CF-20260429");
+            record.ImageHash.Should().Be("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");
+            record.RenderedImagePath.Should().Contain("FAIL_CF-20260429");
+            record.RenderedImageHash.Should().Be("60303ae22b99886149b5212913143d75e4698065518779977bc4a7d1d100d8c5");
             record.CaptureMs.Should().Be(12);
             record.PlcWriteMs.Should().Be(3);
             record.UsedModelName.Should().Be("model-a");
             record.WasFallback.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task GetRecordsAsync_按小时窗口过滤_不会扩大到整天()
+    {
+        string tempDir = CreateTempDirectory();
+
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "runtime", "detection.db");
+            using var service = new SqliteDatabaseService(dbPath);
+            await service.InitializeAsync();
+
+            await service.SaveDetectionRecordAsync(new DetectionRecord
+            {
+                Timestamp = new DateTime(2026, 5, 4, 14, 24, 41, 681),
+                IsQualified = false,
+                InspectionId = "CF-20260504-142441681-MANUAL-000001",
+                TargetLabel = "screw",
+                ExpectedCount = 4,
+                ActualCount = 0,
+                InferenceMs = 18,
+                ModelName = "model-a",
+                CameraId = "cam-01",
+                ResultJson = "{}"
+            });
+
+            await service.SaveDetectionRecordAsync(new DetectionRecord
+            {
+                Timestamp = new DateTime(2026, 5, 4, 15, 0, 0, 0),
+                IsQualified = true,
+                InspectionId = "CF-20260504-150000000-MANUAL-000002",
+                TargetLabel = "screw",
+                ExpectedCount = 4,
+                ActualCount = 4,
+                InferenceMs = 16,
+                ModelName = "model-a",
+                CameraId = "cam-01",
+                ResultJson = "{}"
+            });
+
+            List<DetectionRecord> records = await service.GetRecordsAsync(
+                startDate: new DateTime(2026, 5, 4, 14, 0, 0),
+                endDate: new DateTime(2026, 5, 4, 14, 59, 59, 999),
+                limit: 10);
+
+            records.Should().ContainSingle();
+            records[0].InspectionId.Should().Be("CF-20260504-142441681-MANUAL-000001");
         }
         finally
         {
@@ -251,6 +318,9 @@ public class SqliteDatabaseServiceTests
                 IsQualified = false,
                 InspectionId = "CF-20260504-143000-BBB",
                 ProductBarcode = "SN-002",
+                OperatorName = "OP-02",
+                OperatorRole = "Operator",
+                ShiftName = "B班",
                 ModelVersion = "v2",
                 ModelName = "model-b",
                 CameraId = "cam-02",
@@ -258,7 +328,9 @@ public class SqliteDatabaseServiceTests
                 ErrorCode = "NoBarcode",
                 ErrorMessage = "PLC 条码为空",
                 ImagePath = @"C:\Trace\FAIL_2.jpg",
-                RenderedImagePath = @"C:\Trace\Rendered\FAIL_2_rendered.jpg"
+                RenderedImagePath = @"C:\Trace\Rendered\FAIL_2_rendered.jpg",
+                ImageHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                RenderedImageHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             });
 
             await service.SaveDetectionRecordAsync(new DetectionRecord
@@ -287,10 +359,14 @@ public class SqliteDatabaseServiceTests
             records.Should().HaveCount(1);
             records[0].InspectionId.Should().Be("CF-20260504-143000-BBB");
             records[0].ProductBarcode.Should().Be("SN-002");
+            records[0].OperatorName.Should().Be("OP-02");
+            records[0].ShiftName.Should().Be("B班");
             records[0].IsQualified.Should().BeFalse();
             records[0].ErrorStage.Should().Be("Barcode");
             records[0].ErrorCode.Should().Be("NoBarcode");
             records[0].ErrorMessage.Should().Be("PLC 条码为空");
+            records[0].ImageHash.Should().Be("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            records[0].RenderedImageHash.Should().Be("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 
             List<DetectionTraceRecord> topRecords = await service.GetTraceRecordsAsync(new DetectionTraceQuery
             {
