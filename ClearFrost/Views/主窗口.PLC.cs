@@ -89,12 +89,16 @@ namespace ClearFrost
                     _appConfig.TriggerSource == TriggerSource.PLC &&
                     startTriggerMonitoring;
 
-                if (shouldStartPlcTrigger && !IsCameraReadyForInspection(out string cameraBlockReason))
+                if (shouldStartPlcTrigger)
                 {
-                    shouldStartPlcTrigger = false;
-                    await _uiController.LogToFrontend(
-                        $"PLC已连接，但相机未就绪，暂未启动触发监听: {cameraBlockReason}",
-                        "warning");
+                    var cameraReady = await WaitForCameraReadyForInspectionAsync();
+                    if (!cameraReady.Ready)
+                    {
+                        shouldStartPlcTrigger = false;
+                        await _uiController.LogToFrontend(
+                            $"PLC已连接，但相机未就绪，暂未启动触发监听: {cameraReady.Message}",
+                            "warning");
+                    }
                 }
 
                 if (shouldStartPlcTrigger && !await EnsureStartupReadyForProductionAsync("PLC触发监听"))
@@ -159,11 +163,12 @@ namespace ClearFrost
                 return;
             }
 
-            if (!IsCameraReadyForInspection(out string cameraBlockReason))
+            var cameraReady = await WaitForCameraReadyForInspectionAsync();
+            if (!cameraReady.Ready)
             {
                 _plcService.StopMonitoring();
                 await _uiController.LogToFrontend(
-                    $"PLC已连接，但相机未就绪，暂未启动触发监听: {cameraBlockReason}",
+                    $"PLC已连接，但相机未就绪，暂未启动触发监听: {cameraReady.Message}",
                     "warning");
                 return;
             }

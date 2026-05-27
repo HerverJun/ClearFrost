@@ -60,7 +60,31 @@ namespace ClearFrost.Services
 
         public bool IsOpen => _cameraManager.ActiveCamera?.IsOpen ?? false;
         public string CameraName => _cameraManager.ActiveCamera?.Config.DisplayName ?? "未连接";
-        public bool IsGrabbing => _cameraManager.ActiveCamera?.Camera.IMV_IsGrabbing() ?? false;
+        public bool IsGrabbing
+        {
+            get
+            {
+                var activeCamera = _cameraManager.ActiveCamera;
+                if (activeCamera == null)
+                {
+                    return false;
+                }
+
+                try
+                {
+                    if (activeCamera.Camera.IMV_IsGrabbing())
+                    {
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[CameraService] IsGrabbing SDK check failed: {ex.Message}");
+                }
+
+                return activeCamera.State == CameraInstanceState.Grabbing;
+            }
+        }
         public string? LastError { get; private set; }
 
         public Mat? LastFrame

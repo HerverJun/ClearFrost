@@ -8,6 +8,15 @@ namespace ClearFrost.Tests.Services;
 public class DetectionServiceTests
 {
     [Fact]
+    public void Constructor_DefaultsToCpu()
+    {
+        using var service = new DetectionService();
+
+        service.RuntimeStatus.GpuRequested.Should().BeFalse();
+        service.RuntimeStatus.GpuActive.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task DetectAsync_ModelNotLoaded_ReturnsQualifiedFailure()
     {
         using var image = new Mat(16, 16, MatType.CV_8UC1, Scalar.All(128));

@@ -133,7 +133,7 @@ namespace ClearFrost.Yolo
         private string _auxiliary1ModelPath = "";
         private string _auxiliary2ModelPath = "";
 
-        private bool _useGpu = true;
+        private bool _useGpu = false;
         private int _gpuDeviceId = 0;
         private bool _enableFallback = true;
 
@@ -289,7 +289,7 @@ namespace ClearFrost.Yolo
         /// </summary>
         /// <param name="useGpu">是否启用 GPU 推理。</param>
         /// <param name="gpuDeviceId">GPU 设备 ID。</param>
-        public MultiModelManager(bool useGpu = true, int gpuDeviceId = 0)
+        public MultiModelManager(bool useGpu = false, int gpuDeviceId = 0)
         {
             _useGpu = useGpu;
             _gpuDeviceId = gpuDeviceId;

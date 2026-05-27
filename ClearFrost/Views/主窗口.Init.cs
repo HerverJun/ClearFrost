@@ -187,7 +187,8 @@ namespace ClearFrost
             };
 
             // 绑定 WebUI 事件
-            _uiController.OnOpenCamera += (s, e) => SafeFireAndForget(btnOpenCamera_LogicAsync(), "打开相机");
+            _uiController.OnStartSystem += (s, e) => SafeFireAndForget(StartSystemAsync(), "启动系统");
+            _uiController.OnOpenCamera += (s, e) => SafeFireAndForget(btnOpenCamera_LogicAsync(), "启动系统");
             _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(btnCapture_LogicAsync(), "手动检测"));
             _uiController.OnCaptureCameraPreview += (s, json) => InvokeOnUIThread(() => SafeFireAndForget(CaptureCameraPreviewFrameAsync(json), "获取相机预览单帧"));
             _uiController.OnManualRelease += (s, e) => SafeFireAndForget(fx_btn_LogicAsync(), "手动放行"); // Async void handler
@@ -588,7 +589,14 @@ namespace ClearFrost
 
                     if (string.IsNullOrEmpty(sn))
                     {
-                        await _uiController.LogToFrontend("相机序列号为空，无法连接", "error");
+                        const string message = "相机序列号为空，无法连接";
+                        await _uiController.LogToFrontend(message, "error");
+                        await _uiController.SendUiCommand("cameraDirectConnectResult", new
+                        {
+                            success = false,
+                            message = message,
+                            serialNumber = sn
+                        });
                         return;
                     }
 
@@ -626,16 +634,37 @@ namespace ClearFrost
                             gain = c.Gain
                         }).ToList();
                         await _uiController.SendCameraList(cameras, _appConfig.ActiveCameraId ?? "");
-                        await _uiController.LogToFrontend($"相机 [{newConfig.DisplayName}] 已添加并设为当前相机，请点击“打开相机”完成连接", "success");
+                        string message = $"相机 [{newConfig.DisplayName}] 已添加并设为当前相机，请点击主界面右下角“启动系统”完成连接";
+                        await _uiController.LogToFrontend(message, "success");
+                        await _uiController.SendUiCommand("cameraDirectConnectResult", new
+                        {
+                            success = true,
+                            message = message,
+                            serialNumber = sn,
+                            cameraId = newConfig.Id
+                        });
                     }
                     else
                     {
-                        await _uiController.LogToFrontend($"相机连接失败: {sn}", "error");
+                        string message = $"相机连接失败: {sn}";
+                        await _uiController.LogToFrontend(message, "error");
+                        await _uiController.SendUiCommand("cameraDirectConnectResult", new
+                        {
+                            success = false,
+                            message = message,
+                            serialNumber = sn
+                        });
                     }
                 }
                 catch (Exception ex)
                 {
-                    await _uiController.LogToFrontend($"直接连接相机失败: {ex.Message}", "error");
+                    string message = $"直接连接相机失败: {ex.Message}";
+                    await _uiController.LogToFrontend(message, "error");
+                    await _uiController.SendUiCommand("cameraDirectConnectResult", new
+                    {
+                        success = false,
+                        message = message
+                    });
                 }
             };
 
@@ -1499,6 +1528,61 @@ namespace ClearFrost
         }
 
         /// <summary>
+        /// 启动系统：先连接相机，再连接 PLC / 启动当前触发源。
+        /// </summary>
+        private async Task StartSystemAsync()
+        {
+            if (IsShutdownInProgress)
+            {
+                await _uiController.LogToFrontend("软件正在退出，已忽略启动系统请求", "warning");
+                return;
+            }
+
+            await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
+            if (!await EnsureStartupReadyForProductionAsync("启动系统"))
+            {
+                await SendHealthSnapshotToFrontendAsync();
+                return;
+            }
+
+            if (!_detectionService.IsModelLoaded)
+            {
+                string message = "启动系统已停止: 没有可用的检测模型，请检查 ONNX 模型文件是否能正常加载";
+                RecordHealthError("Detection", message);
+                await _uiController.LogToFrontend(message, "error");
+                await SendHealthSnapshotToFrontendAsync();
+                return;
+            }
+
+            await _uiController.LogToFrontend("启动系统: 正在连接相机...", "info");
+            bool cameraStarted = await btnOpenCamera_LogicAsync(startTriggerSource: false);
+
+            if (!cameraStarted)
+            {
+                await _uiController.LogToFrontend("启动系统已停止: 相机未连接成功", "warning");
+                return;
+            }
+
+            if (IsShutdownInProgress)
+            {
+                return;
+            }
+
+            var cameraReady = await WaitForCameraReadyForInspectionAsync();
+            if (!cameraReady.Ready)
+            {
+                await _uiController.LogToFrontend(
+                    $"启动系统已停止: 相机已连接但未进入采集状态，{cameraReady.Message}",
+                    "warning");
+                await SendHealthSnapshotToFrontendAsync();
+                return;
+            }
+
+            await _uiController.LogToFrontend("启动系统: 正在连接 PLC...", "info");
+            await StartTriggerSourceAsync();
+        }
+
+        /// <summary>
         /// 根据 TriggerSource 启动对应触发源
         /// </summary>
         private async Task StartTriggerSourceAsync()
@@ -1507,11 +1591,12 @@ namespace ClearFrost
             {
                 _plcService.StopMonitoring();
 
-                if (!IsCameraReadyForInspection(out string cameraBlockReason))
+                var cameraReady = await WaitForCameraReadyForInspectionAsync();
+                if (!cameraReady.Ready)
                 {
                     _serialTriggerService.Stop();
                     await _uiController.LogToFrontend(
-                        $"串口光电触发暂未启动: {cameraBlockReason}",
+                        $"串口光电触发暂未启动: {cameraReady.Message}",
                         "warning");
                 }
                 else if (!string.IsNullOrWhiteSpace(_appConfig.SerialPhotoelectricPortName))
@@ -1570,15 +1655,38 @@ namespace ClearFrost
             {
                 await _uiController.LogToFrontend($"模型目录不存在: {模型路径}", "warning");
                 await _uiController.SendModelList(Array.Empty<string>());
+                RefreshStartupDiagnostics();
                 return;
             }
 
+            await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
             var names = GetModelNames();
             await _uiController.LogToFrontend($"找到 {names.Length} 个ONNX模型文件");
 
-            // Push to Frontend (Requirement from Step 177/147)
-            await _uiController.SendModelList(names!);
             await _uiController.LogToFrontend($"? 已通过 SendModelList 推送 {names.Length} 个模型");
+        }
+
+        private async Task RefreshRuntimeModelStateAsync(bool loadDefaultModelIfMissing, bool pushModelList)
+        {
+            string[] names = GetModelNames();
+            if (pushModelList)
+            {
+                await _uiController.SendModelList(names);
+            }
+
+            if (loadDefaultModelIfMissing &&
+                !_detectionService.IsModelLoaded &&
+                names.Length > 0)
+            {
+                string? preferredModel = ResolvePreferredModelFileName();
+                if (!string.IsNullOrWhiteSpace(preferredModel))
+                {
+                    await _uiController.LogToFrontend($"检测到可用模型，正在加载: {preferredModel}", "info");
+                    await InitYoloAsync();
+                }
+            }
+
+            RefreshStartupDiagnostics();
         }
 
         private string[] GetModelNames()
@@ -1592,6 +1700,7 @@ namespace ClearFrost
                 .Select(Path.GetFileName)
                 .Where(n => !string.IsNullOrEmpty(n))
                 .Cast<string>()
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
         }
 
@@ -1897,6 +2006,11 @@ namespace ClearFrost
         {
             try
             {
+                if (showToast)
+                {
+                    await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
+                }
+
                 await _uiController.SendHealthSnapshot(_healthMonitor.GetSnapshot());
                 if (showToast)
                 {

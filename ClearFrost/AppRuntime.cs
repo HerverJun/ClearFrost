@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -67,7 +68,7 @@ namespace ClearFrost
             RecipeManager = recipeManager ?? new RecipeManager();
             RecipeManager.LoadOrCreateDefault(appConfig);
             ModelRegistry = modelRegistry ?? new ModelRegistry();
-            ModelRegistry.Scan(CreateModelRegistryScanOptions(appConfig));
+            RefreshModelRegistry();
             HealthMonitor = new HealthMonitor(
                 CameraService,
                 PlcService,
@@ -123,6 +124,11 @@ namespace ClearFrost
                     .Select(i => string.IsNullOrWhiteSpace(i.Details)
                         ? $"{i.Name}: {i.Message}"
                         : $"{i.Name}: {i.Message} {i.Details}"));
+
+        public IReadOnlyList<ModelRegistryEntry> RefreshModelRegistry()
+        {
+            return ModelRegistry.Scan(CreateModelRegistryScanOptions(AppConfig));
+        }
 
         public async Task<string> ExportDiagnosticPackageAsync(
             string outputDirectory,

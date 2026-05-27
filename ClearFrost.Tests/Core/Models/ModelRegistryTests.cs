@@ -35,6 +35,34 @@ public class ModelRegistryTests
     }
 
     [Fact]
+    public void Scan_返回快照不会被后续扫描清空()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string onnxDir = Path.Combine(tempDir, "ONNX");
+            Directory.CreateDirectory(onnxDir);
+            string modelPath = Path.Combine(onnxDir, "legacy.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 1, 2, 3 });
+
+            var registry = new ModelRegistry();
+            IReadOnlyList<ModelRegistryEntry> firstSnapshot = registry.Scan(new ModelRegistryScanOptions { OnnxDirectory = onnxDir });
+
+            firstSnapshot.Should().ContainSingle();
+
+            File.Delete(modelPath);
+            IReadOnlyList<ModelRegistryEntry> secondSnapshot = registry.Scan(new ModelRegistryScanOptions { OnnxDirectory = onnxDir });
+
+            secondSnapshot.Should().BeEmpty();
+            firstSnapshot.Should().ContainSingle(e => e.UsedModelName == "legacy.onnx");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void Scan_严格模型包校验HashLabels和Warmup()
     {
         string tempDir = CreateTempDirectory();

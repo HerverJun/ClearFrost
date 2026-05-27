@@ -67,7 +67,7 @@ namespace ClearFrost.Services
 
         #region 构造函数
 
-        public DetectionService(bool useGpu = true, int gpuDeviceId = 0)
+        public DetectionService(bool useGpu = false, int gpuDeviceId = 0)
         {
             _useGpu = useGpu;
             _gpuDeviceId = Math.Max(0, gpuDeviceId);

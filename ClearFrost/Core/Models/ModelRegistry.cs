@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading;
 using Microsoft.ML.OnnxRuntime;
 
 namespace ClearFrost.Core.Models
@@ -26,20 +27,23 @@ namespace ClearFrost.Core.Models
             WriteIndented = true
         };
 
-        private readonly List<ModelRegistryEntry> _entries = new List<ModelRegistryEntry>();
+        private IReadOnlyList<ModelRegistryEntry> _entries = Array.Empty<ModelRegistryEntry>();
 
-        public IReadOnlyList<ModelRegistryEntry> Entries => _entries;
+        public IReadOnlyList<ModelRegistryEntry> Entries => Volatile.Read(ref _entries);
 
-        public bool HasBlockingErrors => _entries.Any(e => e.Status == ModelRegistryStatus.Blocked);
+        public bool HasBlockingErrors => Entries.Any(e => e.Status == ModelRegistryStatus.Blocked);
 
         public IReadOnlyList<ModelRegistryEntry> Scan(ModelRegistryScanOptions options)
         {
             if (options == null) throw new ArgumentNullException(nameof(options));
 
-            _entries.Clear();
-            ScanPackages(options);
-            ScanBareOnnx(options.OnnxDirectory);
-            return Entries;
+            var entries = new List<ModelRegistryEntry>();
+            ScanPackages(options, entries);
+            ScanBareOnnx(options.OnnxDirectory, entries);
+
+            IReadOnlyList<ModelRegistryEntry> snapshot = entries.AsReadOnly();
+            Volatile.Write(ref _entries, snapshot);
+            return snapshot;
         }
 
         public ModelRegistryEntry? Resolve(string? usedModelName)
@@ -49,15 +53,16 @@ namespace ClearFrost.Core.Models
                 return null;
             }
 
+            IReadOnlyList<ModelRegistryEntry> entries = Entries;
             string normalized = NormalizeName(usedModelName);
             if (IsPathLike(usedModelName))
             {
                 string fullPath = GetFullPathSafe(usedModelName);
-                return _entries.FirstOrDefault(e =>
+                return entries.FirstOrDefault(e =>
                     string.Equals(GetFullPathSafe(e.ModelPath), fullPath, StringComparison.OrdinalIgnoreCase));
             }
 
-            var candidates = _entries
+            var candidates = entries
                 .Where(e =>
                     string.Equals(NormalizeName(e.UsedModelName), normalized, StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(NormalizeName(e.ModelId), normalized, StringComparison.OrdinalIgnoreCase) ||
@@ -81,7 +86,7 @@ namespace ClearFrost.Core.Models
             return packageMatch ?? candidates[0];
         }
 
-        private void ScanPackages(ModelRegistryScanOptions options)
+        private void ScanPackages(ModelRegistryScanOptions options, List<ModelRegistryEntry> entries)
         {
             string packageDirectory = options.PackageDirectory;
             if (string.IsNullOrWhiteSpace(packageDirectory) || !Directory.Exists(packageDirectory))
@@ -97,7 +102,7 @@ namespace ClearFrost.Core.Models
                     string[] onnxFiles = Directory.GetFiles(directory, "*.onnx", SearchOption.TopDirectoryOnly);
                     if (onnxFiles.Length > 0)
                     {
-                        _entries.Add(new ModelRegistryEntry
+                        entries.Add(new ModelRegistryEntry
                         {
                             ModelId = Path.GetFileName(directory),
                             UsedModelName = Path.GetFileName(onnxFiles[0]),
@@ -111,7 +116,7 @@ namespace ClearFrost.Core.Models
                     continue;
                 }
 
-                _entries.Add(ValidatePackage(directory, manifestPath, options));
+                entries.Add(ValidatePackage(directory, manifestPath, options));
             }
         }
 
@@ -238,7 +243,7 @@ namespace ClearFrost.Core.Models
             };
         }
 
-        private void ScanBareOnnx(string onnxDirectory)
+        private void ScanBareOnnx(string onnxDirectory, List<ModelRegistryEntry> entries)
         {
             if (string.IsNullOrWhiteSpace(onnxDirectory) || !Directory.Exists(onnxDirectory))
             {
@@ -248,7 +253,7 @@ namespace ClearFrost.Core.Models
             foreach (string modelPath in Directory.EnumerateFiles(onnxDirectory, "*.onnx", SearchOption.TopDirectoryOnly))
             {
                 string fileName = Path.GetFileName(modelPath);
-                _entries.Add(new ModelRegistryEntry
+                entries.Add(new ModelRegistryEntry
                 {
                     ModelId = Path.GetFileNameWithoutExtension(fileName),
                     Version = "legacy",
