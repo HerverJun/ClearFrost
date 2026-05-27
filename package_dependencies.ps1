@@ -6,6 +6,35 @@ $outputFile = "ClearFrostV5_依赖包_$timestamp.zip"
 
 Write-Host "正在打包运行依赖文件..." -ForegroundColor Green
 
+function Add-EmptyDirectoryEntryToZip([string]$ZipPath, [string]$DirectoryEntry) {
+    Add-Type -AssemblyName System.IO.Compression | Out-Null
+    Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
+
+    $entryName = $DirectoryEntry.Replace("\", "/").Trim("/")
+    if ([string]::IsNullOrWhiteSpace($entryName)) {
+        return
+    }
+
+    $entryName = "$entryName/"
+    $archive = [System.IO.Compression.ZipFile]::Open($ZipPath, [System.IO.Compression.ZipArchiveMode]::Update)
+    try {
+        $exists = $false
+        foreach ($entry in $archive.Entries) {
+            if ([string]::Equals($entry.FullName, $entryName, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $exists = $true
+                break
+            }
+        }
+
+        if (-not $exists) {
+            [void]$archive.CreateEntry($entryName)
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 # 创建临时目录
 $tempDir = ".\temp_dependencies"
 New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
@@ -22,11 +51,9 @@ if (Test-Path ".\x64依赖包") {
     Copy-Item -Path ".\x64依赖包" -Destination "$tempDir\x64依赖包" -Recurse -Force
 }
 
-# 复制 ONNX 模型（可选）
-if (Test-Path ".\ClearFrost\ONNX") {
-    Write-Host "  ✓ 复制 ClearFrost/ONNX/ (模型文件)" -ForegroundColor Cyan
-    Copy-Item -Path ".\ClearFrost\ONNX" -Destination "$tempDir\ClearFrost\ONNX" -Recurse -Force
-}
+# 创建空 ONNX 目录，不打包任何模型文件
+Write-Host "  ✓ 创建空 ClearFrost/ONNX/（不包含模型文件）" -ForegroundColor Cyan
+New-Item -ItemType Directory -Force -Path "$tempDir\ClearFrost\ONNX" | Out-Null
 
 # 创建说明文件
 $readmeContent = @"
@@ -51,22 +78,28 @@ $readmeContent = @"
 
 - ClearFrost/DLL/ - 第三方通讯库
 - x64依赖包/ - 相机SDK依赖
-- ClearFrost/ONNX/ - 训练好的AI模型
+- ClearFrost/ONNX/ - 空模型目录（模型文件不随依赖包分发）
 
 ## 注意事项：
 
 - 这些文件由于体积较大，未包含在Git仓库中
 - 请妥善保管此依赖包
-- 如需更新模型，只需替换 ClearFrost/ONNX/ 目录中的 .onnx 文件
+- ONNX 模型文件不会打入依赖包，部署后请按现场项目单独放入 ClearFrost/ONNX/ 目录
 
 生成时间: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
 "@
 
 $readmeContent | Out-File -FilePath "$tempDir\依赖包说明.txt" -Encoding UTF8
 
+# 防止依赖目录中误混入模型文件
+Get-ChildItem -LiteralPath $tempDir -Filter "*.onnx" -File -Recurse -ErrorAction SilentlyContinue |
+    Remove-Item -Force
+New-Item -ItemType Directory -Force -Path "$tempDir\ClearFrost\ONNX" | Out-Null
+
 # 压缩
 Write-Host "`n正在压缩文件..." -ForegroundColor Green
 Compress-Archive -Path "$tempDir\*" -DestinationPath $outputFile -Force
+Add-EmptyDirectoryEntryToZip $outputFile "ClearFrost/ONNX"
 
 # 清理临时目录
 Remove-Item -Path $tempDir -Recurse -Force

@@ -39,7 +39,6 @@
         /断开/,
         /未连接/,
         /启动系统/,
-        /打开相机/,
         /开启成功/,
         /开启异常/,
         /驱动缺失/,
@@ -865,10 +864,10 @@
         button.classList.toggle("camera-open-pending", isBusy);
     }
 
-    function requestOpenCamera() {
+    function requestStartSystem() {
         const now = Date.now();
         if (now < openCameraCooldownUntil) {
-            showToast("相机正在打开中，请勿重复点击", "warning", 1200);
+            showToast("系统正在启动中，请勿重复点击", "warning", 1200);
             return;
         }
 
@@ -882,15 +881,17 @@
             openCameraUnlockTimer = null;
         }, 1500);
 
-        window.sendCommand("open_camera");
-        showToast("打开相机指令已发送", "info", 1200);
+        window.sendCommand("start_system");
+        showToast("启动系统指令已发送", "info", 1400);
         return true;
     }
 
+    function requestOpenCamera() {
+        return requestStartSystem();
+    }
+
     function startSystem() {
-        if (requestOpenCamera()) {
-            showToast("启动系统指令已发送", "info", 1400);
-        }
+        return requestStartSystem();
     }
 
     function updatePreviewImage({ url, base64, frameId }) {
@@ -1002,6 +1003,9 @@
             case "cameraPreviewStatus":
                 window.setCameraPreviewStatus?.(payload);
                 break;
+            case "cameraDirectConnectResult":
+                window.receiveCameraDirectConnectResult?.(payload);
+                break;
             case "showSettingsModal":
                 window.openSettingsModal?.(payload.config || payload.Config || null);
                 break;
@@ -1071,6 +1075,7 @@
         renderRecentInspections: () => renderRecentInspections(window.CF_STATE),
         requestExitApp,
         requestOpenCamera,
+        requestStartSystem,
         startSystem,
         setDotState,
         setText,

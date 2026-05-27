@@ -11,7 +11,7 @@ using ClearFrost.Models;
 //   - 支持开发模式热更新 (自动查找源码目录)
 //
 // 事件定义:
-//   - OnOpenCamera, OnManualDetect, OnConnectPlc, ...  (操作事件)
+//   - OnStartSystem, OnOpenCamera, OnManualDetect, OnConnectPlc, ...  (操作事件)
 //   - OnSaveSettings, OnSaveProjectPreset, ...        (配置事件)
 //
 // 前端通信:
@@ -66,6 +66,7 @@ namespace ClearFrost
 
         // Events to notify the main window about frontend actions
         public event EventHandler? OnFindCamera;
+        public event EventHandler? OnStartSystem;
         public event EventHandler? OnOpenCamera;
         public event EventHandler? OnManualDetect;
         public event EventHandler<string>? OnCaptureCameraPreview;
@@ -665,6 +666,9 @@ namespace ClearFrost
                         {
                             case "find_camera":
                                 OnFindCamera?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "start_system":
+                                OnStartSystem?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "open_camera":
                                 OnOpenCamera?.Invoke(this, EventArgs.Empty);
@@ -2082,6 +2086,7 @@ namespace ClearFrost
             finally
             {
                 OnFindCamera = null;
+                OnStartSystem = null;
                 OnOpenCamera = null;
                 OnManualDetect = null;
                 OnCaptureCameraPreview = null;

@@ -137,6 +137,46 @@ namespace ClearFrost.Tests
         }
 
         [Fact]
+        public async Task Constructor_默认配置使用Cpu检测服务()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            var appConfig = new AppConfig
+            {
+                StoragePath = tempDir
+            };
+
+            using var cameraManager = new CameraManager(true);
+            var runtime = new AppRuntime(
+                appConfig,
+                cameraManager,
+                cameraService: null,
+                plcService: null,
+                detectionService: null,
+                storageService: null,
+                statisticsService: null,
+                databaseService: null,
+                imageSaveQueue: null,
+                detectionRecordQueue: null,
+                webUIController: null);
+
+            try
+            {
+                runtime.DetectionService.RuntimeStatus.GpuRequested.Should().BeFalse();
+                runtime.DetectionService.RuntimeStatus.GpuActive.Should().BeFalse();
+            }
+            finally
+            {
+                await runtime.DisposeAsync();
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Fact]
         public async Task ApplyRuntimeStoragePath_刷新存储和统计服务路径()
         {
             string firstDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
@@ -184,6 +224,59 @@ namespace ClearFrost.Tests
                 if (Directory.Exists(secondDir))
                 {
                     Directory.Delete(secondDir, true);
+                }
+            }
+        }
+
+        [Fact]
+        public async Task RefreshModelRegistry_运行中新加入Onnx会被重新发现()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            string onnxDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ONNX");
+            string modelName = $"runtime-refresh-{Guid.NewGuid():N}.onnx";
+            string modelPath = Path.Combine(onnxDir, modelName);
+            Directory.CreateDirectory(tempDir);
+            Directory.CreateDirectory(onnxDir);
+
+            var appConfig = new AppConfig { StoragePath = tempDir };
+            using var cameraManager = new CameraManager(true);
+            var runtime = new AppRuntime(
+                appConfig,
+                cameraManager,
+                cameraService: null,
+                plcService: null,
+                detectionService: null,
+                storageService: null,
+                statisticsService: null,
+                databaseService: null,
+                imageSaveQueue: null,
+                detectionRecordQueue: null,
+                webUIController: null);
+
+            try
+            {
+                runtime.ModelRegistry.Resolve(modelName).Should().BeNull();
+
+                File.WriteAllBytes(modelPath, new byte[] { 1, 2, 3 });
+
+                runtime.RefreshModelRegistry();
+
+                ModelRegistryEntry? entry = runtime.ModelRegistry.Resolve(modelName);
+                entry.Should().NotBeNull();
+                entry!.UsedModelName.Should().Be(modelName);
+                entry.ModelPath.Should().Be(modelPath);
+            }
+            finally
+            {
+                if (File.Exists(modelPath))
+                {
+                    File.Delete(modelPath);
+                }
+
+                await runtime.DisposeAsync();
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
                 }
             }
         }

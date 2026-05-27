@@ -76,7 +76,7 @@ namespace ClearFrost
             RecipeManager = recipeManager ?? new RecipeManager();
             RecipeManager.LoadOrCreateDefault(appConfig);
             ModelRegistry = modelRegistry ?? new ModelRegistry();
-            ModelRegistry.Scan(CreateModelRegistryScanOptions(appConfig));
+            RefreshModelRegistry();
             HealthMonitor = new HealthMonitor(
                 CameraService,
                 PlcService,

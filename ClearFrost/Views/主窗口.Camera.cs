@@ -27,22 +27,23 @@ namespace ClearFrost
         #region 4. 相机控制逻辑
 
         /// <summary>
-        /// 一键打开相机：自动查找目标相机并打开
+        /// 启动系统时连接相机：自动查找目标相机并打开采集。
         /// </summary>
-        private async Task btnOpenCamera_LogicAsync()
+        private async Task<bool> btnOpenCamera_LogicAsync(bool startTriggerSource = true)
         {
             if (IsShutdownInProgress)
             {
-                await _uiController.LogToFrontend("软件正在退出，已忽略打开相机请求", "warning");
-                return;
+                await _uiController.LogToFrontend("软件正在退出，已忽略启动系统请求", "warning");
+                return false;
             }
 
             if (_isCameraOpening)
             {
                 SafeFireAndForget(_uiController.LogToFrontend("相机正在连接中，请稍候...", "warning"), "相机防重入");
-                return;
+                return false;
             }
 
+            bool cameraStarted = false;
             _isCameraOpening = true;
             try
             {
@@ -71,7 +72,7 @@ namespace ClearFrost
                         bool openOk = _cameraService.Open(activeConfig.SerialNumber, activeConfig.Manufacturer);
                         if (!openOk)
                         {
-                            string detail = _cameraService.LastError ?? $"打开相机失败: {activeConfig.DisplayName}";
+                            string detail = _cameraService.LastError ?? $"相机连接失败: {activeConfig.DisplayName}";
                             return (false, detail, false, string.Empty);
                         }
 
@@ -104,12 +105,13 @@ namespace ClearFrost
 
                 if (IsShutdownInProgress)
                 {
-                    Debug.WriteLine("[OpenCamera] 软件已进入退出流程，忽略打开相机结果");
-                    return;
+                    Debug.WriteLine("[StartSystem] 软件已进入退出流程，忽略相机连接结果");
+                    return false;
                 }
 
                 if (success)
                 {
+                    cameraStarted = true;
                     var activeCameraConfig = _appConfig.ActiveCamera;
                     string operatorContext = BuildOperatorAuditContext();
                     string cameraDetail =
@@ -129,7 +131,6 @@ namespace ClearFrost
                     {
                         await _uiController.LogToFrontend("默认像素格式取首帧失败，已自动回退为 Mono8。", "warning");
                     }
-                    SafeFireAndForget(StartTriggerSourceAsync(), "启动生产触发源");
                 }
                 else if (!string.IsNullOrWhiteSpace(errorMessage))
                 {
@@ -158,12 +159,19 @@ namespace ClearFrost
             }
             catch (OperationCanceledException)
             {
-                Debug.WriteLine("[OpenCamera] 打开相机操作已取消");
+                Debug.WriteLine("[StartSystem] 相机连接操作已取消");
             }
             finally
             {
                 _isCameraOpening = false;
             }
+
+            if (cameraStarted && startTriggerSource && !IsShutdownInProgress)
+            {
+                await StartTriggerSourceAsync();
+            }
+
+            return cameraStarted;
         }
 
         private void getParam()
@@ -186,7 +194,7 @@ namespace ClearFrost
             await _uiController.SendUiCommand("cameraPreviewStatus", new
             {
                 isBusy = true,
-                message = "正在打开相机并获取画面..."
+                message = "正在连接相机并获取画面..."
             });
 
             try

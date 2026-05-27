@@ -112,6 +112,16 @@ namespace ClearFrost
 
         private StartupDiagnosticReport RefreshStartupDiagnostics()
         {
+            try
+            {
+                _appRuntime.RefreshModelRegistry();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[StartupDiagnostics] 刷新模型注册表失败: {ex.Message}");
+                RecordHealthError("StartupDiagnostics", $"刷新模型注册表失败: {ex.Message}");
+            }
+
             StartupDiagnosticReport report = _startupDiagnostics.Run(_appConfig, _storageService, _modelRegistry);
             LogStartupDiagnostics();
             return report;

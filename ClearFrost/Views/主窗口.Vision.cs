@@ -61,26 +61,8 @@ namespace ClearFrost
                 return;
             }
 
-            // 优先恢复上次使用的主模型；为空或文件不存在时再尝试目录中的第一个模型
-            if (string.IsNullOrWhiteSpace(模型名))
-            {
-                模型名 = _appConfig.CurrentModelFileName?.Trim() ?? string.Empty;
-                if (!string.IsNullOrWhiteSpace(模型名) && !File.Exists(Path.Combine(模型路径, 模型名)))
-                {
-                    模型名 = string.Empty;
-                }
-
-                if (string.IsNullOrWhiteSpace(模型名))
-                {
-                    var files = Directory.GetFiles(模型路径, "*.onnx");
-                    if (files.Length > 0)
-                    {
-                        // 按文件名升序确定首选模型，避免依赖文件系统返回顺序。
-                        Array.Sort(files, StringComparer.OrdinalIgnoreCase);
-                        模型名 = Path.GetFileName(files[0]);
-                    }
-                }
-            }
+            // 优先使用当前选择/配置的模型；文件不存在时自动回退到目录中的第一个模型。
+            模型名 = ResolvePreferredModelFileName() ?? string.Empty;
 
             if (!string.IsNullOrEmpty(模型名))
             {
@@ -120,6 +102,46 @@ namespace ClearFrost
             {
                 await _uiController.LogToFrontend("未找到模型文件，请在设置中下载或上传模型", "warning");
             }
+        }
+
+        private string? ResolvePreferredModelFileName()
+        {
+            if (!Directory.Exists(模型路径))
+            {
+                return null;
+            }
+
+            foreach (string? candidate in new[] { 模型名, _appConfig.CurrentModelFileName })
+            {
+                string modelFileName = NormalizeModelFileName(candidate);
+                if (!string.IsNullOrWhiteSpace(modelFileName) &&
+                    File.Exists(Path.Combine(模型路径, modelFileName)))
+                {
+                    return modelFileName;
+                }
+            }
+
+            string[] files = Directory.GetFiles(模型路径, "*.onnx");
+            if (files.Length == 0)
+            {
+                return null;
+            }
+
+            Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+            return Path.GetFileName(files[0]);
+        }
+
+        private static string NormalizeModelFileName(string? modelName)
+        {
+            string name = Path.GetFileName(modelName?.Trim() ?? string.Empty);
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return string.Empty;
+            }
+
+            return name.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)
+                ? name
+                : $"{name}.onnx";
         }
 
         private async Task RestoreMultiModelConfigAsync()
@@ -1046,12 +1068,77 @@ namespace ClearFrost
             return false;
         }
 
+        private const int CameraReadyWaitTimeoutMs = 3000;
+        private const int CameraReadyPollIntervalMs = 100;
+
+        private async Task<(bool Ready, string Message)> WaitForCameraReadyForInspectionAsync(
+            int timeoutMs = CameraReadyWaitTimeoutMs,
+            int pollIntervalMs = CameraReadyPollIntervalMs)
+        {
+            timeoutMs = Math.Max(0, timeoutMs);
+            pollIntervalMs = Math.Clamp(pollIntervalMs, 50, 500);
+
+            var sw = Stopwatch.StartNew();
+            string lastMessage = string.Empty;
+
+            while (true)
+            {
+                if (IsCameraReadyForInspection(out lastMessage))
+                {
+                    return (true, string.Empty);
+                }
+
+                if (!_isCameraOpening)
+                {
+                    TryResumeCameraCaptureIfOpen();
+                }
+
+                if (sw.ElapsedMilliseconds >= timeoutMs)
+                {
+                    break;
+                }
+
+                int remainingMs = Math.Max(0, timeoutMs - (int)sw.ElapsedMilliseconds);
+                await Task.Delay(Math.Min(pollIntervalMs, Math.Max(1, remainingMs)));
+            }
+
+            return (false, string.IsNullOrWhiteSpace(lastMessage) ? "相机未就绪" : lastMessage);
+        }
+
+        private void TryResumeCameraCaptureIfOpen()
+        {
+            try
+            {
+                if (_cameraService.IsOpen && !_cameraService.IsGrabbing)
+                {
+                    _cameraService.StartCapture();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CameraReady] 恢复采集失败: {ex.Message}");
+            }
+        }
+
         private bool IsCameraReadyForInspection(out string message)
         {
             if (_isCameraOpening)
             {
-                message = "相机正在连接中，请稍候";
-                return false;
+                bool isAlreadyReady = false;
+                try
+                {
+                    isAlreadyReady = _cameraService.IsOpen && _cameraService.IsGrabbing;
+                }
+                catch
+                {
+                    isAlreadyReady = false;
+                }
+
+                if (!isAlreadyReady)
+                {
+                    message = "相机正在连接中，请稍候";
+                    return false;
+                }
             }
 
             if (_cameraManager.ActiveCamera == null)

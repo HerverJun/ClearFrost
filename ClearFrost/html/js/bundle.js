@@ -452,7 +452,6 @@
         /断开/,
         /未连接/,
         /启动系统/,
-        /打开相机/,
         /开启成功/,
         /开启异常/,
         /驱动缺失/,
@@ -1278,10 +1277,10 @@
         button.classList.toggle("camera-open-pending", isBusy);
     }
 
-    function requestOpenCamera() {
+    function requestStartSystem() {
         const now = Date.now();
         if (now < openCameraCooldownUntil) {
-            showToast("相机正在打开中，请勿重复点击", "warning", 1200);
+            showToast("系统正在启动中，请勿重复点击", "warning", 1200);
             return;
         }
 
@@ -1295,15 +1294,17 @@
             openCameraUnlockTimer = null;
         }, 1500);
 
-        window.sendCommand("open_camera");
-        showToast("打开相机指令已发送", "info", 1200);
+        window.sendCommand("start_system");
+        showToast("启动系统指令已发送", "info", 1400);
         return true;
     }
 
+    function requestOpenCamera() {
+        return requestStartSystem();
+    }
+
     function startSystem() {
-        if (requestOpenCamera()) {
-            showToast("启动系统指令已发送", "info", 1400);
-        }
+        return requestStartSystem();
     }
 
     function updatePreviewImage({ url, base64, frameId }) {
@@ -1415,6 +1416,9 @@
             case "cameraPreviewStatus":
                 window.setCameraPreviewStatus?.(payload);
                 break;
+            case "cameraDirectConnectResult":
+                window.receiveCameraDirectConnectResult?.(payload);
+                break;
             case "showSettingsModal":
                 window.openSettingsModal?.(payload.config || payload.Config || null);
                 break;
@@ -1484,6 +1488,7 @@
         renderRecentInspections: () => renderRecentInspections(window.CF_STATE),
         requestExitApp,
         requestOpenCamera,
+        requestStartSystem,
         startSystem,
         setDotState,
         setText,
@@ -3378,9 +3383,68 @@
     const store = window.CF_STORE;
     const { escapeHtml } = window.CF_UTILS;
     let discoveredCameras = [];
+    let directConnectPending = null;
 
     function byId(id) {
         return document.getElementById(id);
+    }
+
+    function getSuperSearchFeedback() {
+        let feedback = byId("super-search-feedback");
+        if (feedback) return feedback;
+
+        const results = byId("super-search-results");
+        const empty = byId("super-search-empty");
+        const loading = byId("super-search-loading");
+        const parent = results?.parentElement || empty?.parentElement || loading?.parentElement;
+        if (!parent) return null;
+
+        feedback = document.createElement("div");
+        feedback.id = "super-search-feedback";
+        feedback.className = "hidden";
+        parent.insertBefore(feedback, results || empty || null);
+        return feedback;
+    }
+
+    function setSuperSearchFeedback(message = "", type = "info") {
+        const feedback = getSuperSearchFeedback();
+        if (!feedback) return;
+
+        if (!message) {
+            feedback.textContent = "";
+            feedback.className = "hidden";
+            return;
+        }
+
+        const palette = {
+            success: "bg-emerald-50 border-emerald-200 text-emerald-700",
+            error: "bg-red-50 border-red-200 text-red-700",
+            warning: "bg-amber-50 border-amber-200 text-amber-700",
+            info: "bg-sky-50 border-sky-200 text-sky-700",
+        };
+        feedback.textContent = message;
+        feedback.className = `mb-3 rounded-xl border px-4 py-3 text-sm font-semibold ${palette[type] || palette.info}`;
+    }
+
+    function setDirectConnectButtonsPending(index) {
+        document.querySelectorAll("[data-direct-camera-index]").forEach((button) => {
+            const isTarget = Number(button.dataset.directCameraIndex) === index;
+            button.disabled = true;
+            button.textContent = isTarget ? "连接中..." : "连接";
+            button.classList.toggle("opacity-70", isTarget);
+            button.classList.toggle("cursor-wait", isTarget);
+            button.classList.toggle("opacity-50", !isTarget);
+        });
+    }
+
+    function clearDirectConnectButtons(success) {
+        document.querySelectorAll("[data-direct-camera-index]").forEach((button) => {
+            const isTarget = directConnectPending && Number(button.dataset.directCameraIndex) === directConnectPending.index;
+            button.disabled = Boolean(success && isTarget);
+            button.textContent = success && isTarget ? "已添加" : "连接";
+            button.classList.remove("opacity-70", "cursor-wait", "opacity-50");
+            button.classList.toggle("opacity-80", Boolean(success && isTarget));
+        });
     }
 
     function setCameraForm(camera) {
@@ -3483,6 +3547,8 @@
         loading?.classList.remove("hidden");
         results?.classList.add("hidden");
         empty?.classList.add("hidden");
+        setSuperSearchFeedback();
+        directConnectPending = null;
         if (results) results.innerHTML = "";
         bridge.sendCommand("search_huaray_cameras");
     }
@@ -3528,10 +3594,22 @@
         `).join("");
     }
 
-    function directConnectCamera(cameraOrSerial, ip, manufacturer, model) {
+    function directConnectCamera(cameraOrSerial, ip, manufacturer, model, index = null) {
         const camera = typeof cameraOrSerial === "object"
             ? cameraOrSerial
             : { serialNumber: cameraOrSerial, ip, manufacturer, model };
+        const pendingIndex = Number.isInteger(index)
+            ? index
+            : discoveredCameras.findIndex((item) => item?.serialNumber && item.serialNumber === camera.serialNumber);
+        const cameraLabel = camera.serialNumber || camera.model || camera.userDefinedName || "-";
+        directConnectPending = {
+            index: pendingIndex,
+            serialNumber: camera.serialNumber || "",
+        };
+        if (pendingIndex >= 0) setDirectConnectButtonsPending(pendingIndex);
+        setSuperSearchFeedback(`正在添加相机 ${cameraLabel}，请稍候...`, "info");
+        window.showToast?.("正在添加相机配置...", "info", 1200);
+
         bridge.sendCommand("direct_connect_camera", {
             serialNumber: camera.serialNumber || "",
             ip: camera.ip || "",
@@ -3539,6 +3617,15 @@
             model: camera.model || camera.userDefinedName || "Camera",
         });
         window.addLog?.(`正在直连相机: ${camera.serialNumber || camera.model || "-"}`, "info");
+    }
+
+    function receiveCameraDirectConnectResult(data) {
+        const success = Boolean(data?.success ?? data?.Success);
+        const message = data?.message || data?.Message || (success ? "相机已添加" : "相机连接失败");
+        clearDirectConnectButtons(success);
+        setSuperSearchFeedback(message, success ? "success" : "error");
+        window.showToast?.(message, success ? "success" : "error", success ? 1800 : 2600);
+        directConnectPending = null;
     }
 
     function setCameraPreviewStatus({ isBusy = false, message = "", type = "info" } = {}) {
@@ -3577,7 +3664,7 @@
     }
 
     function requestCameraPreviewFrame() {
-        setCameraPreviewStatus({ isBusy: true, message: "正在打开相机并获取画面..." });
+        setCameraPreviewStatus({ isBusy: true, message: "正在连接相机并获取画面..." });
         bridge.sendCommand("capture_camera_preview", collectCameraPreviewPayload());
     }
 
@@ -3624,7 +3711,7 @@
         if (!button) return;
         const index = Number(button.dataset.directCameraIndex);
         const camera = discoveredCameras[index];
-        if (camera) directConnectCamera(camera);
+        if (camera) directConnectCamera(camera, undefined, undefined, undefined, index);
     });
 
     Object.assign(window, {
@@ -3635,6 +3722,7 @@
         onCameraSelected,
         requestCameraPreviewFrame,
         receiveCameraList,
+        receiveCameraDirectConnectResult,
         receiveCameraPreviewFrame,
         receiveSuperSearchResult,
         searchCamerasHuaray,
