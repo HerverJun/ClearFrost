@@ -318,6 +318,50 @@ function Write-VersionManifest($PublishMode, $VersionInfo, [string]$TargetPath, 
     Set-Content -LiteralPath (Join-Path $TargetPath "VERSION.txt") -Value $manifest -Encoding UTF8
 }
 
+function Reset-OnnxOutputDirectory([string]$TargetPath) {
+    $packagedModels = @(Get-ChildItem -LiteralPath $TargetPath -Filter "*.onnx" -File -Recurse -ErrorAction SilentlyContinue)
+    foreach ($model in $packagedModels) {
+        Remove-Item -LiteralPath $model.FullName -Force
+    }
+
+    $onnxPath = Join-Path $TargetPath "ONNX"
+    if (Test-Path -LiteralPath $onnxPath) {
+        Remove-Item -LiteralPath $onnxPath -Recurse -Force
+    }
+
+    New-Item -ItemType Directory -Force -Path $onnxPath | Out-Null
+    Write-Ok "ONNX directory created empty; model files are excluded from the package."
+}
+
+function Add-EmptyDirectoryEntryToZip([string]$ZipPath, [string]$DirectoryEntry) {
+    Add-Type -AssemblyName System.IO.Compression | Out-Null
+    Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
+
+    $entryName = $DirectoryEntry.Replace("\", "/").Trim("/")
+    if ([string]::IsNullOrWhiteSpace($entryName)) {
+        return
+    }
+
+    $entryName = "$entryName/"
+    $archive = [System.IO.Compression.ZipFile]::Open($ZipPath, [System.IO.Compression.ZipArchiveMode]::Update)
+    try {
+        $exists = $false
+        foreach ($entry in $archive.Entries) {
+            if ([string]::Equals($entry.FullName, $entryName, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $exists = $true
+                break
+            }
+        }
+
+        if (-not $exists) {
+            [void]$archive.CreateEntry($entryName)
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 function Verify-PublishOutput($PublishMode, $VersionInfo, [string]$TargetPath, [string]$ExePath) {
     $errors = @()
     $warnings = @()
@@ -347,9 +391,20 @@ function Verify-PublishOutput($PublishMode, $VersionInfo, [string]$TargetPath, [
         $errors += ".deps.json is missing. Lite package cannot resolve NuGet dependencies without it."
     }
 
-    $onnxFiles = Get-ChildItem -LiteralPath (Join-Path $TargetPath "ONNX") -Filter "*.onnx" -File -ErrorAction SilentlyContinue
-    if ($onnxFiles.Count -eq 0) {
-        $warnings += "No ONNX models found in publish output."
+    $onnxPath = Join-Path $TargetPath "ONNX"
+    if (-not (Test-Path -LiteralPath $onnxPath -PathType Container)) {
+        $errors += "ONNX directory is missing. The package must include an empty ONNX folder."
+    }
+    else {
+        $onnxContents = @(Get-ChildItem -LiteralPath $onnxPath -Force -ErrorAction SilentlyContinue)
+        if ($onnxContents.Count -gt 0) {
+            $errors += "ONNX directory must be empty in release packages."
+        }
+    }
+
+    $onnxFiles = @(Get-ChildItem -LiteralPath $TargetPath -Filter "*.onnx" -File -Recurse -ErrorAction SilentlyContinue)
+    if ($onnxFiles.Count -gt 0) {
+        $errors += "ONNX model files must not be packaged: $($onnxFiles.FullName -join '; ')"
     }
 
     if ($PublishMode -eq "Full" -and -not (Test-Path -LiteralPath (Join-Path $TargetPath "MVSDKmd.dll"))) {
@@ -437,6 +492,7 @@ function Invoke-PublishPackage($PublishMode, $VersionInfo, [string]$ResolvedOutp
 
     Write-Step "Post-processing output"
     Remove-DebugFiles $targetPath
+    Reset-OnnxOutputDirectory $targetPath
 
     $checkEnvPath = Join-Path $script:RepoRoot "check_env.bat"
     if (Test-Path -LiteralPath $checkEnvPath) {
@@ -460,6 +516,7 @@ function Invoke-PublishPackage($PublishMode, $VersionInfo, [string]$ResolvedOutp
         }
 
         Compress-Archive -Path (Join-Path $targetPath "*") -DestinationPath $zipPath -CompressionLevel Optimal
+        Add-EmptyDirectoryEntryToZip $zipPath "ONNX"
         Write-Ok "Zip created: $zipPath"
     }
 
