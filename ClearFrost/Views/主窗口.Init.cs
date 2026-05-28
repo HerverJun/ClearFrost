@@ -1874,6 +1874,7 @@ namespace ClearFrost
             {
                 Debug.WriteLine(
                     $"[Shutdown] 清理前队列状态: Images={_imageSaveQueue.PendingCount}/{_imageSaveQueue.Capacity}, " +
+                    $"ImageBuffer={FormatBytes(_imageSaveQueue.PendingBytes)}/{FormatBytes(_imageSaveQueue.MaxBufferedBytes)}, " +
                     $"ImageDropped={_imageSaveQueue.DroppedCount}, ImageFailed={_imageSaveQueue.FailedCount}, " +
                     $"Records={_detectionRecordQueue.PendingCount}/{_detectionRecordQueue.Capacity}, " +
                     $"RecordDropped={_detectionRecordQueue.DroppedCount}, RecordFailed={_detectionRecordQueue.FailedCount}");
@@ -1916,6 +1917,7 @@ namespace ClearFrost
                 Debug.WriteLine($"[Shutdown] 清理超时，尝试退出并保留最终兜底: {source}");
                 Debug.WriteLine(
                     $"[Shutdown] 超时时队列状态: Images={_imageSaveQueue.PendingCount}/{_imageSaveQueue.Capacity}, " +
+                    $"ImageBuffer={FormatBytes(_imageSaveQueue.PendingBytes)}/{FormatBytes(_imageSaveQueue.MaxBufferedBytes)}, " +
                     $"ImageDropped={_imageSaveQueue.DroppedCount}, ImageFailed={_imageSaveQueue.FailedCount}, " +
                     $"Records={_detectionRecordQueue.PendingCount}/{_detectionRecordQueue.Capacity}, " +
                     $"RecordDropped={_detectionRecordQueue.DroppedCount}, RecordFailed={_detectionRecordQueue.FailedCount}");
@@ -2026,6 +2028,11 @@ namespace ClearFrost
             {
                 Debug.WriteLine($"[HealthMonitor] 推送健康快照失败: {ex.Message}");
             }
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            return $"{bytes / 1024d / 1024d:F1}MB";
         }
 
         private static string NormalizeRequiredPlcAddressForSave(

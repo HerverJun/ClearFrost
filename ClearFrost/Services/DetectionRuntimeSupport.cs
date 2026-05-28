@@ -211,11 +211,14 @@ namespace ClearFrost.Services
             Path = path ?? throw new ArgumentNullException(nameof(path));
             JpegQuality = jpegQuality.HasValue ? Math.Clamp(jpegQuality.Value, 1, 100) : null;
             Purpose = purpose;
+            EstimatedBytes = EstimateBytes(image);
         }
 
         public Mat Image { get; }
 
         public string Path { get; }
+
+        public long EstimatedBytes { get; }
 
         public int? JpegQuality { get; }
 
@@ -248,6 +251,35 @@ namespace ClearFrost.Services
         public void Dispose()
         {
             Image.Dispose();
+        }
+
+        private static long EstimateBytes(Mat image)
+        {
+            if (image == null || image.Empty())
+            {
+                return 0;
+            }
+
+            try
+            {
+                long strideBytes = image.Step();
+                if (strideBytes > 0 && image.Rows > 0)
+                {
+                    return checked(strideBytes * image.Rows);
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                return checked(image.Total() * image.ElemSize());
+            }
+            catch
+            {
+                return 0;
+            }
         }
     }
 

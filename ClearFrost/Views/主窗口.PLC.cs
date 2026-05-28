@@ -101,13 +101,6 @@ namespace ClearFrost
                     }
                 }
 
-                if (shouldStartPlcTrigger && !await EnsureStartupReadyForProductionAsync("PLC触发监听"))
-                {
-                    await _uiController.LogToFrontend("PLC已连接，但启动诊断未通过，未启动触发监听", "warning");
-                    await SendHealthSnapshotToFrontendAsync();
-                    return;
-                }
-
                 if (shouldStartPlcTrigger)
                 {
                     // 启动 PLC 触发监控
@@ -170,14 +163,6 @@ namespace ClearFrost
                 await _uiController.LogToFrontend(
                     $"PLC已连接，但相机未就绪，暂未启动触发监听: {cameraReady.Message}",
                     "warning");
-                return;
-            }
-
-            if (!await EnsureStartupReadyForProductionAsync("PLC触发监听"))
-            {
-                _plcService.StopMonitoring();
-                await _uiController.LogToFrontend("PLC已连接，但启动诊断未通过，未启动触发监听", "warning");
-                await SendHealthSnapshotToFrontendAsync();
                 return;
             }
 

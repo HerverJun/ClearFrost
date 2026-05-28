@@ -9,7 +9,7 @@ namespace ClearFrost.Tests.Services;
 public class StartupDiagnosticsTests
 {
     [Fact]
-    public void Run_空模型注册表会产生阻塞失败()
+    public void Run_空模型注册表只产生非阻塞警告()
     {
         string tempDir = CreateTempDirectory();
         try
@@ -24,9 +24,59 @@ public class StartupDiagnosticsTests
 
             report.Items.Should().Contain(i =>
                 i.Name == "Model registry" &&
-                i.Status == StartupDiagnosticStatus.Fail &&
-                i.IsBlocking);
-            report.IsReady.Should().BeFalse();
+                i.Status == StartupDiagnosticStatus.Warning &&
+                !i.IsBlocking);
+            report.IsReady.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_模型包阻塞错误只产生非阻塞警告()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-blocked");
+            Directory.CreateDirectory(packageDir);
+            File.WriteAllBytes(Path.Combine(packageDir, "model.onnx"), new byte[] { 1, 2, 3 });
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                System.Text.Json.JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "pkg-blocked",
+                    Version = "1",
+                    ModelHash = "bad-hash",
+                    Labels = new List<string> { "screw" }
+                }));
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                StrictPackageMode = true,
+                Warmup = (_, _) => true
+            });
+            registry.HasBlockingErrors.Should().BeTrue();
+
+            var config = new AppConfig { StoragePath = tempDir };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                registry);
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Model registry" &&
+                i.Status == StartupDiagnosticStatus.Warning &&
+                !i.IsBlocking &&
+                i.Details.Contains("pkg-blocked"));
+            report.IsReady.Should().BeTrue();
         }
         finally
         {

@@ -422,6 +422,8 @@
     function getQueuePressureItems(health) {
         const imagePending = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "imageQueueLength", "ImageQueueLength"))));
         const imageCapacity = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "imageQueueCapacity", "ImageQueueCapacity"))));
+        const imagePendingBytes = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "imageQueuePendingBytes", "ImageQueuePendingBytes"))));
+        const imageMaxBufferedBytes = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "imageQueueMaxBufferedBytes", "ImageQueueMaxBufferedBytes"))));
         const recordPending = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "recordQueueLength", "RecordQueueLength"))));
         const recordCapacity = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "recordQueueCapacity", "RecordQueueCapacity"))));
         const items = [];
@@ -429,11 +431,18 @@
         if (imageCapacity > 0 && imagePending * 4 >= imageCapacity * 3) {
             items.push(`图像${imagePending}/${imageCapacity}`);
         }
+        if (imageMaxBufferedBytes > 0 && imagePendingBytes * 4 >= imageMaxBufferedBytes * 3) {
+            items.push(`图像缓冲${formatBytesMb(imagePendingBytes)}/${formatBytesMb(imageMaxBufferedBytes)}`);
+        }
         if (recordCapacity > 0 && recordPending * 4 >= recordCapacity * 3) {
             items.push(`记录${recordPending}/${recordCapacity}`);
         }
 
         return items;
+    }
+
+    function formatBytesMb(bytes) {
+        return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
     }
 
     function logQueuePressureAdvice(health) {

@@ -225,7 +225,7 @@ namespace ClearFrost.Services
         {
             if (modelRegistry.Entries.Count == 0)
             {
-                return Fail("Model registry", "No model entries were discovered.", string.Empty, isBlocking: true);
+                return Warn("Model registry", "No model entries were discovered; traceability metadata will be incomplete.", string.Empty, isBlocking: false);
             }
 
             if (modelRegistry.HasBlockingErrors)
@@ -235,7 +235,7 @@ namespace ClearFrost.Services
                     modelRegistry.Entries
                         .Where(e => e.Status == ModelRegistryStatus.Blocked)
                         .Select(e => $"{e.ModelId}: {e.Message}"));
-                return Fail("Model registry", "Blocking model package errors exist.", details, isBlocking: true);
+                return Warn("Model registry", "Model package errors exist; traceability metadata will be incomplete.", details, isBlocking: false);
             }
 
             int warningCount = modelRegistry.Entries.Count(e => e.Status == ModelRegistryStatus.Warning);
