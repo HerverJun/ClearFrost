@@ -48,17 +48,18 @@ namespace ClearFrost.Services
             if (config == null) throw new ArgumentNullException(nameof(config));
             if (storageService == null) throw new ArgumentNullException(nameof(storageService));
 
+            string operationalStoragePath = ResolveOperationalStoragePath(config, storageService);
             var items = new List<StartupDiagnosticItem>
             {
                 CheckWebView2Runtime(),
                 CheckNativeDll("OpenCV native dll", "OpenCvSharpExtern.dll", isBlocking: false),
                 CheckNativeDll("Camera SDK dll", "MVSDK_Net.dll", isBlocking: false),
                 CheckWritableDirectory("Database directory", Path.GetDirectoryName(RuntimePaths.DatabasePath) ?? RuntimePaths.DataDirectory, isBlocking: true),
-                CheckWritableDirectory("Storage directory", config.StoragePath, isBlocking: true),
+                CheckWritableDirectory("Storage directory", operationalStoragePath, isBlocking: true),
                 CheckWritableDirectory("Log directory", storageService.LogBasePath, isBlocking: true),
                 CheckPlcAddresses(config),
                 CheckCameraConfig(config),
-                CheckDiskFreeSpace(config.StoragePath)
+                CheckDiskFreeSpace(operationalStoragePath)
             };
 
             if (modelRegistry != null)
@@ -85,6 +86,28 @@ namespace ClearFrost.Services
             {
                 return Fail("WebView2 Runtime", "WebView2 runtime is not available.", ex.Message, isBlocking: true);
             }
+        }
+
+        private static string ResolveOperationalStoragePath(AppConfig config, IStorageService storageService)
+        {
+            try
+            {
+                string imageBasePath = storageService.ImageBasePath;
+                if (!string.IsNullOrWhiteSpace(imageBasePath))
+                {
+                    string? parent = Directory.GetParent(Path.GetFullPath(imageBasePath))?.FullName;
+                    if (!string.IsNullOrWhiteSpace(parent))
+                    {
+                        return parent;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[StartupDiagnostics] 解析运行存储目录失败: {ex.Message}");
+            }
+
+            return config.StoragePath;
         }
 
         private static StartupDiagnosticItem CheckNativeDll(string name, string fileName, bool isBlocking)

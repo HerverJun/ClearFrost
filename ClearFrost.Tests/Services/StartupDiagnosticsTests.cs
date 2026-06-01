@@ -1,8 +1,10 @@
 ﻿using ClearFrost.Config;
 using ClearFrost.Core.Models;
 using ClearFrost.Hardware;
+using ClearFrost.Interfaces;
 using ClearFrost.Services;
 using FluentAssertions;
+using System.Drawing;
 
 namespace ClearFrost.Tests.Services;
 
@@ -237,6 +239,35 @@ public class StartupDiagnosticsTests
     }
 
     [Fact]
+    public void Run_配置存储路径不可用时按运行存储目录诊断()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = @"Z:\ClearFrost_Unavailable_Test_Path"
+            };
+            using var storage = new FakeStorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Storage directory" &&
+                i.Status == StartupDiagnosticStatus.Pass &&
+                i.Details.Contains(tempDir, StringComparison.OrdinalIgnoreCase));
+            report.IsReady.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void Run_McpX三菱非D区地址会产生阻塞失败()
     {
         string tempDir = CreateTempDirectory();
@@ -312,5 +343,30 @@ public class StartupDiagnosticsTests
         {
             Directory.Delete(path, true);
         }
+    }
+
+    private sealed class FakeStorageService : IStorageService
+    {
+        private readonly string _basePath;
+
+        public FakeStorageService(string basePath)
+        {
+            _basePath = basePath;
+        }
+
+        public string ImageBasePath => Path.Combine(_basePath, "Images");
+        public string LogBasePath => Path.Combine(_basePath, "Logs");
+        public string SystemPath => Path.Combine(_basePath, "System");
+
+        public void SaveDetectionImage(Bitmap bitmap, bool isQualified) { }
+        public void SaveDetectionImageAsync(Bitmap bitmap, bool isQualified) { }
+        public void WriteDetectionLog(string content, bool isQualified) { }
+        public void WriteStartupLog(string action, string? serialNumber = null) { }
+        public void WriteErrorLog(string message) { }
+        public void CleanOldData(int retainDays) { }
+        public double GetDiskFreeSpaceGb() => 10;
+        public double PerformEmergencyCleanup() => 10;
+        public void EnsureDirectoriesExist() { }
+        public void Dispose() { }
     }
 }

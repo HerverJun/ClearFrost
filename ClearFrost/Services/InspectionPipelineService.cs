@@ -156,6 +156,8 @@ namespace ClearFrost.Services
         private readonly Func<float[]?> _roiSnapshotProvider;
         private readonly Func<string> _activeCameraIdProvider;
         private readonly Action<string>? _diagLog;
+        private const int RuntimeCameraRecoverySettleMs = 150;
+        private const int RuntimeCameraReconnectSettleMs = 250;
 
         public InspectionPipelineService(
             AppConfig appConfig,
@@ -447,6 +449,21 @@ namespace ClearFrost.Services
                         break;
                     }
 
+                    var recovery = await TryRecoverCameraForCaptureAsync(
+                        request,
+                        context,
+                        progressAsync,
+                        cancellationToken).ConfigureAwait(false);
+                    if (recovery)
+                    {
+                        frameToProcess = _cameraService.CaptureFrame(3000);
+                        DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机恢复后取图: {(frameToProcess != null ? "OK" : "FAIL")}");
+                        if (frameToProcess != null)
+                        {
+                            break;
+                        }
+                    }
+
                     if (attempt < totalAttempts)
                     {
                         string retryDetail = string.IsNullOrWhiteSpace(_cameraService.LastError)
@@ -539,6 +556,108 @@ namespace ClearFrost.Services
             pipelineResult.StatusMessage = detail;
             pipelineResult.StatusLevel = "error";
             return null;
+        }
+
+        private async Task<bool> TryRecoverCameraForCaptureAsync(
+            InspectionPipelineRequest request,
+            InspectionContext context,
+            Func<InspectionPipelineProgress, Task>? progressAsync,
+            CancellationToken cancellationToken)
+        {
+            string firstError = GetCameraErrorOrDefault("取图失败");
+            DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机取图失败，尝试运行期恢复: {firstError}");
+            await PublishLogAsync(
+                progressAsync,
+                context,
+                $"相机取图失败，正在自动恢复: {firstError}",
+                "warning").ConfigureAwait(false);
+
+            if (TryRestartCameraCapture(out string restartError))
+            {
+                await Task.Delay(RuntimeCameraRecoverySettleMs, cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(restartError))
+            {
+                DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 恢复采集失败: {restartError}");
+            }
+
+            CameraConfig? activeCamera = _appConfig.ActiveCamera ?? _appConfig.EnsureActiveCameraConfigFromLegacy();
+            if (activeCamera == null || string.IsNullOrWhiteSpace(activeCamera.SerialNumber))
+            {
+                DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 无活动相机配置，无法重连");
+                return false;
+            }
+
+            try
+            {
+                await PublishLogAsync(
+                    progressAsync,
+                    context,
+                    "相机采集未恢复，正在尝试重连相机",
+                    "warning").ConfigureAwait(false);
+
+                _cameraService.Close();
+                await Task.Delay(RuntimeCameraRecoverySettleMs, cancellationToken).ConfigureAwait(false);
+
+                bool opened = _cameraService.Open(activeCamera.SerialNumber, activeCamera.Manufacturer);
+                if (!opened)
+                {
+                    string openError = GetCameraErrorOrDefault("相机重连失败");
+                    DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机重连失败: {openError}");
+                    return false;
+                }
+
+                _cameraService.StartCapture();
+                await Task.Delay(RuntimeCameraReconnectSettleMs, cancellationToken).ConfigureAwait(false);
+                DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机重连完成，准备重新取图");
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机重连异常: {ex.Message}");
+                return false;
+            }
+        }
+
+        private bool TryRestartCameraCapture(out string error)
+        {
+            error = string.Empty;
+
+            try
+            {
+                if (!_cameraService.IsOpen)
+                {
+                    error = "相机未打开";
+                    return false;
+                }
+
+                _cameraService.StartCapture();
+                if (_cameraService.IsGrabbing)
+                {
+                    return true;
+                }
+
+                error = GetCameraErrorOrDefault("相机未进入采集状态");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        private string GetCameraErrorOrDefault(string fallback)
+        {
+            return string.IsNullOrWhiteSpace(_cameraService.LastError)
+                ? fallback
+                : _cameraService.LastError!;
         }
 
         private async Task ExecuteInferenceAndPersistenceStagesAsync(

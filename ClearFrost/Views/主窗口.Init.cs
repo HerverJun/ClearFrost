@@ -1010,7 +1010,7 @@ namespace ClearFrost
                         serialPortName = NormalizeSerialPortNameForSave(serialPortName);
                         if (triggerSource == TriggerSource.SerialPhotoelectric && string.IsNullOrWhiteSpace(serialPortName))
                         {
-                            throw new InvalidOperationException("选择串口光电触发时，必须先选择 COM 口");
+                            await _uiController.LogToFrontend("串口光电触发已保存，但 COM 口未配置，自动触发会暂不启动", "warning");
                         }
 
                         _appConfig.TriggerSource = triggerSource;
@@ -1594,12 +1594,12 @@ namespace ClearFrost
                 var cameraReady = await WaitForCameraReadyForInspectionAsync();
                 if (!cameraReady.Ready)
                 {
-                    _serialTriggerService.Stop();
                     await _uiController.LogToFrontend(
-                        $"串口光电触发暂未启动: {cameraReady.Message}",
+                        $"串口光电触发继续启动，相机暂未就绪；触发时将自动恢复相机: {cameraReady.Message}",
                         "warning");
                 }
-                else if (!string.IsNullOrWhiteSpace(_appConfig.SerialPhotoelectricPortName))
+
+                if (!string.IsNullOrWhiteSpace(_appConfig.SerialPhotoelectricPortName))
                 {
                     bool ok = await _serialTriggerService.StartAsync(
                         _appConfig.SerialPhotoelectricPortName,

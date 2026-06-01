@@ -94,9 +94,8 @@ namespace ClearFrost
                     var cameraReady = await WaitForCameraReadyForInspectionAsync();
                     if (!cameraReady.Ready)
                     {
-                        shouldStartPlcTrigger = false;
                         await _uiController.LogToFrontend(
-                            $"PLC已连接，但相机未就绪，暂未启动触发监听: {cameraReady.Message}",
+                            $"PLC已连接，相机暂未就绪，仍启动触发监听；触发时将自动恢复相机: {cameraReady.Message}",
                             "warning");
                     }
                 }
@@ -159,11 +158,9 @@ namespace ClearFrost
             var cameraReady = await WaitForCameraReadyForInspectionAsync();
             if (!cameraReady.Ready)
             {
-                _plcService.StopMonitoring();
                 await _uiController.LogToFrontend(
-                    $"PLC已连接，但相机未就绪，暂未启动触发监听: {cameraReady.Message}",
+                    $"PLC已连接，相机暂未就绪，保持触发监听；触发时将自动恢复相机: {cameraReady.Message}",
                     "warning");
-                return;
             }
 
             _plcService.StartMonitoring(

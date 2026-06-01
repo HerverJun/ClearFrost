@@ -142,6 +142,13 @@ namespace ClearFrost
                 return true;
             }
 
+            StartupDiagnosticReport refreshedReport = RefreshStartupDiagnostics();
+            if (refreshedReport.IsReady)
+            {
+                await _uiController.LogToFrontend($"启动诊断已恢复，继续{operation}", "info");
+                return true;
+            }
+
             string summary = _appRuntime.StartupBlockingSummary;
             if (string.IsNullOrWhiteSpace(summary))
             {

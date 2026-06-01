@@ -1035,6 +1035,33 @@ namespace ClearFrost
                 return true;
             }
 
+            await _uiController.LogToFrontend($"手动拍照: 相机未就绪，正在尝试自动恢复: {message}", "warning");
+            var readyAfterResume = await WaitForCameraReadyForInspectionAsync(timeoutMs: 1200);
+            if (readyAfterResume.Ready)
+            {
+                await _uiController.UpdateConnection("cam", true);
+                await _uiController.LogToFrontend("手动拍照: 相机采集已恢复", "info");
+                return true;
+            }
+
+            bool cameraReopened = await btnOpenCamera_LogicAsync(startTriggerSource: false);
+            if (cameraReopened)
+            {
+                var readyAfterReconnect = await WaitForCameraReadyForInspectionAsync(timeoutMs: 1200);
+                if (readyAfterReconnect.Ready)
+                {
+                    await _uiController.UpdateConnection("cam", true);
+                    await _uiController.LogToFrontend("手动拍照: 相机已自动重连", "info");
+                    return true;
+                }
+
+                message = readyAfterReconnect.Message;
+            }
+            else if (!string.IsNullOrWhiteSpace(_cameraService.LastError))
+            {
+                message = _cameraService.LastError!;
+            }
+
             RecordHealthError("Camera", $"手动检测已阻止: {message}");
             await _uiController.UpdateConnection("cam", false);
             await _uiController.SendUiCommand("toast", new

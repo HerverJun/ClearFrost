@@ -190,11 +190,68 @@ public class InspectionPipelineServiceTests
             result.HasFrame.Should().BeFalse();
             context.ErrorStage.Should().Be(nameof(InspectionStage.Capture));
             context.ErrorCode.Should().Be("CaptureFrameFailed");
-            camera.CaptureCalls.Should().Be(2);
+            camera.CaptureCalls.Should().Be(4);
             detection.DetectMatCalls.Should().Be(0);
             plc.WrittenValues.Should().Contain(config.PlcNgValue);
             database.SavedRecords.Should().ContainSingle();
             database.SavedRecords[0].ErrorCode.Should().Be("CaptureFrameFailed");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_首帧取图失败_自动恢复后继续检测()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            config.MaxRetryCount = 0;
+            var camera = FakeCameraService.WithCaptureSequence(
+                null,
+                new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService();
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
+                    UsedModelName = "primary.onnx",
+                    UsedModelLabels = new[] { "part" }
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue);
+            InspectionContext context = CreateContext("CF-CAPTURE-RECOVER", triggerSeq: 3);
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("PLC半自动", context.InspectionId, context.TriggerSeq, context),
+                default);
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeTrue();
+            result.AttemptCount.Should().Be(1);
+            camera.CaptureCalls.Should().Be(2);
+            camera.StartCaptureCalls.Should().Be(1);
+            detection.DetectMatCalls.Should().Be(1);
+            plc.WrittenValues.Should().Contain(config.PlcOkValue);
+            database.SavedRecords.Should().ContainSingle()
+                .Which.IsQualified.Should().BeTrue();
         }
         finally
         {
@@ -393,10 +450,24 @@ public class InspectionPipelineServiceTests
     private sealed class FakeCameraService : ICameraService
     {
         private readonly Mat? _frame;
+        private readonly Queue<Mat?> _captureSequence = new Queue<Mat?>();
+        private readonly List<Mat?> _ownedSequenceFrames = new List<Mat?>();
 
         public FakeCameraService(Mat? frame)
         {
             _frame = frame;
+        }
+
+        public static FakeCameraService WithCaptureSequence(params Mat?[] frames)
+        {
+            var service = new FakeCameraService(null);
+            foreach (Mat? frame in frames)
+            {
+                service._captureSequence.Enqueue(frame);
+                service._ownedSequenceFrames.Add(frame);
+            }
+
+            return service;
         }
 
         public event Action<Mat>? FrameCaptured;
@@ -404,7 +475,10 @@ public class InspectionPipelineServiceTests
         public event Action<string>? ErrorOccurred;
 
         public int CaptureCalls { get; private set; }
-        public string? LastErrorOverride { get; init; }
+        public int StartCaptureCalls { get; private set; }
+        public int OpenCalls { get; private set; }
+        public int CloseCalls { get; private set; }
+        public string? LastErrorOverride { get; set; }
 
         public bool IsOpen => true;
         public string CameraName => "FakeCamera";
@@ -412,21 +486,49 @@ public class InspectionPipelineServiceTests
         public Mat? LastFrame => _frame;
         public bool IsGrabbing => true;
 
-        public bool Open(string serialNumber, string manufacturer) => true;
-        public void Close() { }
-        public void StartCapture() { }
+        public bool Open(string serialNumber, string manufacturer)
+        {
+            OpenCalls++;
+            return true;
+        }
+
+        public void Close()
+        {
+            CloseCalls++;
+        }
+
+        public void StartCapture()
+        {
+            StartCaptureCalls++;
+        }
+
         public void StopCapture() { }
         public void TriggerOnce() { }
 
         public Mat? CaptureFrame(int timeoutMs = 3000)
         {
             CaptureCalls++;
-            return _frame?.Clone();
+            Mat? source = _captureSequence.Count > 0 ? _captureSequence.Dequeue() : _frame;
+            if (source == null)
+            {
+                LastErrorOverride ??= "timeout";
+                return null;
+            }
+
+            LastErrorOverride = null;
+            return source.Clone();
         }
 
         public void SetExposure(double exposureUs) { }
         public void SetGain(double gain) { }
-        public void Dispose() => _frame?.Dispose();
+        public void Dispose()
+        {
+            _frame?.Dispose();
+            foreach (Mat? frame in _ownedSequenceFrames)
+            {
+                frame?.Dispose();
+            }
+        }
     }
 
     private sealed class FakePlcService : IPlcService
