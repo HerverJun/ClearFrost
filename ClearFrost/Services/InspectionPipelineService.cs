@@ -197,9 +197,11 @@ namespace ClearFrost.Services
             Func<InspectionPipelineProgress, Task>? progressAsync = null)
         {
             InspectionContext context = request.Context;
+            bool plcIoEnabled = ShouldUsePlcIo();
+            bool barcodeEnabled = plcIoEnabled && _appConfig.BarcodeEnabled;
             var pipelineResult = new InspectionPipelineResult(context)
             {
-                BarcodeEnabled = _appConfig.BarcodeEnabled,
+                BarcodeEnabled = barcodeEnabled,
                 UsedModelName = _detectionService.CurrentModelName
             };
 
@@ -223,9 +225,9 @@ namespace ClearFrost.Services
                     context,
                     message: "检测流程启动",
                     usedModelName: pipelineResult.UsedModelName,
-                    barcodeEnabled: _appConfig.BarcodeEnabled).ConfigureAwait(false);
+                    barcodeEnabled: barcodeEnabled).ConfigureAwait(false);
 
-                if (_appConfig.BarcodeEnabled)
+                if (barcodeEnabled)
                 {
                     bool shouldStop = await ExecuteBarcodeStageAsync(
                         request,
@@ -374,19 +376,12 @@ namespace ClearFrost.Services
                 : "PLC 条码读取失败，已按 NG 处理";
             context.MarkFailed(InspectionStage.Barcode, errorCode, detail);
 
-            var plcSw = Stopwatch.StartNew();
-            bool plcWritten = await WriteDetectionResultToPlcAsync(false, context, progressAsync).ConfigureAwait(false);
-            plcSw.Stop();
-            pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
-            pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
-            context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
-            context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
-            pipelineResult.AddStage(
-                InspectionStage.PlcWrite,
-                plcWritten,
-                plcSw.ElapsedMilliseconds,
-                plcWritten ? "PLC 已写入 NG" : "PLC 写入 NG 失败",
-                plcWritten ? null : context.ErrorCode);
+            await ExecutePlcResultWriteStageAsync(
+                pipelineResult,
+                false,
+                "PLC 已写入 NG",
+                "PLC 写入 NG 失败",
+                progressAsync).ConfigureAwait(false);
 
             _statisticsService.RecordDetection(false);
             _storageService.WriteDetectionLog(
@@ -513,19 +508,12 @@ namespace ClearFrost.Services
                 $"{detail} (ID: {request.InspectionId})",
                 "error").ConfigureAwait(false);
 
-            var plcSw = Stopwatch.StartNew();
-            bool plcWritten = await WriteDetectionResultToPlcAsync(false, context, progressAsync).ConfigureAwait(false);
-            plcSw.Stop();
-            pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
-            pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
-            context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
-            context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
-            pipelineResult.AddStage(
-                InspectionStage.PlcWrite,
-                plcWritten,
-                plcSw.ElapsedMilliseconds,
-                plcWritten ? "PLC 已写入 NG" : "PLC 写入 NG 失败",
-                plcWritten ? null : context.ErrorCode);
+            await ExecutePlcResultWriteStageAsync(
+                pipelineResult,
+                false,
+                "PLC 已写入 NG",
+                "PLC 写入 NG 失败",
+                progressAsync).ConfigureAwait(false);
 
             _statisticsService.RecordDetection(false);
             _storageService.WriteDetectionLog(
@@ -776,20 +764,12 @@ namespace ClearFrost.Services
                 pipelineResult.FinalQualified = isQualified;
                 context.ResultSeq = context.TriggerSeq;
 
-                context.CurrentStage = InspectionStage.PlcWrite;
-                var plcSw = Stopwatch.StartNew();
-                bool plcWritten = await WriteDetectionResultToPlcAsync(isQualified, context, progressAsync).ConfigureAwait(false);
-                plcSw.Stop();
-                pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
-                pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
-                context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
-                context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
-                pipelineResult.AddStage(
-                    InspectionStage.PlcWrite,
-                    plcWritten,
-                    plcSw.ElapsedMilliseconds,
-                    plcWritten ? "PLC 结果写入完成" : "PLC 结果写入失败",
-                    plcWritten ? null : context.ErrorCode);
+                await ExecutePlcResultWriteStageAsync(
+                    pipelineResult,
+                    isQualified,
+                    "PLC 结果写入完成",
+                    "PLC 结果写入失败",
+                    progressAsync).ConfigureAwait(false);
 
                 Mat? renderedMat = TryRenderDetectionMat(frameToProcess, results, labels);
                 _statisticsService.RecordDetection(isQualified);
@@ -835,19 +815,12 @@ namespace ClearFrost.Services
 
                 if (failedStage is InspectionStage.Inference or InspectionStage.RoiFilter)
                 {
-                    var plcSw = Stopwatch.StartNew();
-                    bool plcWritten = await WriteDetectionResultToPlcAsync(false, context, progressAsync).ConfigureAwait(false);
-                    plcSw.Stop();
-                    pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
-                    pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
-                    context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
-                    context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
-                    pipelineResult.AddStage(
-                        InspectionStage.PlcWrite,
-                        plcWritten,
-                        plcSw.ElapsedMilliseconds,
-                        plcWritten ? "PLC 已写入 NG" : "PLC 写入 NG 失败",
-                        plcWritten ? null : context.ErrorCode);
+                    await ExecutePlcResultWriteStageAsync(
+                        pipelineResult,
+                        false,
+                        "PLC 已写入 NG",
+                        "PLC 写入 NG 失败",
+                        progressAsync).ConfigureAwait(false);
                 }
 
                 _statisticsService.RecordDetection(false);
@@ -951,6 +924,11 @@ namespace ClearFrost.Services
 
         private async Task<BarcodeReadResult> ReadBarcodeForInspectionAsync(InspectionContext context)
         {
+            if (!ShouldUsePlcIo())
+            {
+                return new BarcodeReadResult(null, false, "PlcIoSkipped", "非 PLC 触发模式，已跳过 PLC 条码读取");
+            }
+
             try
             {
                 var (success, value) = await _plcService.ReadStringAsync(
@@ -1231,7 +1209,7 @@ namespace ClearFrost.Services
 
         private async Task WriteHandshakeDetectionStartedAsync(InspectionContext context)
         {
-            if (_appConfig.TriggerSource != TriggerSource.PLC)
+            if (!ShouldUsePlcIo())
             {
                 return;
             }
@@ -1255,7 +1233,7 @@ namespace ClearFrost.Services
 
         private async Task WriteHandshakeDetectionCompletedAsync(InspectionContext context, bool isQualified)
         {
-            if (_appConfig.TriggerSource != TriggerSource.PLC)
+            if (!ShouldUsePlcIo())
             {
                 return;
             }
@@ -1331,6 +1309,12 @@ namespace ClearFrost.Services
             InspectionContext context,
             Func<InspectionPipelineProgress, Task>? progressAsync)
         {
+            if (!ShouldUsePlcIo())
+            {
+                DiagLog($"[{context.TriggerSource}] [{context.InspectionId}] 非 PLC 触发模式，跳过 PLC 结果写入");
+                return true;
+            }
+
             if (!_plcService.IsConnected)
             {
                 if (string.IsNullOrWhiteSpace(context.ErrorCode))
@@ -1385,6 +1369,40 @@ namespace ClearFrost.Services
                     "error").ConfigureAwait(false);
                 return false;
             }
+        }
+
+        private async Task ExecutePlcResultWriteStageAsync(
+            InspectionPipelineResult pipelineResult,
+            bool isQualified,
+            string successMessage,
+            string failureMessage,
+            Func<InspectionPipelineProgress, Task>? progressAsync)
+        {
+            if (!ShouldUsePlcIo())
+            {
+                return;
+            }
+
+            InspectionContext context = pipelineResult.Context;
+            context.CurrentStage = InspectionStage.PlcWrite;
+            var plcSw = Stopwatch.StartNew();
+            bool plcWritten = await WriteDetectionResultToPlcAsync(isQualified, context, progressAsync).ConfigureAwait(false);
+            plcSw.Stop();
+            pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
+            pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
+            context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
+            context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
+            pipelineResult.AddStage(
+                InspectionStage.PlcWrite,
+                plcWritten,
+                plcSw.ElapsedMilliseconds,
+                plcWritten ? successMessage : failureMessage,
+                plcWritten ? null : context.ErrorCode);
+        }
+
+        private bool ShouldUsePlcIo()
+        {
+            return _appConfig.TriggerSource == TriggerSource.PLC;
         }
 
         private void RecordHealthError(string source, string message, string? inspectionId = null)

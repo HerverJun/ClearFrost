@@ -149,6 +149,42 @@ public class StartupDiagnosticsTests
     }
 
     [Fact]
+    public void Run_串口光电触发时跳过Plc地址校验()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                TriggerSource = TriggerSource.SerialPhotoelectric,
+                PlcProtocol = "Mitsubishi_MC_ASCI",
+                PlcTriggerAddress = "bad-address",
+                PlcResultAddress = "bad-result-address",
+                BarcodeEnabled = true,
+                BarcodeAddress = "bad-barcode-address"
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "PLC address config" &&
+                i.Status == StartupDiagnosticStatus.Pass &&
+                !i.IsBlocking &&
+                i.Details == TriggerSource.SerialPhotoelectric.ToString());
+            report.IsReady.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void Run_Plc驱动名非法会产生阻塞失败()
     {
         string tempDir = CreateTempDirectory();

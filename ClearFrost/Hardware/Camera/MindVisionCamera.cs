@@ -18,6 +18,12 @@ namespace ClearFrost.Hardware
         private bool _isGrabbing = false;
         private CameraDeviceInfo? _currentDevice;
         private List<CameraDeviceInfo> _cachedDevices = new();
+        private IMVDefine.IMV_Frame _lastFrame;
+        private bool _hasUnreleasedFrame;
+        private byte[]? _convertedFrameBuffer;
+        private GCHandle _convertedFrameHandle;
+        private byte[]? _rawFrameBuffer;
+        private GCHandle _rawFrameHandle;
 
         public string ProviderName => "Huaray";
         public bool IsConnected => _isConnected;
@@ -186,6 +192,8 @@ namespace ClearFrost.Hardware
 
             try
             {
+                ReleaseLastFrame();
+
                 var frame = new IMVDefine.IMV_Frame();
                 int result = _cam.IMV_GetFrame(ref frame, (uint)timeoutMs);
 
@@ -194,20 +202,40 @@ namespace ClearFrost.Hardware
                     return null;
                 }
 
-                var cameraFrame = new CameraFrame
-                {
-                    DataPtr = frame.pData,
-                    Width = (int)frame.frameInfo.width,
-                    Height = (int)frame.frameInfo.height,
-                    Size = (int)frame.frameInfo.size,
-                    PixelFormat = ConvertPixelFormat((uint)frame.frameInfo.pixelFormat),
-                    FrameNumber = 0,
-                    Timestamp = 0,
-                    NeedsNativeRelease = true,
-                    ReleaseCallback = ReleaseFrame
-                };
+                _lastFrame = frame;
+                _hasUnreleasedFrame = true;
 
-                return cameraFrame;
+                try
+                {
+                    var mappedPixelFormat = ConvertPixelFormat((uint)frame.frameInfo.pixelFormat);
+                    if (TryConvertFrameToBgr8(frame, mappedPixelFormat, out var convertedFrame))
+                    {
+                        return convertedFrame;
+                    }
+
+                    if (frame.frameInfo.size == 0 || frame.pData == IntPtr.Zero)
+                    {
+                        return null;
+                    }
+
+                    int frameSize = CopyFrameToRawBuffer(frame, mappedPixelFormat);
+
+                    return new CameraFrame
+                    {
+                        DataPtr = _rawFrameHandle.AddrOfPinnedObject(),
+                        Width = (int)frame.frameInfo.width,
+                        Height = (int)frame.frameInfo.height,
+                        Size = frameSize,
+                        PixelFormat = mappedPixelFormat,
+                        FrameNumber = frame.frameInfo.blockId,
+                        Timestamp = frame.frameInfo.timeStamp,
+                        NeedsNativeRelease = false
+                    };
+                }
+                finally
+                {
+                    ReleaseLastFrame();
+                }
             }
             catch (Exception ex)
             {
@@ -216,16 +244,194 @@ namespace ClearFrost.Hardware
             }
         }
 
+        private bool TryConvertFrameToBgr8(
+            IMVDefine.IMV_Frame frame,
+            CameraPixelFormat mappedPixelFormat,
+            out CameraFrame convertedFrame)
+        {
+            convertedFrame = null!;
+
+            if (!IsColorPixelFormat(mappedPixelFormat) ||
+                frame.pData == IntPtr.Zero ||
+                frame.frameInfo.width == 0 ||
+                frame.frameInfo.height == 0)
+            {
+                return false;
+            }
+
+            int destinationSize = checked((int)frame.frameInfo.width * (int)frame.frameInfo.height * 3);
+            EnsureConvertedFrameBuffer(destinationSize);
+
+            var convertParam = new IMVDefine.IMV_PixelConvertParam
+            {
+                nWidth = frame.frameInfo.width,
+                nHeight = frame.frameInfo.height,
+                ePixelFormat = frame.frameInfo.pixelFormat,
+                pSrcData = frame.pData,
+                nSrcDataLen = frame.frameInfo.size,
+                nPaddingX = frame.frameInfo.paddingX,
+                nPaddingY = frame.frameInfo.paddingY,
+                eBayerDemosaic = IMVDefine.IMV_EBayerDemosaic.demosaicEdgeSensing,
+                eDstPixelFormat = IMVDefine.IMV_EPixelType.gvspPixelBGR8,
+                pDstBuf = _convertedFrameHandle.AddrOfPinnedObject(),
+                nDstBufSize = (uint)destinationSize
+            };
+
+            int result = _cam.IMV_PixelConvert(ref convertParam);
+            if (result != IMVDefine.IMV_OK || convertParam.nDstDataLen == 0)
+            {
+                Debug.WriteLine($"[MindVisionCamera] PixelConvert to BGR8 failed: ErrorCode={result}, PixelFormat=0x{unchecked((uint)frame.frameInfo.pixelFormat):X8}");
+                return false;
+            }
+
+            convertedFrame = new CameraFrame
+            {
+                DataPtr = _convertedFrameHandle.AddrOfPinnedObject(),
+                Width = (int)frame.frameInfo.width,
+                Height = (int)frame.frameInfo.height,
+                Size = checked((int)convertParam.nDstDataLen),
+                PixelFormat = CameraPixelFormat.BGR8,
+                FrameNumber = frame.frameInfo.blockId,
+                Timestamp = frame.frameInfo.timeStamp,
+                NeedsNativeRelease = false
+            };
+
+            return true;
+        }
+
+        private void EnsureConvertedFrameBuffer(int size)
+        {
+            if (_convertedFrameBuffer != null && _convertedFrameBuffer.Length >= size && _convertedFrameHandle.IsAllocated)
+            {
+                return;
+            }
+
+            ReleaseConvertedFrameBuffer();
+            _convertedFrameBuffer = new byte[size];
+            _convertedFrameHandle = GCHandle.Alloc(_convertedFrameBuffer, GCHandleType.Pinned);
+        }
+
+        private void ReleaseConvertedFrameBuffer()
+        {
+            if (_convertedFrameHandle.IsAllocated)
+            {
+                _convertedFrameHandle.Free();
+            }
+
+            _convertedFrameBuffer = null;
+        }
+
+        private void EnsureRawFrameBuffer(int size)
+        {
+            if (_rawFrameBuffer != null && _rawFrameBuffer.Length >= size && _rawFrameHandle.IsAllocated)
+            {
+                return;
+            }
+
+            ReleaseRawFrameBuffer();
+            _rawFrameBuffer = new byte[size];
+            _rawFrameHandle = GCHandle.Alloc(_rawFrameBuffer, GCHandleType.Pinned);
+        }
+
+        private void ReleaseRawFrameBuffer()
+        {
+            if (_rawFrameHandle.IsAllocated)
+            {
+                _rawFrameHandle.Free();
+            }
+
+            _rawFrameBuffer = null;
+        }
+
+        private static bool IsColorPixelFormat(CameraPixelFormat pixelFormat)
+        {
+            return pixelFormat is CameraPixelFormat.RGB8
+                or CameraPixelFormat.BGR8
+                or CameraPixelFormat.BayerRG8
+                or CameraPixelFormat.BayerGB8
+                or CameraPixelFormat.BayerGR8
+                or CameraPixelFormat.BayerBG8;
+        }
+
+        private void ReleaseLastFrame()
+        {
+            if (!_hasUnreleasedFrame)
+            {
+                return;
+            }
+
+            try
+            {
+                _cam.IMV_ReleaseFrame(ref _lastFrame);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MindVisionCamera] ReleaseFrame failed: {ex.Message}");
+            }
+            finally
+            {
+                _hasUnreleasedFrame = false;
+            }
+        }
+
         public void ReleaseFrame(CameraFrame frame)
         {
             if (!_isConnected || !frame.NeedsNativeRelease) return;
 
-            try
+            ReleaseLastFrame();
+        }
+
+        private int CopyFrameToRawBuffer(IMVDefine.IMV_Frame frame, CameraPixelFormat pixelFormat)
+        {
+            int width = checked((int)frame.frameInfo.width);
+            int height = checked((int)frame.frameInfo.height);
+            int paddingX = checked((int)frame.frameInfo.paddingX);
+            int frameSize = checked((int)frame.frameInfo.size);
+
+            if (!TryGetRowBytes(pixelFormat, width, out int rowBytes))
             {
-                var imvFrame = new IMVDefine.IMV_Frame { pData = frame.DataPtr };
-                _cam.IMV_ReleaseFrame(ref imvFrame);
+                EnsureRawFrameBuffer(frameSize);
+                Marshal.Copy(frame.pData, _rawFrameBuffer!, 0, frameSize);
+                return frameSize;
             }
-            catch (Exception ex) { Debug.WriteLine($"[MindVisionCamera] ReleaseFrame failed: {ex.Message}"); }
+
+            int compactSize = checked(rowBytes * height);
+            EnsureRawFrameBuffer(compactSize);
+
+            int srcStride = checked(rowBytes + paddingX);
+            if (srcStride == rowBytes)
+            {
+                Marshal.Copy(frame.pData, _rawFrameBuffer!, 0, compactSize);
+                return compactSize;
+            }
+
+            for (int row = 0; row < height; row++)
+            {
+                Marshal.Copy(
+                    IntPtr.Add(frame.pData, checked(row * srcStride)),
+                    _rawFrameBuffer!,
+                    checked(row * rowBytes),
+                    rowBytes);
+            }
+
+            return compactSize;
+        }
+
+        private static bool TryGetRowBytes(CameraPixelFormat pixelFormat, int width, out int rowBytes)
+        {
+            rowBytes = pixelFormat switch
+            {
+                CameraPixelFormat.Mono8 => width,
+                CameraPixelFormat.BayerRG8 => width,
+                CameraPixelFormat.BayerGB8 => width,
+                CameraPixelFormat.BayerGR8 => width,
+                CameraPixelFormat.BayerBG8 => width,
+                CameraPixelFormat.RGB8 => checked(width * 3),
+                CameraPixelFormat.BGR8 => checked(width * 3),
+                _ => -1
+            };
+
+            return rowBytes >= 0;
         }
 
         private static CameraPixelFormat ConvertPixelFormat(uint pixelType)
@@ -296,6 +502,7 @@ namespace ClearFrost.Hardware
 
             try
             {
+                ReleaseLastFrame();
                 Close();
             }
             catch (Exception ex)
@@ -304,6 +511,8 @@ namespace ClearFrost.Hardware
             }
             finally
             {
+                ReleaseConvertedFrameBuffer();
+                ReleaseRawFrameBuffer();
                 _disposed = true;
             }
         }

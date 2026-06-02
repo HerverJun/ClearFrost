@@ -819,6 +819,7 @@ namespace ClearFrost
             int finalResultCount = 0;
             int finalAttemptCount = 1;
             InspectionPipelineResult? pipelineResult = null;
+            bool barcodeEnabled = _appConfig.TriggerSource == TriggerSource.PLC && _appConfig.BarcodeEnabled;
 
             try
             {
@@ -827,7 +828,7 @@ namespace ClearFrost
                     context,
                     message: "检测已触发",
                     usedModelName: _detectionService.CurrentModelName,
-                    barcodeEnabled: _appConfig.BarcodeEnabled);
+                    barcodeEnabled: barcodeEnabled);
 
                 pipelineResult = await _inspectionPipelineService.ExecuteAsync(
                     request,
@@ -851,7 +852,7 @@ namespace ClearFrost
                     0,
                     _detectionService.CurrentModelName,
                     false,
-                    _appConfig.BarcodeEnabled);
+                    barcodeEnabled);
             }
             finally
             {

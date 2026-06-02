@@ -341,6 +341,63 @@ public class InspectionPipelineServiceTests
         }
     }
 
+    [Fact]
+    public async Task ExecuteAsync_串口光电触发_跳过Plc条码读取和结果写入()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: true, barcodeRequired: true);
+            config.TriggerSource = TriggerSource.SerialPhotoelectric;
+            var camera = new FakeCameraService(new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService { BarcodeValue = " " };
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
+                    UsedModelName = "primary.onnx",
+                    UsedModelLabels = new[] { "part" }
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue);
+            InspectionContext context = CreateContext("CF-SERIAL-001", triggerSeq: null, triggerSource: "串口光电");
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("串口光电", context.InspectionId, context.TriggerSeq, context),
+                default);
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeTrue();
+            result.BarcodeEnabled.Should().BeFalse();
+            result.Stages.Select(stage => stage.Stage).Should().NotContain(InspectionStage.Barcode);
+            result.Stages.Select(stage => stage.Stage).Should().NotContain(InspectionStage.PlcWrite);
+            plc.ReadStringCalls.Should().Be(0);
+            plc.WrittenValues.Should().BeEmpty();
+            camera.CaptureCalls.Should().Be(1);
+            detection.DetectMatCalls.Should().Be(1);
+            database.SavedRecords.Should().ContainSingle();
+            database.SavedRecords[0].ProductBarcode.Should().BeEmpty();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static InspectionPipelineService CreateService(
         AppConfig config,
         FakeCameraService camera,
@@ -409,13 +466,13 @@ public class InspectionPipelineServiceTests
         };
     }
 
-    private static InspectionContext CreateContext(string inspectionId, int? triggerSeq)
+    private static InspectionContext CreateContext(string inspectionId, int? triggerSeq, string triggerSource = "TEST")
     {
         return new InspectionContext
         {
             InspectionId = inspectionId,
             TriggerTime = DateTimeOffset.Now,
-            TriggerSource = "TEST",
+            TriggerSource = triggerSource,
             TriggerSeq = triggerSeq,
             CurrentStage = InspectionStage.Triggered,
             TraceStatus = TraceStatus.Unknown
@@ -543,6 +600,7 @@ public class InspectionPipelineServiceTests
         public string? LastError { get; init; }
         public string BarcodeValue { get; init; } = "SN-DEFAULT";
         public List<short> WrittenValues { get; } = new List<short>();
+        public int ReadStringCalls { get; private set; }
 
         public Task<bool> ConnectAsync(PlcConnectionOptions options) => Task.FromResult(true);
         public void Disconnect() { }
@@ -566,7 +624,10 @@ public class InspectionPipelineServiceTests
 
         public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
         public Task<(bool Success, string Value)> ReadStringAsync(string startAddress, int wordLength, string encodingName)
-            => Task.FromResult((true, BarcodeValue));
+        {
+            ReadStringCalls++;
+            return Task.FromResult((true, BarcodeValue));
+        }
         public void Dispose() { }
     }
 

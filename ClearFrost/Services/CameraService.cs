@@ -45,6 +45,7 @@ namespace ClearFrost.Services
         private readonly object _frameLock = new object();
         private readonly SemaphoreSlim _cameraOperationLock = new SemaphoreSlim(1, 1);
         private bool _disposed;
+        private bool _hasLoggedFramePixelFormatDiagnostics;
 
         #endregion
 
@@ -202,6 +203,7 @@ namespace ClearFrost.Services
                 if (success)
                 {
                     LastError = null;
+                    _hasLoggedFramePixelFormatDiagnostics = false;
                     ConnectionChanged?.Invoke(true);
                     Debug.WriteLine($"[CameraService] 相机已打开 (SDK): {serialNumber}");
                     return true;
@@ -248,6 +250,7 @@ namespace ClearFrost.Services
                 {
                     // 使用 CameraInstance.Close() 对齐生命周期，避免重复销毁句柄
                     activeCamera.Close();
+                    _hasLoggedFramePixelFormatDiagnostics = false;
 
                     ConnectionChanged?.Invoke(false);
                     Debug.WriteLine("[CameraService] 相机已关闭");
@@ -581,8 +584,9 @@ namespace ClearFrost.Services
                         return null;
                     }
 
-                    Mat mat = ConvertFrameToMat(frame);
+                    Mat mat = ConvertFrameToMat(camera, frame);
                     CacheLastFrameReference(mat);
+                    LogFramePixelFormatDiagnostics(activeCamera, frame, mat, "SDK");
 
                     LastError = null;
                     return mat;
@@ -630,6 +634,7 @@ namespace ClearFrost.Services
                     {
                         using Mat capturedFrame = ConvertCameraFrameToMat(cameraFrame);
                         CacheLastFrameReference(capturedFrame);
+                        LogFramePixelFormatDiagnostics(activeCamera, cameraFrame, capturedFrame, "Provider");
 
                         var frameCapturedHandler = FrameCaptured;
                         if (frameCapturedHandler != null)
@@ -653,17 +658,73 @@ namespace ClearFrost.Services
             }
         }
 
+        private void LogFramePixelFormatDiagnostics(CameraInstance activeCamera, IMVDefine.IMV_Frame frame, Mat mat, string source)
+        {
+            uint pixelFormat = unchecked((uint)frame.frameInfo.pixelFormat);
+            LogFramePixelFormatDiagnostics(activeCamera, source, $"0x{pixelFormat:X8}", mat);
+        }
+
+        private void LogFramePixelFormatDiagnostics(CameraInstance activeCamera, CameraFrame frame, Mat mat, string source)
+        {
+            string framePixelFormat = TryGetGvspPixelFormat(frame.PixelFormat, out uint pixelFormat)
+                ? $"0x{pixelFormat:X8}"
+                : frame.PixelFormat.ToString();
+
+            LogFramePixelFormatDiagnostics(activeCamera, source, framePixelFormat, mat);
+        }
+
+        private void LogFramePixelFormatDiagnostics(CameraInstance activeCamera, string source, string framePixelFormat, Mat mat)
+        {
+            if (_hasLoggedFramePixelFormatDiagnostics)
+            {
+                return;
+            }
+
+            _hasLoggedFramePixelFormatDiagnostics = true;
+
+            try
+            {
+                string requested = string.IsNullOrWhiteSpace(activeCamera.Config.PixelFormat)
+                    ? "Empty"
+                    : activeCamera.Config.PixelFormat.Trim();
+                string current = "Unknown";
+                if (activeCamera.Camera is ICameraFeatureInspector inspector &&
+                    inspector.TryGetEnumFeatureSymbol("PixelFormat", out string actual) &&
+                    !string.IsNullOrWhiteSpace(actual))
+                {
+                    current = actual;
+                }
+
+                Debug.WriteLine(
+                    $"[CameraService] PixelFormat diagnostics: Source={source}, Requested={requested}, Current={current}, FirstFrame={framePixelFormat}, MatChannels={mat.Channels()}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CameraService] PixelFormat diagnostics failed: {ex.Message}");
+            }
+        }
+
         /// <summary>
         /// 将相机帧转换为 OpenCV Mat 格式
         /// </summary>
+        /// <param name="camera">相机实例</param>
         /// <param name="frame">SDK 原始帧</param>
         /// <returns>OpenCV Mat</returns>
-        private static Mat ConvertFrameToMat(IMVDefine.IMV_Frame frame)
+        private static Mat ConvertFrameToMat(ICamera camera, IMVDefine.IMV_Frame frame)
         {
             int width = (int)frame.frameInfo.width;
             int height = (int)frame.frameInfo.height;
             int paddingX = (int)frame.frameInfo.paddingX;
             uint pixelFormat = unchecked((uint)frame.frameInfo.pixelFormat);
+
+            if (camera is ICameraFramePixelConverter converter &&
+                converter.TryConvertFrameToBgr8(frame, out var convertedFrame))
+            {
+                using (convertedFrame)
+                {
+                    return ConvertCameraFrameToMat(convertedFrame);
+                }
+            }
 
             return ConvertRawFrameToMat(frame.pData, width, height, paddingX, pixelFormat);
         }
@@ -675,10 +736,10 @@ namespace ClearFrost.Services
                 CameraPixelFormat.Mono8 => CopyFrameBufferToMat(frame.DataPtr, frame.Width, frame.Height, frame.Width, frame.Width, MatType.CV_8UC1),
                 CameraPixelFormat.BGR8 => CopyFrameBufferToMat(frame.DataPtr, frame.Width, frame.Height, frame.Width * 3, frame.Width * 3, MatType.CV_8UC3),
                 CameraPixelFormat.RGB8 => ConvertRgbMatToBgr(CopyFrameBufferToMat(frame.DataPtr, frame.Width, frame.Height, frame.Width * 3, frame.Width * 3, MatType.CV_8UC3)),
-                CameraPixelFormat.BayerRG8 => ConvertBayerMatToBgr(frame.DataPtr, frame.Width, frame.Height, frame.Width, ColorConversionCodes.BayerRG2BGR),
-                CameraPixelFormat.BayerGB8 => ConvertBayerMatToBgr(frame.DataPtr, frame.Width, frame.Height, frame.Width, ColorConversionCodes.BayerGB2BGR),
-                CameraPixelFormat.BayerGR8 => ConvertBayerMatToBgr(frame.DataPtr, frame.Width, frame.Height, frame.Width, ColorConversionCodes.BayerGR2BGR),
-                CameraPixelFormat.BayerBG8 => ConvertBayerMatToBgr(frame.DataPtr, frame.Width, frame.Height, frame.Width, ColorConversionCodes.BayerBG2BGR),
+                CameraPixelFormat.BayerRG8 => ConvertBayerMatToBgr(frame.DataPtr, frame.Width, frame.Height, frame.Width, GetGenICamBayerToBgrCode(CameraPixelFormat.BayerRG8)),
+                CameraPixelFormat.BayerGB8 => ConvertBayerMatToBgr(frame.DataPtr, frame.Width, frame.Height, frame.Width, GetGenICamBayerToBgrCode(CameraPixelFormat.BayerGB8)),
+                CameraPixelFormat.BayerGR8 => ConvertBayerMatToBgr(frame.DataPtr, frame.Width, frame.Height, frame.Width, GetGenICamBayerToBgrCode(CameraPixelFormat.BayerGR8)),
+                CameraPixelFormat.BayerBG8 => ConvertBayerMatToBgr(frame.DataPtr, frame.Width, frame.Height, frame.Width, GetGenICamBayerToBgrCode(CameraPixelFormat.BayerBG8)),
                 _ => throw new NotSupportedException($"不支持的相机帧像素格式: {frame.PixelFormat}")
             };
         }
@@ -690,11 +751,41 @@ namespace ClearFrost.Services
                 GvspPixelMono8 => CopyFrameBufferToMat(dataPtr, width, height, width + paddingX, width, MatType.CV_8UC1),
                 GvspPixelBgr8 => CopyFrameBufferToMat(dataPtr, width, height, width * 3 + paddingX, width * 3, MatType.CV_8UC3),
                 GvspPixelRgb8 => ConvertRgbMatToBgr(CopyFrameBufferToMat(dataPtr, width, height, width * 3 + paddingX, width * 3, MatType.CV_8UC3)),
-                GvspPixelBayerRg8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, ColorConversionCodes.BayerRG2BGR),
-                GvspPixelBayerGb8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, ColorConversionCodes.BayerGB2BGR),
-                GvspPixelBayerGr8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, ColorConversionCodes.BayerGR2BGR),
-                GvspPixelBayerBg8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, ColorConversionCodes.BayerBG2BGR),
+                GvspPixelBayerRg8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, GetGenICamBayerToBgrCode(CameraPixelFormat.BayerRG8)),
+                GvspPixelBayerGb8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, GetGenICamBayerToBgrCode(CameraPixelFormat.BayerGB8)),
+                GvspPixelBayerGr8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, GetGenICamBayerToBgrCode(CameraPixelFormat.BayerGR8)),
+                GvspPixelBayerBg8 => ConvertBayerMatToBgr(dataPtr, width, height, width + paddingX, GetGenICamBayerToBgrCode(CameraPixelFormat.BayerBG8)),
                 _ => throw new NotSupportedException($"不支持的 SDK 帧像素格式: 0x{pixelFormat:X8}")
+            };
+        }
+
+        private static bool TryGetGvspPixelFormat(CameraPixelFormat pixelFormat, out uint gvspPixelFormat)
+        {
+            gvspPixelFormat = pixelFormat switch
+            {
+                CameraPixelFormat.Mono8 => GvspPixelMono8,
+                CameraPixelFormat.RGB8 => GvspPixelRgb8,
+                CameraPixelFormat.BGR8 => GvspPixelBgr8,
+                CameraPixelFormat.BayerRG8 => GvspPixelBayerRg8,
+                CameraPixelFormat.BayerGB8 => GvspPixelBayerGb8,
+                CameraPixelFormat.BayerGR8 => GvspPixelBayerGr8,
+                CameraPixelFormat.BayerBG8 => GvspPixelBayerBg8,
+                _ => 0
+            };
+
+            return gvspPixelFormat != 0;
+        }
+
+        private static ColorConversionCodes GetGenICamBayerToBgrCode(CameraPixelFormat pixelFormat)
+        {
+            // OpenCV 短名和 GenICam BayerRG/GB/GR/BG 不是同一套命名。
+            return pixelFormat switch
+            {
+                CameraPixelFormat.BayerRG8 => ColorConversionCodes.BayerBG2BGR, // RGGB
+                CameraPixelFormat.BayerGB8 => ColorConversionCodes.BayerGR2BGR, // GBRG
+                CameraPixelFormat.BayerGR8 => ColorConversionCodes.BayerGB2BGR, // GRBG
+                CameraPixelFormat.BayerBG8 => ColorConversionCodes.BayerRG2BGR, // BGGR
+                _ => throw new NotSupportedException($"不支持的 Bayer 像素格式: {pixelFormat}")
             };
         }
 

@@ -10,13 +10,15 @@ namespace ClearFrost.Hardware
     /// 真实工业相机实现，封装华睿 (Huaray) MVSDK
     /// 使用官方 MVSDK_Net.dll 中的 MyCamera 类
     /// </summary>
-    public class RealCamera : ICamera, ICameraFeatureInspector
+    public class RealCamera : ICamera, ICameraFeatureInspector, ICameraFramePixelConverter
     {
         private readonly MyCamera _cam = new MyCamera();
         private readonly string _targetSerialNumber;
         private bool _disposed = false;
         private bool _isConnected = false;
         private bool _handleCreated = false;
+        private byte[]? _convertedFrameBuffer;
+        private GCHandle _convertedFrameHandle;
 
         public RealCamera(string? targetSerialNumber = null)
         {
@@ -228,6 +230,99 @@ namespace ClearFrost.Hardware
             return _cam.IMV_ReleaseFrame(ref frame);
         }
 
+        public bool TryConvertFrameToBgr8(IMVDefine.IMV_Frame frame, out CameraFrame convertedFrame)
+        {
+            convertedFrame = null!;
+
+            if (!_isConnected ||
+                frame.pData == IntPtr.Zero ||
+                frame.frameInfo.width == 0 ||
+                frame.frameInfo.height == 0 ||
+                !IsColorPixelFormat(frame.frameInfo.pixelFormat))
+            {
+                return false;
+            }
+
+            try
+            {
+                int destinationSize = checked((int)frame.frameInfo.width * (int)frame.frameInfo.height * 3);
+                EnsureConvertedFrameBuffer(destinationSize);
+
+                var convertParam = new IMVDefine.IMV_PixelConvertParam
+                {
+                    nWidth = frame.frameInfo.width,
+                    nHeight = frame.frameInfo.height,
+                    ePixelFormat = frame.frameInfo.pixelFormat,
+                    pSrcData = frame.pData,
+                    nSrcDataLen = frame.frameInfo.size,
+                    nPaddingX = frame.frameInfo.paddingX,
+                    nPaddingY = frame.frameInfo.paddingY,
+                    eBayerDemosaic = IMVDefine.IMV_EBayerDemosaic.demosaicEdgeSensing,
+                    eDstPixelFormat = IMVDefine.IMV_EPixelType.gvspPixelBGR8,
+                    pDstBuf = _convertedFrameHandle.AddrOfPinnedObject(),
+                    nDstBufSize = (uint)destinationSize
+                };
+
+                int result = _cam.IMV_PixelConvert(ref convertParam);
+                if (result != IMVDefine.IMV_OK || convertParam.nDstDataLen == 0)
+                {
+                    Debug.WriteLine($"[RealCamera] PixelConvert to BGR8 failed: ErrorCode={result}, PixelFormat=0x{unchecked((uint)frame.frameInfo.pixelFormat):X8}");
+                    return false;
+                }
+
+                convertedFrame = new CameraFrame
+                {
+                    DataPtr = _convertedFrameHandle.AddrOfPinnedObject(),
+                    Width = (int)frame.frameInfo.width,
+                    Height = (int)frame.frameInfo.height,
+                    Size = checked((int)convertParam.nDstDataLen),
+                    PixelFormat = CameraPixelFormat.BGR8,
+                    FrameNumber = frame.frameInfo.blockId,
+                    Timestamp = frame.frameInfo.timeStamp,
+                    NeedsNativeRelease = false
+                };
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[RealCamera] PixelConvert to BGR8 error: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool IsColorPixelFormat(IMVDefine.IMV_EPixelType pixelFormat)
+        {
+            return pixelFormat is IMVDefine.IMV_EPixelType.gvspPixelRGB8
+                or IMVDefine.IMV_EPixelType.gvspPixelBGR8
+                or IMVDefine.IMV_EPixelType.gvspPixelBayRG8
+                or IMVDefine.IMV_EPixelType.gvspPixelBayGB8
+                or IMVDefine.IMV_EPixelType.gvspPixelBayGR8
+                or IMVDefine.IMV_EPixelType.gvspPixelBayBG8;
+        }
+
+        private void EnsureConvertedFrameBuffer(int size)
+        {
+            if (_convertedFrameBuffer != null && _convertedFrameBuffer.Length >= size && _convertedFrameHandle.IsAllocated)
+            {
+                return;
+            }
+
+            ReleaseConvertedFrameBuffer();
+            _convertedFrameBuffer = new byte[size];
+            _convertedFrameHandle = GCHandle.Alloc(_convertedFrameBuffer, GCHandleType.Pinned);
+        }
+
+        private void ReleaseConvertedFrameBuffer()
+        {
+            if (_convertedFrameHandle.IsAllocated)
+            {
+                _convertedFrameHandle.Free();
+            }
+
+            _convertedFrameBuffer = null;
+        }
+
         private bool EnsureHandleCreated()
         {
             if (_handleCreated)
@@ -316,8 +411,6 @@ namespace ClearFrost.Hardware
                     _cam.IMV_DestroyHandle();
                 }
 
-                _isConnected = false;
-                _handleCreated = false;
             }
             catch (Exception ex)
             {
@@ -325,6 +418,9 @@ namespace ClearFrost.Hardware
             }
             finally
             {
+                ReleaseConvertedFrameBuffer();
+                _isConnected = false;
+                _handleCreated = false;
                 _disposed = true;
             }
         }

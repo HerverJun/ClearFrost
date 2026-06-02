@@ -144,6 +144,15 @@ namespace ClearFrost.Services
 
         private static StartupDiagnosticItem CheckPlcAddresses(AppConfig config)
         {
+            if (config.TriggerSource != TriggerSource.PLC)
+            {
+                return Pass(
+                    "PLC address config",
+                    "PLC address validation skipped because trigger source is not PLC.",
+                    config.TriggerSource.ToString(),
+                    isBlocking: false);
+            }
+
             try
             {
                 if (!PlcFactory.TryParseProtocol(config.PlcProtocol, out PlcProtocolType protocolType))

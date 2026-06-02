@@ -40,6 +40,14 @@ namespace ClearFrost.Hardware
 
         IReadOnlyList<string> GetEnumFeatureEntries(string name);
     }
+
+    /// <summary>
+    /// 相机原始帧像素转换能力。华睿 SDK 支持时优先用于 Bayer/RGB 到 BGR8 的转换。
+    /// </summary>
+    public interface ICameraFramePixelConverter
+    {
+        bool TryConvertFrameToBgr8(IMVDefine.IMV_Frame frame, out CameraFrame convertedFrame);
+    }
 }
 
 

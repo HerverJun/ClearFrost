@@ -1078,16 +1078,30 @@ namespace ClearFrost
                         if (root.TryGetProperty("BarcodeEncoding", out var benc)) barcodeEncoding = benc.GetString() ?? barcodeEncoding;
                         if (root.TryGetProperty("BarcodeRequired", out var br)) barcodeRequired = br.ValueKind == JsonValueKind.True;
 
-                        if (!PlcFactory.TryParseProtocol(plcProtocol, out PlcProtocolType plcProtocolType))
+                        bool shouldValidatePlcAddresses = triggerSource == TriggerSource.PLC;
+                        PlcProtocolType plcProtocolType;
+                        if (shouldValidatePlcAddresses)
                         {
-                            throw new InvalidOperationException(
-                                $"PLC 协议无效: {plcProtocol}。支持: {string.Join(", ", Enum.GetNames<PlcProtocolType>())}");
+                            if (!PlcFactory.TryParseProtocol(plcProtocol, out plcProtocolType))
+                            {
+                                throw new InvalidOperationException(
+                                    $"PLC 协议无效: {plcProtocol}。支持: {string.Join(", ", Enum.GetNames<PlcProtocolType>())}");
+                            }
+                        }
+                        else
+                        {
+                            plcProtocolType = PlcFactory.ParseProtocol(plcProtocol);
                         }
 
                         plcProtocol = plcProtocolType.ToString();
                         if (!PlcFactory.TryNormalizeDriverProvider(plcDriverProvider, out plcDriverProvider))
                         {
-                            throw new InvalidOperationException("PLC 驱动库仅支持 Hsl、HaoCommunication、McpX");
+                            if (shouldValidatePlcAddresses)
+                            {
+                                throw new InvalidOperationException("PLC 驱动库仅支持 Hsl、HaoCommunication、McpX");
+                            }
+
+                            plcDriverProvider = "HaoCommunication";
                         }
 
                         bool isMitsubishiProtocol =
@@ -1096,12 +1110,21 @@ namespace ClearFrost
 
                         if (string.Equals(plcDriverProvider, "McpX", StringComparison.OrdinalIgnoreCase) && !isMitsubishiProtocol)
                         {
-                            throw new InvalidOperationException("仅三菱协议支持 McpX 驱动库");
+                            if (shouldValidatePlcAddresses)
+                            {
+                                throw new InvalidOperationException("仅三菱协议支持 McpX 驱动库");
+                            }
+
+                            plcDriverProvider = "HaoCommunication";
                         }
 
-                        bool requiresHandshakeAddresses = plcProtocolMode == PlcProtocolMode.HandshakeV1;
-                        plcTriggerAddress = NormalizeRequiredPlcAddressForSave(plcTriggerAddress, plcProtocolType, plcDriverProvider);
-                        plcResultAddress = NormalizeRequiredPlcAddressForSave(plcResultAddress, plcProtocolType, plcDriverProvider);
+                        bool requiresHandshakeAddresses = shouldValidatePlcAddresses && plcProtocolMode == PlcProtocolMode.HandshakeV1;
+                        plcTriggerAddress = shouldValidatePlcAddresses
+                            ? NormalizeRequiredPlcAddressForSave(plcTriggerAddress, plcProtocolType, plcDriverProvider)
+                            : NormalizeOptionalPlcAddressForSave(plcTriggerAddress, plcProtocolType, plcDriverProvider, 555, required: false);
+                        plcResultAddress = shouldValidatePlcAddresses
+                            ? NormalizeRequiredPlcAddressForSave(plcResultAddress, plcProtocolType, plcDriverProvider)
+                            : NormalizeOptionalPlcAddressForSave(plcResultAddress, plcProtocolType, plcDriverProvider, 556, required: false);
                         plcTriggerSeqAddress = NormalizeOptionalPlcAddressForSave(plcTriggerSeqAddress, plcProtocolType, plcDriverProvider, 557, requiresHandshakeAddresses);
                         plcResultSeqAddress = NormalizeOptionalPlcAddressForSave(plcResultSeqAddress, plcProtocolType, plcDriverProvider, 558, requiresHandshakeAddresses);
                         plcVisionOnlineAddress = NormalizeOptionalPlcAddressForSave(plcVisionOnlineAddress, plcProtocolType, plcDriverProvider, 559, requiresHandshakeAddresses);
@@ -1112,7 +1135,7 @@ namespace ClearFrost
                         plcTraceSavedAddress = NormalizeOptionalPlcAddressForSave(plcTraceSavedAddress, plcProtocolType, plcDriverProvider, 564, requiresHandshakeAddresses);
                         plcHeartbeatAddress = NormalizeOptionalPlcAddressForSave(plcHeartbeatAddress, plcProtocolType, plcDriverProvider, 565, requiresHandshakeAddresses);
                         plcResetFaultAddress = NormalizeOptionalPlcAddressForSave(plcResetFaultAddress, plcProtocolType, plcDriverProvider, 566, requiresHandshakeAddresses);
-                        barcodeAddress = NormalizeOptionalPlcAddressForSave(barcodeAddress, plcProtocolType, plcDriverProvider, 570, barcodeEnabled);
+                        barcodeAddress = NormalizeOptionalPlcAddressForSave(barcodeAddress, plcProtocolType, plcDriverProvider, 570, shouldValidatePlcAddresses && barcodeEnabled);
 
                         _appConfig.PlcProtocol = plcProtocol;
                         _appConfig.PlcDriverProvider = plcDriverProvider;
@@ -1778,11 +1801,7 @@ namespace ClearFrost
                     return false;
                 }
 
-                if (!await ConnectPlcViaServiceAsync(startTriggerMonitoring: false))
-                {
-                    await _uiController.LogToFrontend("PLC写回连接失败，串口光电触发已保持运行", "warning");
-                }
-
+                await _uiController.LogToFrontend("串口光电触发模式已跳过 PLC 连接、监听和写回", "info");
                 return true;
             }
             else

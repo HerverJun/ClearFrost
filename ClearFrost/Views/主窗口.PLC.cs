@@ -128,7 +128,7 @@ namespace ClearFrost
                 {
                     _plcService.StopMonitoring();
                     string modeText = _appConfig.TriggerSource == TriggerSource.SerialPhotoelectric
-                        ? "串口光电触发模式，PLC仅用于结果写回/条码读取"
+                        ? "串口光电触发模式，自动检测不使用 PLC 读写"
                         : "PLC触发监听暂未启动";
                     await _uiController.LogToFrontend(
                         $"✅ PLC连接成功（{modeText}）", "success");
@@ -203,6 +203,12 @@ namespace ClearFrost
         /// </summary>
         public async Task<bool> WriteDetectionResult(bool isQualified)
         {
+            if (_appConfig.TriggerSource != TriggerSource.PLC)
+            {
+                await _uiController.LogToFrontend("串口光电触发模式已跳过 PLC 检测结果写入", "info");
+                return true;
+            }
+
             if (!plcConnected)
             {
                 await _uiController.LogToFrontend("PLC未连接，无法写入检测结果", "error");

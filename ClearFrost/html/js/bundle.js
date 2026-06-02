@@ -2326,6 +2326,9 @@
     }
 
     function validatePlcSettings() {
+        const triggerSource = byId("cfg-trigger-source")?.value || "PLC";
+        if (triggerSource !== "PLC") return null;
+
         const protocol = byId("cfg-plc-protocol")?.value || "";
         const driver = byId("cfg-plc-driver-provider")?.value || "";
         const mode = byId("cfg-plc-protocol-mode")?.value || "Legacy";
