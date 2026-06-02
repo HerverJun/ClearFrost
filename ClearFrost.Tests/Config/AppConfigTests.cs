@@ -515,7 +515,7 @@ public class AppConfigTests
     }
 
     [Fact]
-    public void 相机像素格式_空配置迁移为Mono8()
+    public void 相机像素格式_空配置迁移为Auto()
     {
         const string json = """
         {
@@ -536,6 +536,36 @@ public class AppConfigTests
 
         config.Should().NotBeNull();
         config!.ActiveCamera.Should().NotBeNull();
-        config.ActiveCamera!.PixelFormat.Should().Be("Mono8");
+        config.ActiveCamera!.PixelFormat.Should().Be("Auto");
+    }
+
+    [Theory]
+    [InlineData("BGR", "BGR8")]
+    [InlineData("Color", "BGR8")]
+    [InlineData("RGB", "RGB8")]
+    [InlineData("Bayer-RG", "BayerRG8")]
+    [InlineData("UnknownFormat", "Auto")]
+    public void 相机像素格式_旧别名归一为可设格式(string input, string expected)
+    {
+        string json = $$"""
+        {
+          "Cameras": [
+            {
+              "Id": "cam1",
+              "SerialNumber": "SN001",
+              "DisplayName": "现场相机",
+              "PixelFormat": "{{input}}",
+              "IsEnabled": true
+            }
+          ],
+          "ActiveCameraId": "cam1"
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<AppConfig>(json);
+
+        config.Should().NotBeNull();
+        config!.ActiveCamera.Should().NotBeNull();
+        config.ActiveCamera!.PixelFormat.Should().Be(expected);
     }
 }

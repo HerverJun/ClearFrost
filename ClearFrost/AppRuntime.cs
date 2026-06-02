@@ -179,7 +179,14 @@ namespace ClearFrost
 
             try
             {
-                CameraService.Close();
+                if (CameraService is CameraService concreteCameraService)
+                {
+                    concreteCameraService.ReleaseCurrentCamera();
+                }
+                else
+                {
+                    CameraService.Close();
+                }
             }
             catch (Exception ex)
             {

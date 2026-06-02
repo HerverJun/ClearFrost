@@ -61,7 +61,7 @@ namespace ClearFrost
         /// <summary>
         /// 通过服务层连接 PLC
         /// </summary>
-        private async Task ConnectPlcViaServiceAsync(bool startTriggerMonitoring = true)
+        private async Task<bool> ConnectPlcViaServiceAsync(bool startTriggerMonitoring = true)
         {
             string driverProvider = _appConfig.PlcDriverProvider;
             string protocol = _appConfig.PlcProtocol;
@@ -103,7 +103,7 @@ namespace ClearFrost
                 if (shouldStartPlcTrigger)
                 {
                     // 启动 PLC 触发监控
-                    _plcService.StartMonitoring(
+                    bool monitoringStarted = _plcService.StartMonitoring(
                         triggerAddress,
                         _appConfig.PlcPollingIntervalMs,
                         _appConfig.PlcTriggerDelayMs,
@@ -112,6 +112,15 @@ namespace ClearFrost
                             ProtocolMode = _appConfig.PlcProtocolMode,
                             TriggerSeqAddress = _appConfig.PlcTriggerSeqAddress
                         });
+                    if (!monitoringStarted)
+                    {
+                        string err = _plcService.LastError ?? "PLC监听启动失败";
+                        RecordHealthError("PLC", $"PLC监听启动失败: {err}");
+                        await _uiController.LogToFrontend($"PLC连接成功，但监听启动失败: {err}", "error");
+                        await SendHealthSnapshotToFrontendAsync();
+                        return false;
+                    }
+
                     await _uiController.LogToFrontend(
                         $"✅ PLC连接成功，开始监听 {triggerAddress} ({_appConfig.PlcProtocolMode})", "success");
                 }
@@ -127,6 +136,7 @@ namespace ClearFrost
 
                 WriteHealthSnapshotLog("PLC连接成功");
                 await SendHealthSnapshotToFrontendAsync();
+                return true;
             }
             else
             {
@@ -135,24 +145,24 @@ namespace ClearFrost
                 await _uiController.LogToFrontend(
                     $"❌ PLC连接失败: {err}（协议: {protocol}, 地址: {ip}:{port}）", "error");
                 await SendHealthSnapshotToFrontendAsync();
+                return false;
             }
         }
 
         /// <summary>
         /// 启动 PLC 触发监听（要求 PLC 已连接且当前触发源为 PLC）。
         /// </summary>
-        private async Task StartPlcTriggerMonitoringIfReadyAsync()
+        private async Task<bool> StartPlcTriggerMonitoringIfReadyAsync()
         {
             if (_appConfig.TriggerSource != TriggerSource.PLC)
             {
                 _plcService.StopMonitoring();
-                return;
+                return false;
             }
 
             if (!_plcService.IsConnected)
             {
-                await ConnectPlcViaServiceAsync(startTriggerMonitoring: true);
-                return;
+                return await ConnectPlcViaServiceAsync(startTriggerMonitoring: true);
             }
 
             var cameraReady = await WaitForCameraReadyForInspectionAsync();
@@ -163,7 +173,7 @@ namespace ClearFrost
                     "warning");
             }
 
-            _plcService.StartMonitoring(
+            bool monitoringStarted = _plcService.StartMonitoring(
                 _appConfig.PlcTriggerAddress,
                 _appConfig.PlcPollingIntervalMs,
                 _appConfig.PlcTriggerDelayMs,
@@ -173,9 +183,19 @@ namespace ClearFrost
                     TriggerSeqAddress = _appConfig.PlcTriggerSeqAddress
                 });
 
+            if (!monitoringStarted)
+            {
+                string err = _plcService.LastError ?? "PLC监听启动失败";
+                RecordHealthError("PLC", $"PLC监听启动失败: {err}");
+                await _uiController.LogToFrontend($"PLC监听启动失败: {err}", "error");
+                await SendHealthSnapshotToFrontendAsync();
+                return false;
+            }
+
             await _uiController.LogToFrontend(
                 $"✅ PLC开始监听 {_appConfig.PlcTriggerAddress} ({_appConfig.PlcProtocolMode})", "success");
             await SendHealthSnapshotToFrontendAsync();
+            return true;
         }
 
         /// <summary>
@@ -204,21 +224,57 @@ namespace ClearFrost
         /// </summary>
         private async Task fx_btn_LogicAsync()
         {
+            if (Interlocked.Exchange(ref _manualReleaseInProgress, 1) != 0)
+            {
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "强制放行正在执行，请勿重复点击",
+                    type = "warning",
+                    durationMs = 1200
+                });
+                return;
+            }
+
             try
             {
+                await _uiController.LogToFrontend("强制放行已触发，正在写入 PLC 放行信号", "info");
+
                 bool success = await _plcService.WriteReleaseSignalAsync(_appConfig.PlcResultAddress);
+
                 if (success)
                 {
-                    await _uiController.LogToFrontend("手动放行信号已发送", "success");
+                    await _uiController.LogToFrontend("强制放行信号已发送", "success");
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = "强制放行信号已发送",
+                        type = "success",
+                        durationMs = 1400
+                    });
                 }
                 else
                 {
-                    await _uiController.LogToFrontend("放行失败: PLC未连接或写入错误", "error");
+                    await _uiController.LogToFrontend("强制放行失败: PLC未连接或写入错误", "error");
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = "强制放行失败",
+                        type = "error",
+                        durationMs = 1800
+                    });
                 }
             }
             catch (Exception ex)
             {
-                await _uiController.LogToFrontend($"放行异常: {ex.Message}", "error");
+                await _uiController.LogToFrontend($"强制放行异常: {ex.Message}", "error");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = $"强制放行异常: {ex.Message}",
+                    type = "error",
+                    durationMs = 2200
+                });
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _manualReleaseInProgress, 0);
             }
         }
 

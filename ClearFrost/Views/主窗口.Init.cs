@@ -188,8 +188,9 @@ namespace ClearFrost
 
             // 绑定 WebUI 事件
             _uiController.OnStartSystem += (s, e) => SafeFireAndForget(StartSystemAsync(), "启动系统");
+            _uiController.OnStopSystem += (s, e) => SafeFireAndForget(StopSystemAsync(), "停止检测");
             _uiController.OnOpenCamera += (s, e) => SafeFireAndForget(btnOpenCamera_LogicAsync(), "启动系统");
-            _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(btnCapture_LogicAsync(), "手动检测"));
+            _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(ManualDetectAsync(), "手动检测"));
             _uiController.OnCaptureCameraPreview += (s, json) => InvokeOnUIThread(() => SafeFireAndForget(CaptureCameraPreviewFrameAsync(json), "获取相机预览单帧"));
             _uiController.OnManualRelease += (s, e) => SafeFireAndForget(fx_btn_LogicAsync(), "手动放行"); // Async void handler
             _uiController.OnOpenSettings += (s, e) => InvokeOnUIThread(() => btnSettings_Logic());
@@ -236,6 +237,13 @@ namespace ClearFrost
                 }
                 catch (Exception ex)
                 {
+                    await _uiController.SendUiCommand("serialPortsDetected", new { ports = Array.Empty<object>() });
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = $"串口识别失败: {ex.Message}",
+                        type = "error",
+                        durationMs = 2200
+                    });
                     await _uiController.LogToFrontend($"串口识别失败: {ex.Message}", "error");
                 }
             };
@@ -1538,54 +1546,199 @@ namespace ClearFrost
                 return;
             }
 
-            await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
-            if (!await EnsureStartupReadyForProductionAsync("启动系统"))
+            if (Interlocked.CompareExchange(ref _productionRunningState, 1, 0) != 0)
             {
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "系统已在检测中",
+                    type = "warning",
+                    durationMs = 1200
+                });
+                await SendSystemRunningStateAsync(true);
+                return;
+            }
+
+            await SendSystemRunningStateAsync(false, isBusy: true);
+
+            try
+            {
+                await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
+                if (!await EnsureStartupReadyForProductionAsync("启动系统"))
+                {
+                    await SendHealthSnapshotToFrontendAsync();
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
+                if (!_detectionService.IsModelLoaded)
+                {
+                    string message = "启动系统已停止: 没有可用的检测模型，请检查 ONNX 模型文件是否能正常加载";
+                    RecordHealthError("Detection", message);
+                    await _uiController.LogToFrontend(message, "error");
+                    await SendHealthSnapshotToFrontendAsync();
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
+                await _uiController.LogToFrontend("启动系统: 正在连接相机...", "info");
+                bool cameraStarted = await btnOpenCamera_LogicAsync(startTriggerSource: false);
+
+                if (!cameraStarted)
+                {
+                    await _uiController.LogToFrontend("启动系统已停止: 相机未连接成功", "warning");
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
+                if (IsShutdownInProgress)
+                {
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
+                var cameraReady = await WaitForCameraReadyForInspectionAsync();
+                if (!cameraReady.Ready)
+                {
+                    await _uiController.LogToFrontend(
+                        $"启动系统已停止: 相机已连接但未进入采集状态，{cameraReady.Message}",
+                        "warning");
+                    await SendHealthSnapshotToFrontendAsync();
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
+                await _uiController.LogToFrontend("启动系统: 正在启动触发源...", "info");
+                if (!await StartTriggerSourceAsync())
+                {
+                    await _uiController.LogToFrontend("启动系统已停止: 触发源未启动成功", "error");
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = "触发源启动失败，检测未启动",
+                        type = "error",
+                        durationMs = 2200
+                    });
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
+                await _uiController.LogToFrontend("启动系统完成，检测已启动", "success");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "检测已启动",
+                    type = "success",
+                    durationMs = 1400
+                });
+                await SendSystemRunningStateAsync(true);
+            }
+            catch (Exception ex)
+            {
+                RecordHealthError("Startup", $"启动系统异常: {ex.Message}");
+                await _uiController.LogToFrontend($"启动系统异常: {ex.Message}", "error");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "启动系统异常，已停止",
+                    type = "error",
+                    durationMs = 2200
+                });
                 await SendHealthSnapshotToFrontendAsync();
-                return;
+                await MarkSystemStoppedAsync();
             }
+        }
 
-            if (!_detectionService.IsModelLoaded)
-            {
-                string message = "启动系统已停止: 没有可用的检测模型，请检查 ONNX 模型文件是否能正常加载";
-                RecordHealthError("Detection", message);
-                await _uiController.LogToFrontend(message, "error");
-                await SendHealthSnapshotToFrontendAsync();
-                return;
-            }
-
-            await _uiController.LogToFrontend("启动系统: 正在连接相机...", "info");
-            bool cameraStarted = await btnOpenCamera_LogicAsync(startTriggerSource: false);
-
-            if (!cameraStarted)
-            {
-                await _uiController.LogToFrontend("启动系统已停止: 相机未连接成功", "warning");
-                return;
-            }
-
+        private async Task StopSystemAsync()
+        {
             if (IsShutdownInProgress)
             {
+                await _uiController.LogToFrontend("软件正在退出，已忽略停止检测请求", "warning");
                 return;
             }
 
-            var cameraReady = await WaitForCameraReadyForInspectionAsync();
-            if (!cameraReady.Ready)
+            if (Interlocked.Exchange(ref _productionRunningState, 0) == 0)
             {
-                await _uiController.LogToFrontend(
-                    $"启动系统已停止: 相机已连接但未进入采集状态，{cameraReady.Message}",
-                    "warning");
-                await SendHealthSnapshotToFrontendAsync();
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "当前未在检测",
+                    type = "warning",
+                    durationMs = 1200
+                });
+                await SendSystemRunningStateAsync(false);
                 return;
             }
 
-            await _uiController.LogToFrontend("启动系统: 正在连接 PLC...", "info");
-            await StartTriggerSourceAsync();
+            try
+            {
+                await SendSystemRunningStateAsync(true, isBusy: true);
+                await _uiController.LogToFrontend("停止检测: 正在停止触发监听和相机采集...", "info");
+
+                try
+                {
+                    _plcService.StopMonitoring();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[StopSystem] Stop PLC monitoring failed: {ex.Message}");
+                    await _uiController.LogToFrontend($"停止 PLC 监听失败: {ex.Message}", "warning");
+                }
+
+                try
+                {
+                    _serialTriggerService.Stop();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[StopSystem] Stop serial trigger failed: {ex.Message}");
+                    await _uiController.LogToFrontend($"停止串口光电监听失败: {ex.Message}", "warning");
+                }
+
+                try
+                {
+                    _cameraService.StopCapture();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[StopSystem] Stop camera capture failed: {ex.Message}");
+                    await _uiController.LogToFrontend($"停止相机采集失败: {ex.Message}", "warning");
+                }
+
+                await SendHealthSnapshotToFrontendAsync();
+                await _uiController.LogToFrontend("检测已停止", "success");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "检测已停止",
+                    type = "success",
+                    durationMs = 1400
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[StopSystem] Stop sequence failed: {ex.Message}");
+                await _uiController.LogToFrontend($"停止检测流程异常: {ex.Message}", "warning");
+            }
+            finally
+            {
+                await SendSystemRunningStateAsync(false);
+            }
+        }
+
+        private Task MarkSystemStoppedAsync()
+        {
+            Interlocked.Exchange(ref _productionRunningState, 0);
+            return SendSystemRunningStateAsync(false);
+        }
+
+        private Task SendSystemRunningStateAsync(bool isRunning, bool isBusy = false)
+        {
+            return _uiController.SendUiCommand("setSystemRunning", new
+            {
+                isRunning,
+                isBusy
+            });
         }
 
         /// <summary>
         /// 根据 TriggerSource 启动对应触发源
         /// </summary>
-        private async Task StartTriggerSourceAsync()
+        private async Task<bool> StartTriggerSourceAsync()
         {
             if (_appConfig.TriggerSource == TriggerSource.SerialPhotoelectric)
             {
@@ -1615,19 +1768,27 @@ namespace ClearFrost
                         string err = _serialTriggerService.LastError ?? "未知错误";
                         RecordHealthError("SerialTrigger", $"串口光电启动失败: {err}");
                         await _uiController.LogToFrontend($"串口光电启动失败: {err}", "error");
+                        return false;
                     }
                 }
                 else
                 {
                     await _uiController.LogToFrontend("串口光电 COM 口未配置，跳过自动启动", "warning");
+                    RecordHealthError("SerialTrigger", "串口光电 COM 口未配置");
+                    return false;
                 }
 
-                await ConnectPlcViaServiceAsync(startTriggerMonitoring: false);
+                if (!await ConnectPlcViaServiceAsync(startTriggerMonitoring: false))
+                {
+                    await _uiController.LogToFrontend("PLC写回连接失败，串口光电触发已保持运行", "warning");
+                }
+
+                return true;
             }
             else
             {
                 _serialTriggerService.Stop();
-                await StartPlcTriggerMonitoringIfReadyAsync();
+                return await StartPlcTriggerMonitoringIfReadyAsync();
             }
         }
 
@@ -2141,7 +2302,40 @@ namespace ClearFrost
             string raw = value?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(raw))
             {
-                return "Mono8";
+                return "Auto";
+            }
+
+            string normalized = raw.Replace("_", string.Empty, StringComparison.Ordinal).Replace("-", string.Empty, StringComparison.Ordinal).Replace(" ", string.Empty, StringComparison.Ordinal);
+            if (string.Equals(normalized, "BGR", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Color", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Colour", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BGR8";
+            }
+
+            if (string.Equals(normalized, "RGB", StringComparison.OrdinalIgnoreCase))
+            {
+                return "RGB8";
+            }
+
+            if (string.Equals(normalized, "BayerRG", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BayerRG8";
+            }
+
+            if (string.Equals(normalized, "BayerGB", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BayerGB8";
+            }
+
+            if (string.Equals(normalized, "BayerGR", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BayerGR8";
+            }
+
+            if (string.Equals(normalized, "BayerBG", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BayerBG8";
             }
 
             string[] allowed =
@@ -2156,7 +2350,7 @@ namespace ClearFrost
                 "BayerBG8"
             };
 
-            return allowed.FirstOrDefault(format => string.Equals(format, raw, StringComparison.OrdinalIgnoreCase)) ?? "Mono8";
+            return allowed.FirstOrDefault(format => string.Equals(format, raw, StringComparison.OrdinalIgnoreCase)) ?? "Auto";
         }
 
         private static TEnum GetJsonEnumValue<TEnum>(JsonElement value, TEnum fallback)

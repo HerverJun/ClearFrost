@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using MVSDK_Net;
 
@@ -8,7 +9,7 @@ namespace ClearFrost.Hardware
     /// 
     /// 
     /// </summary>
-    public class CameraProviderAdapter : ICamera
+    public class CameraProviderAdapter : ICamera, ICameraFeatureInspector
     {
         private const uint GvspPixelMono8 = 0x01080001;
         private const uint GvspPixelRgb8 = 0x02180014;
@@ -83,6 +84,37 @@ namespace ClearFrost.Hardware
                 return _provider.SetPixelFormat(value) ? IMVDefine.IMV_OK : -1;
             }
             return IMVDefine.IMV_OK;
+        }
+
+        public bool TryGetEnumFeatureSymbol(string name, out string value)
+        {
+            value = string.Empty;
+            if (name != "PixelFormat" || _currentFrame == null)
+            {
+                return false;
+            }
+
+            value = _currentFrame.PixelFormat.ToString();
+            return _currentFrame.PixelFormat != CameraPixelFormat.Unknown;
+        }
+
+        public IReadOnlyList<string> GetEnumFeatureEntries(string name)
+        {
+            if (name != "PixelFormat")
+            {
+                return Array.Empty<string>();
+            }
+
+            return new[]
+            {
+                "BGR8",
+                "RGB8",
+                "BayerRG8",
+                "BayerGB8",
+                "BayerGR8",
+                "BayerBG8",
+                "Mono8"
+            };
         }
 
         public int IMV_SetDoubleFeatureValue(string name, double value)

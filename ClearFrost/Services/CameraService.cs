@@ -259,6 +259,62 @@ namespace ClearFrost.Services
             }
         }
 
+        public void ReleaseCurrentCamera()
+        {
+            _cameraOperationLock.Wait();
+            try
+            {
+                StopCaptureCore();
+
+                var activeCamera = _cameraManager.ActiveCamera;
+                if (activeCamera != null)
+                {
+                    activeCamera.ReleaseHandle();
+                    ConnectionChanged?.Invoke(false);
+                    Debug.WriteLine("[CameraService] 相机句柄已彻底释放");
+                }
+
+                lock (_frameLock)
+                {
+                    _lastFrame?.Dispose();
+                    _lastFrame = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CameraService] 释放相机句柄异常: {ex.Message}");
+            }
+            finally
+            {
+                _cameraOperationLock.Release();
+            }
+        }
+
+        private void ReleaseCurrentCameraCore()
+        {
+            try
+            {
+                StopCaptureCore();
+
+                var activeCamera = _cameraManager.ActiveCamera;
+                if (activeCamera != null)
+                {
+                    activeCamera.ReleaseHandle();
+                    ConnectionChanged?.Invoke(false);
+                }
+
+                lock (_frameLock)
+                {
+                    _lastFrame?.Dispose();
+                    _lastFrame = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CameraService] 释放相机句柄异常: {ex.Message}");
+            }
+        }
+
         private bool FailOpen(string message)
         {
             LastError = message;
@@ -855,13 +911,7 @@ namespace ClearFrost.Services
                 if (_disposed) return;
                 _disposed = true;
 
-                CloseCore();
-
-                lock (_frameLock)
-                {
-                    _lastFrame?.Dispose();
-                    _lastFrame = null;
-                }
+                ReleaseCurrentCameraCore();
             }
             finally
             {

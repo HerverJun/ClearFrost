@@ -546,12 +546,13 @@ public class InspectionPipelineServiceTests
 
         public Task<bool> ConnectAsync(PlcConnectionOptions options) => Task.FromResult(true);
         public void Disconnect() { }
-        public void StartMonitoring(
+        public bool StartMonitoring(
             string triggerAddress,
             int pollingIntervalMs = 500,
             int triggerDelayMs = 800,
             PlcMonitoringOptions? options = null)
         {
+            return true;
         }
 
         public void StopMonitoring() { }

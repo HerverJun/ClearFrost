@@ -390,9 +390,11 @@ public class PlcServiceRecoveryTests
         PlcTestReflectionHelper.SetPrivateField(service, "_lastProtocol", PlcProtocolType.Mitsubishi_MC_Binary.ToString());
         PlcTestReflectionHelper.SetPrivateField(service, "_lastDriverProvider", "McpX");
 
-        Action action = () => service.StartMonitoring("M100");
+        bool result = true;
+        Action action = () => result = service.StartMonitoring("M100");
 
         action.Should().NotThrow();
+        result.Should().BeFalse();
         service.LastError.Should().Contain("McpX");
         PlcTestReflectionHelper.GetPrivateField<Task?>(service, "_monitoringTask").Should().BeNull();
     }

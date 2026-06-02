@@ -90,6 +90,7 @@
                 if (!cmd || !confirmIfNeeded(commandElement)) return;
                 const value = parseDatasetValue(commandElement.dataset.value);
                 window.sendCommand(cmd, value === undefined ? null : value);
+                window.handleCommandDispatched?.(cmd, commandElement);
                 return;
             }
 

@@ -407,6 +407,8 @@
     let openCameraCooldownUntil = 0;
     let openCameraUnlockTimer = null;
     let openCameraPending = false;
+    let systemRunning = false;
+    let systemBusy = false;
     let exitAppPending = false;
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
@@ -420,6 +422,10 @@
         /断开/,
         /未连接/,
         /启动系统/,
+        /停止检测/,
+        /检测已/,
+        /手动检测/,
+        /强制放行/,
         /开启成功/,
         /开启异常/,
         /驱动缺失/,
@@ -1012,7 +1018,7 @@
             }
         }
 
-        if (type === "cam" && !isConnected && openCameraPending) {
+        if (type === "cam" && !isConnected && openCameraPending && !systemBusy) {
             openCameraPending = false;
             setOpenCameraButtonBusy(false);
             if (openCameraUnlockTimer) {
@@ -1021,7 +1027,7 @@
             }
         }
 
-        if (type === "cam" && isConnected && openCameraPending) {
+        if (type === "cam" && isConnected && openCameraPending && !systemBusy) {
             openCameraPending = false;
             setOpenCameraButtonBusy(false);
             if (openCameraUnlockTimer) {
@@ -1053,13 +1059,47 @@
     }
 
     function setOpenCameraButtonBusy(isBusy) {
+        systemBusy = Boolean(isBusy);
+        setStartSystemButtonState(systemRunning, systemBusy);
+    }
+
+    function setStartSystemButtonState(isRunning, isBusy = false) {
+        systemRunning = Boolean(isRunning);
+        systemBusy = Boolean(isBusy);
         const button = el("btn-open-camera");
         if (!button) return;
-        button.disabled = isBusy;
-        button.classList.toggle("camera-open-pending", isBusy);
+        button.disabled = systemBusy;
+        button.classList.toggle("camera-open-pending", systemBusy);
+        button.classList.toggle("is-running", systemRunning);
+        button.setAttribute("aria-label", systemRunning ? "停止检测" : "启动系统");
+        button.title = systemRunning ? "停止检测" : "启动系统";
+        button.innerHTML = systemRunning
+            ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M6 6h12v12H6z" />
+                </svg>
+                ${systemBusy ? "正在停止..." : "停止检测"}`
+            : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M8 5v14l11-7-11-7Z" />
+                </svg>
+                ${systemBusy ? "正在启动..." : "启动系统 (Start System)"}`;
     }
 
     function requestStartSystem() {
+        if (systemBusy) {
+            showToast(systemRunning ? "正在停止检测，请稍候" : "系统正在启动中，请勿重复点击", "warning", 1200);
+            return;
+        }
+
+        if (systemRunning) {
+            setStartSystemButtonState(true, true);
+            window.sendCommand("stop_system");
+            addLog("停止检测指令已发送", "info");
+            showToast("停止检测指令已发送", "info", 1200);
+            return true;
+        }
+
         const now = Date.now();
         if (now < openCameraCooldownUntil) {
             showToast("系统正在启动中，请勿重复点击", "warning", 1200);
@@ -1072,11 +1112,12 @@
         if (openCameraUnlockTimer) window.clearTimeout(openCameraUnlockTimer);
         openCameraUnlockTimer = window.setTimeout(() => {
             openCameraPending = false;
-            setOpenCameraButtonBusy(false);
+            if (!systemBusy) setOpenCameraButtonBusy(false);
             openCameraUnlockTimer = null;
         }, 1500);
 
         window.sendCommand("start_system");
+        addLog("启动系统指令已发送", "info");
         showToast("启动系统指令已发送", "info", 1400);
         return true;
     }
@@ -1210,8 +1251,32 @@
             case "setRoi":
                 window.setRoi?.(payload.rect || payload.Rect || null);
                 break;
+            case "serialPortsDetected":
+                window.handleSerialPortsDetected?.(payload);
+                break;
+            case "setSystemRunning":
+                setStartSystemButtonState(
+                    payload.isRunning ?? payload.IsRunning,
+                    payload.isBusy ?? payload.IsBusy ?? false,
+                );
+                break;
             default:
                 if (window.__CF_DEV_MODE) console.debug("Unknown uiCommand:", data);
+                break;
+        }
+    }
+
+    function handleCommandDispatched(cmd) {
+        switch (cmd) {
+            case "manual_detect":
+                addLog("手动检测按钮已点击", "info");
+                showToast("手动检测已触发", "info", 1200);
+                break;
+            case "manual_release":
+                addLog("强制放行按钮已点击", "warning");
+                showToast("强制放行已触发", "warning", 1200);
+                break;
+            default:
                 break;
         }
     }
@@ -1272,6 +1337,8 @@
         requestOpenCamera,
         requestStartSystem,
         startSystem,
+        handleCommandDispatched,
+        setStartSystemButtonState,
         setDotState,
         setText,
         showToast,
@@ -2123,9 +2190,11 @@
     }
 
     function handleSerialPortsDetected(data) {
+        setSerialAutoDetectBusy(false);
         const select = byId("cfg-serial-port");
         if (!select) return;
-        const ports = data?.ports || data?.Ports || data || [];
+        const rawPorts = data?.ports || data?.Ports || data || [];
+        const ports = Array.isArray(rawPorts) ? rawPorts : [];
         const currentValue = normalizeSerialPortName(select.value);
         select.innerHTML = '<option value="">-- 请选择 COM 口 --</option>';
         let preferredValue = "";
@@ -2150,6 +2219,36 @@
         const selectedText = select.value ? `，已选择 ${select.value}` : "";
         window.showToast?.(`识别到 ${ports.length} 个串口${selectedText}`, ports.length ? "success" : "warning", 1400);
         window.addLog?.(`串口自动识别完成: ${ports.length} 个${selectedText}`, ports.length ? "success" : "warning");
+    }
+
+    let serialAutoDetectResetTimer = null;
+
+    function setSerialAutoDetectBusy(isBusy) {
+        const button = document.querySelector('[data-cmd="serial_auto_detect_ports"]');
+        if (!button) return;
+
+        if (serialAutoDetectResetTimer) {
+            clearTimeout(serialAutoDetectResetTimer);
+            serialAutoDetectResetTimer = null;
+        }
+
+        if (isBusy) {
+            button.dataset.originalText = button.dataset.originalText || button.textContent.trim() || "自动识别";
+            button.disabled = true;
+            button.textContent = "识别中";
+            serialAutoDetectResetTimer = window.setTimeout(() => setSerialAutoDetectBusy(false), 8000);
+            return;
+        }
+
+        button.disabled = false;
+        button.textContent = button.dataset.originalText || "自动识别";
+    }
+
+    function handleCommandDispatched(cmd) {
+        if (cmd !== "serial_auto_detect_ports") return;
+        setSerialAutoDetectBusy(true);
+        window.showToast?.("正在识别串口...", "info", 1000);
+        window.addLog?.("正在自动识别串口光电 COM 口...", "info");
     }
 
     function updatePlcProtocolModeUi() {
@@ -2432,7 +2531,7 @@
                 data.Cameras.find((camera) => camera.IsEnabled || camera.isEnabled) ||
                 data.Cameras[0])
             : null;
-        const pixelFormat = data.CameraPixelFormat || activeCamera?.PixelFormat || activeCamera?.pixelFormat || "Mono8";
+        const pixelFormat = data.CameraPixelFormat || activeCamera?.PixelFormat || activeCamera?.pixelFormat || "Auto";
         if (byId("cfg-cam-pixel-format")) byId("cfg-cam-pixel-format").value = pixelFormat;
         if (data.EnableMultiModelFallback !== undefined) applyMultiModelUiState(!!data.EnableMultiModelFallback);
         if (data.BarcodeEnabled !== undefined) {
@@ -2879,7 +2978,7 @@
             "cfg-cam-name": getPresetDisplayName(presetId, preset),
             "cfg-cam-serial": preset.CameraSerialNumber,
             "cfg-cam-manufacturer": preset.CameraManufacturer ?? "Huaray",
-            "cfg-cam-pixel-format": preset.CameraPixelFormat ?? preset.PixelFormat ?? "Mono8",
+            "cfg-cam-pixel-format": preset.CameraPixelFormat ?? preset.PixelFormat ?? "Auto",
             "cfg-cam-exposure": preset.ExposureTime,
             "cfg-cam-gain": preset.GainRaw ?? preset.Gain ?? 1.1,
             "cfg-logic-retry-count": preset.MaxRetryCount ?? 1,
@@ -3001,6 +3100,7 @@
         updateTaskType,
         collectDataset,
         handleDatasetCollectResult,
+        handleCommandDispatched,
         handleSerialPortsDetected,
         updateTriggerSourceUi,
     });
@@ -3096,7 +3196,7 @@
         const fields = {
             "cfg-cam-name": camera.displayName || "",
             "cfg-cam-manufacturer": camera.manufacturer || "Huaray",
-            "cfg-cam-pixel-format": camera.pixelFormat || "Mono8",
+            "cfg-cam-pixel-format": camera.pixelFormat || "Auto",
             "cfg-cam-serial": camera.serialNumber || "",
             "cfg-cam-exposure": camera.exposureTime || "",
             "cfg-cam-gain": camera.gain || "",
@@ -3153,7 +3253,7 @@
     function addNewCamera() {
         const displayName = byId("cfg-cam-name")?.value || `相机 ${(window.cameraList?.length || 0) + 1}`;
         const manufacturer = byId("cfg-cam-manufacturer")?.value || "Huaray";
-        const pixelFormat = byId("cfg-cam-pixel-format")?.value || "Mono8";
+        const pixelFormat = byId("cfg-cam-pixel-format")?.value || "Auto";
         const serialNumber = byId("cfg-cam-serial")?.value || "";
         const exposureTime = parseFloat(byId("cfg-cam-exposure")?.value) || 50000;
         const gain = parseFloat(byId("cfg-cam-gain")?.value) || 1.0;
@@ -3300,7 +3400,7 @@
             cameraId: byId("cfg-cam-select")?.value || window.activeCameraId || "",
             displayName: byId("cfg-cam-name")?.value || "",
             manufacturer: byId("cfg-cam-manufacturer")?.value || "Huaray",
-            pixelFormat: byId("cfg-cam-pixel-format")?.value || "Mono8",
+            pixelFormat: byId("cfg-cam-pixel-format")?.value || "Auto",
             serialNumber: byId("cfg-cam-serial")?.value || "",
             exposureTime: parseFloat(byId("cfg-cam-exposure")?.value) || 50000,
             gain: parseFloat(byId("cfg-cam-gain")?.value) || 1.0,
@@ -4365,6 +4465,7 @@
                 if (!cmd || !confirmIfNeeded(commandElement)) return;
                 const value = parseDatasetValue(commandElement.dataset.value);
                 window.sendCommand(cmd, value === undefined ? null : value);
+                window.handleCommandDispatched?.(cmd, commandElement);
                 return;
             }
 

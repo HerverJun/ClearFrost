@@ -893,6 +893,13 @@ namespace ClearFrost
             }
         }
 
+        private async Task ManualDetectAsync()
+        {
+            await _uiController.LogToFrontend("手动检测已触发", "info");
+
+            await btnCapture_LogicAsync("手动");
+        }
+
         private async Task OnInspectionPipelineProgressAsync(InspectionPipelineProgress progress)
         {
             if (progress.Kind == InspectionPipelineProgressKind.Log)

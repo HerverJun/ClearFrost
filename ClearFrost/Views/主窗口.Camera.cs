@@ -108,7 +108,7 @@ namespace ClearFrost
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_appShutdownCts.Token);
                 CancellationToken token = linkedCts.Token;
 
-                var (success, errorMessage, usedMonoFallback, startupNotice) = await Task.Run(() =>
+                var (success, errorMessage, startupNotice) = await Task.Run(() =>
                 {
                     try
                     {
@@ -117,20 +117,20 @@ namespace ClearFrost
                         var activeConfig = _appConfig.ActiveCamera ?? _appConfig.EnsureActiveCameraConfigFromLegacy();
                         if (activeConfig == null || string.IsNullOrWhiteSpace(activeConfig.SerialNumber))
                         {
-                            return (false, "未配置活动相机或序列号为空", false, string.Empty);
+                            return (false, "未配置活动相机或序列号为空", string.Empty);
                         }
 
                         SynchronizeActiveCameraRegistration(activeConfig, recreateExisting: false);
 
-                        // 先关闭旧连接，再重开当前配置相机（复用句柄，不销毁）
-                        _cameraService.Close();
+                        // 先彻底释放旧句柄，再按当前配置重开，避免厂家软件或像素格式状态被旧句柄卡住。
+                        ReleaseCameraResources();
                         token.ThrowIfCancellationRequested();
 
                         bool openOk = _cameraService.Open(activeConfig.SerialNumber, activeConfig.Manufacturer);
                         if (!openOk)
                         {
                             string detail = _cameraService.LastError ?? $"相机连接失败: {activeConfig.DisplayName}";
-                            return (false, detail, false, string.Empty);
+                            return (false, detail, string.Empty);
                         }
 
                         var activeCamera = _cameraManager.ActiveCamera;
@@ -146,24 +146,24 @@ namespace ClearFrost
 
                         token.ThrowIfCancellationRequested();
                         getParam();
-                        if (!TryInitializeCapturePipeline(cam, token, out bool startupUsedMonoFallback, out string startupError, out string startupNoticeLocal))
+                        if (!TryInitializeCapturePipeline(token, out string startupError, out string startupNoticeLocal))
                         {
                             throw new Exception(startupError);
                         }
 
                         string combinedNotice = string.Join(" ",
                             new[] { mockCameraNotice, startupNoticeLocal }.Where(n => !string.IsNullOrWhiteSpace(n)));
-                        return (true, string.Empty, startupUsedMonoFallback, combinedNotice);
+                        return (true, string.Empty, combinedNotice);
                     }
                     catch (OperationCanceledException)
                     {
-                        try { _cameraService.Close(); } catch { }
-                        return (false, "操作已取消", false, string.Empty);
+                        try { ReleaseCameraResources(); } catch { }
+                        return (false, "操作已取消", string.Empty);
                     }
                     catch (Exception ex)
                     {
-                        try { _cameraService.Close(); } catch { }
-                        return (false, ex.Message, false, string.Empty);
+                        try { ReleaseCameraResources(); } catch { }
+                        return (false, ex.Message, string.Empty);
                     }
                 }, token);
 
@@ -182,10 +182,6 @@ namespace ClearFrost
                     {
                         string level = startupNotice.Contains("警告", StringComparison.Ordinal) ? "warning" : "info";
                         await _uiController.LogToFrontend(startupNotice, level);
-                    }
-                    if (usedMonoFallback)
-                    {
-                        await _uiController.LogToFrontend("默认像素格式取首帧失败，已自动回退为 Mono8。", "warning");
                     }
                 }
                 else if (!string.IsNullOrWhiteSpace(errorMessage))
@@ -352,6 +348,8 @@ namespace ClearFrost
                     !string.Equals(config.SerialNumber?.Trim(), serialNumber, StringComparison.OrdinalIgnoreCase) ||
                     (!string.IsNullOrWhiteSpace(manufacturer) &&
                      !string.Equals(config.Manufacturer?.Trim(), manufacturer, StringComparison.OrdinalIgnoreCase));
+                string previousPixelFormat = config.PixelFormat?.Trim() ?? string.Empty;
+                string requestedPixelFormat = ReadJsonString(root, "pixelFormat", "PixelFormat").Trim();
 
                 config.SerialNumber = serialNumber;
                 config.Manufacturer = string.IsNullOrWhiteSpace(manufacturer)
@@ -360,7 +358,14 @@ namespace ClearFrost
                 config.DisplayName = string.IsNullOrWhiteSpace(displayName) ? serialNumber : displayName;
                 config.ExposureTime = ReadJsonDouble(root, config.ExposureTime, "exposureTime", "ExposureTime");
                 config.Gain = ReadJsonDouble(root, config.Gain, "gain", "Gain");
+                if (!string.IsNullOrWhiteSpace(requestedPixelFormat))
+                {
+                    config.PixelFormat = NormalizeCameraPixelFormatForSave(requestedPixelFormat);
+                }
                 config.IsEnabled = true;
+
+                cameraIdentityChanged = cameraIdentityChanged ||
+                    !string.Equals(previousPixelFormat, config.PixelFormat?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 
                 if (isNewConfig)
                 {
@@ -419,9 +424,8 @@ namespace ClearFrost
             return fallback;
         }
 
-        private bool TryInitializeCapturePipeline(ICamera activeCamera, CancellationToken token, out bool usedMonoFallback, out string errorMessage, out string startupNotice)
+        private bool TryInitializeCapturePipeline(CancellationToken token, out string errorMessage, out string startupNotice)
         {
-            usedMonoFallback = false;
             errorMessage = string.Empty;
             startupNotice = string.Empty;
 
@@ -442,21 +446,8 @@ namespace ClearFrost
                 return true;
             }
 
-            if (!TryFallbackToMono8(activeCamera))
-            {
-                errorMessage = "获取首帧失败，且无法自动回退到 Mono8。";
-                return false;
-            }
-
-            usedMonoFallback = true;
-            token.ThrowIfCancellationRequested();
-
-            if (TryCaptureStartupFrame(3000, 2, token, out _))
-            {
-                return true;
-            }
-
-            errorMessage = "默认像素格式取首帧失败，回退到 Mono8 后仍无法获取图像。";
+            string requestedPixelFormat = _appConfig.ActiveCamera?.PixelFormat ?? "Auto";
+            errorMessage = $"按当前像素格式 {requestedPixelFormat} 获取首帧失败。请确认相机支持该格式，或在相机设置中改为 Auto/Bayer/Mono 后重试。";
             return false;
         }
 
@@ -492,28 +483,6 @@ namespace ClearFrost
             return false;
         }
 
-        private bool TryFallbackToMono8(ICamera activeCamera)
-        {
-            try
-            {
-                _cameraService.StopCapture();
-                int result = activeCamera.IMV_SetEnumFeatureSymbol("PixelFormat", "Mono8");
-                if (result != IMVDefine.IMV_OK)
-                {
-                    Debug.WriteLine($"[OpenCamera] PixelFormat fallback to Mono8 failed: {result}");
-                    return false;
-                }
-
-                _cameraService.StartCapture();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[OpenCamera] PixelFormat fallback exception: {ex.Message}");
-                return false;
-            }
-        }
-
         /// <summary>
         /// 释放相机资源（对齐厂商 Grab/Form1 清理时序）
         /// 顺序：停标志 → 等线程退出 → StopGrabbing → Close → DestroyHandle
@@ -522,7 +491,14 @@ namespace ClearFrost
         {
             try
             {
-                _cameraService.Close();
+                if (_cameraService is CameraService concreteCameraService)
+                {
+                    concreteCameraService.ReleaseCurrentCamera();
+                }
+                else
+                {
+                    _cameraService.Close();
+                }
             }
             catch (Exception ex) { Debug.WriteLine($"[主窗口] ReleaseCameraResources failed: {ex.Message}"); }
         }

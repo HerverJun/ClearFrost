@@ -235,11 +235,11 @@ public class HealthMonitorTests
 
         public Task<bool> ConnectAsync(PlcConnectionOptions options) => Task.FromResult(true);
         public void Disconnect() { }
-        public void StartMonitoring(
+        public bool StartMonitoring(
             string triggerAddress,
             int pollingIntervalMs = 500,
             int triggerDelayMs = 800,
-            PlcMonitoringOptions? options = null) { }
+            PlcMonitoringOptions? options = null) => true;
         public void StopMonitoring() { }
         public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
         public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite) => Task.FromResult(true);

@@ -85,6 +85,32 @@ namespace ClearFrost.Tests.Hardware.Camera
         }
 
         [Fact]
+        public void CameraInstance_Open_explicit_bgr_falls_back_to_bayer_color_without_mono()
+        {
+            using var camera = new ScriptedCamera(
+                IMVDefine.IMV_EPixelType.gvspPixelBayRG8,
+                16,
+                16,
+                16 * 16,
+                supportedPixelFormats: new[] { "BayerRG8", "Mono8" });
+            var config = new CameraConfig
+            {
+                Id = "cam-1",
+                SerialNumber = "SN-001",
+                DisplayName = "TestCam",
+                PixelFormat = "BGR8"
+            };
+
+            using var instance = new CameraInstance(config.Id, config, () => camera);
+
+            instance.Open().Should().BeTrue();
+
+            camera.LastPixelFormat.Should().Be("BayerRG8");
+            camera.PixelFormatRequests.Should().Equal("BGR8", "RGB8", "BayerRG8");
+            camera.PixelFormatRequests.Should().NotContain("Mono8");
+        }
+
+        [Fact]
         public void CaptureFrame_rejects_sdk_error_status_frame()
         {
             using var camera = new ScriptedCamera(

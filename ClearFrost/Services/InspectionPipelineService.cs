@@ -598,7 +598,14 @@ namespace ClearFrost.Services
                     "相机采集未恢复，正在尝试重连相机",
                     "warning").ConfigureAwait(false);
 
-                _cameraService.Close();
+                if (_cameraService is CameraService concreteCameraService)
+                {
+                    concreteCameraService.ReleaseCurrentCamera();
+                }
+                else
+                {
+                    _cameraService.Close();
+                }
                 await Task.Delay(RuntimeCameraRecoverySettleMs, cancellationToken).ConfigureAwait(false);
 
                 bool opened = _cameraService.Open(activeCamera.SerialNumber, activeCamera.Manufacturer);

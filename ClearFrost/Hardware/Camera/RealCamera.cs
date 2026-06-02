@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using MVSDK_Net;
@@ -9,7 +10,7 @@ namespace ClearFrost.Hardware
     /// 真实工业相机实现，封装华睿 (Huaray) MVSDK
     /// 使用官方 MVSDK_Net.dll 中的 MyCamera 类
     /// </summary>
-    public class RealCamera : ICamera
+    public class RealCamera : ICamera, ICameraFeatureInspector
     {
         private readonly MyCamera _cam = new MyCamera();
         private readonly string _targetSerialNumber;
@@ -99,6 +100,68 @@ namespace ClearFrost.Hardware
 
             value = symbol.str?.Trim() ?? string.Empty;
             return !string.IsNullOrWhiteSpace(value);
+        }
+
+        public IReadOnlyList<string> GetEnumFeatureEntries(string name)
+        {
+            if (!_isConnected || string.IsNullOrWhiteSpace(name) || !_cam.IMV_FeatureIsReadable(name))
+            {
+                return Array.Empty<string>();
+            }
+
+            IntPtr buffer = IntPtr.Zero;
+            try
+            {
+                uint entryCount = 0;
+                int countResult = _cam.IMV_GetEnumFeatureEntryNum(name, ref entryCount);
+                if (countResult != IMVDefine.IMV_OK || entryCount == 0)
+                {
+                    Debug.WriteLine($"[RealCamera] GetEnumFeatureEntryNum failed: Feature={name}, ErrorCode={countResult}");
+                    return Array.Empty<string>();
+                }
+
+                int entrySize = Marshal.SizeOf<IMVDefine.IMV_EnumEntryInfo>();
+                int bufferSize = checked(entrySize * (int)entryCount);
+                buffer = Marshal.AllocHGlobal(bufferSize);
+                var entryList = new IMVDefine.IMV_EnumEntryList
+                {
+                    nEnumEntryBufferSize = (uint)bufferSize,
+                    pEnumEntryInfo = buffer
+                };
+
+                int listResult = _cam.IMV_GetEnumFeatureEntrys(name, ref entryList);
+                if (listResult != IMVDefine.IMV_OK)
+                {
+                    Debug.WriteLine($"[RealCamera] GetEnumFeatureEntrys failed: Feature={name}, ErrorCode={listResult}");
+                    return Array.Empty<string>();
+                }
+
+                var entries = new List<string>((int)entryCount);
+                for (int i = 0; i < entryCount; i++)
+                {
+                    IntPtr itemPtr = IntPtr.Add(buffer, i * entrySize);
+                    var entry = Marshal.PtrToStructure<IMVDefine.IMV_EnumEntryInfo>(itemPtr);
+                    string entryName = entry.name?.Trim() ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(entryName))
+                    {
+                        entries.Add(entryName);
+                    }
+                }
+
+                return entries;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[RealCamera] GetEnumFeatureEntries error: Feature={name}, {ex.Message}");
+                return Array.Empty<string>();
+            }
+            finally
+            {
+                if (buffer != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(buffer);
+                }
+            }
         }
 
         public int IMV_SetBufferCount(int count)

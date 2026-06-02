@@ -204,13 +204,13 @@ namespace ClearFrost.Services
 
         #region 监听功能
 
-        public void StartMonitoring(
+        public bool StartMonitoring(
             string triggerAddress,
             int pollingIntervalMs = 500,
             int triggerDelayMs = 800,
             PlcMonitoringOptions? options = null)
         {
-            if (_monitoringTask != null && !_monitoringTask.IsCompleted) return;
+            if (_monitoringTask != null && !_monitoringTask.IsCompleted) return true;
 
             options ??= new PlcMonitoringOptions();
             try
@@ -222,7 +222,7 @@ namespace ClearFrost.Services
             {
                 LastError = ex.Message;
                 ErrorOccurred?.Invoke($"PLC监听地址无效: {ex.Message}");
-                return;
+                return false;
             }
 
             _lastPollingIntervalMs = Math.Max(50, pollingIntervalMs);
@@ -240,6 +240,7 @@ namespace ClearFrost.Services
             }, token);
 
             Debug.WriteLine($"[PlcService] 开始监听触发地址: {_lastTriggerAddress}, 轮询间隔: {_lastPollingIntervalMs}ms, 触发延迟: {_lastTriggerDelayMs}ms, 模式: {_lastProtocolMode}");
+            return true;
         }
 
         public void StopMonitoring()

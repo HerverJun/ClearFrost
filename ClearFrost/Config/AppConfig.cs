@@ -547,11 +547,76 @@ namespace ClearFrost.Config
 
             foreach (var camera in Cameras)
             {
-                if (string.IsNullOrWhiteSpace(camera.PixelFormat))
+                camera.PixelFormat = NormalizeCameraPixelFormat(camera.PixelFormat);
+            }
+        }
+
+        private static string NormalizeCameraPixelFormat(string? value)
+        {
+            string raw = value?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return "Auto";
+            }
+
+            string normalized = raw
+                .Replace("_", string.Empty, StringComparison.Ordinal)
+                .Replace("-", string.Empty, StringComparison.Ordinal)
+                .Replace(" ", string.Empty, StringComparison.Ordinal);
+
+            if (string.Equals(normalized, "BGR", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Color", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Colour", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BGR8";
+            }
+
+            if (string.Equals(normalized, "RGB", StringComparison.OrdinalIgnoreCase))
+            {
+                return "RGB8";
+            }
+
+            if (string.Equals(normalized, "BayerRG", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BayerRG8";
+            }
+
+            if (string.Equals(normalized, "BayerGB", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BayerGB8";
+            }
+
+            if (string.Equals(normalized, "BayerGR", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BayerGR8";
+            }
+
+            if (string.Equals(normalized, "BayerBG", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BayerBG8";
+            }
+
+            string[] allowed =
+            {
+                "Auto",
+                "Mono8",
+                "BGR8",
+                "RGB8",
+                "BayerRG8",
+                "BayerGB8",
+                "BayerGR8",
+                "BayerBG8"
+            };
+
+            foreach (string format in allowed)
+            {
+                if (string.Equals(format, raw, StringComparison.OrdinalIgnoreCase))
                 {
-                    camera.PixelFormat = "Mono8";
+                    return format;
                 }
             }
+
+            return "Auto";
         }
 
         private void NormalizePlcAddresses()

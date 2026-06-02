@@ -4089,6 +4089,16 @@ input[type="range"]::-webkit-slider-runnable-track {
     box-shadow: 0 5px 14px rgba(11, 92, 171, 0.28) !important;
 }
 
+.stitch-start-button.is-running {
+    background: #b42318 !important;
+    box-shadow: 0 3px 10px rgba(180, 35, 24, 0.22) !important;
+}
+
+.stitch-start-button.is-running:hover {
+    background: #912018 !important;
+    box-shadow: 0 5px 14px rgba(180, 35, 24, 0.28) !important;
+}
+
 .stitch-action-grid button,
 .stitch-left-actions button {
     color: #39465a !important;
