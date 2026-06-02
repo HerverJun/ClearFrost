@@ -1268,7 +1268,7 @@ namespace ClearFrost
                         InitYolo();
                         RefreshStartupDiagnostics();
 
-                        // 根据 TriggerSource 切换触发源；PLC 通讯连接保留用于写回/条码，监听只按触发源启动。
+                        // 根据 TriggerSource 切换触发源；非 PLC 模式跳过 PLC 连接、监听、条码和写回。
                         _ = StartTriggerSourceAsync();
 
                         await _uiController.SendUiCommand("closeSettingsModal");

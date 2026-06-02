@@ -63,6 +63,18 @@ namespace ClearFrost
         /// </summary>
         private async Task<bool> ConnectPlcViaServiceAsync(bool startTriggerMonitoring = true)
         {
+            if (_appConfig.TriggerSource != TriggerSource.PLC)
+            {
+                _plcService.StopMonitoring();
+                string modeText = _appConfig.TriggerSource == TriggerSource.SerialPhotoelectric
+                    ? "串口光电触发模式"
+                    : $"{_appConfig.TriggerSource}触发模式";
+
+                DiagLog($"{modeText}已忽略 PLC 连接请求，未执行 ConnectAsync");
+                await SendHealthSnapshotToFrontendAsync();
+                return true;
+            }
+
             string driverProvider = _appConfig.PlcDriverProvider;
             string protocol = _appConfig.PlcProtocol;
             string ip = _appConfig.PlcIp;
