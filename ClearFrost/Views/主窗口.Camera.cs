@@ -258,7 +258,10 @@ namespace ClearFrost
                         throw new InvalidOperationException("相机正在连接中，请稍候重试");
                     }
 
-                    await btnOpenCamera_LogicAsync();
+                    if (!await OpenCameraForPreviewAsync(activeConfig))
+                    {
+                        throw new InvalidOperationException(_cameraService.LastError ?? "相机预览连接失败");
+                    }
                 }
                 else
                 {
@@ -304,6 +307,46 @@ namespace ClearFrost
                     type = "warning",
                     durationMs = 3000
                 });
+            }
+        }
+
+        private async Task<bool> OpenCameraForPreviewAsync(CameraConfig activeConfig)
+        {
+            if (_isCameraOpening)
+            {
+                return false;
+            }
+
+            _isCameraOpening = true;
+            try
+            {
+                return await Task.Run(() =>
+                {
+                    SynchronizeActiveCameraRegistration(activeConfig, recreateExisting: false);
+                    ReleaseCameraResources();
+
+                    bool openOk = _cameraService.Open(activeConfig.SerialNumber, activeConfig.Manufacturer);
+                    if (!openOk)
+                    {
+                        return false;
+                    }
+
+                    CameraInstance? activeCamera = _cameraManager.ActiveCamera;
+                    if (activeCamera == null)
+                    {
+                        _cameraService.Close();
+                        return false;
+                    }
+
+                    cam = activeCamera.Camera;
+                    getParam();
+                    _cameraService.StartCapture();
+                    return _cameraService.IsOpen && _cameraService.IsGrabbing;
+                });
+            }
+            finally
+            {
+                _isCameraOpening = false;
             }
         }
 

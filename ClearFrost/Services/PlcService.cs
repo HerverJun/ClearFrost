@@ -35,7 +35,7 @@ namespace ClearFrost.Services
         private long _lastAcceptedTriggerTicks;
 
         private string _lastProtocol = "Mitsubishi_MC_ASCII";
-        private string _lastDriverProvider = "Hsl";
+        private string _lastDriverProvider = "HaoCommunication";
         private string _lastIp = "127.0.0.1";
         private int _lastPort = 0;
         private string _lastTriggerAddress = string.Empty;
@@ -85,7 +85,7 @@ namespace ClearFrost.Services
                 var protocolType = options.ProtocolType;
 
                 string nextProtocol = string.IsNullOrWhiteSpace(options.Protocol) ? protocolType.ToString() : options.Protocol;
-                string nextDriverProvider = string.IsNullOrWhiteSpace(options.DriverProvider) ? "Hsl" : options.DriverProvider;
+                string nextDriverProvider = string.IsNullOrWhiteSpace(options.DriverProvider) ? "HaoCommunication" : options.DriverProvider;
                 string nextTriggerAddress = NormalizeAddress(
                     options.TriggerAddress ?? string.Empty,
                     protocolType,

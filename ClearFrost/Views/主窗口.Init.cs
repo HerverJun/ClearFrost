@@ -642,7 +642,7 @@ namespace ClearFrost
                             gain = c.Gain
                         }).ToList();
                         await _uiController.SendCameraList(cameras, _appConfig.ActiveCameraId ?? "");
-                        string message = $"相机 [{newConfig.DisplayName}] 已添加并设为当前相机，请点击主界面右下角“启动系统”完成连接";
+                        string message = $"相机 [{newConfig.DisplayName}] 已添加并设为当前相机，可直接获取单帧预览或点击“启动系统”开始检测";
                         await _uiController.LogToFrontend(message, "success");
                         await _uiController.SendUiCommand("cameraDirectConnectResult", new
                         {

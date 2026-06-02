@@ -39,6 +39,8 @@ public class AppConfigTests
         config.BarcodeWordLength.Should().Be(16);
         config.BarcodeEncoding.Should().Be("ASCII");
         config.BarcodeRequired.Should().BeFalse();
+        config.EnableGpu.Should().BeFalse();
+        config.IndustrialRenderMode.Should().BeTrue();
         config.Confidence.Should().BeApproximately(0.5f, 0.001f);
         config.IouThreshold.Should().BeApproximately(0.3f, 0.001f);
         config.ModelPackageDirectory.Should().Be("models");
@@ -56,6 +58,14 @@ public class AppConfigTests
         config.WireSequenceDirection.Should().Be("LeftToRight");
         config.WireSequenceExpectedCount.Should().Be(0);
         config.WireSequenceMinConfidence.Should().Be(0.0);
+    }
+
+    [Fact]
+    public void PlcConnectionOptions_默认驱动库为信息工程部特调版()
+    {
+        var options = new PlcConnectionOptions();
+
+        options.DriverProvider.Should().Be("HaoCommunication");
     }
 
     [Fact]
