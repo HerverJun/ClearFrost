@@ -61,8 +61,20 @@ namespace ClearFrost
         /// <summary>
         /// 通过服务层连接 PLC
         /// </summary>
-        private async Task ConnectPlcViaServiceAsync(bool startTriggerMonitoring = true)
+        private async Task<bool> ConnectPlcViaServiceAsync(bool startTriggerMonitoring = true)
         {
+            if (_appConfig.TriggerSource != TriggerSource.PLC)
+            {
+                _plcService.StopMonitoring();
+                string modeText = _appConfig.TriggerSource == TriggerSource.SerialPhotoelectric
+                    ? "串口光电触发模式"
+                    : $"{_appConfig.TriggerSource}触发模式";
+
+                DiagLog($"{modeText}已忽略 PLC 连接请求，未执行 ConnectAsync");
+                await SendHealthSnapshotToFrontendAsync();
+                return true;
+            }
+
             string operatorContext = BuildOperatorAuditContext();
             string driverProvider = _appConfig.PlcDriverProvider;
             string protocol = _appConfig.PlcProtocol;
@@ -97,10 +109,8 @@ namespace ClearFrost
                     var cameraReady = await WaitForCameraReadyForInspectionAsync();
                     if (!cameraReady.Ready)
                     {
-                        shouldStartPlcTrigger = false;
-                        monitoringState = $"BlockedByCamera: {cameraReady.Message}";
                         await _uiController.LogToFrontend(
-                            $"PLC已连接，但相机未就绪，暂未启动触发监听: {cameraReady.Message}",
+                            $"PLC已连接，相机暂未就绪，仍启动触发监听；触发时将自动恢复相机: {cameraReady.Message}",
                             "warning");
                     }
                 }
@@ -110,20 +120,20 @@ namespace ClearFrost
                     WriteAuditLogSafe("PLC", "Connect", $"{endpointDetail}; Monitoring=BlockedByStartupDiagnostics", success: true);
                     await _uiController.LogToFrontend("PLC已连接，但启动诊断未通过，未启动触发监听", "warning");
                     await SendHealthSnapshotToFrontendAsync();
-                    return;
+                    return false;
                 }
 
                 if (shouldStartPlcTrigger && !await EnsureProductionOperatorSessionAsync("PLC触发监听"))
                 {
                     WriteAuditLogSafe("PLC", "Connect", $"{endpointDetail}; Monitoring=BlockedByOperatorSession", success: true);
                     await SendHealthSnapshotToFrontendAsync();
-                    return;
+                    return false;
                 }
 
                 if (shouldStartPlcTrigger)
                 {
                     // 启动 PLC 触发监控
-                    _plcService.StartMonitoring(
+                    bool monitoringStarted = _plcService.StartMonitoring(
                         triggerAddress,
                         _appConfig.PlcPollingIntervalMs,
                         _appConfig.PlcTriggerDelayMs,
@@ -132,6 +142,15 @@ namespace ClearFrost
                             ProtocolMode = _appConfig.PlcProtocolMode,
                             TriggerSeqAddress = _appConfig.PlcTriggerSeqAddress
                         });
+                    if (!monitoringStarted)
+                    {
+                        string err = _plcService.LastError ?? "PLC监听启动失败";
+                        RecordHealthError("PLC", $"PLC监听启动失败: {err}");
+                        await _uiController.LogToFrontend($"PLC连接成功，但监听启动失败: {err}", "error");
+                        await SendHealthSnapshotToFrontendAsync();
+                        return false;
+                    }
+
                     await _uiController.LogToFrontend(
                         $"✅ PLC连接成功，开始监听 {triggerAddress} ({_appConfig.PlcProtocolMode})", "success");
                     monitoringState = $"Started: {triggerAddress}";
@@ -140,7 +159,7 @@ namespace ClearFrost
                 {
                     _plcService.StopMonitoring();
                     string modeText = _appConfig.TriggerSource == TriggerSource.SerialPhotoelectric
-                        ? "串口光电触发模式，PLC仅用于结果写回/条码读取"
+                        ? "串口光电触发模式，自动检测不使用 PLC 读写"
                         : "PLC触发监听暂未启动";
                     await _uiController.LogToFrontend(
                         $"✅ PLC连接成功（{modeText}）", "success");
@@ -153,6 +172,7 @@ namespace ClearFrost
                 WriteAuditLogSafe("PLC", "Connect", $"{endpointDetail}; Monitoring={monitoringState}", success: true);
                 WriteHealthSnapshotLog("PLC连接成功");
                 await SendHealthSnapshotToFrontendAsync();
+                return true;
             }
             else
             {
@@ -162,34 +182,32 @@ namespace ClearFrost
                 await _uiController.LogToFrontend(
                     $"❌ PLC连接失败: {err}（协议: {protocol}, 地址: {ip}:{port}）", "error");
                 await SendHealthSnapshotToFrontendAsync();
+                return false;
             }
         }
 
         /// <summary>
         /// 启动 PLC 触发监听（要求 PLC 已连接且当前触发源为 PLC）。
         /// </summary>
-        private async Task StartPlcTriggerMonitoringIfReadyAsync()
+        private async Task<bool> StartPlcTriggerMonitoringIfReadyAsync()
         {
             if (_appConfig.TriggerSource != TriggerSource.PLC)
             {
                 _plcService.StopMonitoring();
-                return;
+                return false;
             }
 
             if (!_plcService.IsConnected)
             {
-                await ConnectPlcViaServiceAsync(startTriggerMonitoring: true);
-                return;
+                return await ConnectPlcViaServiceAsync(startTriggerMonitoring: true);
             }
 
             var cameraReady = await WaitForCameraReadyForInspectionAsync();
             if (!cameraReady.Ready)
             {
-                _plcService.StopMonitoring();
                 await _uiController.LogToFrontend(
-                    $"PLC已连接，但相机未就绪，暂未启动触发监听: {cameraReady.Message}",
+                    $"PLC已连接，相机暂未就绪，保持触发监听；触发时将自动恢复相机: {cameraReady.Message}",
                     "warning");
-                return;
             }
 
             if (!await EnsureStartupReadyForProductionAsync("PLC触发监听"))
@@ -197,17 +215,17 @@ namespace ClearFrost
                 _plcService.StopMonitoring();
                 await _uiController.LogToFrontend("PLC已连接，但启动诊断未通过，未启动触发监听", "warning");
                 await SendHealthSnapshotToFrontendAsync();
-                return;
+                return false;
             }
 
             if (!await EnsureProductionOperatorSessionAsync("PLC触发监听"))
             {
                 _plcService.StopMonitoring();
                 await SendHealthSnapshotToFrontendAsync();
-                return;
+                return false;
             }
 
-            _plcService.StartMonitoring(
+            bool monitoringStarted = _plcService.StartMonitoring(
                 _appConfig.PlcTriggerAddress,
                 _appConfig.PlcPollingIntervalMs,
                 _appConfig.PlcTriggerDelayMs,
@@ -217,9 +235,19 @@ namespace ClearFrost
                     TriggerSeqAddress = _appConfig.PlcTriggerSeqAddress
                 });
 
+            if (!monitoringStarted)
+            {
+                string err = _plcService.LastError ?? "PLC监听启动失败";
+                RecordHealthError("PLC", $"PLC监听启动失败: {err}");
+                await _uiController.LogToFrontend($"PLC监听启动失败: {err}", "error");
+                await SendHealthSnapshotToFrontendAsync();
+                return false;
+            }
+
             await _uiController.LogToFrontend(
                 $"✅ PLC开始监听 {_appConfig.PlcTriggerAddress} ({_appConfig.PlcProtocolMode})", "success");
             await SendHealthSnapshotToFrontendAsync();
+            return true;
         }
 
         /// <summary>
@@ -227,6 +255,12 @@ namespace ClearFrost
         /// </summary>
         public async Task<bool> WriteDetectionResult(bool isQualified)
         {
+            if (_appConfig.TriggerSource != TriggerSource.PLC)
+            {
+                await _uiController.LogToFrontend("串口光电触发模式已跳过 PLC 检测结果写入", "info");
+                return true;
+            }
+
             if (!plcConnected)
             {
                 await _uiController.LogToFrontend("PLC未连接，无法写入检测结果", "error");
@@ -249,24 +283,60 @@ namespace ClearFrost
         private async Task fx_btn_LogicAsync(string releaseReason)
         {
             string detail = $"{BuildOperatorAuditContext()}; Address={_appConfig.PlcResultAddress}; Value=1; Reason={NormalizeAuditText(releaseReason, 160)}";
+            if (Interlocked.Exchange(ref _manualReleaseInProgress, 1) != 0)
+            {
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "强制放行正在执行，请勿重复点击",
+                    type = "warning",
+                    durationMs = 1200
+                });
+                return;
+            }
+
             try
             {
+                await _uiController.LogToFrontend("强制放行已触发，正在写入 PLC 放行信号", "info");
+
                 bool success = await _plcService.WriteReleaseSignalAsync(_appConfig.PlcResultAddress);
+
                 if (success)
                 {
                     WriteAuditLogSafe("PLC", "ManualRelease", detail, success: true);
-                    await _uiController.LogToFrontend("手动放行信号已发送", "success");
+                    await _uiController.LogToFrontend("强制放行信号已发送", "success");
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = "强制放行信号已发送",
+                        type = "success",
+                        durationMs = 1400
+                    });
                 }
                 else
                 {
                     WriteAuditLogSafe("PLC", "ManualRelease", $"{detail}; Error=PLC未连接或写入错误", success: false);
-                    await _uiController.LogToFrontend("放行失败: PLC未连接或写入错误", "error");
+                    await _uiController.LogToFrontend("强制放行失败: PLC未连接或写入错误", "error");
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = "强制放行失败",
+                        type = "error",
+                        durationMs = 1800
+                    });
                 }
             }
             catch (Exception ex)
             {
                 WriteAuditLogSafe("PLC", "ManualRelease", $"{detail}; Error={ex.Message}", success: false);
-                await _uiController.LogToFrontend($"放行异常: {ex.Message}", "error");
+                await _uiController.LogToFrontend($"强制放行异常: {ex.Message}", "error");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = $"强制放行异常: {ex.Message}",
+                    type = "error",
+                    durationMs = 2200
+                });
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _manualReleaseInProgress, 0);
             }
         }
 

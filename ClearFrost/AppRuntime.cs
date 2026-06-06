@@ -278,7 +278,14 @@ namespace ClearFrost
 
             try
             {
-                CameraService.Close();
+                if (CameraService is CameraService concreteCameraService)
+                {
+                    concreteCameraService.ReleaseCurrentCamera();
+                }
+                else
+                {
+                    CameraService.Close();
+                }
             }
             catch (Exception ex)
             {
@@ -301,6 +308,7 @@ namespace ClearFrost
         {
             Debug.WriteLine(
                 $"[AppRuntime] 准备排空保存队列: Images={ImageSaveQueue.PendingCount}/{ImageSaveQueue.Capacity}, " +
+                $"ImageBuffer={FormatBytes(ImageSaveQueue.PendingBytes)}/{FormatBytes(ImageSaveQueue.MaxBufferedBytes)}, " +
                 $"ImageDropped={ImageSaveQueue.DroppedCount}, ImageFailed={ImageSaveQueue.FailedCount}, " +
                 $"Records={DetectionRecordQueue.PendingCount}/{DetectionRecordQueue.Capacity}, " +
                 $"RecordDropped={DetectionRecordQueue.DroppedCount}, RecordFailed={DetectionRecordQueue.FailedCount}");
@@ -328,11 +336,17 @@ namespace ClearFrost
             {
                 Debug.WriteLine(
                     $"[AppRuntime] 图像保存队列排空超时: Pending={ImageSaveQueue.PendingCount}, " +
+                    $"Buffer={FormatBytes(ImageSaveQueue.PendingBytes)}/{FormatBytes(ImageSaveQueue.MaxBufferedBytes)}, " +
                     $"Saved={ImageSaveQueue.SavedCount}, Dropped={ImageSaveQueue.DroppedCount}, Failed={ImageSaveQueue.FailedCount}");
             }
 
             Debug.WriteLine(
                 $"[AppRuntime] 保存队列排空结束: Images={ImageSaveQueue.PendingCount}, Records={DetectionRecordQueue.PendingCount}");
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            return $"{bytes / 1024d / 1024d:F1}MB";
         }
 
         public async ValueTask DisposeAsync()

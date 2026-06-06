@@ -464,12 +464,15 @@ namespace ClearFrost.Tests
                 => Task.FromResult(true);
 
             public void Disconnect() => _order.Add("plc-disconnect");
-            public void StartMonitoring(
+            public bool StartMonitoring(
                 string triggerAddress,
                 int pollingIntervalMs = 500,
                 int triggerDelayMs = 800,
                 PlcMonitoringOptions? options = null)
-                => _order.Add("plc-start-monitoring");
+            {
+                _order.Add("plc-start-monitoring");
+                return true;
+            }
             public void StopMonitoring() => _order.Add("plc-stop-monitoring");
             public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
             public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite) => Task.FromResult(true);

@@ -104,6 +104,44 @@ public class HealthMonitorTests
     }
 
     [Fact]
+    public void GetSnapshot_图像缓冲内存超过75Percent时生成维护建议()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            using var imageQueue = new ImageSaveQueue(capacity: 4, maxBufferedBytes: 1024);
+            using var recordQueue = new DetectionRecordQueue(new RecordingDatabaseService(), capacity: 4);
+            SetPendingBytes(imageQueue, 900);
+
+            var monitor = new HealthMonitor(
+                new FakeCameraService(),
+                new FakePlcService(),
+                new FakeDetectionService(),
+                new FakeStorageService(tempDir),
+                imageQueue,
+                recordQueue);
+
+            HealthSnapshot snapshot = monitor.GetSnapshot();
+
+            snapshot.HealthLevel.Should().Be(HealthLevel.Warning);
+            snapshot.ImageQueuePendingBytes.Should().Be(900);
+            snapshot.ImageQueueMaxBufferedBytes.Should().Be(1024);
+            snapshot.RecentErrors.Should().Contain(e =>
+                e.Source == "ImageSaveQueue" &&
+                e.Message.Contains("缓冲内存超过75%"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task GetSnapshot_短时间内复用磁盘探针结果()
     {
         string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
@@ -444,6 +482,15 @@ public class HealthMonitorTests
         field!.SetValue(queue, value);
     }
 
+    private static void SetPendingBytes(object queue, long value)
+    {
+        var field = queue.GetType().GetField(
+            "_pendingBytes",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        field.Should().NotBeNull();
+        field!.SetValue(queue, value);
+    }
+
     private sealed class FakeCameraService : ICameraService
     {
         public event Action<Mat>? FrameCaptured;
@@ -482,11 +529,11 @@ public class HealthMonitorTests
 
         public Task<bool> ConnectAsync(PlcConnectionOptions options) => Task.FromResult(true);
         public void Disconnect() { }
-        public void StartMonitoring(
+        public bool StartMonitoring(
             string triggerAddress,
             int pollingIntervalMs = 500,
             int triggerDelayMs = 800,
-            PlcMonitoringOptions? options = null) { }
+            PlcMonitoringOptions? options = null) => true;
         public void StopMonitoring() { }
         public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
         public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite) => Task.FromResult(true);

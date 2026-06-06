@@ -83,8 +83,11 @@ namespace ClearFrost
         private readonly TimeSpan _shutdownTimeout = TimeSpan.FromSeconds(15);
         private Task? _shutdownTask;
         private int _shutdownState = 0;
+        private int _productionRunningState = 0;
+        private int _manualReleaseInProgress = 0;
 
         private bool IsShutdownInProgress => Volatile.Read(ref _shutdownState) != 0;
+        private bool IsProductionRunning => Volatile.Read(ref _productionRunningState) != 0;
 
         // YOLO (由 _detectionService 管理)
         // 多模型管理器 (由 _detectionService 管理)

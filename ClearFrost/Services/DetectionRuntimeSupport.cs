@@ -227,11 +227,14 @@ namespace ClearFrost.Services
             Purpose = purpose;
             EncodedBytes = encodedBytes;
             Sha256 = sha256 ?? string.Empty;
+            EstimatedBytes = EstimateBytes(image);
         }
 
         public Mat Image { get; }
 
         public string Path { get; }
+
+        public long EstimatedBytes { get; }
 
         public int? JpegQuality { get; }
 
@@ -323,6 +326,35 @@ namespace ClearFrost.Services
             string extension = System.IO.Path.GetExtension(path);
             return string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(extension, ".jpeg", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static long EstimateBytes(Mat image)
+        {
+            if (image == null || image.Empty())
+            {
+                return 0;
+            }
+
+            try
+            {
+                long strideBytes = image.Step();
+                if (strideBytes > 0 && image.Rows > 0)
+                {
+                    return checked(strideBytes * image.Rows);
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                return checked(image.Total() * image.ElemSize());
+            }
+            catch
+            {
+                return 0;
+            }
         }
     }
 

@@ -458,6 +458,26 @@
                                 </button>
                                 <div id="dataset-collect-result" class="mt-2 text-[10px] hidden"></div>
                             </div>
+
+                            <!-- 生产报表 -->
+                            <div class="p-4 bg-white rounded-xl border border-vermilion/10 shadow-sm">
+                                <label class="flex items-center gap-2 text-[10px] font-bold text-vermilion uppercase tracking-widest mb-3">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M9 17v-6m4 6V7m4 10v-4M5 21h14M5 3h14a2 2 0 0 1 2 2v14H3V5a2 2 0 0 1 2-2z"></path>
+                                    </svg>
+                                    生产报表
+                                </label>
+                                <button data-cmd="reset_statistics" data-confirm="确定要清除今日统计数据吗？此操作不可撤销！"
+                                    class="w-full py-3 bg-vermilion/5 text-vermilion font-black text-[10px] rounded-xl hover:bg-vermilion/10 transition-[background-color,border-color,color,box-shadow] uppercase tracking-widest border border-vermilion/10 flex items-center justify-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16">
+                                        </path>
+                                    </svg>
+                                    重置生产报表
+                                </button>
+                            </div>
                         </div>
 
                 <div id="settings-vision-controls" class="space-y-4" data-settings-section="vision">
@@ -777,7 +797,7 @@
                                     <select id="cfg-plc-driver-provider"
                                         class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
                                         <option value="HaoCommunication">信息工程部特调版</option>
-                                        <option value="Hsl">Hsl（默认稳定版）</option>
+                                        <option value="Hsl">Hsl（稳定版）</option>
                                         <option value="McpX">McpX（三菱试验版）</option>
                                     </select>
                                     <p class="mt-1 text-[9px] text-ink-400 italic">驱动切换需重新连接 PLC 后生效</p>

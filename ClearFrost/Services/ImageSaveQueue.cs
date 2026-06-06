@@ -18,19 +18,24 @@ namespace ClearFrost.Services
     /// </summary>
     public sealed class ImageSaveQueue : IDisposable
     {
+        private const long DefaultMaxBufferedBytes = 256L * 1024L * 1024L;
+
         private readonly Channel<ImageSavePayload> _channel;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly Task _workerTask;
         private readonly object _enqueueLock = new object();
         private readonly int _capacity;
+        private readonly long _maxBufferedBytes;
         private long _pendingCount;
+        private long _pendingBytes;
         private long _droppedCount;
+        private long _droppedBytes;
         private long _savedCount;
         private long _failedCount;
         private bool _disposed;
         private bool _stopped;
 
-        public ImageSaveQueue(int capacity = 64)
+        public ImageSaveQueue(int capacity = 64, long maxBufferedBytes = DefaultMaxBufferedBytes)
         {
             if (capacity <= 0)
             {
@@ -38,6 +43,7 @@ namespace ClearFrost.Services
             }
 
             _capacity = capacity;
+            _maxBufferedBytes = maxBufferedBytes > 0 ? maxBufferedBytes : DefaultMaxBufferedBytes;
             _channel = Channel.CreateBounded<ImageSavePayload>(new BoundedChannelOptions(capacity)
             {
                 // 生产者在线程满载时会读取并丢弃最旧项，不能声明单读者。
@@ -51,9 +57,15 @@ namespace ClearFrost.Services
 
         public int Capacity => _capacity;
 
+        public long MaxBufferedBytes => _maxBufferedBytes;
+
         public long PendingCount => Interlocked.Read(ref _pendingCount);
 
+        public long PendingBytes => Interlocked.Read(ref _pendingBytes);
+
         public long DroppedCount => Interlocked.Read(ref _droppedCount);
+
+        public long DroppedBytes => Interlocked.Read(ref _droppedBytes);
 
         public long SavedCount => Interlocked.Read(ref _savedCount);
 
@@ -99,31 +111,72 @@ namespace ClearFrost.Services
                     return false;
                 }
 
-                Interlocked.Increment(ref _pendingCount);
+                long payloadBytes = payload.EstimatedBytes;
+                DropOldestUntilRoomFor(payloadBytes);
+
+                AddPending(payload);
                 if (_channel.Writer.TryWrite(payload))
                 {
                     return true;
                 }
-                Interlocked.Decrement(ref _pendingCount);
 
-                // 队列满时丢弃最旧项，防止慢盘导致内存持续堆积。
-                if (_channel.Reader.TryRead(out ImageSavePayload? dropped))
-                {
-                    dropped.Dispose();
-                    Interlocked.Decrement(ref _pendingCount);
-                    Interlocked.Increment(ref _droppedCount);
-                }
+                RemovePending(payload);
+                DropOldestPayload();
 
-                Interlocked.Increment(ref _pendingCount);
+                AddPending(payload);
                 if (_channel.Writer.TryWrite(payload))
                 {
                     return true;
                 }
-                Interlocked.Decrement(ref _pendingCount);
+
+                RemovePending(payload);
             }
 
-            Interlocked.Increment(ref _droppedCount);
+            RecordRejectedPayload(payload);
             return false;
+        }
+
+        private void DropOldestUntilRoomFor(long payloadBytes)
+        {
+            while (PendingCount >= _capacity ||
+                   (PendingCount > 0 && PendingBytes + payloadBytes > _maxBufferedBytes))
+            {
+                if (!DropOldestPayload())
+                {
+                    break;
+                }
+            }
+        }
+
+        private bool DropOldestPayload()
+        {
+            if (!_channel.Reader.TryRead(out ImageSavePayload? dropped))
+            {
+                return false;
+            }
+
+            RemovePending(dropped);
+            RecordRejectedPayload(dropped);
+            dropped.Dispose();
+            return true;
+        }
+
+        private void AddPending(ImageSavePayload payload)
+        {
+            Interlocked.Increment(ref _pendingCount);
+            Interlocked.Add(ref _pendingBytes, payload.EstimatedBytes);
+        }
+
+        private void RemovePending(ImageSavePayload payload)
+        {
+            Interlocked.Decrement(ref _pendingCount);
+            Interlocked.Add(ref _pendingBytes, -payload.EstimatedBytes);
+        }
+
+        private void RecordRejectedPayload(ImageSavePayload payload)
+        {
+            Interlocked.Increment(ref _droppedCount);
+            Interlocked.Add(ref _droppedBytes, payload.EstimatedBytes);
         }
 
         public async Task StopAsync(CancellationToken cancellationToken = default)
@@ -147,7 +200,7 @@ namespace ClearFrost.Services
                 {
                     while (_channel.Reader.TryRead(out ImageSavePayload? item))
                     {
-                        Interlocked.Decrement(ref _pendingCount);
+                        RemovePending(item);
                         try
                         {
                             string? dir = Path.GetDirectoryName(item.Path);
@@ -195,7 +248,7 @@ namespace ClearFrost.Services
                 while (_channel.Reader.TryRead(out ImageSavePayload? remaining))
                 {
                     remaining.Dispose();
-                    Interlocked.Decrement(ref _pendingCount);
+                    RemovePending(remaining);
                 }
             }
         }

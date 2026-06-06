@@ -17,9 +17,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO.Ports;
 using System.Linq;
-using System.Management;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32;
 
 namespace ClearFrost.Hardware.Triggers
 {
@@ -185,41 +185,55 @@ namespace ClearFrost.Hardware.Triggers
         {
             return Task.Run(() =>
             {
-                string[] portNames = SerialPort.GetPortNames();
-                Dictionary<string, string> friendlyNames = TryGetFriendlyNames();
+                Dictionary<string, string> friendlyNames = ReadSerialPortFriendlyNamesFromRegistry();
 
-                var result = new List<SerialPhotoelectricPortInfo>();
-                foreach (string port in portNames)
-                {
-                    string normalized = port.ToUpperInvariant();
-                    // 排除明显的蓝牙串口
-                    if (friendlyNames.TryGetValue(normalized, out string? friendly))
+                var candidates = SerialPort.GetPortNames()
+                    .Select(port => port.Trim().ToUpperInvariant())
+                    .Where(IsComPortName)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(ExtractComPortNumber)
+                    .ThenBy(port => port, StringComparer.OrdinalIgnoreCase)
+                    .Select(port =>
                     {
-                        string f = friendly.ToUpperInvariant();
-                        if (f.Contains("BLUETOOTH") || f.Contains("BT"))
-                        {
-                            continue;
-                        }
-                    }
+                        string friendlyName = friendlyNames.TryGetValue(port, out string? name)
+                            ? name
+                            : port;
+                        string displayName = string.Equals(friendlyName, port, StringComparison.OrdinalIgnoreCase)
+                            ? port
+                            : $"{port} - {friendlyName}";
 
-                    string displayName = port;
-                    if (friendlyNames.TryGetValue(normalized, out string? name))
+                        return new SerialPhotoelectricPortCandidate(
+                            port,
+                            displayName,
+                            ScoreSerialPhotoelectricPort(displayName));
+                    })
+                    .Where(candidate => !LooksLikeBluetoothSerialPort(candidate.DisplayName))
+                    .ToArray();
+
+                SerialPhotoelectricPortCandidate? preferred = candidates
+                    .Where(candidate => candidate.Score > 0)
+                    .OrderByDescending(candidate => candidate.Score)
+                    .ThenBy(candidate => ExtractComPortNumber(candidate.PortName))
+                    .FirstOrDefault();
+
+                preferred ??= candidates.Length == 1
+                    ? candidates[0]
+                    : candidates
+                        .OrderBy(candidate => ExtractComPortNumber(candidate.PortName))
+                        .FirstOrDefault();
+
+                string preferredPortName = preferred?.PortName ?? string.Empty;
+
+                return candidates
+                    .OrderByDescending(candidate => string.Equals(candidate.PortName, preferredPortName, StringComparison.OrdinalIgnoreCase))
+                    .ThenByDescending(candidate => candidate.Score)
+                    .ThenBy(candidate => ExtractComPortNumber(candidate.PortName))
+                    .Select(candidate => new SerialPhotoelectricPortInfo
                     {
-                        displayName = $"{port} - {name}";
-                    }
-
-                    result.Add(new SerialPhotoelectricPortInfo
-                    {
-                        Name = port,
-                        DisplayName = displayName,
-                        IsPreferred = IsPreferredUsbSerial(displayName)
-                    });
-                }
-
-                // 优先排序常见 USB 转串口芯片
-                return result
-                    .OrderByDescending(p => p.IsPreferred)
-                    .ThenBy(p => p.Name)
+                        Name = candidate.PortName,
+                        DisplayName = candidate.DisplayName,
+                        IsPreferred = string.Equals(candidate.PortName, preferredPortName, StringComparison.OrdinalIgnoreCase)
+                    })
                     .ToArray();
             });
         }
@@ -440,42 +454,181 @@ namespace ClearFrost.Hardware.Triggers
             }
         }
 
-        private static Dictionary<string, string> TryGetFriendlyNames()
+        private static Dictionary<string, string> ReadSerialPortFriendlyNamesFromRegistry()
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            try
+            string[] roots =
             {
-                using var searcher = new ManagementObjectSearcher(
-                    "SELECT DeviceID, Caption FROM Win32_SerialPort");
-                foreach (ManagementObject obj in searcher.Get())
+                @"SYSTEM\CurrentControlSet\Enum\USB",
+                @"SYSTEM\CurrentControlSet\Enum\BTHENUM",
+                @"SYSTEM\CurrentControlSet\Enum\FTDIBUS",
+                @"SYSTEM\CurrentControlSet\Enum\SERENUM",
+                @"SYSTEM\CurrentControlSet\Enum\ROOT"
+            };
+
+            foreach (string rootPath in roots)
+            {
+                try
                 {
-                    string? deviceId = obj["DeviceID"] as string;
-                    string? caption = obj["Caption"] as string;
-                    if (!string.IsNullOrWhiteSpace(deviceId) && !string.IsNullOrWhiteSpace(caption))
+                    using RegistryKey? root = Registry.LocalMachine.OpenSubKey(rootPath);
+                    if (root != null)
                     {
-                        result[deviceId.ToUpperInvariant()] = caption;
+                        ReadSerialPortFriendlyNamesFromRegistry(root, result, depth: 0);
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[SerialTrigger] 获取串口友好名称失败: {ex.Message}");
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[SerialTrigger] 读取注册表串口分支失败: {rootPath}, {ex.Message}");
+                }
             }
 
             return result;
         }
 
+        private static void ReadSerialPortFriendlyNamesFromRegistry(
+            RegistryKey key,
+            Dictionary<string, string> result,
+            int depth)
+        {
+            if (depth > 8)
+            {
+                return;
+            }
+
+            try
+            {
+                if (key.GetValue("FriendlyName") is string friendlyName &&
+                    TryExtractComPortName(friendlyName, out string portName))
+                {
+                    result[portName] = friendlyName;
+                }
+
+                foreach (string subKeyName in key.GetSubKeyNames())
+                {
+                    try
+                    {
+                        using RegistryKey? subKey = key.OpenSubKey(subKeyName);
+                        if (subKey != null)
+                        {
+                            ReadSerialPortFriendlyNamesFromRegistry(subKey, result, depth + 1);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[SerialTrigger] 跳过串口注册表子项: {subKeyName}, {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SerialTrigger] 枚举串口注册表失败: {ex.Message}");
+            }
+        }
+
+        private static bool TryExtractComPortName(string friendlyName, out string portName)
+        {
+            portName = string.Empty;
+            int start = friendlyName.LastIndexOf("(COM", StringComparison.OrdinalIgnoreCase);
+            if (start < 0)
+            {
+                return false;
+            }
+
+            int end = friendlyName.IndexOf(')', start);
+            if (end <= start + 1)
+            {
+                return false;
+            }
+
+            string candidate = friendlyName.Substring(start + 1, end - start - 1).Trim().ToUpperInvariant();
+            if (!IsComPortName(candidate))
+            {
+                return false;
+            }
+
+            portName = candidate;
+            return true;
+        }
+
+        private static bool IsComPortName(string value)
+        {
+            if (value.Length <= 3 || !value.StartsWith("COM", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            for (int index = 3; index < value.Length; index++)
+            {
+                if (!char.IsDigit(value[index]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static int ExtractComPortNumber(string portName)
+        {
+            return int.TryParse(portName.AsSpan(3), out int number) ? number : int.MaxValue;
+        }
+
+        private static int ScoreSerialPhotoelectricPort(string displayName)
+        {
+            string normalized = displayName.ToLowerInvariant();
+            if (LooksLikeBluetoothSerialPort(normalized))
+            {
+                return -100;
+            }
+
+            int score = 0;
+            if (normalized.Contains("ch340", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("ch341", StringComparison.OrdinalIgnoreCase))
+            {
+                score += 120;
+            }
+
+            if (normalized.Contains("usb-serial", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("usb serial", StringComparison.OrdinalIgnoreCase))
+            {
+                score += 100;
+            }
+
+            if (normalized.Contains("cp210", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("ftdi", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("prolific", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("silicon labs", StringComparison.OrdinalIgnoreCase))
+            {
+                score += 90;
+            }
+
+            if (normalized.Contains("usb", StringComparison.OrdinalIgnoreCase))
+            {
+                score += 70;
+            }
+
+            if (normalized.Contains("serial", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("串行", StringComparison.OrdinalIgnoreCase))
+            {
+                score += 10;
+            }
+
+            return score;
+        }
+
         private static bool IsPreferredUsbSerial(string portEntry)
         {
-            string upper = portEntry.ToUpperInvariant();
-            return upper.Contains("CH340") ||
-                   upper.Contains("USB-SERIAL") ||
-                   upper.Contains("USB SERIAL") ||
-                   upper.Contains("SILICON LABS") ||
-                   upper.Contains("FTDI") ||
-                   upper.Contains("CP210") ||
-                   upper.Contains("PROLIFIC");
+            return ScoreSerialPhotoelectricPort(portEntry) > 0;
         }
+
+        private static bool LooksLikeBluetoothSerialPort(string displayName)
+        {
+            return displayName.Contains("bluetooth", StringComparison.OrdinalIgnoreCase) ||
+                   displayName.Contains("蓝牙", StringComparison.OrdinalIgnoreCase) ||
+                   displayName.Contains("bthenum", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private sealed record SerialPhotoelectricPortCandidate(string PortName, string DisplayName, int Score);
 
         #endregion
     }

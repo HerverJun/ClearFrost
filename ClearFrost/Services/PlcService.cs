@@ -35,7 +35,7 @@ namespace ClearFrost.Services
         private long _lastAcceptedTriggerTicks;
 
         private string _lastProtocol = "Mitsubishi_MC_ASCII";
-        private string _lastDriverProvider = "Hsl";
+        private string _lastDriverProvider = "HaoCommunication";
         private string _lastIp = "127.0.0.1";
         private int _lastPort = 0;
         private string _lastTriggerAddress = string.Empty;
@@ -85,7 +85,7 @@ namespace ClearFrost.Services
                 var protocolType = options.ProtocolType;
 
                 string nextProtocol = string.IsNullOrWhiteSpace(options.Protocol) ? protocolType.ToString() : options.Protocol;
-                string nextDriverProvider = string.IsNullOrWhiteSpace(options.DriverProvider) ? "Hsl" : options.DriverProvider;
+                string nextDriverProvider = string.IsNullOrWhiteSpace(options.DriverProvider) ? "HaoCommunication" : options.DriverProvider;
                 string nextTriggerAddress = NormalizeAddress(
                     options.TriggerAddress ?? string.Empty,
                     protocolType,
@@ -204,13 +204,13 @@ namespace ClearFrost.Services
 
         #region 监听功能
 
-        public void StartMonitoring(
+        public bool StartMonitoring(
             string triggerAddress,
             int pollingIntervalMs = 500,
             int triggerDelayMs = 800,
             PlcMonitoringOptions? options = null)
         {
-            if (_monitoringTask != null && !_monitoringTask.IsCompleted) return;
+            if (_monitoringTask != null && !_monitoringTask.IsCompleted) return true;
 
             options ??= new PlcMonitoringOptions();
             try
@@ -222,7 +222,7 @@ namespace ClearFrost.Services
             {
                 LastError = ex.Message;
                 ErrorOccurred?.Invoke($"PLC监听地址无效: {ex.Message}");
-                return;
+                return false;
             }
 
             _lastPollingIntervalMs = Math.Max(50, pollingIntervalMs);
@@ -240,6 +240,7 @@ namespace ClearFrost.Services
             }, token);
 
             Debug.WriteLine($"[PlcService] 开始监听触发地址: {_lastTriggerAddress}, 轮询间隔: {_lastPollingIntervalMs}ms, 触发延迟: {_lastTriggerDelayMs}ms, 模式: {_lastProtocolMode}");
+            return true;
         }
 
         public void StopMonitoring()

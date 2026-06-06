@@ -103,7 +103,10 @@ namespace ClearFrost.Services
         public int ConsecutiveNgCriticalCount { get; init; }
         public long ImageQueueLength { get; init; }
         public int ImageQueueCapacity { get; init; }
+        public long ImageQueuePendingBytes { get; init; }
+        public long ImageQueueMaxBufferedBytes { get; init; }
         public long ImageQueueDroppedCount { get; init; }
+        public long ImageQueueDroppedBytes { get; init; }
         public long ImageQueueFailedCount { get; init; }
         public long RecordQueueLength { get; init; }
         public int RecordQueueCapacity { get; init; }
@@ -248,16 +251,21 @@ namespace ClearFrost.Services
             }
 
             long imageDropped = _imageSaveQueue.DroppedCount;
+            long imageDroppedBytes = _imageSaveQueue.DroppedBytes;
             long imageFailed = _imageSaveQueue.FailedCount;
             long recordDropped = _recordQueue.DroppedCount;
             long recordFailed = _recordQueue.FailedCount;
             long imagePending = _imageSaveQueue.PendingCount;
+            long imagePendingBytes = _imageSaveQueue.PendingBytes;
             long recordPending = _recordQueue.PendingCount;
             DetectionRuntimeStatus detectionRuntime = _detectionService.RuntimeStatus;
             var syntheticErrors = BuildQueueErrors(
                 imagePending,
                 _imageSaveQueue.Capacity,
+                imagePendingBytes,
+                _imageSaveQueue.MaxBufferedBytes,
                 imageDropped,
+                imageDroppedBytes,
                 imageFailed,
                 recordPending,
                 _recordQueue.Capacity,
@@ -342,7 +350,10 @@ namespace ClearFrost.Services
                 ConsecutiveNgCriticalCount = consecutiveNgSla.CriticalCount,
                 ImageQueueLength = imagePending,
                 ImageQueueCapacity = _imageSaveQueue.Capacity,
+                ImageQueuePendingBytes = imagePendingBytes,
+                ImageQueueMaxBufferedBytes = _imageSaveQueue.MaxBufferedBytes,
                 ImageQueueDroppedCount = imageDropped,
+                ImageQueueDroppedBytes = imageDroppedBytes,
                 ImageQueueFailedCount = imageFailed,
                 RecordQueueLength = recordPending,
                 RecordQueueCapacity = _recordQueue.Capacity,
@@ -389,7 +400,10 @@ namespace ClearFrost.Services
         private static IReadOnlyList<HealthError> BuildQueueErrors(
             long imagePending,
             int imageCapacity,
+            long imagePendingBytes,
+            long imageMaxBufferedBytes,
             long imageDropped,
+            long imageDroppedBytes,
             long imageFailed,
             long recordPending,
             int recordCapacity,
@@ -398,7 +412,15 @@ namespace ClearFrost.Services
         {
             var errors = new List<HealthError>();
             AddIfNearCapacity(errors, imagePending, imageCapacity, "ImageSaveQueue", "图像保存队列超过75%，建议检查磁盘写入速度或降低触发频率");
+            AddIfNearCapacity(
+                errors,
+                imagePendingBytes,
+                imageMaxBufferedBytes,
+                "ImageSaveQueue",
+                "图像保存缓冲内存超过75%，建议检查磁盘写入速度或降低触发频率",
+                FormatBytes);
             AddIfPositive(errors, imageDropped, "ImageSaveQueue", $"图像保存队列丢弃累计: {imageDropped}");
+            AddIfPositive(errors, imageDroppedBytes, "ImageSaveQueue", $"图像保存缓冲丢弃累计: {FormatBytes(imageDroppedBytes)}");
             AddIfPositive(errors, imageFailed, "ImageSaveQueue", $"图像保存失败累计: {imageFailed}");
             AddIfNearCapacity(errors, recordPending, recordCapacity, "DetectionRecordQueue", "数据库记录队列超过75%，建议检查数据库文件和存储目录");
             AddIfPositive(errors, recordDropped, "DetectionRecordQueue", $"数据库记录队列丢弃累计: {recordDropped}");
@@ -915,6 +937,17 @@ namespace ClearFrost.Services
 
         private static void AddIfNearCapacity(List<HealthError> errors, long pending, int capacity, string source, string message)
         {
+            AddIfNearCapacity(errors, pending, capacity, source, message, value => value.ToString());
+        }
+
+        private static void AddIfNearCapacity(
+            List<HealthError> errors,
+            long pending,
+            long capacity,
+            string source,
+            string message,
+            Func<long, string> formatter)
+        {
             if (capacity <= 0 || pending * 4L < capacity * 3L)
             {
                 return;
@@ -924,7 +957,7 @@ namespace ClearFrost.Services
             {
                 Timestamp = DateTimeOffset.Now,
                 Source = source,
-                Message = $"{message} ({pending}/{capacity})"
+                Message = $"{message} ({formatter(pending)}/{formatter(capacity)})"
             });
         }
 
@@ -941,6 +974,12 @@ namespace ClearFrost.Services
                 Source = source,
                 Message = message
             });
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            double mb = bytes / 1024d / 1024d;
+            return $"{mb:F1}MB";
         }
 
         private static bool IsStorageWritable(string path)

@@ -214,6 +214,7 @@
                         : promptPayload;
                 }
                 window.sendCommand(cmd, value === undefined ? null : value);
+                window.handleCommandDispatched?.(cmd, commandElement);
                 return;
             }
 

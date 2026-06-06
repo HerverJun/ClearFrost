@@ -26,6 +26,8 @@
     let openCameraCooldownUntil = 0;
     let openCameraUnlockTimer = null;
     let openCameraPending = false;
+    let systemRunning = false;
+    let systemBusy = false;
     let exitAppPending = false;
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
@@ -39,6 +41,10 @@
         /断开/,
         /未连接/,
         /启动系统/,
+        /停止检测/,
+        /检测已/,
+        /手动检测/,
+        /强制放行/,
         /开启成功/,
         /开启异常/,
         /驱动缺失/,
@@ -424,6 +430,8 @@
     function getQueuePressureItems(health) {
         const imagePending = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "imageQueueLength", "ImageQueueLength"))));
         const imageCapacity = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "imageQueueCapacity", "ImageQueueCapacity"))));
+        const imagePendingBytes = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "imageQueuePendingBytes", "ImageQueuePendingBytes"))));
+        const imageMaxBufferedBytes = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "imageQueueMaxBufferedBytes", "ImageQueueMaxBufferedBytes"))));
         const recordPending = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "recordQueueLength", "RecordQueueLength"))));
         const recordCapacity = Math.max(0, Math.trunc(toFiniteNumber(getHealthValue(health, "recordQueueCapacity", "RecordQueueCapacity"))));
         const items = [];
@@ -431,11 +439,18 @@
         if (imageCapacity > 0 && imagePending * 4 >= imageCapacity * 3) {
             items.push(`图像${imagePending}/${imageCapacity}`);
         }
+        if (imageMaxBufferedBytes > 0 && imagePendingBytes * 4 >= imageMaxBufferedBytes * 3) {
+            items.push(`图像缓冲${formatBytesMb(imagePendingBytes)}/${formatBytesMb(imageMaxBufferedBytes)}`);
+        }
         if (recordCapacity > 0 && recordPending * 4 >= recordCapacity * 3) {
             items.push(`记录${recordPending}/${recordCapacity}`);
         }
 
         return items;
+    }
+
+    function formatBytesMb(bytes) {
+        return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
     }
 
     function logQueuePressureAdvice(health) {
@@ -817,7 +832,7 @@
             }
         }
 
-        if (type === "cam" && !isConnected && openCameraPending) {
+        if (type === "cam" && !isConnected && openCameraPending && !systemBusy) {
             openCameraPending = false;
             setOpenCameraButtonBusy(false);
             if (openCameraUnlockTimer) {
@@ -826,7 +841,7 @@
             }
         }
 
-        if (type === "cam" && isConnected && openCameraPending) {
+        if (type === "cam" && isConnected && openCameraPending && !systemBusy) {
             openCameraPending = false;
             setOpenCameraButtonBusy(false);
             if (openCameraUnlockTimer) {
@@ -858,13 +873,47 @@
     }
 
     function setOpenCameraButtonBusy(isBusy) {
+        systemBusy = Boolean(isBusy);
+        setStartSystemButtonState(systemRunning, systemBusy);
+    }
+
+    function setStartSystemButtonState(isRunning, isBusy = false) {
+        systemRunning = Boolean(isRunning);
+        systemBusy = Boolean(isBusy);
         const button = el("btn-open-camera");
         if (!button) return;
-        button.disabled = isBusy;
-        button.classList.toggle("camera-open-pending", isBusy);
+        button.disabled = systemBusy;
+        button.classList.toggle("camera-open-pending", systemBusy);
+        button.classList.toggle("is-running", systemRunning);
+        button.setAttribute("aria-label", systemRunning ? "停止检测" : "启动系统");
+        button.title = systemRunning ? "停止检测" : "启动系统";
+        button.innerHTML = systemRunning
+            ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M6 6h12v12H6z" />
+                </svg>
+                ${systemBusy ? "正在停止..." : "停止检测"}`
+            : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M8 5v14l11-7-11-7Z" />
+                </svg>
+                ${systemBusy ? "正在启动..." : "启动系统 (Start System)"}`;
     }
 
     function requestStartSystem() {
+        if (systemBusy) {
+            showToast(systemRunning ? "正在停止检测，请稍候" : "系统正在启动中，请勿重复点击", "warning", 1200);
+            return;
+        }
+
+        if (systemRunning) {
+            setStartSystemButtonState(true, true);
+            window.sendCommand("stop_system");
+            addLog("停止检测指令已发送", "info");
+            showToast("停止检测指令已发送", "info", 1200);
+            return true;
+        }
+
         const now = Date.now();
         if (now < openCameraCooldownUntil) {
             showToast("系统正在启动中，请勿重复点击", "warning", 1200);
@@ -877,11 +926,12 @@
         if (openCameraUnlockTimer) window.clearTimeout(openCameraUnlockTimer);
         openCameraUnlockTimer = window.setTimeout(() => {
             openCameraPending = false;
-            setOpenCameraButtonBusy(false);
+            if (!systemBusy) setOpenCameraButtonBusy(false);
             openCameraUnlockTimer = null;
         }, 1500);
 
         window.sendCommand("start_system");
+        addLog("启动系统指令已发送", "info");
         showToast("启动系统指令已发送", "info", 1400);
         return true;
     }
@@ -1015,8 +1065,32 @@
             case "setRoi":
                 window.setRoi?.(payload.rect || payload.Rect || null);
                 break;
+            case "serialPortsDetected":
+                window.handleSerialPortsDetected?.(payload);
+                break;
+            case "setSystemRunning":
+                setStartSystemButtonState(
+                    payload.isRunning ?? payload.IsRunning,
+                    payload.isBusy ?? payload.IsBusy ?? false,
+                );
+                break;
             default:
                 if (window.__CF_DEV_MODE) console.debug("Unknown uiCommand:", data);
+                break;
+        }
+    }
+
+    function handleCommandDispatched(cmd) {
+        switch (cmd) {
+            case "manual_detect":
+                addLog("手动检测按钮已点击", "info");
+                showToast("手动检测已触发", "info", 1200);
+                break;
+            case "manual_release":
+                addLog("强制放行按钮已点击", "warning");
+                showToast("强制放行已触发", "warning", 1200);
+                break;
+            default:
                 break;
         }
     }
@@ -1077,6 +1151,8 @@
         requestOpenCamera,
         requestStartSystem,
         startSystem,
+        handleCommandDispatched,
+        setStartSystemButtonState,
         setDotState,
         setText,
         showToast,

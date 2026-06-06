@@ -133,6 +133,15 @@ namespace ClearFrost.Tests.Services
         }
 
         [Fact]
+        public void ImageSavePayload_记录估算内存字节数()
+        {
+            using var source = new Mat(3, 5, MatType.CV_8UC3, Scalar.All(42));
+            using ImageSavePayload payload = ImageSavePayload.CreateReadOnlyView(source, "trace.jpg");
+
+            payload.EstimatedBytes.Should().Be(source.Step() * source.Rows);
+        }
+
+        [Fact]
         public void DetectionTraceImageResolver_优先使用带框图并在缺失时回退原图()
         {
             const string imagePath = @"C:\Trace\FAIL_CF-1.jpg";

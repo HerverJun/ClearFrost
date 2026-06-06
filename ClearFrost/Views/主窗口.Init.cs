@@ -191,6 +191,7 @@ namespace ClearFrost
 
             // 绑定 WebUI 事件
             _uiController.OnStartSystem += (s, e) => SafeFireAndForget(StartSystemAsync(), "启动系统");
+            _uiController.OnStopSystem += (s, e) => SafeFireAndForget(StopSystemAsync(), "停止检测");
             _uiController.OnOpenCamera += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(OpenCameraWithPermissionAsync(), "打开相机"));
             _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(ManualDetectWithPermissionAsync(), "手动检测"));
             _uiController.OnCaptureCameraPreview += (s, json) => InvokeOnUIThread(() => SafeFireAndForget(CaptureCameraPreviewFrameAsync(json), "获取相机预览单帧"));
@@ -262,6 +263,13 @@ namespace ClearFrost
                 }
                 catch (Exception ex)
                 {
+                    await _uiController.SendUiCommand("serialPortsDetected", new { ports = Array.Empty<object>() });
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = $"串口识别失败: {ex.Message}",
+                        type = "error",
+                        durationMs = 2200
+                    });
                     await _uiController.LogToFrontend($"串口识别失败: {ex.Message}", "error");
                 }
             };
@@ -688,7 +696,7 @@ namespace ClearFrost
                             gain = c.Gain
                         }).ToList();
                         await _uiController.SendCameraList(cameras, _appConfig.ActiveCameraId ?? "");
-                        string message = $"相机 [{newConfig.DisplayName}] 已添加并设为当前相机，请点击主界面右下角“启动系统”完成连接";
+                        string message = $"相机 [{newConfig.DisplayName}] 已添加并设为当前相机，可直接获取单帧预览或点击“启动系统”开始检测";
                         await _uiController.LogToFrontend(message, "success");
                         await _uiController.SendUiCommand("cameraDirectConnectResult", new
                         {
@@ -1686,7 +1694,7 @@ namespace ClearFrost
                         serialPortName = NormalizeSerialPortNameForSave(serialPortName);
                         if (triggerSource == TriggerSource.SerialPhotoelectric && string.IsNullOrWhiteSpace(serialPortName))
                         {
-                            throw new InvalidOperationException("选择串口光电触发时，必须先选择 COM 口");
+                            await _uiController.LogToFrontend("串口光电触发已保存，但 COM 口未配置，自动触发会暂不启动", "warning");
                         }
 
                         _appConfig.TriggerSource = triggerSource;
@@ -1746,16 +1754,30 @@ namespace ClearFrost
                         if (root.TryGetProperty("BarcodeEncoding", out var benc)) barcodeEncoding = benc.GetString() ?? barcodeEncoding;
                         if (root.TryGetProperty("BarcodeRequired", out var br)) barcodeRequired = br.ValueKind == JsonValueKind.True;
 
-                        if (!PlcFactory.TryParseProtocol(plcProtocol, out PlcProtocolType plcProtocolType))
+                        bool shouldValidatePlcAddresses = triggerSource == TriggerSource.PLC;
+                        PlcProtocolType plcProtocolType;
+                        if (shouldValidatePlcAddresses)
                         {
-                            throw new InvalidOperationException(
-                                $"PLC 协议无效: {plcProtocol}。支持: {string.Join(", ", Enum.GetNames<PlcProtocolType>())}");
+                            if (!PlcFactory.TryParseProtocol(plcProtocol, out plcProtocolType))
+                            {
+                                throw new InvalidOperationException(
+                                    $"PLC 协议无效: {plcProtocol}。支持: {string.Join(", ", Enum.GetNames<PlcProtocolType>())}");
+                            }
+                        }
+                        else
+                        {
+                            plcProtocolType = PlcFactory.ParseProtocol(plcProtocol);
                         }
 
                         plcProtocol = plcProtocolType.ToString();
                         if (!PlcFactory.TryNormalizeDriverProvider(plcDriverProvider, out plcDriverProvider))
                         {
-                            throw new InvalidOperationException("PLC 驱动库仅支持 Hsl、HaoCommunication、McpX");
+                            if (shouldValidatePlcAddresses)
+                            {
+                                throw new InvalidOperationException("PLC 驱动库仅支持 Hsl、HaoCommunication、McpX");
+                            }
+
+                            plcDriverProvider = "HaoCommunication";
                         }
 
                         bool isMitsubishiProtocol =
@@ -1764,12 +1786,21 @@ namespace ClearFrost
 
                         if (string.Equals(plcDriverProvider, "McpX", StringComparison.OrdinalIgnoreCase) && !isMitsubishiProtocol)
                         {
-                            throw new InvalidOperationException("仅三菱协议支持 McpX 驱动库");
+                            if (shouldValidatePlcAddresses)
+                            {
+                                throw new InvalidOperationException("仅三菱协议支持 McpX 驱动库");
+                            }
+
+                            plcDriverProvider = "HaoCommunication";
                         }
 
-                        bool requiresHandshakeAddresses = plcProtocolMode == PlcProtocolMode.HandshakeV1;
-                        plcTriggerAddress = NormalizeRequiredPlcAddressForSave(plcTriggerAddress, plcProtocolType, plcDriverProvider);
-                        plcResultAddress = NormalizeRequiredPlcAddressForSave(plcResultAddress, plcProtocolType, plcDriverProvider);
+                        bool requiresHandshakeAddresses = shouldValidatePlcAddresses && plcProtocolMode == PlcProtocolMode.HandshakeV1;
+                        plcTriggerAddress = shouldValidatePlcAddresses
+                            ? NormalizeRequiredPlcAddressForSave(plcTriggerAddress, plcProtocolType, plcDriverProvider)
+                            : NormalizeOptionalPlcAddressForSave(plcTriggerAddress, plcProtocolType, plcDriverProvider, 555, required: false);
+                        plcResultAddress = shouldValidatePlcAddresses
+                            ? NormalizeRequiredPlcAddressForSave(plcResultAddress, plcProtocolType, plcDriverProvider)
+                            : NormalizeOptionalPlcAddressForSave(plcResultAddress, plcProtocolType, plcDriverProvider, 556, required: false);
                         plcTriggerSeqAddress = NormalizeOptionalPlcAddressForSave(plcTriggerSeqAddress, plcProtocolType, plcDriverProvider, 557, requiresHandshakeAddresses);
                         plcResultSeqAddress = NormalizeOptionalPlcAddressForSave(plcResultSeqAddress, plcProtocolType, plcDriverProvider, 558, requiresHandshakeAddresses);
                         plcVisionOnlineAddress = NormalizeOptionalPlcAddressForSave(plcVisionOnlineAddress, plcProtocolType, plcDriverProvider, 559, requiresHandshakeAddresses);
@@ -1780,7 +1811,7 @@ namespace ClearFrost
                         plcTraceSavedAddress = NormalizeOptionalPlcAddressForSave(plcTraceSavedAddress, plcProtocolType, plcDriverProvider, 564, requiresHandshakeAddresses);
                         plcHeartbeatAddress = NormalizeOptionalPlcAddressForSave(plcHeartbeatAddress, plcProtocolType, plcDriverProvider, 565, requiresHandshakeAddresses);
                         plcResetFaultAddress = NormalizeOptionalPlcAddressForSave(plcResetFaultAddress, plcProtocolType, plcDriverProvider, 566, requiresHandshakeAddresses);
-                        barcodeAddress = NormalizeOptionalPlcAddressForSave(barcodeAddress, plcProtocolType, plcDriverProvider, 570, barcodeEnabled);
+                        barcodeAddress = NormalizeOptionalPlcAddressForSave(barcodeAddress, plcProtocolType, plcDriverProvider, 570, shouldValidatePlcAddresses && barcodeEnabled);
 
                         _appConfig.PlcProtocol = plcProtocol;
                         _appConfig.PlcDriverProvider = plcDriverProvider;
@@ -1987,7 +2018,7 @@ namespace ClearFrost
                         InitYolo();
                         RefreshStartupDiagnostics();
 
-                        // 根据 TriggerSource 切换触发源；PLC 通讯连接保留用于写回/条码，监听只按触发源启动。
+                        // 根据 TriggerSource 切换触发源；非 PLC 模式跳过 PLC 连接、监听、条码和写回。
                         _ = StartTriggerSourceAsync();
 
                         await _uiController.SendUiCommand("closeSettingsModal");
@@ -2567,60 +2598,205 @@ namespace ClearFrost
                 return;
             }
 
-            await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
-            if (!await EnsureStartupReadyForProductionAsync("启动系统"))
+            if (Interlocked.CompareExchange(ref _productionRunningState, 1, 0) != 0)
             {
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "系统已在检测中",
+                    type = "warning",
+                    durationMs = 1200
+                });
+                await SendSystemRunningStateAsync(true);
+                return;
+            }
+
+            await SendSystemRunningStateAsync(false, isBusy: true);
+
+            try
+            {
+                await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
+                if (!await EnsureStartupReadyForProductionAsync("启动系统"))
+                {
+                    await SendHealthSnapshotToFrontendAsync();
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
+                if (!_detectionService.IsModelLoaded)
+                {
+                    string message = "启动系统已停止: 没有可用的检测模型，请检查 ONNX 模型文件是否能正常加载";
+                    RecordHealthError("Detection", message);
+                    await _uiController.LogToFrontend(message, "error");
+                    await SendHealthSnapshotToFrontendAsync();
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
+                await _uiController.LogToFrontend("启动系统: 正在连接相机...", "info");
+                bool cameraStarted = await btnOpenCamera_LogicAsync(startTriggerSource: false);
+
+                if (!cameraStarted)
+                {
+                    await _uiController.LogToFrontend("启动系统已停止: 相机未连接成功", "warning");
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
+                if (IsShutdownInProgress)
+                {
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
+                var cameraReady = await WaitForCameraReadyForInspectionAsync();
+                if (!cameraReady.Ready)
+                {
+                    await _uiController.LogToFrontend(
+                        $"启动系统已停止: 相机已连接但未进入采集状态，{cameraReady.Message}",
+                        "warning");
+                    await SendHealthSnapshotToFrontendAsync();
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
+                await _uiController.LogToFrontend("启动系统: 正在启动触发源...", "info");
+                if (!await StartTriggerSourceAsync())
+                {
+                    await _uiController.LogToFrontend("启动系统已停止: 触发源未启动成功", "error");
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = "触发源启动失败，检测未启动",
+                        type = "error",
+                        durationMs = 2200
+                    });
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
+                await _uiController.LogToFrontend("启动系统完成，检测已启动", "success");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "检测已启动",
+                    type = "success",
+                    durationMs = 1400
+                });
+                await SendSystemRunningStateAsync(true);
+            }
+            catch (Exception ex)
+            {
+                RecordHealthError("Startup", $"启动系统异常: {ex.Message}");
+                await _uiController.LogToFrontend($"启动系统异常: {ex.Message}", "error");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "启动系统异常，已停止",
+                    type = "error",
+                    durationMs = 2200
+                });
                 await SendHealthSnapshotToFrontendAsync();
-                return;
+                await MarkSystemStoppedAsync();
             }
+        }
 
-            if (!_detectionService.IsModelLoaded)
-            {
-                string message = "启动系统已停止: 没有可用的检测模型，请检查 ONNX 模型文件是否能正常加载";
-                RecordHealthError("Detection", message);
-                await _uiController.LogToFrontend(message, "error");
-                await SendHealthSnapshotToFrontendAsync();
-                return;
-            }
-
-            await _uiController.LogToFrontend("启动系统: 正在连接相机...", "info");
-            bool cameraStarted = await btnOpenCamera_LogicAsync(startTriggerSource: false);
-
-            if (!cameraStarted)
-            {
-                await _uiController.LogToFrontend("启动系统已停止: 相机未连接成功", "warning");
-                return;
-            }
-
+        private async Task StopSystemAsync()
+        {
             if (IsShutdownInProgress)
             {
+                await _uiController.LogToFrontend("软件正在退出，已忽略停止检测请求", "warning");
                 return;
             }
 
-            var cameraReady = await WaitForCameraReadyForInspectionAsync();
-            if (!cameraReady.Ready)
+            if (Interlocked.Exchange(ref _productionRunningState, 0) == 0)
             {
-                await _uiController.LogToFrontend(
-                    $"启动系统已停止: 相机已连接但未进入采集状态，{cameraReady.Message}",
-                    "warning");
-                await SendHealthSnapshotToFrontendAsync();
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "当前未在检测",
+                    type = "warning",
+                    durationMs = 1200
+                });
+                await SendSystemRunningStateAsync(false);
                 return;
             }
 
-            await _uiController.LogToFrontend("启动系统: 正在连接 PLC...", "info");
-            await StartTriggerSourceAsync();
+            try
+            {
+                await SendSystemRunningStateAsync(true, isBusy: true);
+                await _uiController.LogToFrontend("停止检测: 正在停止触发监听和相机采集...", "info");
+
+                try
+                {
+                    _plcService.StopMonitoring();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[StopSystem] Stop PLC monitoring failed: {ex.Message}");
+                    await _uiController.LogToFrontend($"停止 PLC 监听失败: {ex.Message}", "warning");
+                }
+
+                try
+                {
+                    _serialTriggerService.Stop();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[StopSystem] Stop serial trigger failed: {ex.Message}");
+                    await _uiController.LogToFrontend($"停止串口光电监听失败: {ex.Message}", "warning");
+                }
+
+                try
+                {
+                    _cameraService.StopCapture();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[StopSystem] Stop camera capture failed: {ex.Message}");
+                    await _uiController.LogToFrontend($"停止相机采集失败: {ex.Message}", "warning");
+                }
+
+                await SendHealthSnapshotToFrontendAsync();
+                await _uiController.LogToFrontend("检测已停止", "success");
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "检测已停止",
+                    type = "success",
+                    durationMs = 1400
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[StopSystem] Stop sequence failed: {ex.Message}");
+                await _uiController.LogToFrontend($"停止检测流程异常: {ex.Message}", "warning");
+            }
+            finally
+            {
+                await SendSystemRunningStateAsync(false);
+            }
+        }
+
+        private Task MarkSystemStoppedAsync()
+        {
+            Interlocked.Exchange(ref _productionRunningState, 0);
+            return SendSystemRunningStateAsync(false);
+        }
+
+        private Task SendSystemRunningStateAsync(bool isRunning, bool isBusy = false)
+        {
+            return _uiController.SendUiCommand("setSystemRunning", new
+            {
+                isRunning,
+                isBusy
+            });
         }
 
         /// <summary>
         /// 根据 TriggerSource 启动对应触发源
         /// </summary>
-        private async Task StartTriggerSourceAsync()
+        private async Task<bool> StartTriggerSourceAsync()
         {
             if (!await EnsureProductionOperatorSessionAsync("自动生产触发监听"))
             {
                 _serialTriggerService.Stop();
                 _plcService.StopMonitoring();
-                return;
+                return false;
             }
 
             if (_appConfig.TriggerSource == TriggerSource.SerialPhotoelectric)
@@ -2630,12 +2806,12 @@ namespace ClearFrost
                 var cameraReady = await WaitForCameraReadyForInspectionAsync();
                 if (!cameraReady.Ready)
                 {
-                    _serialTriggerService.Stop();
                     await _uiController.LogToFrontend(
-                        $"串口光电触发暂未启动: {cameraReady.Message}",
+                        $"串口光电触发继续启动，相机暂未就绪；触发时将自动恢复相机: {cameraReady.Message}",
                         "warning");
                 }
-                else if (!string.IsNullOrWhiteSpace(_appConfig.SerialPhotoelectricPortName))
+
+                if (!string.IsNullOrWhiteSpace(_appConfig.SerialPhotoelectricPortName))
                 {
                     bool ok = await _serialTriggerService.StartAsync(
                         _appConfig.SerialPhotoelectricPortName,
@@ -2651,19 +2827,23 @@ namespace ClearFrost
                         string err = _serialTriggerService.LastError ?? "未知错误";
                         RecordHealthError("SerialTrigger", $"串口光电启动失败: {err}");
                         await _uiController.LogToFrontend($"串口光电启动失败: {err}", "error");
+                        return false;
                     }
                 }
                 else
                 {
                     await _uiController.LogToFrontend("串口光电 COM 口未配置，跳过自动启动", "warning");
+                    RecordHealthError("SerialTrigger", "串口光电 COM 口未配置");
+                    return false;
                 }
 
-                await ConnectPlcViaServiceAsync(startTriggerMonitoring: false);
+                await _uiController.LogToFrontend("串口光电触发模式已跳过 PLC 连接、监听和写回", "info");
+                return true;
             }
             else
             {
                 _serialTriggerService.Stop();
-                await StartPlcTriggerMonitoringIfReadyAsync();
+                return await StartPlcTriggerMonitoringIfReadyAsync();
             }
         }
 
@@ -2956,6 +3136,7 @@ namespace ClearFrost
             {
                 Debug.WriteLine(
                     $"[Shutdown] 清理前队列状态: Images={_imageSaveQueue.PendingCount}/{_imageSaveQueue.Capacity}, " +
+                    $"ImageBuffer={FormatBytes(_imageSaveQueue.PendingBytes)}/{FormatBytes(_imageSaveQueue.MaxBufferedBytes)}, " +
                     $"ImageDropped={_imageSaveQueue.DroppedCount}, ImageFailed={_imageSaveQueue.FailedCount}, " +
                     $"Records={_detectionRecordQueue.PendingCount}/{_detectionRecordQueue.Capacity}, " +
                     $"RecordDropped={_detectionRecordQueue.DroppedCount}, RecordFailed={_detectionRecordQueue.FailedCount}");
@@ -2998,6 +3179,7 @@ namespace ClearFrost
                 Debug.WriteLine($"[Shutdown] 清理超时，尝试退出并保留最终兜底: {source}");
                 Debug.WriteLine(
                     $"[Shutdown] 超时时队列状态: Images={_imageSaveQueue.PendingCount}/{_imageSaveQueue.Capacity}, " +
+                    $"ImageBuffer={FormatBytes(_imageSaveQueue.PendingBytes)}/{FormatBytes(_imageSaveQueue.MaxBufferedBytes)}, " +
                     $"ImageDropped={_imageSaveQueue.DroppedCount}, ImageFailed={_imageSaveQueue.FailedCount}, " +
                     $"Records={_detectionRecordQueue.PendingCount}/{_detectionRecordQueue.Capacity}, " +
                     $"RecordDropped={_detectionRecordQueue.DroppedCount}, RecordFailed={_detectionRecordQueue.FailedCount}");
@@ -3125,6 +3307,11 @@ namespace ClearFrost
             }
         }
 
+        private static string FormatBytes(long bytes)
+        {
+            return $"{bytes / 1024d / 1024d:F1}MB";
+        }
+
         private static string NormalizeRequiredPlcAddressForSave(
             string address,
             PlcProtocolType protocolType,
@@ -3231,7 +3418,40 @@ namespace ClearFrost
             string raw = value?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(raw))
             {
-                return "Mono8";
+                return "Auto";
+            }
+
+            string normalized = raw.Replace("_", string.Empty, StringComparison.Ordinal).Replace("-", string.Empty, StringComparison.Ordinal).Replace(" ", string.Empty, StringComparison.Ordinal);
+            if (string.Equals(normalized, "BGR", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Color", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Colour", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BGR8";
+            }
+
+            if (string.Equals(normalized, "RGB", StringComparison.OrdinalIgnoreCase))
+            {
+                return "RGB8";
+            }
+
+            if (string.Equals(normalized, "BayerRG", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BayerRG8";
+            }
+
+            if (string.Equals(normalized, "BayerGB", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BayerGB8";
+            }
+
+            if (string.Equals(normalized, "BayerGR", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BayerGR8";
+            }
+
+            if (string.Equals(normalized, "BayerBG", StringComparison.OrdinalIgnoreCase))
+            {
+                return "BayerBG8";
             }
 
             string[] allowed =
@@ -3246,7 +3466,7 @@ namespace ClearFrost
                 "BayerBG8"
             };
 
-            return allowed.FirstOrDefault(format => string.Equals(format, raw, StringComparison.OrdinalIgnoreCase)) ?? "Mono8";
+            return allowed.FirstOrDefault(format => string.Equals(format, raw, StringComparison.OrdinalIgnoreCase)) ?? "Auto";
         }
 
         private static TEnum GetJsonEnumValue<TEnum>(JsonElement value, TEnum fallback)

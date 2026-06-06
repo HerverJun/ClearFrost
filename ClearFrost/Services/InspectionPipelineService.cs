@@ -156,6 +156,8 @@ namespace ClearFrost.Services
         private readonly Func<float[]?> _roiSnapshotProvider;
         private readonly Func<string> _activeCameraIdProvider;
         private readonly Action<string>? _diagLog;
+        private const int RuntimeCameraRecoverySettleMs = 150;
+        private const int RuntimeCameraReconnectSettleMs = 250;
 
         public InspectionPipelineService(
             AppConfig appConfig,
@@ -195,9 +197,11 @@ namespace ClearFrost.Services
             Func<InspectionPipelineProgress, Task>? progressAsync = null)
         {
             InspectionContext context = request.Context;
+            bool plcIoEnabled = ShouldUsePlcIo();
+            bool barcodeEnabled = plcIoEnabled && _appConfig.BarcodeEnabled;
             var pipelineResult = new InspectionPipelineResult(context)
             {
-                BarcodeEnabled = _appConfig.BarcodeEnabled,
+                BarcodeEnabled = barcodeEnabled,
                 UsedModelName = _detectionService.CurrentModelName
             };
 
@@ -221,9 +225,9 @@ namespace ClearFrost.Services
                     context,
                     message: "检测流程启动",
                     usedModelName: pipelineResult.UsedModelName,
-                    barcodeEnabled: _appConfig.BarcodeEnabled).ConfigureAwait(false);
+                    barcodeEnabled: barcodeEnabled).ConfigureAwait(false);
 
-                if (_appConfig.BarcodeEnabled)
+                if (barcodeEnabled)
                 {
                     bool shouldStop = await ExecuteBarcodeStageAsync(
                         request,
@@ -372,19 +376,12 @@ namespace ClearFrost.Services
                 : "PLC 条码读取失败，已按 NG 处理";
             context.MarkFailed(InspectionStage.Barcode, errorCode, detail);
 
-            var plcSw = Stopwatch.StartNew();
-            bool plcWritten = await WriteDetectionResultToPlcAsync(false, context, progressAsync).ConfigureAwait(false);
-            plcSw.Stop();
-            pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
-            pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
-            context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
-            context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
-            pipelineResult.AddStage(
-                InspectionStage.PlcWrite,
-                plcWritten,
-                plcSw.ElapsedMilliseconds,
-                plcWritten ? "PLC 已写入 NG" : "PLC 写入 NG 失败",
-                plcWritten ? null : context.ErrorCode);
+            await ExecutePlcResultWriteStageAsync(
+                pipelineResult,
+                false,
+                "PLC 已写入 NG",
+                "PLC 写入 NG 失败",
+                progressAsync).ConfigureAwait(false);
 
             _statisticsService.RecordDetection(false);
             _storageService.WriteDetectionLog(
@@ -448,6 +445,21 @@ namespace ClearFrost.Services
                         break;
                     }
 
+                    var recovery = await TryRecoverCameraForCaptureAsync(
+                        request,
+                        context,
+                        progressAsync,
+                        cancellationToken).ConfigureAwait(false);
+                    if (recovery)
+                    {
+                        frameToProcess = _cameraService.CaptureFrame(3000);
+                        DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机恢复后取图: {(frameToProcess != null ? "OK" : "FAIL")}");
+                        if (frameToProcess != null)
+                        {
+                            break;
+                        }
+                    }
+
                     if (attempt < totalAttempts)
                     {
                         string retryDetail = string.IsNullOrWhiteSpace(_cameraService.LastError)
@@ -497,19 +509,12 @@ namespace ClearFrost.Services
                 $"{detail} (ID: {request.InspectionId})",
                 "error").ConfigureAwait(false);
 
-            var plcSw = Stopwatch.StartNew();
-            bool plcWritten = await WriteDetectionResultToPlcAsync(false, context, progressAsync).ConfigureAwait(false);
-            plcSw.Stop();
-            pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
-            pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
-            context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
-            context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
-            pipelineResult.AddStage(
-                InspectionStage.PlcWrite,
-                plcWritten,
-                plcSw.ElapsedMilliseconds,
-                plcWritten ? "PLC 已写入 NG" : "PLC 写入 NG 失败",
-                plcWritten ? null : context.ErrorCode);
+            await ExecutePlcResultWriteStageAsync(
+                pipelineResult,
+                false,
+                "PLC 已写入 NG",
+                "PLC 写入 NG 失败",
+                progressAsync).ConfigureAwait(false);
 
             _statisticsService.RecordDetection(false);
             _storageService.WriteDetectionLog(
@@ -540,6 +545,115 @@ namespace ClearFrost.Services
             pipelineResult.StatusMessage = detail;
             pipelineResult.StatusLevel = "error";
             return null;
+        }
+
+        private async Task<bool> TryRecoverCameraForCaptureAsync(
+            InspectionPipelineRequest request,
+            InspectionContext context,
+            Func<InspectionPipelineProgress, Task>? progressAsync,
+            CancellationToken cancellationToken)
+        {
+            string firstError = GetCameraErrorOrDefault("取图失败");
+            DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机取图失败，尝试运行期恢复: {firstError}");
+            await PublishLogAsync(
+                progressAsync,
+                context,
+                $"相机取图失败，正在自动恢复: {firstError}",
+                "warning").ConfigureAwait(false);
+
+            if (TryRestartCameraCapture(out string restartError))
+            {
+                await Task.Delay(RuntimeCameraRecoverySettleMs, cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(restartError))
+            {
+                DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 恢复采集失败: {restartError}");
+            }
+
+            CameraConfig? activeCamera = _appConfig.ActiveCamera ?? _appConfig.EnsureActiveCameraConfigFromLegacy();
+            if (activeCamera == null || string.IsNullOrWhiteSpace(activeCamera.SerialNumber))
+            {
+                DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 无活动相机配置，无法重连");
+                return false;
+            }
+
+            try
+            {
+                await PublishLogAsync(
+                    progressAsync,
+                    context,
+                    "相机采集未恢复，正在尝试重连相机",
+                    "warning").ConfigureAwait(false);
+
+                if (_cameraService is CameraService concreteCameraService)
+                {
+                    concreteCameraService.ReleaseCurrentCamera();
+                }
+                else
+                {
+                    _cameraService.Close();
+                }
+                await Task.Delay(RuntimeCameraRecoverySettleMs, cancellationToken).ConfigureAwait(false);
+
+                bool opened = _cameraService.Open(activeCamera.SerialNumber, activeCamera.Manufacturer);
+                if (!opened)
+                {
+                    string openError = GetCameraErrorOrDefault("相机重连失败");
+                    DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机重连失败: {openError}");
+                    return false;
+                }
+
+                _cameraService.StartCapture();
+                await Task.Delay(RuntimeCameraReconnectSettleMs, cancellationToken).ConfigureAwait(false);
+                DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机重连完成，准备重新取图");
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机重连异常: {ex.Message}");
+                return false;
+            }
+        }
+
+        private bool TryRestartCameraCapture(out string error)
+        {
+            error = string.Empty;
+
+            try
+            {
+                if (!_cameraService.IsOpen)
+                {
+                    error = "相机未打开";
+                    return false;
+                }
+
+                _cameraService.StartCapture();
+                if (_cameraService.IsGrabbing)
+                {
+                    return true;
+                }
+
+                error = GetCameraErrorOrDefault("相机未进入采集状态");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        private string GetCameraErrorOrDefault(string fallback)
+        {
+            return string.IsNullOrWhiteSpace(_cameraService.LastError)
+                ? fallback
+                : _cameraService.LastError!;
         }
 
         private async Task ExecuteInferenceAndPersistenceStagesAsync(
@@ -652,20 +766,12 @@ namespace ClearFrost.Services
                 context.IsQualified = isQualified;
                 context.ResultSeq = context.TriggerSeq;
 
-                context.CurrentStage = InspectionStage.PlcWrite;
-                var plcSw = Stopwatch.StartNew();
-                bool plcWritten = await WriteDetectionResultToPlcAsync(isQualified, context, progressAsync).ConfigureAwait(false);
-                plcSw.Stop();
-                pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
-                pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
-                context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
-                context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
-                pipelineResult.AddStage(
-                    InspectionStage.PlcWrite,
-                    plcWritten,
-                    plcSw.ElapsedMilliseconds,
-                    plcWritten ? "PLC 结果写入完成" : "PLC 结果写入失败",
-                    plcWritten ? null : context.ErrorCode);
+                await ExecutePlcResultWriteStageAsync(
+                    pipelineResult,
+                    isQualified,
+                    "PLC 结果写入完成",
+                    "PLC 结果写入失败",
+                    progressAsync).ConfigureAwait(false);
 
                 Mat? renderedMat = TryRenderDetectionMat(frameToProcess, results, labels);
                 _statisticsService.RecordDetection(isQualified);
@@ -712,19 +818,12 @@ namespace ClearFrost.Services
 
                 if (failedStage is InspectionStage.Inference or InspectionStage.RoiFilter)
                 {
-                    var plcSw = Stopwatch.StartNew();
-                    bool plcWritten = await WriteDetectionResultToPlcAsync(false, context, progressAsync).ConfigureAwait(false);
-                    plcSw.Stop();
-                    pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
-                    pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
-                    context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
-                    context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
-                    pipelineResult.AddStage(
-                        InspectionStage.PlcWrite,
-                        plcWritten,
-                        plcSw.ElapsedMilliseconds,
-                        plcWritten ? "PLC 已写入 NG" : "PLC 写入 NG 失败",
-                        plcWritten ? null : context.ErrorCode);
+                    await ExecutePlcResultWriteStageAsync(
+                        pipelineResult,
+                        false,
+                        "PLC 已写入 NG",
+                        "PLC 写入 NG 失败",
+                        progressAsync).ConfigureAwait(false);
                 }
 
                 _statisticsService.RecordDetection(false);
@@ -828,6 +927,11 @@ namespace ClearFrost.Services
 
         private async Task<BarcodeReadResult> ReadBarcodeForInspectionAsync(InspectionContext context)
         {
+            if (!ShouldUsePlcIo())
+            {
+                return new BarcodeReadResult(null, false, "PlcIoSkipped", "非 PLC 触发模式，已跳过 PLC 条码读取");
+            }
+
             try
             {
                 var (success, value) = await _plcService.ReadStringAsync(
@@ -1119,7 +1223,7 @@ namespace ClearFrost.Services
 
         private async Task WriteHandshakeDetectionStartedAsync(InspectionContext context)
         {
-            if (_appConfig.TriggerSource != TriggerSource.PLC)
+            if (!ShouldUsePlcIo())
             {
                 return;
             }
@@ -1143,7 +1247,7 @@ namespace ClearFrost.Services
 
         private async Task WriteHandshakeDetectionCompletedAsync(InspectionContext context, bool isQualified)
         {
-            if (_appConfig.TriggerSource != TriggerSource.PLC)
+            if (!ShouldUsePlcIo())
             {
                 return;
             }
@@ -1224,6 +1328,12 @@ namespace ClearFrost.Services
             InspectionContext context,
             Func<InspectionPipelineProgress, Task>? progressAsync)
         {
+            if (!ShouldUsePlcIo())
+            {
+                DiagLog($"[{context.TriggerSource}] [{context.InspectionId}] 非 PLC 触发模式，跳过 PLC 结果写入");
+                return true;
+            }
+
             if (!_plcService.IsConnected)
             {
                 if (string.IsNullOrWhiteSpace(context.ErrorCode))
@@ -1340,6 +1450,40 @@ namespace ClearFrost.Services
             }
 
             return false;
+        }
+
+        private async Task ExecutePlcResultWriteStageAsync(
+            InspectionPipelineResult pipelineResult,
+            bool isQualified,
+            string successMessage,
+            string failureMessage,
+            Func<InspectionPipelineProgress, Task>? progressAsync)
+        {
+            if (!ShouldUsePlcIo())
+            {
+                return;
+            }
+
+            InspectionContext context = pipelineResult.Context;
+            context.CurrentStage = InspectionStage.PlcWrite;
+            var plcSw = Stopwatch.StartNew();
+            bool plcWritten = await WriteDetectionResultToPlcAsync(isQualified, context, progressAsync).ConfigureAwait(false);
+            plcSw.Stop();
+            pipelineResult.Timings.PlcWriteMs = plcSw.ElapsedMilliseconds;
+            pipelineResult.Timings.PlcResultWriteMs = pipelineResult.Timings.PlcWriteMs;
+            context.PlcWriteMs = pipelineResult.Timings.PlcWriteMs;
+            context.PlcResultWriteMs = pipelineResult.Timings.PlcResultWriteMs;
+            pipelineResult.AddStage(
+                InspectionStage.PlcWrite,
+                plcWritten,
+                plcSw.ElapsedMilliseconds,
+                plcWritten ? successMessage : failureMessage,
+                plcWritten ? null : context.ErrorCode);
+        }
+
+        private bool ShouldUsePlcIo()
+        {
+            return _appConfig.TriggerSource == TriggerSource.PLC;
         }
 
         private void RecordHealthError(string source, string message, string? inspectionId = null)

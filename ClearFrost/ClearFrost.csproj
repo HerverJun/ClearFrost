@@ -22,7 +22,7 @@
     <Authors>蘅芜君</Authors>
     <Company>蘅芜君</Company>
     <Copyright>Copyright (c) 2026 蘅芜君</Copyright>
-    <Version>5.7.0</Version>
+    <Version>5.8.7</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <!-- [安全工业模式] DPI manifest -->
     <ApplicationManifest>app.manifest</ApplicationManifest>

@@ -49,6 +49,7 @@ namespace ClearFrost.Services
             if (storageService == null) throw new ArgumentNullException(nameof(storageService));
 
             string resolvedStoragePath = StorageService.ResolveStoragePath(config.StoragePath);
+            string operationalStoragePath = ResolveOperationalStoragePath(config, storageService);
             var items = new List<StartupDiagnosticItem>
             {
                 CheckWebView2Runtime(),
@@ -56,13 +57,13 @@ namespace ClearFrost.Services
                 CheckNativeDll("Camera SDK dll", "MVSDK_Net.dll", isBlocking: false),
                 CheckWritableDirectory("Database directory", Path.GetDirectoryName(RuntimePaths.DatabasePath) ?? RuntimePaths.DataDirectory, isBlocking: true),
                 CheckStoragePathResolution(config.StoragePath, resolvedStoragePath),
-                CheckWritableDirectory("Storage directory", resolvedStoragePath, isBlocking: true),
+                CheckWritableDirectory("Storage directory", operationalStoragePath, isBlocking: true),
                 CheckWritableDirectory("Log directory", storageService.LogBasePath, isBlocking: true),
                 CheckTriggerSourceConfig(config),
                 CheckPlcAddresses(config),
                 CheckVisionParameters(config),
                 CheckCameraConfig(config),
-                CheckDiskFreeSpace(resolvedStoragePath)
+                CheckDiskFreeSpace(operationalStoragePath)
             };
 
             if (modelRegistry != null)
@@ -90,6 +91,28 @@ namespace ClearFrost.Services
             {
                 return Fail("WebView2 Runtime", "WebView2 runtime is not available.", ex.Message, isBlocking: true);
             }
+        }
+
+        private static string ResolveOperationalStoragePath(AppConfig config, IStorageService storageService)
+        {
+            try
+            {
+                string imageBasePath = storageService.ImageBasePath;
+                if (!string.IsNullOrWhiteSpace(imageBasePath))
+                {
+                    string? parent = Directory.GetParent(Path.GetFullPath(imageBasePath))?.FullName;
+                    if (!string.IsNullOrWhiteSpace(parent))
+                    {
+                        return parent;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[StartupDiagnostics] 解析运行存储目录失败: {ex.Message}");
+            }
+
+            return config.StoragePath;
         }
 
         private static StartupDiagnosticItem CheckNativeDll(string name, string fileName, bool isBlocking)
@@ -255,6 +278,15 @@ namespace ClearFrost.Services
 
         private static StartupDiagnosticItem CheckPlcAddresses(AppConfig config)
         {
+            if (config.TriggerSource != TriggerSource.PLC)
+            {
+                return Pass(
+                    "PLC address config",
+                    "PLC address validation skipped because trigger source is not PLC.",
+                    config.TriggerSource.ToString(),
+                    isBlocking: false);
+            }
+
             try
             {
                 if (!PlcFactory.TryParseProtocol(config.PlcProtocol, out PlcProtocolType protocolType))
@@ -329,7 +361,11 @@ namespace ClearFrost.Services
         {
             if (modelRegistry.Entries.Count == 0)
             {
-                return Fail("Configured model", "No model entries are available for primary model resolution.", string.Empty, isBlocking: true);
+                return Warn(
+                    "Configured model",
+                    "No model entries are available for primary model resolution.",
+                    string.Empty,
+                    isBlocking: false);
             }
 
             string configuredModel = config.CurrentModelFileName?.Trim() ?? string.Empty;
@@ -415,7 +451,7 @@ namespace ClearFrost.Services
         {
             if (modelRegistry.Entries.Count == 0)
             {
-                return Fail("Model registry", "No model entries were discovered.", string.Empty, isBlocking: true);
+                return Warn("Model registry", "No model entries were discovered; traceability metadata will be incomplete.", string.Empty, isBlocking: false);
             }
 
             if (modelRegistry.HasBlockingErrors)
@@ -425,7 +461,7 @@ namespace ClearFrost.Services
                     modelRegistry.Entries
                         .Where(e => e.Status == ModelRegistryStatus.Blocked)
                         .Select(e => $"{e.ModelId}: {e.Message}"));
-                return Fail("Model registry", "Blocking model package errors exist.", details, isBlocking: true);
+                return Warn("Model registry", "Model package errors exist; traceability metadata will be incomplete.", details, isBlocking: false);
             }
 
             int warningCount = modelRegistry.Entries.Count(e => e.Status == ModelRegistryStatus.Warning);

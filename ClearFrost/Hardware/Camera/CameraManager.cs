@@ -36,6 +36,15 @@ namespace ClearFrost.Hardware
             "BayerBG8",
             "Mono8"
         };
+        private static readonly string[] ColorPixelFormatFallbackCandidates =
+        {
+            "BGR8",
+            "RGB8",
+            "BayerRG8",
+            "BayerGB8",
+            "BayerGR8",
+            "BayerBG8"
+        };
 
         public string Id { get; }
         public CameraConfig Config { get; }
@@ -111,30 +120,114 @@ namespace ClearFrost.Hardware
         private void ConfigurePixelFormat(ICamera camera)
         {
             string requested = Config.PixelFormat?.Trim() ?? string.Empty;
+            IReadOnlyList<string> supportedEntries = GetPixelFormatEntries(camera);
+            LogPixelFormatDiagnostics(camera, $"PixelFormat request received: Requested={NormalizeLogValue(requested)}, Supported={FormatEntries(supportedEntries)}");
+
             if (string.IsNullOrWhiteSpace(requested) ||
                 string.Equals(requested, "Auto", StringComparison.OrdinalIgnoreCase))
             {
-                foreach (string candidate in AutoPixelFormatCandidates)
+                foreach (string candidate in FilterCandidatesBySupportedEntries(AutoPixelFormatCandidates, supportedEntries))
                 {
                     int result = camera.IMV_SetEnumFeatureSymbol("PixelFormat", candidate);
                     if (result == IMVDefine.IMV_OK)
                     {
-                        Debug.WriteLine($"[CameraInstance] Auto PixelFormat selected: {candidate}, Camera={Config.DisplayName}");
+                        LogPixelFormatDiagnostics(camera, $"Auto PixelFormat selected: {candidate}");
                         return;
                     }
 
-                    Debug.WriteLine($"[CameraInstance] Auto PixelFormat candidate failed: {candidate}, ErrorCode={result}, Camera={Config.DisplayName}");
+                    LogPixelFormatDiagnostics(camera, $"Auto PixelFormat candidate failed: {candidate}, ErrorCode={result}");
                 }
 
-                Debug.WriteLine($"[CameraInstance] Auto PixelFormat failed for all candidates, Camera={Config.DisplayName}");
+                LogPixelFormatDiagnostics(camera, "Auto PixelFormat failed for all candidates");
                 return;
             }
 
             int pixelResult = camera.IMV_SetEnumFeatureSymbol("PixelFormat", requested);
-            if (pixelResult != IMVDefine.IMV_OK)
+            if (pixelResult == IMVDefine.IMV_OK)
             {
-                Debug.WriteLine($"[CameraInstance] Set PixelFormat failed: {requested}, ErrorCode={pixelResult}, Camera={Config.DisplayName}");
+                LogPixelFormatDiagnostics(camera, $"PixelFormat selected: {requested}");
+                return;
             }
+
+            LogPixelFormatDiagnostics(camera, $"Set PixelFormat failed: {requested}, ErrorCode={pixelResult}");
+
+            if (!IsColorPixelFormat(requested))
+            {
+                return;
+            }
+
+            foreach (string candidate in FilterCandidatesBySupportedEntries(ColorPixelFormatFallbackCandidates, supportedEntries).Where(candidate =>
+                         !string.Equals(candidate, requested, StringComparison.OrdinalIgnoreCase)))
+            {
+                int result = camera.IMV_SetEnumFeatureSymbol("PixelFormat", candidate);
+                if (result == IMVDefine.IMV_OK)
+                {
+                    LogPixelFormatDiagnostics(camera, $"Color PixelFormat fallback selected: {candidate}, Requested={requested}");
+                    return;
+                }
+
+                LogPixelFormatDiagnostics(camera, $"Color PixelFormat fallback failed: {candidate}, ErrorCode={result}, Requested={requested}");
+            }
+
+            LogPixelFormatDiagnostics(camera, $"Color PixelFormat fallback failed for all candidates, Requested={requested}");
+        }
+
+        private static bool IsColorPixelFormat(string pixelFormat)
+        {
+            return ColorPixelFormatFallbackCandidates.Any(candidate =>
+                string.Equals(candidate, pixelFormat, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private IReadOnlyList<string> GetPixelFormatEntries(ICamera camera)
+        {
+            if (camera is not ICameraFeatureInspector inspector)
+            {
+                return Array.Empty<string>();
+            }
+
+            try
+            {
+                return inspector.GetEnumFeatureEntries("PixelFormat");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CameraInstance] Get PixelFormat entries failed: {ex.Message}, Camera={Config.DisplayName}");
+                return Array.Empty<string>();
+            }
+        }
+
+        private static IEnumerable<string> FilterCandidatesBySupportedEntries(IEnumerable<string> candidates, IReadOnlyList<string> supportedEntries)
+        {
+            if (supportedEntries.Count == 0)
+            {
+                return candidates;
+            }
+
+            return candidates.Where(candidate =>
+                supportedEntries.Any(entry => string.Equals(entry, candidate, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        private void LogPixelFormatDiagnostics(ICamera camera, string message)
+        {
+            string current = "Unknown";
+            if (camera is ICameraFeatureInspector inspector &&
+                inspector.TryGetEnumFeatureSymbol("PixelFormat", out string actual) &&
+                !string.IsNullOrWhiteSpace(actual))
+            {
+                current = actual;
+            }
+
+            Debug.WriteLine($"[CameraInstance] {message}, Current={current}, Camera={Config.DisplayName}");
+        }
+
+        private static string FormatEntries(IReadOnlyList<string> entries)
+        {
+            return entries.Count == 0 ? "Unknown" : string.Join("|", entries);
+        }
+
+        private static string NormalizeLogValue(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "Empty" : value;
         }
 
         public void Close()
@@ -152,9 +245,93 @@ namespace ClearFrost.Hardware
                     _camera.IMV_StopGrabbing();
                 }
 
+                TryRestoreVendorPreviewDefaults(_camera);
                 _camera.IMV_Close();
                 IsOpen = false;
                 State = CameraInstanceState.Registered;
+            }
+        }
+
+        public void ReleaseHandle()
+        {
+            lock (_sync)
+            {
+                if (_camera == null)
+                {
+                    IsOpen = false;
+                    State = _disposed ? CameraInstanceState.Disposed : CameraInstanceState.Registered;
+                    return;
+                }
+
+                try
+                {
+                    if (IsOpen && _camera.IMV_IsGrabbing())
+                    {
+                        _camera.IMV_StopGrabbing();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[CameraInstance] StopGrabbing before release failed: {ex.Message}");
+                }
+
+                TryRestoreVendorPreviewDefaults(_camera);
+
+                try
+                {
+                    _camera.IMV_Close();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[CameraInstance] Close before release failed: {ex.Message}");
+                }
+
+                try
+                {
+                    _camera.IMV_DestroyHandle();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[CameraInstance] DestroyHandle failed: {ex.Message}");
+                }
+
+                try
+                {
+                    _camera.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[CameraInstance] Dispose camera failed: {ex.Message}");
+                }
+
+                _camera = null;
+                IsOpen = false;
+                State = _disposed ? CameraInstanceState.Disposed : CameraInstanceState.Registered;
+            }
+        }
+
+        private static void TryRestoreVendorPreviewDefaults(ICamera camera)
+        {
+            try
+            {
+                camera.IMV_SetEnumFeatureSymbol("TriggerSelector", "FrameStart");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CameraInstance] Restore TriggerSelector failed: {ex.Message}");
+            }
+
+            try
+            {
+                int result = camera.IMV_SetEnumFeatureSymbol("TriggerMode", "Off");
+                if (result != IMVDefine.IMV_OK)
+                {
+                    Debug.WriteLine($"[CameraInstance] Restore TriggerMode Off failed: {result}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CameraInstance] Restore TriggerMode Off exception: {ex.Message}");
             }
         }
 
@@ -189,10 +366,7 @@ namespace ClearFrost.Hardware
                     {
                         if (_camera != null)
                         {
-                            Close();
-                            _camera.IMV_DestroyHandle();
-                            _camera.Dispose();
-                            _camera = null;
+                            ReleaseHandle();
                         }
                     }
                     finally

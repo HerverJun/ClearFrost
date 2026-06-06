@@ -39,6 +39,8 @@ public class AppConfigTests
         config.BarcodeWordLength.Should().Be(16);
         config.BarcodeEncoding.Should().Be("ASCII");
         config.BarcodeRequired.Should().BeFalse();
+        config.EnableGpu.Should().BeFalse();
+        config.IndustrialRenderMode.Should().BeTrue();
         config.Confidence.Should().BeApproximately(0.5f, 0.001f);
         config.IouThreshold.Should().BeApproximately(0.3f, 0.001f);
         config.ModelPackageDirectory.Should().Be("models");
@@ -77,6 +79,14 @@ public class AppConfigTests
         config.PlcWriteRetryIntervalMs.Should().Be(200);
         config.RequireOperatorForProductionStart.Should().BeTrue();
         config.OperatorSessionMaxHours.Should().Be(12);
+    }
+
+    [Fact]
+    public void PlcConnectionOptions_默认驱动库为信息工程部特调版()
+    {
+        var options = new PlcConnectionOptions();
+
+        options.DriverProvider.Should().Be("HaoCommunication");
     }
 
     [Fact]
@@ -641,7 +651,7 @@ public class AppConfigTests
     }
 
     [Fact]
-    public void 相机像素格式_空配置迁移为Mono8()
+    public void 相机像素格式_空配置迁移为Auto()
     {
         const string json = """
         {
@@ -662,6 +672,36 @@ public class AppConfigTests
 
         config.Should().NotBeNull();
         config!.ActiveCamera.Should().NotBeNull();
-        config.ActiveCamera!.PixelFormat.Should().Be("Mono8");
+        config.ActiveCamera!.PixelFormat.Should().Be("Auto");
+    }
+
+    [Theory]
+    [InlineData("BGR", "BGR8")]
+    [InlineData("Color", "BGR8")]
+    [InlineData("RGB", "RGB8")]
+    [InlineData("Bayer-RG", "BayerRG8")]
+    [InlineData("UnknownFormat", "Auto")]
+    public void 相机像素格式_旧别名归一为可设格式(string input, string expected)
+    {
+        string json = $$"""
+        {
+          "Cameras": [
+            {
+              "Id": "cam1",
+              "SerialNumber": "SN001",
+              "DisplayName": "现场相机",
+              "PixelFormat": "{{input}}",
+              "IsEnabled": true
+            }
+          ],
+          "ActiveCameraId": "cam1"
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<AppConfig>(json);
+
+        config.Should().NotBeNull();
+        config!.ActiveCamera.Should().NotBeNull();
+        config.ActiveCamera!.PixelFormat.Should().Be(expected);
     }
 }

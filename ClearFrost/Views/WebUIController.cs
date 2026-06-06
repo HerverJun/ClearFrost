@@ -67,6 +67,7 @@ namespace ClearFrost
         // Events to notify the main window about frontend actions
         public event EventHandler? OnFindCamera;
         public event EventHandler? OnStartSystem;
+        public event EventHandler? OnStopSystem;
         public event EventHandler? OnOpenCamera;
         public event EventHandler? OnManualDetect;
         public event EventHandler<string>? OnCaptureCameraPreview;
@@ -669,6 +670,9 @@ namespace ClearFrost
                                 break;
                             case "start_system":
                                 OnStartSystem?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "stop_system":
+                                OnStopSystem?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "open_camera":
                                 OnOpenCamera?.Invoke(this, EventArgs.Empty);
@@ -2087,6 +2091,7 @@ namespace ClearFrost
             {
                 OnFindCamera = null;
                 OnStartSystem = null;
+                OnStopSystem = null;
                 OnOpenCamera = null;
                 OnManualDetect = null;
                 OnCaptureCameraPreview = null;

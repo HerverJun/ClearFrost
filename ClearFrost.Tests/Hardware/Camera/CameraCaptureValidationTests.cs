@@ -1,11 +1,13 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using ClearFrost.Config;
 using ClearFrost.Hardware;
 using ClearFrost.Services;
 using FluentAssertions;
 using MVSDK_Net;
+using OpenCvSharp;
 
 namespace ClearFrost.Tests.Hardware.Camera
 {
@@ -121,6 +123,32 @@ namespace ClearFrost.Tests.Hardware.Camera
         }
 
         [Fact]
+        public void CameraInstance_Open_explicit_bgr_falls_back_to_bayer_color_without_mono()
+        {
+            using var camera = new ScriptedCamera(
+                IMVDefine.IMV_EPixelType.gvspPixelBayRG8,
+                16,
+                16,
+                16 * 16,
+                supportedPixelFormats: new[] { "BayerRG8", "Mono8" });
+            var config = new CameraConfig
+            {
+                Id = "cam-1",
+                SerialNumber = "SN-001",
+                DisplayName = "TestCam",
+                PixelFormat = "BGR8"
+            };
+
+            using var instance = new CameraInstance(config.Id, config, () => camera);
+
+            instance.Open().Should().BeTrue();
+
+            camera.LastPixelFormat.Should().Be("BayerRG8");
+            camera.PixelFormatRequests.Should().Equal("BGR8", "RGB8", "BayerRG8");
+            camera.PixelFormatRequests.Should().NotContain("Mono8");
+        }
+
+        [Fact]
         public void CaptureFrame_rejects_sdk_error_status_frame()
         {
             using var camera = new ScriptedCamera(
@@ -213,6 +241,41 @@ namespace ClearFrost.Tests.Hardware.Camera
             camera.StartGrabbingCount.Should().Be(2);
         }
 
+        [Theory]
+        [InlineData(0x01080009, BayerPattern.RGGB)]
+        [InlineData(0x0108000A, BayerPattern.GBRG)]
+        [InlineData(0x01080008, BayerPattern.GRBG)]
+        [InlineData(0x0108000B, BayerPattern.BGGR)]
+        public void ConvertRawFrameToMat_genicam_bayer_formats_preserve_red_blue_order(int pixelFormatValue, BayerPattern pattern)
+        {
+            const int width = 8;
+            const int height = 8;
+            byte[] buffer = CreateSolidRedBayerBuffer(width, height, pattern);
+
+            using Mat mat = ConvertRawFrameToMat(buffer, width, height, unchecked((uint)pixelFormatValue));
+
+            mat.Channels().Should().Be(3);
+            Scalar mean = Cv2.Mean(mat);
+            mean.Val2.Should().BeGreaterThan(mean.Val0 + 100);
+        }
+
+        [Fact]
+        public void ConvertRawFrameToMat_bgr8_keeps_bgr_channel_order()
+        {
+            byte[] buffer =
+            {
+                10, 20, 30,
+                40, 50, 60
+            };
+
+            using Mat mat = ConvertRawFrameToMat(buffer, 2, 1, 0x02180015);
+
+            Vec3b first = mat.At<Vec3b>(0, 0);
+            first.Item0.Should().Be(10);
+            first.Item1.Should().Be(20);
+            first.Item2.Should().Be(30);
+        }
+
         private static CameraService CreateStartedService(ScriptedCamera camera)
         {
             var config = new CameraConfig
@@ -229,6 +292,86 @@ namespace ClearFrost.Tests.Hardware.Camera
             service.Open(config.SerialNumber, config.Manufacturer).Should().BeTrue();
             service.StartCapture();
             return service;
+        }
+
+        private static Mat ConvertRawFrameToMat(byte[] buffer, int width, int height, uint pixelFormat)
+        {
+            GCHandle handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+            try
+            {
+                var method = typeof(CameraService).GetMethod(
+                    "ConvertRawFrameToMat",
+                    BindingFlags.NonPublic | BindingFlags.Static);
+                method.Should().NotBeNull();
+
+                return (Mat)method!.Invoke(null, new object[]
+                {
+                    handle.AddrOfPinnedObject(),
+                    width,
+                    height,
+                    0,
+                    pixelFormat
+                })!;
+            }
+            finally
+            {
+                handle.Free();
+            }
+        }
+
+        private static byte[] CreateSolidRedBayerBuffer(int width, int height, BayerPattern pattern)
+        {
+            var buffer = new byte[width * height];
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    if (GetBayerColor(pattern, x, y) == BayerColor.Red)
+                    {
+                        buffer[y * width + x] = 255;
+                    }
+                }
+            }
+
+            return buffer;
+        }
+
+        private static BayerColor GetBayerColor(BayerPattern pattern, int x, int y)
+        {
+            bool evenRow = y % 2 == 0;
+            bool evenColumn = x % 2 == 0;
+
+            return pattern switch
+            {
+                BayerPattern.RGGB => evenRow
+                    ? evenColumn ? BayerColor.Red : BayerColor.Green
+                    : evenColumn ? BayerColor.Green : BayerColor.Blue,
+                BayerPattern.GBRG => evenRow
+                    ? evenColumn ? BayerColor.Green : BayerColor.Blue
+                    : evenColumn ? BayerColor.Red : BayerColor.Green,
+                BayerPattern.GRBG => evenRow
+                    ? evenColumn ? BayerColor.Green : BayerColor.Red
+                    : evenColumn ? BayerColor.Blue : BayerColor.Green,
+                BayerPattern.BGGR => evenRow
+                    ? evenColumn ? BayerColor.Blue : BayerColor.Green
+                    : evenColumn ? BayerColor.Green : BayerColor.Red,
+                _ => throw new ArgumentOutOfRangeException(nameof(pattern), pattern, null)
+            };
+        }
+
+        public enum BayerPattern
+        {
+            RGGB,
+            GBRG,
+            GRBG,
+            BGGR
+        }
+
+        private enum BayerColor
+        {
+            Red,
+            Green,
+            Blue
         }
 
         private sealed class ScriptedCamera : ICamera

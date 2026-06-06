@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using MVSDK_Net;
 
 namespace ClearFrost.Hardware
@@ -28,6 +29,24 @@ namespace ClearFrost.Hardware
         bool IMV_IsGrabbing();
         int IMV_GetFrame(ref IMVDefine.IMV_Frame frame, int timeout);
         int IMV_ReleaseFrame(ref IMVDefine.IMV_Frame frame);
+    }
+
+    /// <summary>
+    /// 相机枚举特性诊断能力。真实 SDK 支持时用于确认 PixelFormat 等节点的当前值和可选项。
+    /// </summary>
+    public interface ICameraFeatureInspector
+    {
+        bool TryGetEnumFeatureSymbol(string name, out string value);
+
+        IReadOnlyList<string> GetEnumFeatureEntries(string name);
+    }
+
+    /// <summary>
+    /// 相机原始帧像素转换能力。华睿 SDK 支持时优先用于 Bayer/RGB 到 BGR8 的转换。
+    /// </summary>
+    public interface ICameraFramePixelConverter
+    {
+        bool TryConvertFrameToBgr8(IMVDefine.IMV_Frame frame, out CameraFrame convertedFrame);
     }
 }
 

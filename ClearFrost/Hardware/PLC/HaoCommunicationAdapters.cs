@@ -142,6 +142,15 @@ namespace ClearFrost.Hardware
             {
                 LastError = ex.Message;
                 _isConnected = false;
+                try
+                {
+                    CloseCurrentConnection();
+                }
+                catch (Exception closeEx)
+                {
+                    Debug.WriteLine($"[{ProtocolName}] Connect cleanup failed: {closeEx.Message}");
+                }
+
                 _plc = null;
                 return false;
             }

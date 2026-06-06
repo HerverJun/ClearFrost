@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using MVSDK_Net;
@@ -9,13 +10,15 @@ namespace ClearFrost.Hardware
     /// 真实工业相机实现，封装华睿 (Huaray) MVSDK
     /// 使用官方 MVSDK_Net.dll 中的 MyCamera 类
     /// </summary>
-    public class RealCamera : ICamera
+    public class RealCamera : ICamera, ICameraFeatureInspector, ICameraFramePixelConverter
     {
         private readonly MyCamera _cam = new MyCamera();
         private readonly string _targetSerialNumber;
         private bool _disposed = false;
         private bool _isConnected = false;
         private bool _handleCreated = false;
+        private byte[]? _convertedFrameBuffer;
+        private GCHandle _convertedFrameHandle;
 
         public RealCamera(string? targetSerialNumber = null)
         {
@@ -101,6 +104,68 @@ namespace ClearFrost.Hardware
             return !string.IsNullOrWhiteSpace(value);
         }
 
+        public IReadOnlyList<string> GetEnumFeatureEntries(string name)
+        {
+            if (!_isConnected || string.IsNullOrWhiteSpace(name) || !_cam.IMV_FeatureIsReadable(name))
+            {
+                return Array.Empty<string>();
+            }
+
+            IntPtr buffer = IntPtr.Zero;
+            try
+            {
+                uint entryCount = 0;
+                int countResult = _cam.IMV_GetEnumFeatureEntryNum(name, ref entryCount);
+                if (countResult != IMVDefine.IMV_OK || entryCount == 0)
+                {
+                    Debug.WriteLine($"[RealCamera] GetEnumFeatureEntryNum failed: Feature={name}, ErrorCode={countResult}");
+                    return Array.Empty<string>();
+                }
+
+                int entrySize = Marshal.SizeOf<IMVDefine.IMV_EnumEntryInfo>();
+                int bufferSize = checked(entrySize * (int)entryCount);
+                buffer = Marshal.AllocHGlobal(bufferSize);
+                var entryList = new IMVDefine.IMV_EnumEntryList
+                {
+                    nEnumEntryBufferSize = (uint)bufferSize,
+                    pEnumEntryInfo = buffer
+                };
+
+                int listResult = _cam.IMV_GetEnumFeatureEntrys(name, ref entryList);
+                if (listResult != IMVDefine.IMV_OK)
+                {
+                    Debug.WriteLine($"[RealCamera] GetEnumFeatureEntrys failed: Feature={name}, ErrorCode={listResult}");
+                    return Array.Empty<string>();
+                }
+
+                var entries = new List<string>((int)entryCount);
+                for (int i = 0; i < entryCount; i++)
+                {
+                    IntPtr itemPtr = IntPtr.Add(buffer, i * entrySize);
+                    var entry = Marshal.PtrToStructure<IMVDefine.IMV_EnumEntryInfo>(itemPtr);
+                    string entryName = entry.name?.Trim() ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(entryName))
+                    {
+                        entries.Add(entryName);
+                    }
+                }
+
+                return entries;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[RealCamera] GetEnumFeatureEntries error: Feature={name}, {ex.Message}");
+                return Array.Empty<string>();
+            }
+            finally
+            {
+                if (buffer != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(buffer);
+                }
+            }
+        }
+
         public int IMV_SetBufferCount(int count)
         {
             return _cam.IMV_SetBufferCount((uint)count);
@@ -163,6 +228,99 @@ namespace ClearFrost.Hardware
         public int IMV_ReleaseFrame(ref IMVDefine.IMV_Frame frame)
         {
             return _cam.IMV_ReleaseFrame(ref frame);
+        }
+
+        public bool TryConvertFrameToBgr8(IMVDefine.IMV_Frame frame, out CameraFrame convertedFrame)
+        {
+            convertedFrame = null!;
+
+            if (!_isConnected ||
+                frame.pData == IntPtr.Zero ||
+                frame.frameInfo.width == 0 ||
+                frame.frameInfo.height == 0 ||
+                !IsColorPixelFormat(frame.frameInfo.pixelFormat))
+            {
+                return false;
+            }
+
+            try
+            {
+                int destinationSize = checked((int)frame.frameInfo.width * (int)frame.frameInfo.height * 3);
+                EnsureConvertedFrameBuffer(destinationSize);
+
+                var convertParam = new IMVDefine.IMV_PixelConvertParam
+                {
+                    nWidth = frame.frameInfo.width,
+                    nHeight = frame.frameInfo.height,
+                    ePixelFormat = frame.frameInfo.pixelFormat,
+                    pSrcData = frame.pData,
+                    nSrcDataLen = frame.frameInfo.size,
+                    nPaddingX = frame.frameInfo.paddingX,
+                    nPaddingY = frame.frameInfo.paddingY,
+                    eBayerDemosaic = IMVDefine.IMV_EBayerDemosaic.demosaicEdgeSensing,
+                    eDstPixelFormat = IMVDefine.IMV_EPixelType.gvspPixelBGR8,
+                    pDstBuf = _convertedFrameHandle.AddrOfPinnedObject(),
+                    nDstBufSize = (uint)destinationSize
+                };
+
+                int result = _cam.IMV_PixelConvert(ref convertParam);
+                if (result != IMVDefine.IMV_OK || convertParam.nDstDataLen == 0)
+                {
+                    Debug.WriteLine($"[RealCamera] PixelConvert to BGR8 failed: ErrorCode={result}, PixelFormat=0x{unchecked((uint)frame.frameInfo.pixelFormat):X8}");
+                    return false;
+                }
+
+                convertedFrame = new CameraFrame
+                {
+                    DataPtr = _convertedFrameHandle.AddrOfPinnedObject(),
+                    Width = (int)frame.frameInfo.width,
+                    Height = (int)frame.frameInfo.height,
+                    Size = checked((int)convertParam.nDstDataLen),
+                    PixelFormat = CameraPixelFormat.BGR8,
+                    FrameNumber = frame.frameInfo.blockId,
+                    Timestamp = frame.frameInfo.timeStamp,
+                    NeedsNativeRelease = false
+                };
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[RealCamera] PixelConvert to BGR8 error: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool IsColorPixelFormat(IMVDefine.IMV_EPixelType pixelFormat)
+        {
+            return pixelFormat is IMVDefine.IMV_EPixelType.gvspPixelRGB8
+                or IMVDefine.IMV_EPixelType.gvspPixelBGR8
+                or IMVDefine.IMV_EPixelType.gvspPixelBayRG8
+                or IMVDefine.IMV_EPixelType.gvspPixelBayGB8
+                or IMVDefine.IMV_EPixelType.gvspPixelBayGR8
+                or IMVDefine.IMV_EPixelType.gvspPixelBayBG8;
+        }
+
+        private void EnsureConvertedFrameBuffer(int size)
+        {
+            if (_convertedFrameBuffer != null && _convertedFrameBuffer.Length >= size && _convertedFrameHandle.IsAllocated)
+            {
+                return;
+            }
+
+            ReleaseConvertedFrameBuffer();
+            _convertedFrameBuffer = new byte[size];
+            _convertedFrameHandle = GCHandle.Alloc(_convertedFrameBuffer, GCHandleType.Pinned);
+        }
+
+        private void ReleaseConvertedFrameBuffer()
+        {
+            if (_convertedFrameHandle.IsAllocated)
+            {
+                _convertedFrameHandle.Free();
+            }
+
+            _convertedFrameBuffer = null;
         }
 
         private bool EnsureHandleCreated()
@@ -253,8 +411,6 @@ namespace ClearFrost.Hardware
                     _cam.IMV_DestroyHandle();
                 }
 
-                _isConnected = false;
-                _handleCreated = false;
             }
             catch (Exception ex)
             {
@@ -262,6 +418,9 @@ namespace ClearFrost.Hardware
             }
             finally
             {
+                ReleaseConvertedFrameBuffer();
+                _isConnected = false;
+                _handleCreated = false;
                 _disposed = true;
             }
         }

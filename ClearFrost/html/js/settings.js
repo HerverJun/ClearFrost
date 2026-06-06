@@ -838,9 +838,11 @@
     }
 
     function handleSerialPortsDetected(data) {
+        setSerialAutoDetectBusy(false);
         const select = byId("cfg-serial-port");
         if (!select) return;
-        const ports = data?.ports || data?.Ports || data || [];
+        const rawPorts = data?.ports || data?.Ports || data || [];
+        const ports = Array.isArray(rawPorts) ? rawPorts : [];
         const currentValue = normalizeSerialPortName(select.value);
         select.innerHTML = '<option value="">-- 请选择 COM 口 --</option>';
         let preferredValue = "";
@@ -865,6 +867,36 @@
         const selectedText = select.value ? `，已选择 ${select.value}` : "";
         window.showToast?.(`识别到 ${ports.length} 个串口${selectedText}`, ports.length ? "success" : "warning", 1400);
         window.addLog?.(`串口自动识别完成: ${ports.length} 个${selectedText}`, ports.length ? "success" : "warning");
+    }
+
+    let serialAutoDetectResetTimer = null;
+
+    function setSerialAutoDetectBusy(isBusy) {
+        const button = document.querySelector('[data-cmd="serial_auto_detect_ports"]');
+        if (!button) return;
+
+        if (serialAutoDetectResetTimer) {
+            clearTimeout(serialAutoDetectResetTimer);
+            serialAutoDetectResetTimer = null;
+        }
+
+        if (isBusy) {
+            button.dataset.originalText = button.dataset.originalText || button.textContent.trim() || "自动识别";
+            button.disabled = true;
+            button.textContent = "识别中";
+            serialAutoDetectResetTimer = window.setTimeout(() => setSerialAutoDetectBusy(false), 8000);
+            return;
+        }
+
+        button.disabled = false;
+        button.textContent = button.dataset.originalText || "自动识别";
+    }
+
+    function handleCommandDispatched(cmd) {
+        if (cmd !== "serial_auto_detect_ports") return;
+        setSerialAutoDetectBusy(true);
+        window.showToast?.("正在识别串口...", "info", 1000);
+        window.addLog?.("正在自动识别串口光电 COM 口...", "info");
     }
 
     function updatePlcProtocolModeUi() {
@@ -942,6 +974,9 @@
     }
 
     function validatePlcSettings() {
+        const triggerSource = byId("cfg-trigger-source")?.value || "PLC";
+        if (triggerSource !== "PLC") return null;
+
         const protocol = byId("cfg-plc-protocol")?.value || "";
         const driver = byId("cfg-plc-driver-provider")?.value || "";
         const mode = byId("cfg-plc-protocol-mode")?.value || "Legacy";
@@ -1168,7 +1203,7 @@
                 data.Cameras.find((camera) => camera.IsEnabled || camera.isEnabled) ||
                 data.Cameras[0])
             : null;
-        const pixelFormat = data.CameraPixelFormat || activeCamera?.PixelFormat || activeCamera?.pixelFormat || "Mono8";
+        const pixelFormat = data.CameraPixelFormat || activeCamera?.PixelFormat || activeCamera?.pixelFormat || "Auto";
         if (byId("cfg-cam-pixel-format")) byId("cfg-cam-pixel-format").value = pixelFormat;
         if (data.EnableMultiModelFallback !== undefined) applyMultiModelUiState(!!data.EnableMultiModelFallback);
         if (data.BarcodeEnabled !== undefined) {
@@ -1667,7 +1702,7 @@
             "cfg-cam-name": getPresetDisplayName(presetId, preset),
             "cfg-cam-serial": preset.CameraSerialNumber,
             "cfg-cam-manufacturer": preset.CameraManufacturer ?? "Huaray",
-            "cfg-cam-pixel-format": preset.CameraPixelFormat ?? preset.PixelFormat ?? "Mono8",
+            "cfg-cam-pixel-format": preset.CameraPixelFormat ?? preset.PixelFormat ?? "Auto",
             "cfg-cam-exposure": preset.ExposureTime,
             "cfg-cam-gain": preset.GainRaw ?? preset.Gain ?? 1.1,
             "cfg-logic-retry-count": preset.MaxRetryCount ?? 1,
@@ -1829,6 +1864,7 @@
         collectDataset,
         handleDatasetCollectResult,
         handleModelPackageImportResult,
+        handleCommandDispatched,
         handleSerialPortsDetected,
         updateTriggerSourceUi,
     });

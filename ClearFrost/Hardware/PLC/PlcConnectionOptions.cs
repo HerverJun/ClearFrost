@@ -21,7 +21,7 @@ namespace ClearFrost.Hardware
         /// <summary>
         /// 驱动提供方，例如 Hsl、McpX 或 HaoCommunication。
         /// </summary>
-        public string DriverProvider { get; set; } = "Hsl";
+        public string DriverProvider { get; set; } = "HaoCommunication";
 
         /// <summary>
         /// PLC IP 地址。

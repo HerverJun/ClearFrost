@@ -838,6 +838,7 @@ namespace ClearFrost
             int finalResultCount = 0;
             int finalAttemptCount = 1;
             InspectionPipelineResult? pipelineResult = null;
+            bool barcodeEnabled = _appConfig.TriggerSource == TriggerSource.PLC && _appConfig.BarcodeEnabled;
 
             try
             {
@@ -846,7 +847,7 @@ namespace ClearFrost
                     context,
                     message: "检测已触发",
                     usedModelName: _detectionService.CurrentModelName,
-                    barcodeEnabled: _appConfig.BarcodeEnabled);
+                    barcodeEnabled: barcodeEnabled);
 
                 pipelineResult = await _inspectionPipelineService.ExecuteAsync(
                     request,
@@ -871,7 +872,7 @@ namespace ClearFrost
                     0,
                     _detectionService.CurrentModelName,
                     false,
-                    _appConfig.BarcodeEnabled);
+                    barcodeEnabled);
             }
             finally
             {
@@ -911,6 +912,13 @@ namespace ClearFrost
                 _detectionGate.Release();
                 DiagLog($"✅ [{triggerSource}] [{inspectionId}] btnCapture_LogicAsync 完成, 信号量已释放");
             }
+        }
+
+        private async Task ManualDetectAsync()
+        {
+            await _uiController.LogToFrontend("手动检测已触发", "info");
+
+            await btnCapture_LogicAsync("手动");
         }
 
         private async Task OnInspectionPipelineProgressAsync(InspectionPipelineProgress progress)
@@ -1053,6 +1061,33 @@ namespace ClearFrost
             if (IsCameraReadyForInspection(out string message))
             {
                 return true;
+            }
+
+            await _uiController.LogToFrontend($"手动拍照: 相机未就绪，正在尝试自动恢复: {message}", "warning");
+            var readyAfterResume = await WaitForCameraReadyForInspectionAsync(timeoutMs: 1200);
+            if (readyAfterResume.Ready)
+            {
+                await _uiController.UpdateConnection("cam", true);
+                await _uiController.LogToFrontend("手动拍照: 相机采集已恢复", "info");
+                return true;
+            }
+
+            bool cameraReopened = await btnOpenCamera_LogicAsync(startTriggerSource: false);
+            if (cameraReopened)
+            {
+                var readyAfterReconnect = await WaitForCameraReadyForInspectionAsync(timeoutMs: 1200);
+                if (readyAfterReconnect.Ready)
+                {
+                    await _uiController.UpdateConnection("cam", true);
+                    await _uiController.LogToFrontend("手动拍照: 相机已自动重连", "info");
+                    return true;
+                }
+
+                message = readyAfterReconnect.Message;
+            }
+            else if (!string.IsNullOrWhiteSpace(_cameraService.LastError))
+            {
+                message = _cameraService.LastError!;
             }
 
             RecordHealthError("Camera", $"手动检测已阻止: {message}");
