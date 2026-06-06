@@ -3537,6 +3537,37 @@
         return Number.isFinite(numberValue) ? numberValue : null;
     }
 
+    function traceEmptyMarkup(title, message = "") {
+        return `
+            <div class="cf-trace-empty">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"
+                        d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"
+                        d="m7.5 14 2.3-2.3a1.1 1.1 0 0 1 1.5 0l1.2 1.2.8-.8a1.1 1.1 0 0 1 1.5 0l1.7 1.7M15.8 8.8h.01" />
+                </svg>
+                <span class="cf-trace-state-title">${escapeHtml(title)}</span>
+                ${message ? `<span class="cf-trace-state-text">${escapeHtml(message)}</span>` : ""}
+            </div>`;
+    }
+
+    function traceLoadingMarkup(message) {
+        return `
+            <div class="cf-trace-empty cf-trace-loading-state">
+                <div class="cf-trace-loader" aria-hidden="true">
+                    <div class="cf-trace-loader-cell"></div>
+                    <div class="cf-trace-loader-cell"></div>
+                    <div class="cf-trace-loader-cell"></div>
+                </div>
+                <span class="cf-trace-state-title">${escapeHtml(message)}</span>
+                <span class="cf-trace-state-text">正在同步本地 NG 图片索引，请稍候。</span>
+            </div>`;
+    }
+
+    function traceListItemClass(isActive = false) {
+        return `cf-trace-list-item${isActive ? " is-active" : ""}`;
+    }
+
     function setTraceLoadingState(isLoading) {
         const grid = byId("ng-image-grid");
         const prevButton = byId("trace-prev-page");
@@ -3546,13 +3577,7 @@
         if (nextButton) nextButton.disabled = isLoading || (!getActiveTracePage()?.hasMore && tracePagerState.pageIndex + 1 >= tracePagerState.pages.length);
 
         if (!isLoading || !grid) return;
-        grid.innerHTML = `
-            <div class="cf-trace-empty">
-                <div class="flex flex-col items-center gap-3">
-                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-celadon-500"></div>
-                    <span>正在加载追溯页...</span>
-                </div>
-            </div>`;
+        grid.innerHTML = traceLoadingMarkup("正在加载追溯页");
     }
 
     function updateTracePaginationUi() {
@@ -3598,7 +3623,7 @@
         }
 
         if (!records.length) {
-            grid.innerHTML = '<div class="cf-trace-empty">此时间段未发现异常图片记录</div>';
+            grid.innerHTML = traceEmptyMarkup("未发现 NG 图片记录", "当前日期与时段没有可追溯的异常图像。");
             updateTracePaginationUi();
             return;
         }
@@ -3610,6 +3635,7 @@
             const resultText = record.isQualified ? "OK" : "NG";
             const resultClass = record.isQualified ? "ok" : "ng";
             const reviewLabel = record.hasRenderedImage ? "复查图" : "无复查图";
+            const reviewClass = record.hasRenderedImage ? "" : " is-missing";
             const model = record.modelVersion || record.modelName || "-";
             const adviceText = getTraceAdviceText(record, "建议");
             const adviceMarkup = adviceText
@@ -3619,18 +3645,21 @@
                 ? `<img src="${url}" loading="lazy" decoding="async" alt="${escapeHtml(record.inspectionId)}">`
                 : `<div class="cf-trace-thumb-missing">无图像</div>`;
             card.className = "cf-trace-card";
+            card.tabIndex = 0;
             card.innerHTML = `<div class="cf-trace-thumb">
                     ${imageMarkup}
-                    <span class="${resultClass}">${escapeHtml(resultText)}</span>
-                    <em>${escapeHtml(reviewLabel)}</em>
+                    <span class="cf-trace-result ${resultClass}">${escapeHtml(resultText)}</span>
+                    <em class="cf-trace-review-state${reviewClass}">${escapeHtml(reviewLabel)}</em>
                 </div>
                 <div class="cf-trace-card-body">
-                    <div>
-                        <p>${escapeHtml(record.productBarcode || "-")}</p>
-                        <p>${escapeHtml(record.timestamp || "-")}</p>
-                        <p>ID: ${escapeHtml(record.inspectionId || "-")}</p>
-                        <p>模型: ${escapeHtml(model)}</p>
-                        <p>相机: ${escapeHtml(record.cameraId || "-")}</p>
+                    <div class="cf-trace-card-main">
+                        <p class="cf-trace-card-code">${escapeHtml(record.productBarcode || "-")}</p>
+                        <dl class="cf-trace-card-meta">
+                            <div><dt>时间</dt><dd>${escapeHtml(record.timestamp || "-")}</dd></div>
+                            <div><dt>ID</dt><dd>${escapeHtml(record.inspectionId || "-")}</dd></div>
+                            <div><dt>模型</dt><dd>${escapeHtml(model)}</dd></div>
+                            <div><dt>相机</dt><dd>${escapeHtml(record.cameraId || "-")}</dd></div>
+                        </dl>
                         ${adviceMarkup}
                     </div>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
@@ -3640,6 +3669,12 @@
                 </div>
                 <button type="button">查看详情</button>`;
             card.onclick = () => openTraceViewer(record, "rendered");
+            card.onkeydown = (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openTraceViewer(record, "rendered");
+                }
+            };
             fragment.appendChild(card);
         }
 
@@ -3733,7 +3768,7 @@
         syncTraceControls();
         resetTracePagerState();
         const badge = byId("gallery-count");
-        if (badge) badge.textContent = "0 张";
+        if (badge) badge.textContent = "0 条";
         bridge.sendCommand("get_ng_dates");
     }
 
@@ -3839,28 +3874,36 @@
         list.innerHTML = "";
 
         if (!dates.length) {
-            list.innerHTML = '<div class="text-[10px] text-ink-300 p-4 text-center italic font-serif opacity-50">暂无历史存根</div>';
+            list.innerHTML = '<div class="cf-trace-list-item is-disabled">暂无日期记录</div>';
             if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = "";
-            if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = '<div class="cf-trace-empty">此时间段未发现异常图片记录</div>';
+            if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = traceEmptyMarkup("未发现 NG 图片记录", "当前目录没有可追溯的异常图像。");
             resetTracePagerState();
             return;
         }
 
         dates.forEach((date) => {
             const div = document.createElement("div");
-            div.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
+            div.className = traceListItemClass();
+            div.tabIndex = 0;
             div.innerText = date;
-            div.onclick = () => {
+            const selectDate = () => {
                 Array.from(list.children).forEach((child) => {
-                    child.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
+                    child.className = traceListItemClass();
                 });
-                div.className = "p-2.5 bg-celadon-50 text-celadon-700 cursor-pointer rounded-xl text-[11px] font-black transition-[background-color,border-color,color,box-shadow] shadow-sm border border-celadon-200 mb-1";
+                div.className = traceListItemClass(true);
                 window.currentNGDate = date;
                 window.currentNGHour = "";
                 resetTracePagerState();
-                if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
-                if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
+                if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="cf-trace-list-item is-disabled">读取时段中...</div>';
+                if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = traceLoadingMarkup("正在读取时段目录");
                 bridge.sendCommand("get_ng_hours", date);
+            };
+            div.onclick = selectDate;
+            div.onkeydown = (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectDate();
+                }
             };
             list.appendChild(div);
         });
@@ -3881,8 +3924,8 @@
 
         if (!hours.length) {
             if (hourSelect) hourSelect.innerHTML = '<option value="">全部时段</option>';
-            list.innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 font-serif opacity-50">无时段数据</div>';
-            if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = '<div class="cf-trace-empty">此时间段未发现异常图片记录</div>';
+            list.innerHTML = '<div class="cf-trace-list-item is-disabled">无时段数据</div>';
+            if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = traceEmptyMarkup("未发现 NG 图片记录", "选中日期下没有可用时段。");
             resetTracePagerState();
             return;
         }
@@ -3895,19 +3938,27 @@
                 hourSelect.appendChild(option);
             }
             const div = document.createElement("div");
-            div.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group";
-            div.innerHTML = `<span>${escapeHtml(hour)}:00 时段</span><span class="opacity-0 group-hover:opacity-100">›</span>`;
-            div.onclick = () => {
+            div.className = traceListItemClass();
+            div.tabIndex = 0;
+            div.innerHTML = `<span>${escapeHtml(hour)}:00 时段</span><span class="cf-trace-list-chevron">›</span>`;
+            const selectHour = () => {
                 Array.from(list.children).forEach((child) => {
-                    child.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group";
+                    child.className = traceListItemClass();
                 });
-                div.className = "px-4 py-2 bg-celadon-600 border-celadon-600 text-white rounded-xl text-[11px] cursor-pointer transition-[background-color,border-color,color,box-shadow] font-bold shadow-md flex items-center justify-between";
+                div.className = traceListItemClass(true);
                 window.currentNGHour = hour;
                 resetTracePagerState();
                 if (byId("ng-image-grid")) {
-                    byId("ng-image-grid").innerHTML = '<div class="col-span-full h-full flex flex-col items-center justify-center py-20 text-ink-300 opacity-50"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-celadon-500 mb-4"></div><span class="text-xs font-serif italic">正在索引影像档案...</span></div>';
+                    byId("ng-image-grid").innerHTML = traceLoadingMarkup("正在索引 NG 图像");
                 }
                 requestTracePage("initial");
+            };
+            div.onclick = selectHour;
+            div.onkeydown = (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectHour();
+                }
             };
             list.appendChild(div);
         });

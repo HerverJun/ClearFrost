@@ -3232,22 +3232,49 @@ input[type="range"]::-webkit-slider-runnable-track {
     gap: 6px;
 }
 
-/* Record trace workspace */
+/* NG trace workspace */
 .cf-stitch-page .stitch-nav-actions button[data-action="openGalleryModal"] svg {
     width: 21px;
     height: 21px;
 }
 
 .cf-stitch-page #gallery-modal {
+    --trace-bg: #f2f5f8;
+    --trace-panel: #ffffff;
+    --trace-panel-soft: #f7f9fc;
+    --trace-side: #e8edf3;
+    --trace-side-soft: #f1f5f9;
+    --trace-line: #d7e0eb;
+    --trace-line-strong: #c5d3e3;
+    --trace-text: #152033;
+    --trace-muted: #667085;
+    --trace-muted-2: #8793a5;
+    --trace-primary: #0b5cab;
+    --trace-primary-hover: #084c93;
+    --trace-primary-soft: #dcecff;
+    --trace-primary-line: #b9d7f7;
+    --trace-ok: #067647;
+    --trace-ok-soft: #e7f8ef;
+    --trace-ng: #b42318;
+    --trace-ng-soft: #fff1f0;
+    --trace-warning: #b54708;
+    --trace-warning-soft: #fff7e8;
     padding: 0 !important;
     display: flex !important;
     align-items: center;
     justify-content: center;
-    background: rgba(15, 23, 42, 0.62) !important;
+    background:
+        radial-gradient(circle at 80% 12%, rgba(74, 112, 159, 0.22), transparent 34%),
+        rgba(15, 23, 42, 0.66) !important;
 }
 
 .cf-stitch-page #gallery-modal.hidden {
     display: none !important;
+}
+
+.cf-stitch-page #gallery-modal *,
+.cf-stitch-page #image-viewer * {
+    font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", Arial, sans-serif !important;
 }
 
 .cf-stitch-page #gallery-modal > .cf-ornate-modal {
@@ -3257,12 +3284,17 @@ input[type="range"]::-webkit-slider-runnable-track {
     height: min(760px, calc(100vh - 48px)) !important;
     display: grid !important;
     grid-template-columns: 248px minmax(0, 1fr);
-    grid-template-rows: 126px minmax(0, 1fr) 56px;
+    grid-template-rows: 118px minmax(0, 1fr) 54px;
     overflow: hidden;
-    background: #f6f9fd !important;
-    border: 1px solid rgba(203, 213, 225, 0.92) !important;
-    border-radius: 14px !important;
-    box-shadow: 0 28px 80px rgba(15, 23, 42, 0.22) !important;
+    color: var(--trace-text);
+    background: var(--trace-bg) !important;
+    border: 1px solid rgba(197, 211, 227, 0.95) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 24px 68px rgba(15, 23, 42, 0.28) !important;
+}
+
+.cf-stitch-page #gallery-modal > .cf-ornate-modal::before {
+    content: none !important;
 }
 
 .cf-stitch-page #gallery-modal header {
@@ -3274,36 +3306,36 @@ input[type="range"]::-webkit-slider-runnable-track {
     align-items: flex-start !important;
     justify-content: space-between;
     gap: 18px;
-    padding: 26px 30px 18px !important;
-    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
-    border-bottom: 1px solid #e3e9f2 !important;
+    padding: 20px 26px 16px !important;
+    background: linear-gradient(180deg, #ffffff 0%, #f7f9fc 100%) !important;
+    border-bottom: 1px solid var(--trace-line) !important;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-title-block {
     min-width: 0;
-    display: grid;
-    grid-template-columns: minmax(240px, 1fr) auto auto;
-    gap: 16px;
-    align-items: end;
     width: 100%;
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) 386px 92px;
+    align-items: end;
+    gap: 14px;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-kicker {
     grid-column: 1;
-    margin-bottom: 6px;
-    color: #2563eb;
+    margin: 0 0 7px;
+    color: var(--trace-primary);
     font-size: 10px;
     font-weight: 800;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.14em;
 }
 
 .cf-stitch-page #gallery-modal header h3 {
     grid-column: 1;
     margin: 0 !important;
-    color: #0f172a !important;
-    font-family: "Noto Serif SC", Georgia, "Microsoft YaHei", serif;
-    font-size: 24px !important;
-    line-height: 1.15;
+    color: var(--trace-text) !important;
+    font-size: 22px !important;
+    font-weight: 700 !important;
+    line-height: 1.16;
     letter-spacing: 0 !important;
     text-transform: none !important;
 }
@@ -3311,11 +3343,11 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page #gallery-modal header h3 span {
     display: block;
     margin: 7px 0 0 !important;
-    color: #64748b !important;
-    font-family: "Inter", "Microsoft YaHei", sans-serif !important;
+    color: var(--trace-muted) !important;
     font-size: 12px !important;
     font-style: normal !important;
-    font-weight: 500 !important;
+    font-weight: 600 !important;
+    letter-spacing: 0 !important;
     text-transform: none !important;
 }
 
@@ -3323,8 +3355,8 @@ input[type="range"]::-webkit-slider-runnable-track {
     position: static !important;
     grid-column: 2;
     display: grid;
-    grid-template-columns: 170px 142px 74px;
-    gap: 10px;
+    grid-template-columns: minmax(0, 170px) minmax(0, 142px) 72px;
+    gap: 8px;
     align-items: end;
     min-width: 0;
 }
@@ -3332,9 +3364,10 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page #gallery-modal .cf-trace-filters label {
     position: static !important;
     grid-row: 1;
-    color: #475569;
+    color: var(--trace-muted);
     font-size: 11px;
     font-weight: 700;
+    line-height: 1;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-filters label:nth-of-type(1) {
@@ -3348,6 +3381,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page #gallery-modal #trace-date-slot {
     grid-column: 1;
     grid-row: 2;
+    min-width: 0;
 }
 
 .cf-stitch-page #gallery-modal #trace-hour-select {
@@ -3355,36 +3389,70 @@ input[type="range"]::-webkit-slider-runnable-track {
     grid-row: 2;
 }
 
+.cf-stitch-page #gallery-modal .cf-trace-filters button,
+.cf-stitch-page #gallery-modal .cf-trace-pagination-actions button,
+.cf-stitch-page #gallery-modal .cf-trace-card button,
+.cf-stitch-page #gallery-modal .cf-trace-viewer-actions button,
+.cf-stitch-page #gallery-modal header > button,
+.cf-stitch-page #image-viewer button {
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
 .cf-stitch-page #gallery-modal .cf-trace-filters button {
     grid-column: 3;
     grid-row: 2;
     height: 34px;
     color: #ffffff;
-    background: #1d5fcc;
-    border: 0;
-    border-radius: 5px;
+    background: var(--trace-primary);
+    border: 1px solid var(--trace-primary);
+    border-radius: 6px;
     font-size: 12px;
     font-weight: 800;
-    box-shadow: 0 8px 18px rgba(29, 95, 204, 0.18);
+    box-shadow: 0 3px 10px rgba(11, 92, 171, 0.22);
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-filters button:hover {
+    background: var(--trace-primary-hover);
+    border-color: var(--trace-primary-hover);
+    box-shadow: 0 5px 14px rgba(11, 92, 171, 0.26);
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-filters button:active,
+.cf-stitch-page #gallery-modal .cf-trace-pagination-actions button:active,
+.cf-stitch-page #gallery-modal .cf-trace-card button:active,
+.cf-stitch-page #gallery-modal .cf-trace-viewer-actions button:active,
+.cf-stitch-page #gallery-modal header > button:active,
+.cf-stitch-page #image-viewer button:active {
+    transform: translateY(1px);
 }
 
 .cf-stitch-page #gallery-modal #gallery-date-picker,
 .cf-stitch-page #gallery-modal #trace-hour-select {
     width: 100%;
     height: 34px;
-    padding: 0 11px;
-    color: #0f172a;
+    padding: 0 10px;
+    color: var(--trace-text);
     background: #ffffff;
-    border: 1px solid #cbd5e1;
-    border-radius: 5px;
+    border: 1px solid var(--trace-line-strong);
+    border-radius: 6px;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    box-shadow: none !important;
 }
 
 .cf-stitch-page #gallery-modal #gallery-date-picker:focus,
-.cf-stitch-page #gallery-modal #trace-hour-select:focus {
-    border-color: #1d5fcc;
-    box-shadow: 0 0 0 3px rgba(29, 95, 204, 0.12);
+.cf-stitch-page #gallery-modal #trace-hour-select:focus,
+.cf-stitch-page #gallery-modal .cf-trace-filters button:focus-visible,
+.cf-stitch-page #gallery-modal .cf-trace-pagination-actions button:focus-visible,
+.cf-stitch-page #gallery-modal .cf-trace-card:focus-visible,
+.cf-stitch-page #gallery-modal .cf-trace-card button:focus-visible,
+.cf-stitch-page #gallery-modal .cf-trace-list-item:focus-visible,
+.cf-stitch-page #gallery-modal .cf-trace-viewer-actions button:focus-visible,
+.cf-stitch-page #gallery-modal header > button:focus-visible,
+.cf-stitch-page #image-viewer button:focus-visible {
+    border-color: var(--trace-primary) !important;
+    box-shadow: 0 0 0 3px rgba(11, 92, 171, 0.14) !important;
     outline: none;
 }
 
@@ -3393,12 +3461,20 @@ input[type="range"]::-webkit-slider-runnable-track {
     grid-row: 1 / 3;
     align-self: center;
     display: inline-flex !important;
-    min-width: 76px;
+    align-items: center;
     justify-content: center;
-    color: #0f4fb0 !important;
-    background: #eaf2ff !important;
-    border: 1px solid #cfe0ff;
-    border-radius: 999px;
+    min-width: 86px;
+    height: 32px;
+    padding: 0 10px !important;
+    color: var(--trace-primary) !important;
+    background: var(--trace-primary-soft) !important;
+    border: 1px solid var(--trace-primary-line);
+    border-radius: 6px !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0 !important;
+    white-space: nowrap;
 }
 
 .cf-stitch-page #gallery-modal header .h-4 {
@@ -3411,11 +3487,18 @@ input[type="range"]::-webkit-slider-runnable-track {
     width: 34px;
     height: 34px;
     place-items: center;
-    color: #64748b !important;
-    background: #eef3f9;
+    color: var(--trace-muted) !important;
+    background: #edf2f7;
+    border: 1px solid #d9e2ee;
     border-radius: 7px !important;
     font-size: 22px !important;
     line-height: 1;
+}
+
+.cf-stitch-page #gallery-modal header > button:hover {
+    color: var(--trace-ng) !important;
+    background: var(--trace-ng-soft);
+    border-color: #fecdca;
 }
 
 .cf-stitch-page #gallery-modal > .cf-ornate-modal > .flex.flex-1 {
@@ -3429,12 +3512,13 @@ input[type="range"]::-webkit-slider-runnable-track {
     grid-row: 1 / -1;
     position: relative;
     width: auto !important;
+    min-width: 0;
     display: flex !important;
     flex-direction: column;
     gap: 0;
     padding: 0 !important;
-    background: linear-gradient(180deg, #edf4fb 0%, #e6eef8 100%) !important;
-    border-right: 1px solid #d8e2ef !important;
+    background: linear-gradient(180deg, var(--trace-side) 0%, #e4ebf3 100%) !important;
+    border-right: 1px solid var(--trace-line) !important;
 }
 
 .cf-stitch-page #gallery-modal .w-60::before,
@@ -3447,13 +3531,14 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-sidebar-head {
-    padding: 28px 22px 20px;
-    border-bottom: 1px solid rgba(203, 213, 225, 0.72);
+    flex: 0 0 auto;
+    padding: 24px 20px 18px;
+    border-bottom: 1px solid var(--trace-line);
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-sidebar-head span {
     display: block;
-    color: #2563eb;
+    color: var(--trace-primary);
     font-size: 11px;
     font-weight: 800;
     letter-spacing: 0.12em;
@@ -3462,8 +3547,9 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page #gallery-modal .cf-trace-sidebar-head strong {
     display: block;
     margin-top: 8px;
-    color: #0f172a;
+    color: var(--trace-text);
     font-size: 18px;
+    font-weight: 750;
     line-height: 1.2;
 }
 
@@ -3474,13 +3560,13 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page #gallery-modal #ng-date-list,
 .cf-stitch-page #gallery-modal #ng-hour-list {
     min-height: 0;
-    padding: 14px !important;
+    padding: 12px !important;
     background: transparent !important;
 }
 
 .cf-stitch-page #gallery-modal #ng-date-list {
     flex: 0 0 42%;
-    border-bottom: 1px solid rgba(203, 213, 225, 0.72);
+    border-bottom: 1px solid var(--trace-line);
 }
 
 .cf-stitch-page #gallery-modal #ng-hour-list {
@@ -3488,24 +3574,77 @@ input[type="range"]::-webkit-slider-runnable-track {
     border-top: 0 !important;
 }
 
-.cf-stitch-page #gallery-modal #ng-date-list > div,
-.cf-stitch-page #gallery-modal #ng-hour-list > div {
-    border-radius: 6px !important;
+.cf-stitch-page #gallery-modal .cf-trace-list-item {
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 0 0 6px;
+    padding: 8px 10px;
+    color: #39465a;
+    background: rgba(255, 255, 255, 0.48);
+    border: 1px solid transparent;
+    border-radius: 7px !important;
     box-shadow: none !important;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+    user-select: none;
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-list-item:hover {
+    color: var(--trace-primary);
+    background: #ffffff;
+    border-color: #cfe0ff;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-list-item:active {
+    transform: translateY(1px);
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-list-item.is-active {
+    color: var(--trace-primary);
+    background: var(--trace-primary-soft);
+    border-color: var(--trace-primary-line);
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-list-item.is-disabled {
+    color: var(--trace-muted-2);
+    background: rgba(255, 255, 255, 0.28);
+    cursor: not-allowed;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-list-item .cf-trace-list-chevron {
+    color: var(--trace-muted-2);
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0;
+    transform: translateX(-2px);
+    transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-list-item:hover .cf-trace-list-chevron,
+.cf-stitch-page #gallery-modal .cf-trace-list-item.is-active .cf-trace-list-chevron {
+    opacity: 1;
+    transform: translateX(0);
 }
 
 .cf-stitch-page #gallery-modal #ng-image-grid {
     grid-column: 2;
     grid-row: 2;
     display: grid !important;
-    grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)) !important;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)) !important;
     align-content: start;
-    gap: 16px !important;
-    padding: 24px 30px 30px !important;
+    gap: 14px !important;
+    padding: 20px 24px 24px !important;
     overflow-y: auto !important;
     background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(246, 249, 253, 0.78)),
-        #f6f9fd !important;
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(242, 245, 248, 0.92)),
+        var(--trace-bg) !important;
 }
 
 .cf-stitch-page #gallery-modal #trace-pagination {
@@ -3515,17 +3654,19 @@ input[type="range"]::-webkit-slider-runnable-track {
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding: 0 28px;
-    background: linear-gradient(180deg, rgba(246, 249, 253, 0.92), rgba(238, 244, 250, 0.98));
-    border-top: 1px solid #dde6f1;
+    min-width: 0;
+    padding: 0 24px;
+    background: #ffffff;
+    border-top: 1px solid var(--trace-line);
 }
 
 .cf-stitch-page #gallery-modal #trace-page-status {
     min-width: 0;
-    color: #475569;
+    color: var(--trace-muted);
     font-size: 11px;
     font-weight: 700;
-    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3540,16 +3681,24 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page #gallery-modal .cf-trace-pagination-actions button {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     height: 32px;
+    min-width: 80px;
     padding: 0 12px;
-    color: #1d5fcc;
-    background: #ffffff;
-    border: 1px solid #cfe0ff;
+    color: var(--trace-primary);
+    background: #f7f9fc;
+    border: 1px solid var(--trace-line-strong);
     border-radius: 6px;
     font-size: 12px;
     font-weight: 800;
-    box-shadow: 0 8px 18px rgba(29, 95, 204, 0.08);
+    box-shadow: none;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-pagination-actions button:hover:not(:disabled) {
+    background: #ffffff;
+    border-color: var(--trace-primary-line);
+    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-pagination-actions button svg {
@@ -3558,71 +3707,99 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-pagination-actions button:disabled {
-    opacity: 0.42;
+    color: #98a2b3;
+    background: #edf1f5;
+    border-color: #d9e2ee;
     cursor: not-allowed;
+    opacity: 1;
     box-shadow: none;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card {
-    height: 284px;
+    position: relative;
+    height: 292px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
     background: #ffffff;
-    border: 1px solid #dde6f1;
+    border: 1px solid var(--trace-line);
     border-radius: 8px;
-    box-shadow: 0 12px 26px rgba(15, 23, 42, 0.07);
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    cursor: pointer;
     transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
 }
 
-.cf-stitch-page #gallery-modal .cf-trace-card:hover {
+.cf-stitch-page #gallery-modal .cf-trace-card:hover,
+.cf-stitch-page #gallery-modal .cf-trace-card:focus-visible {
     transform: translateY(-2px);
-    border-color: #a9c4ea;
-    box-shadow: 0 18px 34px rgba(15, 23, 42, 0.12);
+    border-color: #aec8e4;
+    box-shadow: 0 9px 22px rgba(16, 24, 40, 0.1);
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-thumb {
     position: relative;
-    height: 144px;
+    flex: 0 0 146px;
     overflow: hidden;
-    background: #d6e0eb;
+    background:
+        linear-gradient(135deg, rgba(207, 217, 230, 0.92) 25%, transparent 25%) 0 0 / 16px 16px,
+        linear-gradient(315deg, rgba(207, 217, 230, 0.92) 25%, transparent 25%) 0 0 / 16px 16px,
+        #e4ebf3;
+    border-bottom: 1px solid var(--trace-line);
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-thumb img {
     width: 100%;
     height: 100%;
+    display: block;
     object-fit: cover;
 }
 
-.cf-stitch-page #gallery-modal .cf-trace-thumb span {
+.cf-stitch-page #gallery-modal .cf-trace-result {
     position: absolute;
-    top: 10px;
-    left: 10px;
-    padding: 3px 8px;
-    color: #b91c1c;
-    background: #fee2e2;
-    border: 1px solid #fecaca;
-    border-radius: 999px;
+    top: 9px;
+    left: 9px;
+    min-width: 34px;
+    display: inline-flex;
+    justify-content: center;
+    padding: 3px 7px;
+    color: var(--trace-ng);
+    background: rgba(255, 241, 240, 0.96);
+    border: 1px solid #fecdca;
+    border-radius: 5px;
     font-size: 10px;
-    font-weight: 800;
+    font-weight: 900;
+    letter-spacing: 0.04em;
 }
 
-.cf-stitch-page #gallery-modal .cf-trace-thumb span.ok {
-    color: #047857;
-    background: #d1fae5;
-    border-color: #a7f3d0;
+.cf-stitch-page #gallery-modal .cf-trace-result.ok {
+    color: var(--trace-ok);
+    background: rgba(231, 248, 239, 0.96);
+    border-color: #abefc6;
 }
 
-.cf-stitch-page #gallery-modal .cf-trace-thumb em {
+.cf-stitch-page #gallery-modal .cf-trace-review-state {
     position: absolute;
-    right: 10px;
-    bottom: 10px;
-    padding: 3px 8px;
-    color: #334155;
-    background: rgba(255, 255, 255, 0.92);
-    border: 1px solid rgba(203, 213, 225, 0.92);
-    border-radius: 999px;
+    right: 9px;
+    bottom: 9px;
+    max-width: calc(100% - 18px);
+    padding: 3px 7px;
+    color: #344054;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(197, 211, 227, 0.95);
+    border-radius: 5px;
     font-size: 10px;
     font-style: normal;
     font-weight: 800;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-review-state.is-missing {
+    color: var(--trace-warning);
+    background: var(--trace-warning-soft);
+    border-color: #fedf89;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-thumb-missing {
@@ -3630,38 +3807,79 @@ input[type="range"]::-webkit-slider-runnable-track {
     height: 100%;
     display: grid;
     place-items: center;
-    color: #64748b;
+    color: var(--trace-muted);
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 750;
+    letter-spacing: 0.02em;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card-body {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 10px 13px 2px;
-    color: #334155;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 22px;
+    gap: 9px;
+    padding: 10px 12px 0;
+    color: #39465a;
     font-size: 11px;
-    line-height: 1.38;
+    line-height: 1.32;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-card-main {
+    min-width: 0;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card-body p {
     margin: 0;
 }
 
-.cf-stitch-page #gallery-modal .cf-trace-card-body p:first-child {
-    max-width: 148px;
+.cf-stitch-page #gallery-modal .cf-trace-card-code {
+    max-width: 100%;
     overflow: hidden;
-    color: #0f172a;
+    color: var(--trace-text);
+    font-size: 12px;
     font-weight: 800;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
+.cf-stitch-page #gallery-modal .cf-trace-card-meta {
+    display: grid;
+    gap: 2px;
+    margin: 7px 0 0;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-card-meta div {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 6px;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-card-meta dt,
+.cf-stitch-page #gallery-modal .cf-trace-card-meta dd {
+    margin: 0;
+    min-width: 0;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-card-meta dt {
+    color: var(--trace-muted-2);
+    font-weight: 700;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-card-meta dd {
+    overflow: hidden;
+    color: #344054;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .cf-stitch-page #gallery-modal .cf-trace-card-body .cf-trace-advice {
-    max-width: 190px;
-    margin-top: 3px;
-    color: #b91c1c;
+    max-width: 100%;
+    margin-top: 5px;
+    color: var(--trace-ng);
     font-weight: 800;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3671,36 +3889,156 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page #gallery-modal .cf-trace-card-body svg {
     width: 18px;
     height: 18px;
-    margin-top: 2px;
-    color: #dc2626;
+    margin-top: 1px;
+    color: var(--trace-ng);
     flex: 0 0 auto;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card button {
-    float: none;
-    margin: 6px 13px 0 auto;
-    display: block;
-    color: #1d5fcc;
-    background: transparent;
-    border: 0;
+    flex: 0 0 auto;
+    align-self: flex-end;
+    height: 28px;
+    margin: 8px 12px 10px;
+    padding: 0 9px;
+    color: var(--trace-primary);
+    background: #f7f9fc;
+    border: 1px solid var(--trace-line);
+    border-radius: 6px;
     font-size: 11px;
     font-weight: 800;
 }
 
+.cf-stitch-page #gallery-modal .cf-trace-card button:hover {
+    background: var(--trace-primary-soft);
+    border-color: var(--trace-primary-line);
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-empty {
+    grid-column: 1 / -1;
+    min-height: 300px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 28px;
+    color: var(--trace-muted);
+    text-align: center;
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-empty svg {
+    width: 44px;
+    height: 44px;
+    color: #98a2b3;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-state-title {
+    color: var(--trace-text);
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-state-text {
+    max-width: 420px;
+    color: var(--trace-muted);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-loader {
+    width: min(640px, 100%);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-loader-cell {
+    height: 118px;
+    border: 1px solid var(--trace-line);
+    border-radius: 8px;
+    background:
+        linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent),
+        linear-gradient(180deg, #e6ecf4 0%, #f5f8fb 100%);
+    background-size: 220% 100%, 100% 100%;
+    animation: cfTracePulse 1.4s ease-in-out infinite;
+}
+
+@keyframes cfTracePulse {
+    0% {
+        background-position: 120% 0, 0 0;
+    }
+    100% {
+        background-position: -120% 0, 0 0;
+    }
+}
+
+.cf-stitch-page #image-viewer {
+    background:
+        radial-gradient(circle at 50% 15%, rgba(60, 82, 113, 0.32), transparent 42%),
+        #07111e !important;
+}
+
+.cf-stitch-page #image-viewer > .absolute.top-8 {
+    top: 20px !important;
+    right: 20px !important;
+}
+
+.cf-stitch-page #image-viewer button[data-action="closeImageViewer"] {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    padding: 0 !important;
+    color: #ffffff !important;
+    background: rgba(180, 35, 24, 0.92) !important;
+    border: 1px solid rgba(254, 205, 202, 0.34);
+    border-radius: 7px !important;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28) !important;
+}
+
+.cf-stitch-page #image-viewer button[data-action="closeImageViewer"]:hover {
+    background: #912018 !important;
+}
+
+.cf-stitch-page #image-viewer button[data-action="closeImageViewer"] svg {
+    width: 22px;
+    height: 22px;
+}
+
+.cf-stitch-page #image-viewer #viewer-img {
+    padding: 58px 24px 118px !important;
+    background:
+        linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+    background-size: 42px 42px;
+}
+
 .cf-stitch-page #gallery-modal #viewer-info {
+    left: 24px !important;
+    right: 24px !important;
+    bottom: 22px !important;
+    transform: none !important;
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 8px;
-    max-width: min(920px, calc(100vw - 56px));
-    padding: 10px 12px;
-    border-radius: 8px;
-    white-space: normal;
+    gap: 7px;
+    max-width: none !important;
+    padding: 10px 12px !important;
+    color: #dbe6f4 !important;
+    background: rgba(12, 22, 36, 0.88) !important;
+    border: 1px solid rgba(148, 163, 184, 0.32) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+    white-space: normal !important;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-viewer-toolbar {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 14px;
     min-width: 0;
 }
@@ -3708,20 +4046,38 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page #gallery-modal .cf-trace-viewer-meta {
     min-width: 0;
     display: grid;
-    gap: 2px;
+    grid-template-columns: minmax(120px, auto) minmax(140px, 1fr) auto;
+    align-items: center;
+    gap: 10px;
     text-align: left;
+    font-variant-numeric: tabular-nums;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-viewer-meta strong,
-.cf-stitch-page #gallery-modal .cf-trace-viewer-meta span {
+.cf-stitch-page #gallery-modal .cf-trace-viewer-meta span,
+.cf-stitch-page #gallery-modal .cf-trace-viewer-meta em {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
+.cf-stitch-page #gallery-modal .cf-trace-viewer-meta strong {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-viewer-meta span {
+    color: #c7d3e2;
+    font-size: 12px;
+    font-weight: 650;
+}
+
 .cf-stitch-page #gallery-modal .cf-trace-viewer-meta em {
-    color: #bfdbfe;
+    color: #9ec5ff;
+    font-size: 11px;
     font-style: normal;
+    font-weight: 800;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-viewer-actions {
@@ -3733,22 +4089,37 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-stitch-page #gallery-modal .cf-trace-viewer-actions button {
     height: 30px;
     padding: 0 10px;
-    color: #dbeafe;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #dbe6f4;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(203, 213, 225, 0.24);
     border-radius: 6px;
     font-size: 12px;
     font-weight: 800;
 }
 
+.cf-stitch-page #gallery-modal .cf-trace-viewer-actions button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(203, 213, 225, 0.38);
+}
+
 .cf-stitch-page #gallery-modal .cf-trace-viewer-actions button.active {
-    color: #0f172a;
-    background: #ffffff;
+    color: #08111f;
+    background: #dcecff;
+    border-color: #9ec5ff;
+}
+
+.cf-stitch-page #gallery-modal .cf-trace-viewer-actions button[data-trace-action="rule-preview"] {
+    color: #ffffff;
+    background: rgba(11, 92, 171, 0.82);
+    border-color: rgba(158, 197, 255, 0.42);
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-viewer-actions button:disabled {
-    opacity: 0.42;
+    color: #8c98a8;
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(203, 213, 225, 0.14);
     cursor: not-allowed;
+    opacity: 1;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-preview-status {
@@ -3756,36 +4127,30 @@ input[type="range"]::-webkit-slider-runnable-track {
     padding: 7px 9px;
     border-radius: 6px;
     font-size: 11px;
-    font-weight: 800;
+    font-weight: 750;
+    line-height: 1.35;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-preview-status.pending {
-    color: #dbeafe;
-    background: rgba(37, 99, 235, 0.18);
+    color: #dcecff;
+    background: rgba(29, 111, 194, 0.2);
+    border: 1px solid rgba(158, 197, 255, 0.24);
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-preview-status.ok {
-    color: #dcfce7;
-    background: rgba(22, 163, 74, 0.22);
+    color: #dcfae6;
+    background: rgba(6, 118, 71, 0.22);
+    border: 1px solid rgba(171, 239, 198, 0.18);
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-preview-status.ng,
 .cf-stitch-page #gallery-modal .cf-trace-preview-status.error {
-    color: #fee2e2;
-    background: rgba(220, 38, 38, 0.22);
-}
-
-.cf-stitch-page #gallery-modal .cf-trace-empty {
-    grid-column: 1 / -1;
-    display: grid;
-    place-items: center;
-    min-height: 340px;
-    color: #64748b;
-    font-size: 13px;
-    font-weight: 600;
+    color: #fee4e2;
+    background: rgba(180, 35, 24, 0.22);
+    border: 1px solid rgba(254, 205, 202, 0.18);
 }
 
 @media (max-width: 980px) {
@@ -3793,21 +4158,29 @@ input[type="range"]::-webkit-slider-runnable-track {
         width: calc(100vw - 20px) !important;
         height: calc(100vh - 20px) !important;
         grid-template-columns: 1fr;
-        grid-template-rows: auto 140px minmax(0, 1fr) 56px;
+        grid-template-rows: auto 136px minmax(0, 1fr) 54px;
     }
 
     .cf-stitch-page #gallery-modal header {
         grid-column: 1;
         grid-row: 1;
+        padding: 16px !important;
     }
 
     .cf-stitch-page #gallery-modal .cf-trace-title-block {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
     }
 
-    .cf-stitch-page #gallery-modal .cf-trace-filters,
+    .cf-stitch-page #gallery-modal .cf-trace-filters {
+        grid-column: 1;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 72px;
+    }
+
     .cf-stitch-page #gallery-modal #gallery-count {
         grid-column: 1;
+        grid-row: auto;
+        justify-self: start;
     }
 
     .cf-stitch-page #gallery-modal .w-60 {
@@ -3831,12 +4204,32 @@ input[type="range"]::-webkit-slider-runnable-track {
     .cf-stitch-page #gallery-modal #ng-image-grid {
         grid-column: 1;
         grid-row: 3;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)) !important;
+        padding: 16px !important;
     }
 
     .cf-stitch-page #gallery-modal #trace-pagination {
         grid-column: 1;
         grid-row: 4;
         padding: 0 14px;
+    }
+
+    .cf-stitch-page #gallery-modal .cf-trace-loader {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .cf-stitch-page #gallery-modal .cf-trace-viewer-toolbar,
+    .cf-stitch-page #gallery-modal .cf-trace-viewer-meta {
+        align-items: stretch;
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .cf-stitch-page #gallery-modal .cf-trace-viewer-toolbar {
+        flex-direction: column;
+    }
+
+    .cf-stitch-page #gallery-modal .cf-trace-viewer-actions {
+        flex-wrap: wrap;
     }
 }
 
