@@ -130,6 +130,13 @@ namespace ClearFrost
             return ModelRegistry.Scan(CreateModelRegistryScanOptions(AppConfig));
         }
 
+        public void RefreshStoragePath()
+        {
+            StorageService.UpdateStoragePath(AppConfig.StoragePath);
+            StatisticsService.UpdateStoragePath(AppConfig.StoragePath);
+            StartupDiagnostics.Run(AppConfig, StorageService, ModelRegistry);
+        }
+
         public async Task<string> ExportDiagnosticPackageAsync(
             string outputDirectory,
             CancellationToken cancellationToken = default)
@@ -161,7 +168,7 @@ namespace ClearFrost
 
             try
             {
-                PlcService.StopMonitoring();
+                await PlcService.StopMonitoringAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -390,10 +397,14 @@ namespace ClearFrost
                 ? appConfig.ModelPackageDirectory
                 : Path.Combine(baseDirectory, appConfig.ModelPackageDirectory);
 
+            string onnxDirectory = Path.IsPathRooted(appConfig.OnnxModelDirectory)
+                ? appConfig.OnnxModelDirectory
+                : Path.Combine(baseDirectory, appConfig.OnnxModelDirectory);
+
             return new ModelRegistryScanOptions
             {
                 PackageDirectory = packageDirectory,
-                OnnxDirectory = Path.Combine(baseDirectory, "ONNX"),
+                OnnxDirectory = onnxDirectory,
                 StrictPackageMode = appConfig.StrictModelPackageMode
             };
         }

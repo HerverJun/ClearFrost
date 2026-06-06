@@ -761,10 +761,9 @@ namespace ClearFrost.Services
                     }
                 }
 
-                pipelineResult.FinalQualified = isQualified;
                 context.ResultSeq = context.TriggerSeq;
 
-                await ExecutePlcResultWriteStageAsync(
+                bool? plcWritten = await ExecutePlcResultWriteStageAsync(
                     pipelineResult,
                     isQualified,
                     "PLC 结果写入完成",
@@ -772,15 +771,40 @@ namespace ClearFrost.Services
                     progressAsync).ConfigureAwait(false);
 
                 Mat? renderedMat = TryRenderDetectionMat(frameToProcess, results, labels);
+                bool plcWriteFailed = plcWritten == false;
+                if (plcWriteFailed)
+                {
+                    context.TraceStatus = TraceStatus.PlcWriteFailed;
+                    if (string.IsNullOrWhiteSpace(context.ErrorCode))
+                    {
+                        context.SetError(InspectionStage.PlcWrite, "PlcWriteFailed", "PLC写入失败: 结果未成功落地");
+                    }
+
+                    pipelineResult.AddStage(
+                        InspectionStage.PlcWrite,
+                        false,
+                        pipelineResult.Timings.PlcWriteMs,
+                        "PLC写回失败，检测已按异常/NG记录",
+                        context.ErrorCode);
+                    isQualified = false;
+                    result.IsQualified = false;
+                    pipelineResult.StatusMessage = $"[{request.TriggerSource}] ID {request.InspectionId} PLC写回失败，已按异常/NG记录";
+                    pipelineResult.StatusLevel = "error";
+                }
+
+                pipelineResult.FinalQualified = isQualified;
                 _statisticsService.RecordDetection(isQualified);
 
                 string objDesc = GetDetailedDetectionLog(results, labels);
                 string modelInfo = BuildFallbackStatus(result);
                 string ruleInfo = BuildRuleStatus(result.JudgeResult);
-                pipelineResult.StatusMessage = detectionFailed
-                    ? $"[{request.TriggerSource}] ID {request.InspectionId} 检测失败，已判定为不合格: {result.ErrorMessage} | {pipelineResult.Timings.InferenceMs}ms"
-                    : $"[{request.TriggerSource}] ID {request.InspectionId} 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc}{ruleInfo} | {pipelineResult.Timings.InferenceMs}ms{modelInfo}";
-                pipelineResult.StatusLevel = isQualified && !detectionFailed ? "success" : "error";
+                if (!plcWriteFailed)
+                {
+                    pipelineResult.StatusMessage = detectionFailed
+                        ? $"[{request.TriggerSource}] ID {request.InspectionId} 检测失败，已判定为不合格: {result.ErrorMessage} | {pipelineResult.Timings.InferenceMs}ms"
+                        : $"[{request.TriggerSource}] ID {request.InspectionId} 检测完成: {(isQualified ? "合格" : "不合格")} | {objDesc}{ruleInfo} | {pipelineResult.Timings.InferenceMs}ms{modelInfo}";
+                    pipelineResult.StatusLevel = isQualified && !detectionFailed ? "success" : "error";
+                }
 
                 imagePayloads = CreateImageSavePayloads(
                     context,
@@ -892,7 +916,7 @@ namespace ClearFrost.Services
             }
             else
             {
-                context.TraceStatus = ResolveTraceStatus(imageQueuedForRecord, recordQueued: false);
+                context.TraceStatus = ResolveTraceStatus(context, imageQueuedForRecord, recordQueued: false);
                 await PublishLogAsync(
                     progressAsync,
                     context,
@@ -901,7 +925,9 @@ namespace ClearFrost.Services
                 DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 检测记录构造失败");
             }
 
-            context.CurrentStage = InspectionStage.Completed;
+            context.CurrentStage = string.IsNullOrWhiteSpace(context.ErrorCode)
+                ? InspectionStage.Completed
+                : InspectionStage.Failed;
         }
 
         private async Task FinalizePipelineAsync(InspectionPipelineResult result)
@@ -1118,14 +1144,14 @@ namespace ClearFrost.Services
             payload.ErrorMessage = context.ErrorMessage ?? string.Empty;
             payload.TotalMs = context.TotalMs;
             payload.SaveImageMs = context.SaveImageMs;
-            payload.TraceStatus = ResolveTraceStatus(imageQueued, recordQueued: true);
+            payload.TraceStatus = ResolveTraceStatus(context, imageQueued, recordQueued: true);
 
             var dbSw = Stopwatch.StartNew();
             bool dbQueued = _detectionRecordQueue.Enqueue(payload);
             dbSw.Stop();
             context.SaveRecordMs = dbSw.ElapsedMilliseconds;
             payload.SaveRecordMs = context.SaveRecordMs;
-            context.TraceStatus = ResolveTraceStatus(imageQueued, dbQueued);
+            context.TraceStatus = ResolveTraceStatus(context, imageQueued, dbQueued);
             context.RecordQueuePending = _detectionRecordQueue.PendingCount;
 
             if (!dbQueued)
@@ -1371,7 +1397,7 @@ namespace ClearFrost.Services
             }
         }
 
-        private async Task ExecutePlcResultWriteStageAsync(
+        private async Task<bool?> ExecutePlcResultWriteStageAsync(
             InspectionPipelineResult pipelineResult,
             bool isQualified,
             string successMessage,
@@ -1380,7 +1406,7 @@ namespace ClearFrost.Services
         {
             if (!ShouldUsePlcIo())
             {
-                return;
+                return null;
             }
 
             InspectionContext context = pipelineResult.Context;
@@ -1398,6 +1424,7 @@ namespace ClearFrost.Services
                 plcSw.ElapsedMilliseconds,
                 plcWritten ? successMessage : failureMessage,
                 plcWritten ? null : context.ErrorCode);
+            return plcWritten;
         }
 
         private bool ShouldUsePlcIo()
@@ -1481,6 +1508,18 @@ namespace ClearFrost.Services
                 (false, true) => TraceStatus.Partial,
                 _ => TraceStatus.Failed
             };
+        }
+
+        private static TraceStatus ResolveTraceStatus(InspectionContext context, bool imageQueued, bool recordQueued)
+        {
+            if (string.Equals(context.ErrorCode, "PlcWriteFailed", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(context.ErrorCode, "PlcWriteException", StringComparison.OrdinalIgnoreCase) ||
+                context.TraceStatus == TraceStatus.PlcWriteFailed)
+            {
+                return TraceStatus.PlcWriteFailed;
+            }
+
+            return ResolveTraceStatus(imageQueued, recordQueued);
         }
 
         private static string SerializeHealthSnapshot(HealthSnapshot snapshot)

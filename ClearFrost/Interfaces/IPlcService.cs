@@ -8,6 +8,7 @@
 // ============================================================================
 
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Hardware;
 
@@ -89,6 +90,11 @@ namespace ClearFrost.Interfaces
         /// 停止触发信号监听
         /// </summary>
         void StopMonitoring();
+
+        /// <summary>
+        /// 停止触发信号监听并等待后台轮询退出。
+        /// </summary>
+        Task StopMonitoringAsync(CancellationToken cancellationToken = default);
 
         /// <summary>
         /// 写入检测结果到 PLC

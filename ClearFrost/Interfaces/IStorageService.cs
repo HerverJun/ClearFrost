@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: IStorageService.cs
 // 描述:   存储服务接口
 //
@@ -95,6 +95,11 @@ namespace ClearFrost.Interfaces
         /// 确保目录存在
         /// </summary>
         void EnsureDirectoriesExist();
+
+        /// <summary>
+        /// 刷新运行时存储根目录。
+        /// </summary>
+        void UpdateStoragePath(string storagePath);
 
         #endregion
     }

@@ -106,6 +106,7 @@ namespace ClearFrost
         private Task? _shutdownTask;
         private int _shutdownState = 0;
         private int _productionRunningState = 0;
+        private int _productionRunGeneration = 0;
         private int _manualReleaseInProgress = 0;
 
         private bool IsShutdownInProgress => Volatile.Read(ref _shutdownState) != 0;

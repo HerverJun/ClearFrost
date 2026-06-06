@@ -142,6 +142,49 @@ public class HealthMonitorTests
     }
 
     [Fact]
+    public void GetSnapshot_队列丢弃计数生成前端可见错误()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            using var imageQueue = new ImageSaveQueue(capacity: 4);
+            using var recordQueue = new DetectionRecordQueue(new RecordingDatabaseService(), capacity: 4);
+            SetPrivateLong(imageQueue, "_droppedCount", 2);
+            SetPrivateLong(imageQueue, "_droppedBytes", 1024 * 1024);
+            SetPrivateLong(recordQueue, "_droppedCount", 1);
+
+            var monitor = new HealthMonitor(
+                new FakeCameraService(),
+                new FakePlcService(),
+                new FakeDetectionService(),
+                new FakeStorageService(tempDir),
+                imageQueue,
+                recordQueue);
+
+            HealthSnapshot snapshot = monitor.GetSnapshot();
+
+            snapshot.HealthLevel.Should().Be(HealthLevel.Warning);
+            snapshot.ImageQueueDroppedCount.Should().Be(2);
+            snapshot.RecordQueueDroppedCount.Should().Be(1);
+            snapshot.RecentErrors.Should().Contain(e =>
+                e.Source == "ImageSaveQueue" &&
+                e.Message.Contains("图像保存队列丢弃累计: 2"));
+            snapshot.RecentErrors.Should().Contain(e =>
+                e.Source == "DetectionRecordQueue" &&
+                e.Message.Contains("数据库记录队列丢弃累计: 1"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task GetSnapshot_短时间内复用磁盘探针结果()
     {
         string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
@@ -199,6 +242,15 @@ public class HealthMonitorTests
         field!.SetValue(queue, value);
     }
 
+    private static void SetPrivateLong(object queue, string fieldName, long value)
+    {
+        var field = queue.GetType().GetField(
+            fieldName,
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        field.Should().NotBeNull();
+        field!.SetValue(queue, value);
+    }
+
     private sealed class FakeCameraService : ICameraService
     {
         public event Action<Mat>? FrameCaptured;
@@ -241,6 +293,7 @@ public class HealthMonitorTests
             int triggerDelayMs = 800,
             PlcMonitoringOptions? options = null) => true;
         public void StopMonitoring() { }
+        public Task StopMonitoringAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
         public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite) => Task.FromResult(true);
         public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
@@ -312,6 +365,7 @@ public class HealthMonitorTests
         public void CleanOldData(int retainDays) { }
         public double GetDiskFreeSpaceGb() => 100.0;
         public double PerformEmergencyCleanup() => 100.0;
+        public void UpdateStoragePath(string storagePath) { }
         public void EnsureDirectoriesExist()
         {
             Directory.CreateDirectory(ImageBasePath);

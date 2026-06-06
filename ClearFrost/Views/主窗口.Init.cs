@@ -1247,6 +1247,17 @@ namespace ClearFrost
                         }
                         if (root.TryGetProperty("IndustrialRenderMode", out var irm)) _appConfig.IndustrialRenderMode = irm.ValueKind == JsonValueKind.True;
                         if (root.TryGetProperty("UseFileBackedWebImageTransport", out var fileTransport)) _appConfig.UseFileBackedWebImageTransport = fileTransport.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("AutoCleanupRetainDays", out var cleanupDays))
+                        {
+                            _appConfig.AutoCleanupRetainDays = cleanupDays.TryGetInt32(out int cleanupDaysVal)
+                                ? Math.Clamp(cleanupDaysVal, 1, 3650)
+                                : _appConfig.AutoCleanupRetainDays;
+                        }
+                        if (root.TryGetProperty("EmergencyCleanupThresholdGb", out var cleanupThreshold) &&
+                            cleanupThreshold.TryGetDouble(out double cleanupThresholdVal))
+                        {
+                            _appConfig.EmergencyCleanupThresholdGb = Math.Clamp(cleanupThresholdVal, 0.1, 1024.0);
+                        }
                         YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
                         _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
                         _detectionService.SetTaskMode(_appConfig.TaskType);
@@ -1259,6 +1270,7 @@ namespace ClearFrost
                         SaveCurrentRecipeSnapshot();
 
                         // 更新相关路径
+                        _appRuntime.RefreshStoragePath();
                         _uiController.ImageBasePath = Path_Images;
                         _uiController.LogBasePath = Path_Logs;
                         InitDirectories();
@@ -1268,8 +1280,7 @@ namespace ClearFrost
                         InitYolo();
                         RefreshStartupDiagnostics();
 
-                        // 根据 TriggerSource 切换触发源；非 PLC 模式跳过 PLC 连接、监听、条码和写回。
-                        _ = StartTriggerSourceAsync();
+                        await RestartTriggerSourceAfterConfigurationChangeAsync("系统设置保存");
 
                         await _uiController.SendUiCommand("closeSettingsModal");
                         await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
@@ -1502,8 +1513,9 @@ namespace ClearFrost
                 模型名 = _appConfig.CurrentModelFileName?.Trim() ?? string.Empty;
                 await WarnMissingImportedModelFilesAsync();
                 InitYolo();
+                _appRuntime.RefreshStoragePath();
                 RefreshStartupDiagnostics();
-                _ = StartTriggerSourceAsync();
+                await RestartTriggerSourceAfterConfigurationChangeAsync("配置迁移导入");
 
                 await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
                 await _uiController.InitSettings(_appConfig);
@@ -1581,11 +1593,13 @@ namespace ClearFrost
                 return;
             }
 
+            int startGeneration = Interlocked.Increment(ref _productionRunGeneration);
             await SendSystemRunningStateAsync(false, isBusy: true);
 
             try
             {
                 await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
+                if (await StopStartIfCancelledAsync(startGeneration)) return;
                 if (!await EnsureStartupReadyForProductionAsync("启动系统"))
                 {
                     await SendHealthSnapshotToFrontendAsync();
@@ -1593,6 +1607,7 @@ namespace ClearFrost
                     return;
                 }
 
+                if (await StopStartIfCancelledAsync(startGeneration)) return;
                 if (!_detectionService.IsModelLoaded)
                 {
                     string message = "启动系统已停止: 没有可用的检测模型，请检查 ONNX 模型文件是否能正常加载";
@@ -1605,6 +1620,7 @@ namespace ClearFrost
 
                 await _uiController.LogToFrontend("启动系统: 正在连接相机...", "info");
                 bool cameraStarted = await btnOpenCamera_LogicAsync(startTriggerSource: false);
+                if (await StopStartIfCancelledAsync(startGeneration)) return;
 
                 if (!cameraStarted)
                 {
@@ -1613,13 +1629,14 @@ namespace ClearFrost
                     return;
                 }
 
-                if (IsShutdownInProgress)
+                if (IsShutdownInProgress || !IsProductionStartCurrent(startGeneration))
                 {
                     await MarkSystemStoppedAsync();
                     return;
                 }
 
                 var cameraReady = await WaitForCameraReadyForInspectionAsync();
+                if (await StopStartIfCancelledAsync(startGeneration)) return;
                 if (!cameraReady.Ready)
                 {
                     await _uiController.LogToFrontend(
@@ -1644,6 +1661,7 @@ namespace ClearFrost
                     return;
                 }
 
+                if (await StopStartIfCancelledAsync(startGeneration)) return;
                 await _uiController.LogToFrontend("启动系统完成，检测已启动", "success");
                 await _uiController.SendUiCommand("toast", new
                 {
@@ -1678,6 +1696,7 @@ namespace ClearFrost
 
             if (Interlocked.Exchange(ref _productionRunningState, 0) == 0)
             {
+                Interlocked.Increment(ref _productionRunGeneration);
                 await _uiController.SendUiCommand("toast", new
                 {
                     message = "当前未在检测",
@@ -1690,28 +1709,11 @@ namespace ClearFrost
 
             try
             {
+                Interlocked.Increment(ref _productionRunGeneration);
                 await SendSystemRunningStateAsync(true, isBusy: true);
                 await _uiController.LogToFrontend("停止检测: 正在停止触发监听和相机采集...", "info");
 
-                try
-                {
-                    _plcService.StopMonitoring();
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[StopSystem] Stop PLC monitoring failed: {ex.Message}");
-                    await _uiController.LogToFrontend($"停止 PLC 监听失败: {ex.Message}", "warning");
-                }
-
-                try
-                {
-                    _serialTriggerService.Stop();
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[StopSystem] Stop serial trigger failed: {ex.Message}");
-                    await _uiController.LogToFrontend($"停止串口光电监听失败: {ex.Message}", "warning");
-                }
+                await StopTriggerSourcesAsync(logWarnings: true);
 
                 try
                 {
@@ -1746,6 +1748,7 @@ namespace ClearFrost
         private Task MarkSystemStoppedAsync()
         {
             Interlocked.Exchange(ref _productionRunningState, 0);
+            Interlocked.Increment(ref _productionRunGeneration);
             return SendSystemRunningStateAsync(false);
         }
 
@@ -1765,7 +1768,7 @@ namespace ClearFrost
         {
             if (_appConfig.TriggerSource == TriggerSource.SerialPhotoelectric)
             {
-                _plcService.StopMonitoring();
+                await _plcService.StopMonitoringAsync(_appShutdownCts.Token);
 
                 var cameraReady = await WaitForCameraReadyForInspectionAsync();
                 if (!cameraReady.Ready)
@@ -1809,6 +1812,76 @@ namespace ClearFrost
                 _serialTriggerService.Stop();
                 return await StartPlcTriggerMonitoringIfReadyAsync();
             }
+        }
+
+        private Task<bool> RestartTriggerSourceAfterConfigurationChangeAsync(string reason)
+        {
+            return TriggerSourceRuntimeCoordinator.RestartAfterConfigurationChangeAsync(
+                IsProductionRunning,
+                () => StopTriggerSourcesAsync(logWarnings: true),
+                StartTriggerSourceAsync,
+                message => _uiController.LogToFrontend(message, "info"),
+                reason);
+        }
+
+        private async Task StopTriggerSourcesAsync(bool logWarnings)
+        {
+            try
+            {
+                await _plcService.StopMonitoringAsync(_appShutdownCts.Token);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[TriggerSource] Stop PLC monitoring failed: {ex.Message}");
+                if (logWarnings)
+                {
+                    await _uiController.LogToFrontend($"停止 PLC 监听失败: {ex.Message}", "warning");
+                }
+            }
+
+            try
+            {
+                _serialTriggerService.Stop();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[TriggerSource] Stop serial trigger failed: {ex.Message}");
+                if (logWarnings)
+                {
+                    await _uiController.LogToFrontend($"停止串口光电监听失败: {ex.Message}", "warning");
+                }
+            }
+        }
+
+        private bool IsProductionStartCurrent(int generation)
+        {
+            return TriggerSourceRuntimeCoordinator.IsProductionStartCurrent(
+                IsShutdownInProgress,
+                IsProductionRunning,
+                Volatile.Read(ref _productionRunGeneration),
+                generation);
+        }
+
+        private async Task<bool> StopStartIfCancelledAsync(int generation)
+        {
+            if (IsProductionStartCurrent(generation))
+            {
+                return false;
+            }
+
+            await StopTriggerSourcesAsync(logWarnings: false);
+            Interlocked.Exchange(ref _productionRunningState, 0);
+            try
+            {
+                _cameraService.StopCapture();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[StartSystem] Stop camera after cancelled start failed: {ex.Message}");
+            }
+
+            await SendSystemRunningStateAsync(false);
+            return true;
         }
 
         /// <summary>
@@ -1897,7 +1970,9 @@ namespace ClearFrost
             {
                 while (!停止)
                 {
-                    _storageService?.CleanOldData(30);
+                    int retainDays = Math.Clamp(_appConfig.AutoCleanupRetainDays, 1, 3650);
+                    Debug.WriteLine($"[CleanupTask] 自动清理策略: RetainDays={retainDays}, Path={_storageService?.ImageBasePath}");
+                    _storageService?.CleanOldData(retainDays);
                     await Task.Delay(TimeSpan.FromHours(24));
                 }
             });
@@ -1910,7 +1985,6 @@ namespace ClearFrost
                 DateTime lastCleanupTime = DateTime.MinValue;
                 TimeSpan cooldown = TimeSpan.FromHours(2);
                 TimeSpan checkInterval = TimeSpan.FromHours(1);
-                const double thresholdGb = 1.0;
 
                 while (!停止)
                 {
@@ -1918,6 +1992,7 @@ namespace ClearFrost
 
                     try
                     {
+                        double thresholdGb = Math.Clamp(_appConfig.EmergencyCleanupThresholdGb, 0.1, 1024.0);
                         double freeGb = _storageService?.GetDiskFreeSpaceGb() ?? 999;
                         if (freeGb < thresholdGb && DateTime.Now - lastCleanupTime > cooldown)
                         {

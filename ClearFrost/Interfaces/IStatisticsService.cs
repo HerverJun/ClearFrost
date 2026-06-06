@@ -108,6 +108,11 @@ namespace ClearFrost.Interfaces
         void LoadAll();
 
         /// <summary>
+        /// 刷新统计数据存储根目录。
+        /// </summary>
+        void UpdateStoragePath(string basePath);
+
+        /// <summary>
         /// 获取统计历史及汇总数据（供 Web 前端图表使用）
         /// </summary>
         (StatisticsHistory history, DetectionStatistics stats) GetStatisticsData();

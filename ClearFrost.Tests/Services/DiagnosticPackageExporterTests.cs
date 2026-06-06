@@ -45,6 +45,7 @@ public class DiagnosticPackageExporterTests
                 "recipe.json",
                 "health.json",
                 "recent_records.json",
+                "native_dependencies.txt",
                 "logs/app.log"
             });
             zip.Entries.Select(e => e.FullName).Should().NotContain(e => e.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase));

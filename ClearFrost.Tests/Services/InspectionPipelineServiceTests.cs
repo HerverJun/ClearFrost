@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Config;
 using ClearFrost.Core.Inspection;
@@ -398,6 +399,64 @@ public class InspectionPipelineServiceTests
         }
     }
 
+    [Fact]
+    public async Task ExecuteAsync_视觉Ok但Plc写入失败_最终按异常Ng追溯()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            var camera = new FakeCameraService(new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService { WriteResultSucceeded = false };
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
+                    UsedModelName = "primary.onnx",
+                    UsedModelLabels = new[] { "part" }
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue);
+            InspectionContext context = CreateContext("CF-PLC-WRITE-FAIL", triggerSeq: 9);
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("PLC半自动", context.InspectionId, context.TriggerSeq, context),
+                default);
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeFalse();
+            result.StatusLevel.Should().Be("error");
+            context.ErrorStage.Should().Be(nameof(InspectionStage.PlcWrite));
+            context.ErrorCode.Should().Be("PlcWriteFailed");
+            context.CurrentStage.Should().Be(InspectionStage.Failed);
+            context.TraceStatus.Should().Be(TraceStatus.PlcWriteFailed);
+            statistics.Unqualified.Should().Be(1);
+            plc.WrittenValues.Should().Contain(config.PlcOkValue);
+            database.SavedRecords.Should().ContainSingle();
+            database.SavedRecords[0].IsQualified.Should().BeFalse();
+            database.SavedRecords[0].ErrorCode.Should().Be("PlcWriteFailed");
+            database.SavedRecords[0].TraceStatus.Should().Be(TraceStatus.PlcWriteFailed);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static InspectionPipelineService CreateService(
         AppConfig config,
         FakeCameraService camera,
@@ -599,6 +658,7 @@ public class InspectionPipelineServiceTests
         public string ProtocolName => "Fake";
         public string? LastError { get; init; }
         public string BarcodeValue { get; init; } = "SN-DEFAULT";
+        public bool WriteResultSucceeded { get; init; } = true;
         public List<short> WrittenValues { get; } = new List<short>();
         public int ReadStringCalls { get; private set; }
 
@@ -614,12 +674,13 @@ public class InspectionPipelineServiceTests
         }
 
         public void StopMonitoring() { }
+        public Task StopMonitoringAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
 
         public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite)
         {
             WrittenValues.Add(valueToWrite);
-            return Task.FromResult(true);
+            return Task.FromResult(WriteResultSucceeded);
         }
 
         public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
@@ -727,6 +788,7 @@ public class InspectionPipelineServiceTests
         public void SaveAll() { }
         public void ClearHistory() { }
         public void LoadAll() { }
+        public void UpdateStoragePath(string basePath) { }
         public (StatisticsHistory history, DetectionStatistics stats) GetStatisticsData() => (_history, _stats);
         public void Dispose() { }
     }
@@ -758,6 +820,7 @@ public class InspectionPipelineServiceTests
         public double GetDiskFreeSpaceGb() => 100.0;
         public double PerformEmergencyCleanup() => 100.0;
         public void EnsureDirectoriesExist() { }
+        public void UpdateStoragePath(string storagePath) { }
         public void Dispose() { }
     }
 

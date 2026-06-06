@@ -14,6 +14,7 @@ namespace ClearFrost.Core.Inspection
         Queued,
         Full,
         Partial,
+        PlcWriteFailed,
         Failed,
         Disabled
     }

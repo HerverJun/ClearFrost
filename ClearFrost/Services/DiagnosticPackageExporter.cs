@@ -64,6 +64,7 @@ namespace ClearFrost.Services
             AddJson(archive, "health.json", request.HealthSnapshot);
             AddJson(archive, "recent_records.json", request.RecentRecords);
             AddText(archive, "system_info.txt", BuildSystemInfo());
+            AddText(archive, "native_dependencies.txt", BuildNativeDependencyManifest());
             await AddLogsAsync(archive, request.LogsDirectory, cancellationToken).ConfigureAwait(false);
 
             return zipPath;
@@ -85,6 +86,35 @@ namespace ClearFrost.Services
             sb.AppendLine($"ProcessArchitecture: {RuntimeInformation.ProcessArchitecture}");
             sb.AppendLine($"BaseDirectory: {AppDomain.CurrentDomain.BaseDirectory}");
             sb.AppendLine($"WorkingSetMb: {Environment.WorkingSet / 1024 / 1024}");
+            return sb.ToString();
+        }
+
+        private static string BuildNativeDependencyManifest()
+        {
+            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            string[] names =
+            {
+                "MVSDK_Net.dll",
+                "HaoCommunication.dll",
+                "MvCameraControl.dll",
+                "MVSDKmd.dll"
+            };
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"BaseDirectory: {baseDirectory}");
+            foreach (string name in names)
+            {
+                string path = Path.Combine(baseDirectory, name);
+                if (!File.Exists(path))
+                {
+                    sb.AppendLine($"{name}: missing");
+                    continue;
+                }
+
+                var info = new FileInfo(path);
+                sb.AppendLine($"{name}: present, {info.Length} bytes, {info.LastWriteTimeUtc:O}");
+            }
+
             return sb.ToString();
         }
 

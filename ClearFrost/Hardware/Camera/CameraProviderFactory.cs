@@ -21,7 +21,8 @@ namespace ClearFrost.Hardware
         {
             return manufacturer switch
             {
-                "Huaray" or "MindVision" => new MindVisionCamera(),  // MindVision 为历史兼容别名
+                // MindVisionCamera 是历史类名，当前实现实际封装华睿 Huaray MVSDK。
+                "Huaray" or "MindVision" => new MindVisionCamera(),
                 "Hikvision" => new HikvisionCamera(),
                 _ => throw new NotSupportedException($"Unsupported camera manufacturer: {manufacturer}")
             };

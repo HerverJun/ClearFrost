@@ -142,6 +142,8 @@ namespace ClearFrost.Config
         // ================== System Settings ==================
         public string StoragePath { get; set; } = @"C:\GreeVisionData";
         public bool IsDebugMode { get; set; } = false;
+        public int AutoCleanupRetainDays { get; set; } = 30;
+        public double EmergencyCleanupThresholdGb { get; set; } = 1.0;
 
         // ================== YOLO Settings ==================
         public float Confidence { get; set; } = 0.5f;
@@ -152,6 +154,7 @@ namespace ClearFrost.Config
         /// 当前使用的主模型文件名（含扩展名，如 "model_v1.onnx"）
         /// </summary>
         public string CurrentModelFileName { get; set; } = "";
+        public string OnnxModelDirectory { get; set; } = "ONNX";
         public int TaskType { get; set; } = 1;
         public bool EnablePreprocessing { get; set; } = true;
         public bool EnableGpu { get; set; } = false;
@@ -224,6 +227,7 @@ namespace ClearFrost.Config
         public bool WireSequenceAllowDuplicate { get; set; } = false;
 
         // ================== Legacy Traditional Vision Compatibility Settings ==================
+        // 当前 Web UI 不再提供传统视觉入口；这些字段仅用于读取旧配置和后续兼容迁移。
         public int VisionMode { get; set; } = 0;
         public string TemplateImagePath { get; set; } = "";
         public double TemplateThreshold { get; set; } = 0.8;

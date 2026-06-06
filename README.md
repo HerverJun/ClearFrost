@@ -1,4 +1,4 @@
-# 清霜视觉检测系统 V5.7 正式版 (ClearFrost)
+﻿# 清霜视觉检测系统 V5.7 正式版 (ClearFrost)
 
 <p align="center">
   <img src="ClearFrost/icon_transparent.png" width="120" alt="ClearFrost Logo">
@@ -138,37 +138,37 @@ dotnet run --project ClearFrost/ClearFrost.csproj -c Debug
 版本输入示例：
 
 ```text
-5.7.1
+5.8.7
 ```
 
 ### 命令行发布
 
 ```bat
-脚本\publish_lite.bat 5.7.1 -Zip
-脚本\publish_full.bat 5.7.1 -Zip
+脚本\publish_lite.bat 5.8.7 -Zip
+脚本\publish_full.bat 5.8.7 -Zip
 ```
 
 或直接使用 PowerShell：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\脚本\publish.ps1 -Mode Full -Version 5.7.1 -Zip -OpenOutput
+powershell -NoProfile -ExecutionPolicy Bypass -File .\脚本\publish.ps1 -Mode Full -Version 5.8.7 -Zip -OpenOutput
 ```
 
 输出目录示例：
 
 ```text
-PublishOutput\ClearFrost_5.7.1_Lite
-PublishOutput\ClearFrost_5.7.1_Lite.zip
-PublishOutput\ClearFrost_5.7.1_Full
-PublishOutput\ClearFrost_5.7.1_Full.zip
+PublishOutput\ClearFrost_5.8.7_Lite
+PublishOutput\ClearFrost_5.8.7_Lite.zip
+PublishOutput\ClearFrost_5.8.7_Full
+PublishOutput\ClearFrost_5.8.7_Full.zip
 ```
 
 版本号建议：
 
 | 类型 | 示例 | 说明 |
 |------|------|------|
-| 当前正式版 | `5.7.0` | V5.7 初始正式包 |
-| 修复版 | `5.7.1` | 小 bug 修复、补丁更新 |
+| 当前正式版 | `5.8.7` | 与 `ClearFrost.csproj` `<Version>` 保持一致 |
+| 修复版 | `5.8.8` | 小 bug 修复、补丁更新 |
 | 功能更新 | `5.8.0` | 新增一批功能但仍在 V5 系列 |
 | 大版本 | `6.0.0` | 兼容性或架构级变化 |
 

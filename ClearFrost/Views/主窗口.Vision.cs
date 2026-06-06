@@ -953,7 +953,9 @@ namespace ClearFrost
                 result.Timings.RenderToUiMs = renderSw.ElapsedMilliseconds;
                 context.RenderToUiMs = result.Timings.RenderToUiMs;
                 context.TotalMs += result.Timings.RenderToUiMs;
-                context.CurrentStage = InspectionStage.Completed;
+                context.CurrentStage = string.IsNullOrWhiteSpace(context.ErrorCode)
+                    ? InspectionStage.Completed
+                    : InspectionStage.Failed;
 
                 await _uiController.SendInspectionUpdate(
                     context,
@@ -970,6 +972,11 @@ namespace ClearFrost
                     rulePrimaryReason: GetRulePrimaryReason(result.JudgeResult),
                     ruleDetails: result.JudgeResult?.Details);
                 return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(context.ErrorCode))
+            {
+                context.CurrentStage = InspectionStage.Failed;
             }
 
             await _uiController.SendInspectionUpdate(

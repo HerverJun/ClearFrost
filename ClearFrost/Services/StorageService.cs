@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: StorageService.cs
 // 描述:   存储服务实现
 //
@@ -29,7 +29,7 @@ namespace ClearFrost.Services
     {
         #region 私有字段
 
-        private readonly string _baseStoragePath;
+        private string _baseStoragePath;
         private bool _disposed;
 
         #endregion
@@ -417,6 +417,20 @@ namespace ClearFrost.Services
             {
                 Debug.WriteLine($"[StorageService] EnsureDirectoriesExist Error: {ex.Message}");
             }
+        }
+
+        public void UpdateStoragePath(string storagePath)
+        {
+            string resolved = ResolveStoragePath(storagePath);
+            if (string.Equals(_baseStoragePath, resolved, StringComparison.OrdinalIgnoreCase))
+            {
+                EnsureDirectoriesExist();
+                return;
+            }
+
+            _baseStoragePath = resolved;
+            EnsureDirectoriesExist();
+            Debug.WriteLine($"[StorageService] 存储路径已刷新: {_baseStoragePath}");
         }
 
         #endregion

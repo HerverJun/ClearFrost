@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Hardware;
@@ -336,6 +337,64 @@ public class PlcServiceRecoveryTests
         service.IsConnected.Should().BeFalse();
         service.LastError.Should().Contain("读取条码失败");
         changedState.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ReadStringAsync_ASCII固定宽度剔除Nul填充()
+    {
+        var service = CreateConnectedService(new FakePlcDevice(
+            isConnected: true,
+            readBytesResultFactory: (address, length) =>
+                (true, new byte[] { (byte)'S', 0, (byte)'N', (byte)'-', (byte)'1', 0, 0, 0 }, string.Empty)));
+
+        var result = await service.ReadStringAsync("D570", 4, "ASCII");
+
+        result.Success.Should().BeTrue();
+        result.Value.Should().Be("SN-1");
+    }
+
+    [Fact]
+    public async Task ReadStringAsync_UTF16保留字节间Nul避免破坏双字节字符()
+    {
+        byte[] utf16Bytes = Encoding.Unicode.GetBytes("AB");
+        var service = CreateConnectedService(new FakePlcDevice(
+            isConnected: true,
+            readBytesResultFactory: (address, length) => (true, utf16Bytes, string.Empty)));
+
+        var result = await service.ReadStringAsync("D570", 2, "UTF-16");
+
+        result.Success.Should().BeTrue();
+        result.Value.Should().Be("AB");
+    }
+
+    [Fact]
+    public async Task StopMonitoringAsync_等待监听退出且重复StartStop不残留后台任务()
+    {
+        int readCount = 0;
+        var firstRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = CreateConnectedService(new FakePlcDevice(
+            isConnected: true,
+            onRead: () =>
+            {
+                Interlocked.Increment(ref readCount);
+                firstRead.TrySetResult();
+            },
+            readResultFactory: address => (true, (short)0, string.Empty)));
+
+        service.StartMonitoring("D555", pollingIntervalMs: 20, triggerDelayMs: 0).Should().BeTrue();
+        await firstRead.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        await service.StopMonitoringAsync();
+        Task? stoppedTask = PlcTestReflectionHelper.GetPrivateField<Task?>(service, "_monitoringTask");
+        stoppedTask.Should().BeNull();
+
+        int readsAfterStop = Volatile.Read(ref readCount);
+        await Task.Delay(80);
+        Volatile.Read(ref readCount).Should().Be(readsAfterStop);
+
+        service.StartMonitoring("D555", pollingIntervalMs: 20, triggerDelayMs: 0).Should().BeTrue();
+        await service.StopMonitoringAsync();
+        PlcTestReflectionHelper.GetPrivateField<Task?>(service, "_monitoringTask").Should().BeNull();
     }
 
     [Theory]

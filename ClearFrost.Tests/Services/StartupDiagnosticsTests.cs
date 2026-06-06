@@ -403,6 +403,7 @@ public class StartupDiagnosticsTests
         public double GetDiskFreeSpaceGb() => 10;
         public double PerformEmergencyCleanup() => 10;
         public void EnsureDirectoriesExist() { }
+        public void UpdateStoragePath(string storagePath) { }
         public void Dispose() { }
     }
 }

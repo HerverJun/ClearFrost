@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Config;
 using ClearFrost.Core.Models;
@@ -178,13 +179,17 @@ namespace ClearFrost.Tests
         public async Task RefreshModelRegistry_运行中新加入Onnx会被重新发现()
         {
             string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
-            string onnxDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ONNX");
+            string onnxDir = Path.Combine(tempDir, "ONNX");
             string modelName = $"runtime-refresh-{Guid.NewGuid():N}.onnx";
             string modelPath = Path.Combine(onnxDir, modelName);
             Directory.CreateDirectory(tempDir);
             Directory.CreateDirectory(onnxDir);
 
-            var appConfig = new AppConfig { StoragePath = tempDir };
+            var appConfig = new AppConfig
+            {
+                StoragePath = tempDir,
+                OnnxModelDirectory = onnxDir
+            };
             using var cameraManager = new CameraManager(true);
             var runtime = new AppRuntime(
                 appConfig,
@@ -214,17 +219,128 @@ namespace ClearFrost.Tests
             }
             finally
             {
-                if (File.Exists(modelPath))
-                {
-                    File.Delete(modelPath);
-                }
-
                 await runtime.DisposeAsync();
                 if (Directory.Exists(tempDir))
                 {
                     Directory.Delete(tempDir, true);
                 }
             }
+        }
+
+        [Fact]
+        public async Task RefreshStoragePath_刷新存储统计和健康检查路径()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            string oldPath = Path.Combine(tempDir, "old");
+            string newPath = Path.Combine(tempDir, "new");
+            Directory.CreateDirectory(oldPath);
+            Directory.CreateDirectory(newPath);
+
+            var appConfig = new AppConfig
+            {
+                StoragePath = oldPath,
+                OnnxModelDirectory = Path.Combine(tempDir, "ONNX")
+            };
+
+            using var cameraManager = new CameraManager(true);
+            var runtime = new AppRuntime(
+                appConfig,
+                cameraManager,
+                cameraService: null,
+                plcService: null,
+                detectionService: null,
+                storageService: null,
+                statisticsService: null,
+                databaseService: null,
+                imageSaveQueue: null,
+                detectionRecordQueue: null,
+                webUIController: null);
+
+            try
+            {
+                appConfig.StoragePath = newPath;
+
+                runtime.RefreshStoragePath();
+                runtime.StorageService.WriteErrorLog("path-refresh");
+                runtime.StatisticsService.RecordDetection(true);
+                runtime.StatisticsService.SaveAll();
+                HealthSnapshot snapshot = runtime.HealthMonitor.GetSnapshot();
+
+                runtime.StorageService.ImageBasePath.Should().Be(Path.Combine(newPath, "Images"));
+                runtime.StorageService.LogBasePath.Should().Be(Path.Combine(newPath, "Logs"));
+                File.Exists(Path.Combine(newPath, "Logs", $"ErrorLog_{DateTime.Now:yyyyMMdd}.txt")).Should().BeTrue();
+                File.Exists(Path.Combine(newPath, "System", "statistics.json")).Should().BeTrue();
+                snapshot.StorageStatus.Should().Be("Writable");
+            }
+            finally
+            {
+                await runtime.DisposeAsync();
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Fact]
+        public async Task TriggerSourceCoordinator_停机保存不启动运行中保存会重启()
+        {
+            var order = new List<string>();
+
+            bool stoppedResult = await TriggerSourceRuntimeCoordinator.RestartAfterConfigurationChangeAsync(
+                isProductionRunning: false,
+                stopTriggerSourcesAsync: () =>
+                {
+                    order.Add("stop");
+                    return Task.CompletedTask;
+                },
+                startTriggerSourceAsync: () =>
+                {
+                    order.Add("start");
+                    return Task.FromResult(true);
+                });
+
+            bool runningResult = await TriggerSourceRuntimeCoordinator.RestartAfterConfigurationChangeAsync(
+                isProductionRunning: true,
+                stopTriggerSourcesAsync: () =>
+                {
+                    order.Add("stop");
+                    return Task.CompletedTask;
+                },
+                startTriggerSourceAsync: () =>
+                {
+                    order.Add("start");
+                    return Task.FromResult(true);
+                });
+
+            stoppedResult.Should().BeTrue();
+            runningResult.Should().BeTrue();
+            order.Should().Equal("stop", "start");
+        }
+
+        [Fact]
+        public void TriggerSourceCoordinator_Stop改变Generation后启动流程不再有效()
+        {
+            TriggerSourceRuntimeCoordinator.IsProductionStartCurrent(
+                    isShutdownInProgress: false,
+                    isProductionRunning: true,
+                    currentGeneration: 12,
+                    startGeneration: 11)
+                .Should().BeFalse();
+
+            TriggerSourceRuntimeCoordinator.IsProductionStartCurrent(
+                    isShutdownInProgress: false,
+                    isProductionRunning: true,
+                    currentGeneration: 11,
+                    startGeneration: 11)
+                .Should().BeTrue();
+        }
+
+        [Fact]
+        public void TriggerSourceCoordinator_手动放行仅允许Plc触发模式()
+        {
+            TriggerSourceRuntimeCoordinator.CanWriteManualRelease(TriggerSource.PLC).Should().BeTrue();
+            TriggerSourceRuntimeCoordinator.CanWriteManualRelease(TriggerSource.SerialPhotoelectric).Should().BeFalse();
         }
 
         private sealed class FakeCameraService : ICameraService
@@ -283,6 +399,11 @@ namespace ClearFrost.Tests
                 return true;
             }
             public void StopMonitoring() => _order.Add("plc-stop-monitoring");
+            public Task StopMonitoringAsync(CancellationToken cancellationToken = default)
+            {
+                StopMonitoring();
+                return Task.CompletedTask;
+            }
             public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
             public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite) => Task.FromResult(true);
             public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
@@ -348,9 +469,9 @@ namespace ClearFrost.Tests
                 SystemPath = Path.Combine(basePath, "System");
             }
 
-            public string ImageBasePath { get; }
-            public string LogBasePath { get; }
-            public string SystemPath { get; }
+            public string ImageBasePath { get; private set; }
+            public string LogBasePath { get; private set; }
+            public string SystemPath { get; private set; }
 
             public void SaveDetectionImage(Bitmap bitmap, bool isQualified) { }
             public void SaveDetectionImageAsync(Bitmap bitmap, bool isQualified) { }
@@ -361,6 +482,12 @@ namespace ClearFrost.Tests
             public double GetDiskFreeSpaceGb() => 100.0;
             public double PerformEmergencyCleanup() => 100.0;
             public void EnsureDirectoriesExist() { }
+            public void UpdateStoragePath(string storagePath)
+            {
+                ImageBasePath = Path.Combine(storagePath, "Images");
+                LogBasePath = Path.Combine(storagePath, "Logs");
+                SystemPath = Path.Combine(storagePath, "System");
+            }
             public void Dispose() => _order.Add("storage-dispose");
         }
 
@@ -393,6 +520,7 @@ namespace ClearFrost.Tests
             public void SaveAll() => _order.Add("statistics-save-all");
             public void ClearHistory() { }
             public void LoadAll() { }
+            public void UpdateStoragePath(string basePath) { }
             public (StatisticsHistory history, DetectionStatistics stats) GetStatisticsData() => (_history, _stats);
             public void Dispose() => _order.Add("statistics-dispose");
         }

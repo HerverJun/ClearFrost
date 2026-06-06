@@ -245,37 +245,32 @@ namespace ClearFrost.Services
 
         public void StopMonitoring()
         {
-            if (_monitoringCts != null)
+            try
             {
-                _monitoringStopRequested = true;
-                _monitoringCts.Cancel();
-                try
-                {
-                    _monitoringTask?.Wait(200);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[PlcService] 停止监听等待异常: {ex.Message}");
-                }
-                _monitoringCts.Dispose();
-                _monitoringCts = null;
-                _monitoringTask = null;
-                Debug.WriteLine("[PlcService] 停止监听");
+                StopMonitoringAsync().GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[PlcService] 停止监听等待异常: {ex.Message}");
             }
         }
 
-        private async Task StopMonitoringAsync()
+        public async Task StopMonitoringAsync(CancellationToken cancellationToken = default)
         {
-            if (_monitoringCts != null && !_monitoringCts.IsCancellationRequested)
+            CancellationTokenSource? monitoringCts = _monitoringCts;
+            Task? monitoringTask = _monitoringTask;
+
+            if (monitoringCts != null && !monitoringCts.IsCancellationRequested)
             {
                 _monitoringStopRequested = true;
-                _monitoringCts.Cancel();
+                monitoringCts.Cancel();
             }
-            if (_monitoringTask != null)
+
+            if (monitoringTask != null)
             {
                 try
                 {
-                    await _monitoringTask;
+                    await monitoringTask.WaitAsync(cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -287,9 +282,21 @@ namespace ClearFrost.Services
                 }
             }
 
-            _monitoringCts?.Dispose();
-            _monitoringCts = null;
-            _monitoringTask = null;
+            monitoringCts?.Dispose();
+            if (ReferenceEquals(_monitoringCts, monitoringCts))
+            {
+                _monitoringCts = null;
+            }
+
+            if (ReferenceEquals(_monitoringTask, monitoringTask))
+            {
+                _monitoringTask = null;
+            }
+
+            if (monitoringCts != null || monitoringTask != null)
+            {
+                Debug.WriteLine("[PlcService] 停止监听");
+            }
         }
 
         private async Task MonitoringLoop(string triggerAddress, int pollingIntervalMs, int triggerDelayMs, CancellationToken token)
@@ -548,17 +555,13 @@ namespace ClearFrost.Services
                     return (false, string.Empty);
                 }
 
-                int byteCount = 0;
-                for (int index = 0; index < bytes.Length; index++)
-                {
-                    if (bytes[index] != 0)
-                    {
-                        bytes[byteCount++] = bytes[index];
-                    }
-                }
+                Encoding textEncoding = ResolveTextEncoding(encodingName);
+                byte[] bytesToDecode = ShouldPreserveNullBytesForEncoding(encodingName)
+                    ? bytes
+                    : CompactNullPadding(bytes);
 
-                string decodedValue = ResolveTextEncoding(encodingName)
-                    .GetString(bytes, 0, byteCount)
+                string decodedValue = textEncoding
+                    .GetString(bytesToDecode, 0, bytesToDecode.Length)
                     .Trim('\0', ' ', '\r', '\n', '\t');
                 return (true, decodedValue);
             }
@@ -849,6 +852,16 @@ namespace ClearFrost.Services
         private static Encoding ResolveTextEncoding(string? encodingName)
         {
             string normalized = (encodingName ?? "ASCII").Trim().ToUpperInvariant();
+            if (normalized is "UNICODE" or "UTF-16" or "UTF16" or "UTF-16LE")
+            {
+                return Encoding.Unicode;
+            }
+
+            if (normalized is "UTF-16BE")
+            {
+                return Encoding.BigEndianUnicode;
+            }
+
             if (normalized is "UTF8" or "UTF-8")
             {
                 return Encoding.UTF8;
@@ -867,6 +880,33 @@ namespace ClearFrost.Services
             }
 
             return Encoding.ASCII;
+        }
+
+        private static bool ShouldPreserveNullBytesForEncoding(string? encodingName)
+        {
+            string normalized = (encodingName ?? "ASCII").Trim().ToUpperInvariant();
+            return normalized is "UNICODE" or "UTF-16" or "UTF16" or "UTF-16LE" or "UTF-16BE";
+        }
+
+        private static byte[] CompactNullPadding(byte[] bytes)
+        {
+            int byteCount = 0;
+            byte[] compacted = new byte[bytes.Length];
+            for (int index = 0; index < bytes.Length; index++)
+            {
+                if (bytes[index] != 0)
+                {
+                    compacted[byteCount++] = bytes[index];
+                }
+            }
+
+            if (byteCount == compacted.Length)
+            {
+                return compacted;
+            }
+
+            Array.Resize(ref compacted, byteCount);
+            return compacted;
         }
 
         #endregion

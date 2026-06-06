@@ -65,7 +65,7 @@ namespace ClearFrost
         {
             if (_appConfig.TriggerSource != TriggerSource.PLC)
             {
-                _plcService.StopMonitoring();
+                await _plcService.StopMonitoringAsync(_appShutdownCts.Token);
                 string modeText = _appConfig.TriggerSource == TriggerSource.SerialPhotoelectric
                     ? "串口光电触发模式"
                     : $"{_appConfig.TriggerSource}触发模式";
@@ -138,7 +138,7 @@ namespace ClearFrost
                 }
                 else
                 {
-                    _plcService.StopMonitoring();
+                    await _plcService.StopMonitoringAsync(_appShutdownCts.Token);
                     string modeText = _appConfig.TriggerSource == TriggerSource.SerialPhotoelectric
                         ? "串口光电触发模式，自动检测不使用 PLC 读写"
                         : "PLC触发监听暂未启动";
@@ -168,7 +168,7 @@ namespace ClearFrost
         {
             if (_appConfig.TriggerSource != TriggerSource.PLC)
             {
-                _plcService.StopMonitoring();
+                await _plcService.StopMonitoringAsync(_appShutdownCts.Token);
                 return false;
             }
 
@@ -255,6 +255,21 @@ namespace ClearFrost
 
             try
             {
+                if (!TriggerSourceRuntimeCoordinator.CanWriteManualRelease(_appConfig.TriggerSource))
+                {
+                    string modeText = _appConfig.TriggerSource == TriggerSource.SerialPhotoelectric
+                        ? "串口光电触发模式"
+                        : $"{_appConfig.TriggerSource}触发模式";
+                    await _uiController.LogToFrontend($"强制放行仅在 PLC 触发模式可用，当前为{modeText}", "warning");
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = "PLC 强制放行不可用",
+                        type = "warning",
+                        durationMs = 1800
+                    });
+                    return;
+                }
+
                 await _uiController.LogToFrontend("强制放行已触发，正在写入 PLC 放行信号", "info");
 
                 bool success = await _plcService.WriteReleaseSignalAsync(_appConfig.PlcResultAddress);
