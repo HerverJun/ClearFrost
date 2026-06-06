@@ -314,7 +314,7 @@
                         <option value="Engineer">Engineer</option>
                         <option value="Administrator">Administrator</option>
                     </select>
-                    <small class="text-[10px] text-ink-400 leading-snug">Technician 及以上角色需要当前同级/更高级账号确认，或本机管理员上下文。</small>
+                    <small class="text-[10px] text-ink-400 leading-snug">普通操作只记录身份不拦截；强制放行、模型导入、配置恢复仍要求对应角色。切换到 Technician/Engineer/Administrator 需要已有同级/更高级角色或可信本机管理员上下文。</small>
                 </label>
                 <label>
                     <span>班次</span>
@@ -502,18 +502,6 @@
                                 class="w-full py-2 bg-celadon-50 text-celadon-600 hover:bg-celadon-100 text-[10px] font-bold rounded-lg transition-[background-color,color,box-shadow]">
                                 刷新模型列表
                             </button>
-                        </div>
-                        <div class="col-span-2">
-                            <label class="text-[10px] font-bold text-ink-400 mb-1 block">模型包验收</label>
-                            <button id="btn-import-model-package" type="button" data-action="importModelPackage"
-                                class="w-full py-2 bg-celadon-600 text-white hover:bg-celadon-700 text-[10px] font-bold rounded-lg transition-[background-color,color,box-shadow] inline-flex items-center justify-center gap-2">
-                                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M12 3v12m0-12 4 4m-4-4-4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
-                                </svg>
-                                导入 ONNX 并生成模型包
-                            </button>
-                            <div id="model-package-import-result" class="mt-2 text-[10px] hidden"></div>
                         </div>
                         <div class="col-span-2">
                             <label class="text-[10px] font-bold text-ink-400 mb-1 block">本地验证</label>
@@ -1130,9 +1118,9 @@
                             </div>
                             <div class="col-span-2">
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input id="cfg-retention-enabled" type="checkbox" checked
+                                    <input id="cfg-retention-enabled" type="checkbox"
                                         class="accent-celadon-600 w-3.5 h-3.5 rounded">
-                                    <span class="text-[10px] font-bold text-ink-500">启用数据保留策略自动清理</span>
+                                    <span class="text-[10px] font-bold text-ink-500">数据保留清理开关（默认关闭；当前无自动清理，手动维护需单独流程）</span>
                                 </label>
                             </div>
                             <div>
@@ -1338,7 +1326,7 @@
         <div class="glass-panel-lite cf-ornate-modal w-full max-w-6xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[82vh]">
             <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0 cf-ornate-header">
                 <div class="flex items-center gap-4">
-                    <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">告警中心 (Alarm Center)</h3>
+                    <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">告警摘要 (Alarm Summary)</h3>
                     <span id="alarm-active-count-badge"
                         class="px-2 py-0.5 text-[10px] font-bold bg-celadon-50 text-celadon-600 rounded-full">0 条</span>
                     <span id="alarm-status-label"
@@ -1347,9 +1335,6 @@
                 <div class="flex items-center gap-3">
                     <button data-action="refreshAlarms"
                         class="px-4 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">刷新告警</button>
-                    <button data-action="acknowledgeAllAlarms"
-                        data-confirm="确认当前全部活动告警？"
-                        class="px-4 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">全部确认</button>
                     <button data-action="closeAlarmCenterModal"
                         class="text-2xl text-ink-400 hover:text-vermilion transition-colors">&times;</button>
                 </div>
@@ -1364,7 +1349,7 @@
                                 <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">来源</th>
                                 <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">告警与建议</th>
                                 <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">时间</th>
-                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest text-right">操作</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest text-right">处理状态</th>
                             </tr>
                         </thead>
                         <tbody id="alarm-center-table"
@@ -1377,8 +1362,8 @@
                 </div>
             </div>
             <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
-                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Alarm lifecycle: active / cleared / acknowledged</span>
-                <span class="text-[10px] text-ink-400 font-bold">确认告警需要已登录操作员，操作会进入审计</span>
+                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Alarm summary: active / cleared</span>
+                <span class="text-[10px] text-ink-400 font-bold">完整告警确认工作流已从核心版本隐藏</span>
             </div>
         </div>
     </div>
@@ -1411,7 +1396,7 @@
                                 <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">原因</th>
                                 <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">人员</th>
                                 <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">变更摘要</th>
-                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest text-right">操作</th>
+                                <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest text-right">状态</th>
                             </tr>
                         </thead>
                         <tbody id="config-version-table"
@@ -1424,8 +1409,8 @@
                 </div>
             </div>
             <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
-                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Protected restore requires Engineer role or higher</span>
-                <span class="text-[10px] text-ink-400 font-bold">恢复后会刷新相机、模型、触发源和前端设置</span>
+                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Read-only version archive</span>
+                <span class="text-[10px] text-ink-400 font-bold">恢复配置默认关闭，需单独维护评审后启用</span>
             </div>
         </div>
     </div>

@@ -307,12 +307,20 @@ namespace ClearFrost.Services
             var service = new DataRetentionService(_baseStoragePath);
             DataRetentionCleanupSummary summary = service.CleanupAsync(new DataRetentionPolicy
             {
+                Enabled = true,
                 ImageRetentionDays = days,
                 LogRetentionDays = days,
                 AuditLogRetentionDays = days,
                 ReportRetentionDays = days,
                 TraceRecordRetentionDays = days
             }).GetAwaiter().GetResult();
+
+            WriteAuditLog(
+                "DataRetention",
+                "ManualCleanup",
+                $"Days={days}; Images={summary.ImageDirectoriesDeleted}; LogDirs={summary.LogDirectoriesDeleted}; " +
+                $"LogFiles={summary.LogFilesDeleted}; Reports={summary.ReportFilesDeleted}; TraceRecords={summary.TraceRecordsDeleted}; Errors={summary.ErrorCount}",
+                summary.ErrorCount == 0);
 
             if (summary.ErrorCount > 0)
             {

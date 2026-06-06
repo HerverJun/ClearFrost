@@ -51,6 +51,19 @@ namespace ClearFrost.Services
             string operatorName = session?.OperatorName ?? OperatorSession.DefaultOperatorName;
             string operatorRole = NormalizeRole(session?.Role);
 
+            if (!IsEnforcedPermission(permission))
+            {
+                return new OperatorPermissionDecision
+                {
+                    Allowed = true,
+                    Operation = operation,
+                    RequiredRole = RoleOperator,
+                    OperatorName = operatorName,
+                    OperatorRole = operatorRole,
+                    Message = $"{operation} 已记录操作员身份，不作为权限边界拦截"
+                };
+            }
+
             if (session?.IsSignedIn != true)
             {
                 return Denied(operation, requiredRole, operatorName, operatorRole, "请先登录操作员");
@@ -157,22 +170,19 @@ namespace ClearFrost.Services
         {
             return permission switch
             {
-                OperatorPermission.BasicOperation => RoleOperator,
-                OperatorPermission.RunManualInspection => RoleOperator,
                 OperatorPermission.ManualRelease => RoleTechnician,
-                OperatorPermission.OperateProductionHardware => RoleOperator,
-                OperatorPermission.ExportDiagnostics => RoleTechnician,
-                OperatorPermission.ManageStatistics => RoleEngineer,
-                OperatorPermission.ChangeInspectionParameters => RoleEngineer,
-                OperatorPermission.ChangeModel => RoleEngineer,
                 OperatorPermission.ImportModelPackage => RoleEngineer,
-                OperatorPermission.ManageSettings => RoleEngineer,
-                OperatorPermission.ManageCamera => RoleEngineer,
-                OperatorPermission.ManageProjectPreset => RoleEngineer,
-                OperatorPermission.ManageStorage => RoleEngineer,
                 OperatorPermission.ImportConfiguration => RoleEngineer,
-                _ => RoleEngineer
+                _ => RoleOperator
             };
+        }
+
+        public static bool IsEnforcedPermission(OperatorPermission permission)
+        {
+            return permission is
+                OperatorPermission.ManualRelease or
+                OperatorPermission.ImportModelPackage or
+                OperatorPermission.ImportConfiguration;
         }
 
         private static OperatorPermissionDecision Denied(

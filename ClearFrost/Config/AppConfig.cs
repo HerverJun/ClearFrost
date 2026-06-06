@@ -152,7 +152,7 @@ namespace ClearFrost.Config
         // ================== System Settings ==================
         public string StoragePath { get; set; } = @"C:\GreeVisionData";
         public bool IsDebugMode { get; set; } = false;
-        public bool DataRetentionEnabled { get; set; } = true;
+        public bool DataRetentionEnabled { get; set; } = false;
         public int ImageRetentionDays { get; set; } = 30;
         public int LogRetentionDays { get; set; } = 180;
         public int AuditLogRetentionDays { get; set; } = 365;

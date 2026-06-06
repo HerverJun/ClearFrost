@@ -46,7 +46,7 @@ public class AppConfigTests
         config.ModelPackageDirectory.Should().Be("models");
         config.StrictModelPackageMode.Should().BeFalse();
         config.IsDebugMode.Should().BeFalse();
-        config.DataRetentionEnabled.Should().BeTrue();
+        config.DataRetentionEnabled.Should().BeFalse();
         config.ImageRetentionDays.Should().Be(30);
         config.LogRetentionDays.Should().Be(180);
         config.AuditLogRetentionDays.Should().Be(365);

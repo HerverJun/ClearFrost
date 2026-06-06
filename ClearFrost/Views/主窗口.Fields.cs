@@ -93,7 +93,6 @@ namespace ClearFrost
         // 多模型管理器 (由 _detectionService 管理)
         string 模型路径 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ONNX");
         string 模型名 = "";
-        bool 停止 = false;
         private AppConfig _appConfig = AppConfig.Load();
 
         // ROI归一化坐标 [x, y, w, h] (0.0~1.0)

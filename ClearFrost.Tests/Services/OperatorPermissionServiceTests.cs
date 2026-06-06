@@ -12,12 +12,12 @@ public class OperatorPermissionServiceTests
     {
         OperatorPermissionDecision decision = OperatorPermissionService.Authorize(
             new OperatorSession(),
-            OperatorPermission.ManageSettings,
-            "保存系统设置");
+            OperatorPermission.ManualRelease,
+            "手动放行");
 
         decision.Allowed.Should().BeFalse();
         decision.Message.Should().Contain("请先登录操作员");
-        decision.RequiredRole.Should().Be(OperatorPermissionService.RoleEngineer);
+        decision.RequiredRole.Should().Be(OperatorPermissionService.RoleTechnician);
     }
 
     [Fact]
@@ -58,42 +58,34 @@ public class OperatorPermissionServiceTests
 
         OperatorPermissionDecision decision = OperatorPermissionService.Authorize(
             session,
-            OperatorPermission.ManageCamera,
-            "删除相机配置");
+            OperatorPermission.ImportModelPackage,
+            "导入模型包");
 
         decision.Allowed.Should().BeTrue();
     }
 
     [Fact]
-    public void Authorize_技术员_允许导出诊断包但不能改系统设置()
+    public void Authorize_非关键操作_仅记录身份不阻止()
     {
-        var session = new OperatorSession
-        {
-            OperatorName = "TECH-01",
-            Role = OperatorPermissionService.RoleTechnician,
-            ShiftName = "C班",
-            SignedInAt = DateTimeOffset.Now
-        };
-
         OperatorPermissionDecision diagnostics = OperatorPermissionService.Authorize(
-            session,
+            new OperatorSession(),
             OperatorPermission.ExportDiagnostics,
             "导出诊断包");
         OperatorPermissionDecision settings = OperatorPermissionService.Authorize(
-            session,
+            new OperatorSession(),
             OperatorPermission.ManageSettings,
             "保存系统设置");
 
         diagnostics.Allowed.Should().BeTrue();
-        diagnostics.RequiredRole.Should().Be(OperatorPermissionService.RoleTechnician);
-        settings.Allowed.Should().BeFalse();
-        settings.RequiredRole.Should().Be(OperatorPermissionService.RoleEngineer);
+        diagnostics.RequiredRole.Should().Be(OperatorPermissionService.RoleOperator);
+        settings.Allowed.Should().BeTrue();
+        settings.Message.Should().Contain("已记录操作员身份");
     }
 
     [Theory]
     [InlineData(OperatorPermission.RunManualInspection, "手动检测")]
     [InlineData(OperatorPermission.OperateProductionHardware, "打开生产相机")]
-    public void Authorize_现场生产操作_要求已登录操作员(OperatorPermission permission, string operation)
+    public void Authorize_现场生产操作_不作为权限边界(OperatorPermission permission, string operation)
     {
         OperatorPermissionDecision unsignedDecision = OperatorPermissionService.Authorize(
             new OperatorSession(),
@@ -112,9 +104,9 @@ public class OperatorPermissionServiceTests
             permission,
             operation);
 
-        unsignedDecision.Allowed.Should().BeFalse();
+        unsignedDecision.Allowed.Should().BeTrue();
         unsignedDecision.RequiredRole.Should().Be(OperatorPermissionService.RoleOperator);
-        unsignedDecision.Message.Should().Contain("请先登录操作员");
+        unsignedDecision.Message.Should().Contain("已记录操作员身份");
         signedDecision.Allowed.Should().BeTrue();
         signedDecision.RequiredRole.Should().Be(OperatorPermissionService.RoleOperator);
     }
@@ -177,6 +169,30 @@ public class OperatorPermissionServiceTests
         decision.Allowed.Should().BeFalse();
         decision.RequiredRole.Should().Be(OperatorPermissionService.RoleEngineer);
         decision.Message.Should().Contain("需要当前 Engineer 或更高权限确认");
+    }
+
+    [Theory]
+    [InlineData("Technician")]
+    [InlineData("Engineer")]
+    [InlineData("Administrator")]
+    public void AuthorizeRoleGrant_普通操作员不能自授高权限角色(string requestedRole)
+    {
+        var operatorSession = new OperatorSession
+        {
+            OperatorName = "OP-01",
+            Role = OperatorPermissionService.RoleOperator,
+            ShiftName = "A班",
+            SignedInAt = DateTimeOffset.Now
+        };
+
+        OperatorPermissionDecision decision = OperatorPermissionService.AuthorizeRoleGrant(
+            operatorSession,
+            requestedRole,
+            isTrustedSystemPrincipal: false,
+            "登录操作员");
+
+        decision.Allowed.Should().BeFalse();
+        decision.RequiredRole.Should().Be(OperatorPermissionService.NormalizeRole(requestedRole));
     }
 
     [Fact]

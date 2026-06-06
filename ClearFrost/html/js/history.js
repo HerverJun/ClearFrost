@@ -380,7 +380,7 @@
         if (!tbody) return;
 
         if (badge) badge.textContent = `${activeCount} 条`;
-        if (status) status.textContent = activeCount > 0 ? `${unacknowledgedCount} unack` : "Ready";
+        if (status) status.textContent = activeCount > 0 ? "Active" : "Ready";
 
         if (!records.length) {
             tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-10 text-center text-slate-400 italic">暂无告警</td></tr>';
@@ -399,12 +399,8 @@
             const ackText = alarm.isAcknowledged
                 ? `已确认: ${alarm.acknowledgedBy || "-"} ${formatAlarmTime(alarm.acknowledgedAt)}`
                 : "未确认";
-            const actionValue = escapeHtml(JSON.stringify(alarm.alarmId));
-            const actionMarkup = alarm.state === "Active" && !alarm.isAcknowledged
-                ? `<button type="button" data-action="acknowledgeAlarm" data-value="${actionValue}"
-                        class="px-3 py-1.5 text-[10px] font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">
-                        确认
-                    </button>`
+            const actionMarkup = alarm.state === "Active"
+                ? '<span class="text-[10px] text-amber-600 font-bold">按健康摘要处理</span>'
                 : `<span class="text-[10px] text-slate-400">${escapeHtml(ackText)}</span>`;
             const traceText = alarm.lastInspectionId ? `<div class="text-[9px] text-ink-300 mt-1">ID ${escapeHtml(alarm.lastInspectionId)}</div>` : "";
 
@@ -444,16 +440,11 @@
     }
 
     function acknowledgeAlarm(alarmId) {
-        if (!alarmId) {
-            window.addLog?.("告警编号为空，无法确认", "warning");
-            return;
-        }
-
-        bridge.sendCommand("acknowledge_alarm", { alarmId });
+        window.addLog?.("告警确认工作流暂未启用；当前仅显示告警摘要。", "warning");
     }
 
     function acknowledgeAllAlarms() {
-        bridge.sendCommand("acknowledge_all_alarms");
+        window.addLog?.("告警确认工作流暂未启用；当前仅显示告警摘要。", "warning");
     }
 
     function handleAlarmActionResult(data) {
@@ -505,7 +496,6 @@
             const isLatest = index === 0;
             const operatorLine = [version.operatorName, version.operatorRole, version.shiftName].filter(Boolean).join(" / ");
             const hashLine = version.configHash ? `<div class="text-[9px] text-ink-300 mt-1">SHA256 ${escapeHtml(version.configHash.slice(0, 12))}</div>` : "";
-            const restoreValue = escapeHtml(JSON.stringify(version.versionId));
             return `
                 <tr class="${isLatest ? "bg-celadon-50/40" : "hover:bg-slate-50"} transition-colors">
                     <td class="px-4 py-3 font-mono text-slate-600 whitespace-nowrap">
@@ -519,11 +509,7 @@
                         ${hashLine}
                     </td>
                     <td class="px-4 py-3 text-right whitespace-nowrap">
-                        <button type="button" data-action="restoreConfigVersion" data-value="${restoreValue}"
-                            data-confirm="确认恢复该配置版本？当前运行配置会被覆盖。"
-                            class="px-3 py-1.5 text-[10px] font-bold text-rouge-600 bg-rouge-50 hover:bg-rouge-100 rounded-lg transition-colors">
-                            恢复
-                        </button>
+                        <span class="text-[10px] text-slate-400 font-bold">只读记录</span>
                     </td>
                 </tr>
             `;
@@ -531,14 +517,9 @@
     }
 
     function restoreConfigVersion(versionId) {
-        if (!versionId) {
-            window.addLog?.("配置版本号为空，无法恢复", "warning");
-            return;
-        }
-
         const status = byId("config-version-status");
-        if (status) status.textContent = "Restoring";
-        bridge.sendCommand("restore_config_version", { versionId });
+        if (status) status.textContent = "Read only";
+        window.addLog?.("配置版本恢复默认关闭；当前仅支持查看版本记录。", "warning");
     }
 
     function handleConfigVersionRestoreResult(data) {

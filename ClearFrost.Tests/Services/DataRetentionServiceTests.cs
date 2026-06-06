@@ -33,6 +33,7 @@ public class DataRetentionServiceTests
             var service = new DataRetentionService(tempDir, () => new DateTime(2026, 5, 27, 10, 0, 0));
             DataRetentionCleanupSummary summary = await service.CleanupAsync(new DataRetentionPolicy
             {
+                Enabled = true,
                 ImageRetentionDays = 30,
                 LogRetentionDays = 30,
                 AuditLogRetentionDays = 365,

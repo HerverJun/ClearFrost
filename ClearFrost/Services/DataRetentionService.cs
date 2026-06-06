@@ -16,7 +16,7 @@ namespace ClearFrost.Services
 {
     public sealed class DataRetentionPolicy
     {
-        public bool Enabled { get; init; } = true;
+        public bool Enabled { get; init; } = false;
         public int ImageRetentionDays { get; init; } = 30;
         public int LogRetentionDays { get; init; } = 180;
         public int AuditLogRetentionDays { get; init; } = 365;

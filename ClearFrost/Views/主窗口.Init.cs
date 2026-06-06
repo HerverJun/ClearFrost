@@ -237,6 +237,7 @@ namespace ClearFrost
                 }
 
                 _statisticsService.ClearHistory();
+                WriteAuditLogSafe("Statistics", "ClearHistory", BuildOperatorAuditContext(), success: true);
                 var (history, stats) = _statisticsService.GetStatisticsData();
                 await _uiController.SendStatisticsHistory(history, stats);
                 await _uiController.LogToFrontend("✅ 历史统计数据已清空", "success");
@@ -249,6 +250,7 @@ namespace ClearFrost
                 }
 
                 _statisticsService.ResetToday();
+                WriteAuditLogSafe("Statistics", "ResetToday", BuildOperatorAuditContext(), success: true);
                 await _uiController.UpdateUI(0, 0, 0);
                 await _uiController.LogToFrontend("✅ 今日统计已清除", "success");
             };
@@ -1063,6 +1065,19 @@ namespace ClearFrost
 
         private async Task RestoreConfigVersionWithPermissionAsync(string versionId)
         {
+            MaintenanceFeatureDecision gate = MaintenanceFeatureGate.Evaluate(MaintenanceFeature.ConfigVersionRestore, versionId);
+            if (!gate.Allowed)
+            {
+                WriteAuditLogSafe(
+                    gate.AuditCategory,
+                    gate.AuditAction,
+                    $"{BuildOperatorAuditContext()}; {gate.AuditDetail}",
+                    success: false);
+                await _uiController.SendConfigVersionRestoreResult(false, gate.UserMessage);
+                await _uiController.LogToFrontend(gate.LogMessage, "warning");
+                return;
+            }
+
             if (!await EnsureOperatorPermissionAsync(OperatorPermission.ImportConfiguration, "恢复配置版本"))
             {
                 await _uiController.SendConfigVersionRestoreResult(false, "权限不足，已取消恢复配置版本");
@@ -1108,6 +1123,18 @@ namespace ClearFrost
 
         private async Task AcknowledgeAlarmAsync(string alarmId)
         {
+            MaintenanceFeatureDecision gate = MaintenanceFeatureGate.Evaluate(MaintenanceFeature.AlarmAcknowledge, alarmId);
+            if (!gate.Allowed)
+            {
+                WriteAuditLogSafe(
+                    gate.AuditCategory,
+                    gate.AuditAction,
+                    $"{BuildOperatorAuditContext()}; {gate.AuditDetail}",
+                    success: false);
+                await _uiController.SendAlarmActionResult(false, gate.UserMessage);
+                return;
+            }
+
             if (!await EnsureOperatorPermissionAsync(OperatorPermission.BasicOperation, "确认告警"))
             {
                 await _uiController.SendAlarmActionResult(false, "权限不足，已取消确认告警");
@@ -1138,6 +1165,18 @@ namespace ClearFrost
 
         private async Task AcknowledgeAllAlarmsAsync()
         {
+            MaintenanceFeatureDecision gate = MaintenanceFeatureGate.Evaluate(MaintenanceFeature.AlarmAcknowledgeAll);
+            if (!gate.Allowed)
+            {
+                WriteAuditLogSafe(
+                    gate.AuditCategory,
+                    gate.AuditAction,
+                    $"{BuildOperatorAuditContext()}; {gate.AuditDetail}",
+                    success: false);
+                await _uiController.SendAlarmActionResult(false, gate.UserMessage);
+                return;
+            }
+
             if (!await EnsureOperatorPermissionAsync(OperatorPermission.BasicOperation, "确认全部告警"))
             {
                 await _uiController.SendAlarmActionResult(false, "权限不足，已取消确认全部告警");
@@ -1220,6 +1259,23 @@ namespace ClearFrost
 
         private async Task ImportModelPackageWithPermissionAsync()
         {
+            MaintenanceFeatureDecision gate = MaintenanceFeatureGate.Evaluate(MaintenanceFeature.ModelPackageImport);
+            if (!gate.Allowed)
+            {
+                WriteAuditLogSafe(
+                    gate.AuditCategory,
+                    gate.AuditAction,
+                    $"{BuildOperatorAuditContext()}; {gate.AuditDetail}",
+                    success: false);
+                await _uiController.SendModelPackageImportResult(new
+                {
+                    success = false,
+                    message = gate.UserMessage
+                });
+                await _uiController.LogToFrontend(gate.LogMessage, "warning");
+                return;
+            }
+
             if (!await EnsureOperatorPermissionAsync(OperatorPermission.ImportModelPackage, "导入模型包"))
             {
                 await _uiController.SendModelPackageImportResult(new
@@ -2099,9 +2155,8 @@ namespace ClearFrost
 
             InitDirectories();
 
-            // 启动后台清理
-            StartCleanupTask();
-            StartEmergencyCleanupMonitor();
+            // 自动清理默认禁用，避免未经确认删除生产追溯数据。
+            // DataRetentionService 保留给后续明确的维护入口或单独评审。
 
             // 触发监听在相机打开成功后启动，避免软件刚启动时现场信号误入检测链路。
         }
@@ -2930,97 +2985,6 @@ namespace ClearFrost
             if (!Directory.Exists(Path_System)) Directory.CreateDirectory(Path_System);
         }
 
-        private void StartCleanupTask()
-        {
-            Task.Run(async () =>
-            {
-                while (!停止)
-                {
-                    await RunDataRetentionCleanupAsync();
-                    await Task.Delay(TimeSpan.FromHours(24));
-                }
-            });
-        }
-
-        private async Task RunDataRetentionCleanupAsync()
-        {
-            if (!_appConfig.DataRetentionEnabled)
-            {
-                return;
-            }
-
-            try
-            {
-                var service = new DataRetentionService(BaseStoragePath);
-                DataRetentionCleanupSummary summary = await service.CleanupAsync(new DataRetentionPolicy
-                {
-                    Enabled = _appConfig.DataRetentionEnabled,
-                    ImageRetentionDays = _appConfig.ImageRetentionDays,
-                    LogRetentionDays = _appConfig.LogRetentionDays,
-                    AuditLogRetentionDays = _appConfig.AuditLogRetentionDays,
-                    ReportRetentionDays = _appConfig.ReportRetentionDays,
-                    TraceRecordRetentionDays = _appConfig.TraceRecordRetentionDays
-                }, _databaseService);
-
-                string detail = FormatDataRetentionSummary(summary);
-                WriteAuditLogSafe("DataRetention", "Cleanup", detail, summary.ErrorCount == 0);
-
-                if (summary.TotalDeletedItems > 0 || summary.ErrorCount > 0)
-                {
-                    string type = summary.ErrorCount == 0 ? "info" : "warning";
-                    SafeFireAndForget(_uiController.LogToFrontend($"数据保留清理完成: {detail}", type), "数据保留清理日志");
-                }
-            }
-            catch (Exception ex)
-            {
-                WriteAuditLogSafe("DataRetention", "Cleanup", $"Error={ex.Message}", success: false);
-                Debug.WriteLine($"[DataRetention] 清理异常: {ex.Message}");
-            }
-        }
-
-        private static string FormatDataRetentionSummary(DataRetentionCleanupSummary summary)
-        {
-            return $"Images={summary.ImageDirectoriesDeleted}; LogDirs={summary.LogDirectoriesDeleted}; " +
-                   $"LogFiles={summary.LogFilesDeleted}; Reports={summary.ReportFilesDeleted}; " +
-                   $"TraceRecords={summary.TraceRecordsDeleted}; Errors={summary.ErrorCount}";
-        }
-
-        private void StartEmergencyCleanupMonitor()
-        {
-            Task.Run(async () =>
-            {
-                DateTime lastCleanupTime = DateTime.MinValue;
-                TimeSpan cooldown = TimeSpan.FromHours(2);
-                TimeSpan checkInterval = TimeSpan.FromHours(1);
-                const double thresholdGb = 1.0;
-
-                while (!停止)
-                {
-                    await Task.Delay(checkInterval);
-
-                    try
-                    {
-                        double freeGb = _storageService?.GetDiskFreeSpaceGb() ?? 999;
-                        if (freeGb < thresholdGb && DateTime.Now - lastCleanupTime > cooldown)
-                        {
-                            double afterGb = _storageService?.PerformEmergencyCleanup() ?? freeGb;
-                            lastCleanupTime = DateTime.Now;
-
-                            if (afterGb < thresholdGb)
-                            {
-                                SafeFireAndForget(_uiController.LogToFrontend(
-                                    $"磁盘空间严重不足：紧急清理后仍仅剩 {afterGb:F2} GB，请立即人工处理", "error"), "紧急清理告警");
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[EmergencyCleanupMonitor] 异常: {ex.Message}");
-                    }
-                }
-            });
-        }
-
         protected void OnFormClosingHandler(object? sender, FormClosingEventArgs e)
         {
             // 如果已经在 OnExitApp 中完成了清理，直接放行
@@ -3061,8 +3025,6 @@ namespace ClearFrost
             {
                 Debug.WriteLine($"[Shutdown] 记录关闭日志失败: {ex.Message}");
             }
-
-            this.停止 = true;
 
             try
             {

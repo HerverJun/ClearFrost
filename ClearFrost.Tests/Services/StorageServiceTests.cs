@@ -71,6 +71,34 @@ public class StorageServiceTests
         }
     }
 
+    [Fact]
+    public void CleanOldData_显式手动调用_清理旧数据并写审计()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string oldImageDir = Path.Combine(tempDir, "Images", "Qualified", "2000年01月01日");
+            Directory.CreateDirectory(oldImageDir);
+            File.WriteAllText(Path.Combine(oldImageDir, "sample.txt"), "old");
+
+            using var service = new StorageService(tempDir);
+
+            service.CleanOldData(30);
+
+            Directory.Exists(oldImageDir).Should().BeFalse();
+            var records = AuditLogReader.Read(Path.Combine(tempDir, "Logs"));
+            records.Should().Contain(record =>
+                record.Category == "DataRetention" &&
+                record.Action == "ManualCleanup" &&
+                record.Success &&
+                record.Detail.Contains("Days=30"));
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), "ClearFrostStorageTests", Guid.NewGuid().ToString("N"));

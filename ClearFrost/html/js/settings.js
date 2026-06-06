@@ -1414,15 +1414,15 @@
 
     function importModelPackage() {
         const resultDiv = byId("model-package-import-result");
-        setModelPackageImportButtonBusy(true);
+        setModelPackageImportButtonBusy(false);
 
         if (resultDiv) {
             resultDiv.className = "mt-2 text-[10px] text-ink-400";
-            resultDiv.textContent = "请选择 ONNX 文件并填写模型包信息。";
+            resultDiv.textContent = "模型包导入入口已从核心版本隐藏；请走单独维护流程评审。";
             resultDiv.classList.remove("hidden");
         }
 
-        bridge.sendCommand("import_model_package");
+        window.addLog?.("模型包导入入口已隐藏，未执行导入。", "warning");
     }
 
     function collectSettingsData() {
@@ -1740,7 +1740,7 @@
             "cfg-cycle-sla-enabled": preset.InspectionCycleSlaEnabled ?? true,
             "cfg-yield-sla-enabled": preset.QualityYieldSlaEnabled ?? true,
             "cfg-consecutive-ng-enabled": preset.ConsecutiveNgAlarmEnabled ?? true,
-            "cfg-retention-enabled": preset.DataRetentionEnabled ?? true,
+            "cfg-retention-enabled": preset.DataRetentionEnabled ?? false,
             "cfg-require-operator-production": preset.RequireOperatorForProductionStart ?? true,
         };
         Object.entries(checkboxAssignments).forEach(([id, value]) => {
