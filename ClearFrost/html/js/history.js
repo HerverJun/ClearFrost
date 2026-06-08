@@ -211,7 +211,8 @@
     function requestTracePage(direction = "initial") {
         syncTraceControls();
         const date = byId("gallery-date-picker")?.value || window.currentNGDate;
-        const hour = byId("trace-hour-select")?.value || window.currentNGHour || "";
+        const hourSelect = byId("trace-hour-select");
+        const hour = hourSelect ? hourSelect.value : (window.currentNGHour || "");
         if (!date) return;
 
         window.currentNGDate = date;
@@ -272,6 +273,38 @@
         if (dateInput && dateSlot && dateInput.parentElement !== dateSlot) {
             dateSlot.appendChild(dateInput);
         }
+    }
+
+    function setTraceDateSelection(date) {
+        const selectedDate = date || "";
+        window.currentNGDate = selectedDate;
+        const dateInput = byId("gallery-date-picker");
+        if (dateInput && dateInput.value !== selectedDate) {
+            dateInput.value = selectedDate;
+        }
+
+        const list = byId("ng-date-list");
+        if (!list) return;
+        Array.from(list.children).forEach((child) => {
+            if (!child.dataset?.traceDate) return;
+            child.className = traceListItemClass(child.dataset.traceDate === selectedDate);
+        });
+    }
+
+    function setTraceHourSelection(hour) {
+        const selectedHour = hour ?? "";
+        window.currentNGHour = selectedHour;
+        const hourSelect = byId("trace-hour-select");
+        if (hourSelect && hourSelect.value !== selectedHour) {
+            hourSelect.value = selectedHour;
+        }
+
+        const list = byId("ng-hour-list");
+        if (!list) return;
+        Array.from(list.children).forEach((child) => {
+            if (!child.dataset?.traceHour) return;
+            child.className = traceListItemClass(child.dataset.traceHour === selectedHour);
+        });
     }
 
     function closeLogHistoryModal() {
@@ -380,7 +413,17 @@
 
     function updateNGDates(data) {
         if (data === undefined) {
-            bridge.sendCommand("get_ng_dates");
+            const selectedDate = byId("gallery-date-picker")?.value || "";
+            if (selectedDate) {
+                setTraceDateSelection(selectedDate);
+                setTraceHourSelection("");
+                resetTracePagerState();
+                if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="cf-trace-list-item is-disabled">读取时段中...</div>';
+                if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = traceLoadingMarkup("正在读取时段目录");
+                bridge.sendCommand("get_ng_hours", selectedDate);
+            } else {
+                bridge.sendCommand("get_ng_dates");
+            }
             return;
         }
         const dates = Array.isArray(data) ? data : (data?.dates || data?.Dates || []);
@@ -399,15 +442,12 @@
         dates.forEach((date) => {
             const div = document.createElement("div");
             div.className = traceListItemClass();
+            div.dataset.traceDate = date;
             div.tabIndex = 0;
             div.innerText = date;
             const selectDate = () => {
-                Array.from(list.children).forEach((child) => {
-                    child.className = traceListItemClass();
-                });
-                div.className = traceListItemClass(true);
-                window.currentNGDate = date;
-                window.currentNGHour = "";
+                setTraceDateSelection(date);
+                setTraceHourSelection("");
                 resetTracePagerState();
                 if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="cf-trace-list-item is-disabled">读取时段中...</div>';
                 if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = traceLoadingMarkup("正在读取时段目录");
@@ -423,7 +463,12 @@
             list.appendChild(div);
         });
 
-        list.firstElementChild?.click?.();
+        const preferredDate = dates.includes(window.currentNGDate)
+            ? window.currentNGDate
+            : (dates.includes(byId("gallery-date-picker")?.value) ? byId("gallery-date-picker")?.value : dates[0]);
+        Array.from(list.children)
+            .find((child) => child.dataset?.traceDate === preferredDate)
+            ?.click?.();
     }
 
     function updateNGHours(data) {
@@ -454,14 +499,11 @@
             }
             const div = document.createElement("div");
             div.className = traceListItemClass();
+            div.dataset.traceHour = hour;
             div.tabIndex = 0;
             div.innerHTML = `<span>${escapeHtml(hour)}:00 时段</span><span class="cf-trace-list-chevron">›</span>`;
             const selectHour = () => {
-                Array.from(list.children).forEach((child) => {
-                    child.className = traceListItemClass();
-                });
-                div.className = traceListItemClass(true);
-                window.currentNGHour = hour;
+                setTraceHourSelection(hour);
                 resetTracePagerState();
                 if (byId("ng-image-grid")) {
                     byId("ng-image-grid").innerHTML = traceLoadingMarkup("正在索引 NG 图像");
@@ -478,21 +520,29 @@
             list.appendChild(div);
         });
 
-        if (!window.currentNGHour) {
-            list.firstElementChild?.click?.();
-        }
+        const preferredHour = hours.includes(window.currentNGHour) ? window.currentNGHour : hours[0];
+        Array.from(list.children)
+            .find((child) => child.dataset?.traceHour === preferredHour)
+            ?.click?.();
     }
 
     function selectTraceHour(hour) {
-        window.currentNGHour = hour || byId("trace-hour-select")?.value || window.currentNGHour;
+        const selectedHour = hour ?? byId("trace-hour-select")?.value ?? "";
+        setTraceHourSelection(selectedHour);
+        resetTracePagerState();
+        if (byId("ng-image-grid")) {
+            byId("ng-image-grid").innerHTML = traceLoadingMarkup("正在索引 NG 图像");
+        }
+        requestTracePage("initial");
     }
 
     function searchTraceImages() {
         syncTraceControls();
         const date = byId("gallery-date-picker")?.value || window.currentNGDate;
-        const hour = byId("trace-hour-select")?.value || window.currentNGHour || "";
-        if (date) window.currentNGDate = date;
-        window.currentNGHour = hour;
+        const hourSelect = byId("trace-hour-select");
+        const hour = hourSelect ? hourSelect.value : (window.currentNGHour || "");
+        if (date) setTraceDateSelection(date);
+        setTraceHourSelection(hour);
         resetTracePagerState();
         requestTracePage("initial");
     }
