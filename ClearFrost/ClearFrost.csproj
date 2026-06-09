@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <!-- 修复1: 移除了嵌套的PropertyGroup -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -101,14 +101,23 @@
 
   <!-- x64 相机 SDK 依赖 DLL 自动复制 -->
   <ItemGroup>
-    <None Include="..\依赖\x64依赖包\**\*.*">
+    <None Include="..\依赖\x64依赖包\**\*.*" Condition="Exists('..\依赖\x64依赖包')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
+    <None Include="..\x64依赖包\**\*.*" Condition="Exists('..\x64依赖包')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
     </None>
   </ItemGroup>
 
   <!-- 海康威视 SDK 依赖 DLL 自动复制 -->
   <ItemGroup>
-    <None Include="..\依赖\海康依赖包\**\*.*">
+    <None Include="..\依赖\海康依赖包\**\*.*" Condition="Exists('..\依赖\海康依赖包')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
+    <None Include="..\海康依赖包\**\*.*" Condition="Exists('..\海康依赖包')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
     </None>
