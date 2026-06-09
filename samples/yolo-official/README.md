@@ -1,4 +1,4 @@
-﻿# Official YOLO ONNX Samples
+# Official YOLO ONNX Samples
 
 This folder is used for local acceptance samples generated from Ultralytics official YOLO11 nano models.
 

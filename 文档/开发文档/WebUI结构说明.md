@@ -1,4 +1,4 @@
-﻿# Web UI 结构说明
+# Web UI 结构说明
 
 ClearFrost 的前端运行在 WinForms 内嵌 WebView2 中，当前采用静态资源方式组织，不依赖 Node.js 构建链。
 

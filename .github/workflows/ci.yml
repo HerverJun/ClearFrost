@@ -1,0 +1,39 @@
+name: ClearFrost CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - "codex/**"
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Verify text encoding
+        shell: pwsh
+        run: .\tools\verify_text_encoding.ps1
+
+      - name: Restore
+        run: dotnet restore ClearFrost.sln
+
+      - name: Build
+        run: dotnet build ClearFrost.sln -c Debug -p:Platform=x64 --no-restore
+
+      - name: Test
+        run: dotnet test ClearFrost.Tests\ClearFrost.Tests.csproj -c Debug -p:Platform=x64 --no-build
+
+      - name: Verify release dependencies
+        shell: pwsh
+        run: .\tools\verify_release_dependencies.ps1 -OutputDir .\ClearFrost\bin\x64\Debug\net8.0-windows10.0.17763.0

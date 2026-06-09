@@ -1,4 +1,4 @@
-﻿{
+{
   "source": "Ultralytics official YOLO11 nano models",
   "format": "onnx",
   "opset": 17,

@@ -1,4 +1,4 @@
-# ClearFrostV5 - 依赖包打包脚本
+﻿# ClearFrostV5 - 依赖包打包脚本
 # 用于创建一个包含所有非代码依赖的压缩包
 
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"

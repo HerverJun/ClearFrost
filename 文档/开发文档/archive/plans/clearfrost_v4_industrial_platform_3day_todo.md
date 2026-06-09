@@ -1,4 +1,4 @@
-﻿# ClearFrost V4 工业运行平台 3-Day 增量升级计划
+# ClearFrost V4 工业运行平台 3-Day 增量升级计划
 
 > 修订说明：本计划根据当前 ClearFrost V3 实际代码基线重写。原计划的方向正确，但一次性把 `InspectionEngine`、PLC 握手、Recipe、ModelRegistry、HealthMonitor、StartupDiagnostics、诊断包和压测全部做成完整平台，风险过高。新版计划改为“稳定增量主干”：先追溯闭环，再工业握手和健康监控，最后轻量平台化与现场工具。
 

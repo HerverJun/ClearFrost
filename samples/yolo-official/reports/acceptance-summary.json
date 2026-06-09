@@ -1,4 +1,4 @@
-﻿[
+[
     {
         "Task":  "detect",
         "Path":  "samples\\yolo-official\\detect\\yolo11n.onnx",

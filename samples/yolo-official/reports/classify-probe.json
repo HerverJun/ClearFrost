@@ -1,4 +1,4 @@
-﻿{
+{
   "Descriptor": {
     "ModelPath": "samples\\yolo-official\\classify\\yolo11n-cls.onnx",
     "InputName": "images",
