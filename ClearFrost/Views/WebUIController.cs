@@ -70,7 +70,7 @@ namespace ClearFrost
         public event EventHandler? OnOpenCamera;
         public event EventHandler? OnManualDetect;
         public event EventHandler<string>? OnCaptureCameraPreview;
-        public event EventHandler? OnManualRelease;
+        public event EventHandler<string>? OnManualRelease;
         public event EventHandler? OnOpenSettings;
         public event EventHandler? OnGetModelList;
         public event EventHandler<string>? OnChangeModel;
@@ -678,7 +678,10 @@ namespace ClearFrost
                                         : "{}");
                                 break;
                             case "manual_release":
-                                OnManualRelease?.Invoke(this, EventArgs.Empty);
+                                string releasePayload = root.TryGetProperty("value", out JsonElement releaseElement)
+                                    ? releaseElement.GetRawText()
+                                    : "{}";
+                                OnManualRelease?.Invoke(this, releasePayload);
                                 break;
                             case "open_settings":
                                 OnOpenSettings?.Invoke(this, EventArgs.Empty);

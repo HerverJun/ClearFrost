@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using ClearFrost.Core.Security;
 using ClearFrost.Core.Rules;
 using ClearFrost.Helpers;
 
@@ -67,6 +68,13 @@ namespace ClearFrost.Config
         public string PlcHeartbeatAddress { get; set; } = "D565";
         [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
         public string PlcResetFaultAddress { get; set; } = "D566";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcTriggerAckAddress { get; set; } = "D567";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcResultValidAddress { get; set; } = "D568";
+        [JsonConverter(typeof(LegacyPlcAddressJsonConverter))]
+        public string PlcResultAckAddress { get; set; } = "D569";
+        public int PlcResultAckTimeoutMs { get; set; } = 2000;
         /// <summary>
         /// PLC 条码读取配置。默认关闭，保持 Legacy 现场行为不变。
         /// </summary>
@@ -142,6 +150,9 @@ namespace ClearFrost.Config
         // ================== System Settings ==================
         public string StoragePath { get; set; } = @"C:\GreeVisionData";
         public bool IsDebugMode { get; set; } = false;
+        public string CurrentOperatorId { get; set; } = "";
+        [JsonConverter(typeof(JsonStringEnumConverter))]
+        public ProductionRole CurrentOperatorRole { get; set; } = ProductionRole.Operator;
 
         // ================== YOLO Settings ==================
         public float Confidence { get; set; } = 0.5f;
@@ -640,6 +651,10 @@ namespace ClearFrost.Config
             PlcTraceSavedAddress = NormalizePlcAddressOrDefault(protocolType, PlcTraceSavedAddress, 564);
             PlcHeartbeatAddress = NormalizePlcAddressOrDefault(protocolType, PlcHeartbeatAddress, 565);
             PlcResetFaultAddress = NormalizePlcAddressOrDefault(protocolType, PlcResetFaultAddress, 566);
+            PlcTriggerAckAddress = NormalizePlcAddressOrDefault(protocolType, PlcTriggerAckAddress, 567);
+            PlcResultValidAddress = NormalizePlcAddressOrDefault(protocolType, PlcResultValidAddress, 568);
+            PlcResultAckAddress = NormalizePlcAddressOrDefault(protocolType, PlcResultAckAddress, 569);
+            PlcResultAckTimeoutMs = Math.Clamp(PlcResultAckTimeoutMs, 0, 30000);
             BarcodeAddress = NormalizePlcAddressOrDefault(protocolType, BarcodeAddress, 570);
             BarcodeWordLength = Math.Clamp(BarcodeWordLength, 1, 64);
             if (string.IsNullOrWhiteSpace(BarcodeEncoding))

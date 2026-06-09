@@ -181,7 +181,10 @@ namespace ClearFrost.Services
                         config.PlcErrorCodeAddress,
                         config.PlcTraceSavedAddress,
                         config.PlcHeartbeatAddress,
-                        config.PlcResetFaultAddress
+                        config.PlcResetFaultAddress,
+                        config.PlcTriggerAckAddress,
+                        config.PlcResultValidAddress,
+                        config.PlcResultAckAddress
                     });
                 }
 

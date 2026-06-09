@@ -618,6 +618,7 @@ namespace ClearFrost
         private void ChangeModel_Logic(string modelName)
         {
             if (string.IsNullOrEmpty(modelName)) return;
+            if (IsRuntimeMutationBlocked("模型切换")) return;
 
             模型名 = modelName;
             SafeFireAndForget(ChangeModelAsync(modelName), "切换模型");
@@ -801,6 +802,14 @@ namespace ClearFrost
             }
 
             DateTimeOffset triggerTime = DateTimeOffset.Now;
+            await RunAcceptedDetectionCycleAsync(triggerSource, triggerSeq, triggerTime);
+        }
+
+        private async Task RunAcceptedDetectionCycleAsync(
+            string triggerSource,
+            int? triggerSeq,
+            DateTimeOffset triggerTime)
+        {
             string inspectionId = InspectionIdGenerator.Next(triggerSource, triggerTime);
             var context = new InspectionContext
             {

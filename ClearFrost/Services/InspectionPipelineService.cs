@@ -1224,8 +1224,14 @@ namespace ClearFrost.Services
             await WriteHandshakeWordAsync(_appConfig.PlcVisionReadyAddress, 1, "VisionReady", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcVisionBusyAddress, 1, "VisionBusy", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcInspectionDoneAddress, 0, "InspectionDone", context).ConfigureAwait(false);
+            await WriteHandshakeWordAsync(_appConfig.PlcResultValidAddress, 0, "ResultValid", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcTraceSavedAddress, 0, "TraceSaved", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcErrorCodeAddress, 0, "ErrorCode", context).ConfigureAwait(false);
+            await WriteHandshakeWordAsync(
+                _appConfig.PlcTriggerAckAddress,
+                context.TriggerSeq.HasValue ? ClampIntToShort(context.TriggerSeq.Value) : (short)1,
+                "TriggerAck",
+                context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcHeartbeatAddress, 1, "Heartbeat", context).ConfigureAwait(false);
             handshakeSw.Stop();
             context.HandshakeStartMs = handshakeSw.ElapsedMilliseconds;
@@ -1264,8 +1270,10 @@ namespace ClearFrost.Services
 
             await WriteHandshakeWordAsync(_appConfig.PlcErrorCodeAddress, errorCode, "ErrorCode", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcTraceSavedAddress, traceSaved, "TraceSaved", context).ConfigureAwait(false);
+            await WriteHandshakeWordAsync(_appConfig.PlcResultValidAddress, 1, "ResultValid", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcInspectionDoneAddress, 1, "InspectionDone", context).ConfigureAwait(false);
             await WriteHandshakeWordAsync(_appConfig.PlcHeartbeatAddress, 1, "Heartbeat", context).ConfigureAwait(false);
+            await WaitForPlcResultAckAsync(context).ConfigureAwait(false);
             handshakeSw.Stop();
             context.HandshakeCompleteMs = handshakeSw.ElapsedMilliseconds;
 
@@ -1302,6 +1310,36 @@ namespace ClearFrost.Services
                 RecordHealthError("PLC.HandshakeV1", message, context.InspectionId);
                 return false;
             }
+        }
+
+        private async Task WaitForPlcResultAckAsync(InspectionContext context)
+        {
+            if (string.IsNullOrWhiteSpace(_appConfig.PlcResultAckAddress) ||
+                _appConfig.PlcResultAckTimeoutMs <= 0)
+            {
+                return;
+            }
+
+            var sw = Stopwatch.StartNew();
+            int timeoutMs = Math.Clamp(_appConfig.PlcResultAckTimeoutMs, 0, 30000);
+            while (sw.ElapsedMilliseconds <= timeoutMs)
+            {
+                var (success, value) = await _plcService.ReadWordAsync(_appConfig.PlcResultAckAddress).ConfigureAwait(false);
+                if (success && value != 0)
+                {
+                    await WriteHandshakeWordAsync(_appConfig.PlcResultValidAddress, 0, "ResultValid.Reset", context).ConfigureAwait(false);
+                    await WriteHandshakeWordAsync(_appConfig.PlcInspectionDoneAddress, 0, "InspectionDone.Reset", context).ConfigureAwait(false);
+                    await WriteHandshakeWordAsync(_appConfig.PlcTriggerAckAddress, 0, "TriggerAck.Reset", context).ConfigureAwait(false);
+                    DiagLog($"HandshakeV1收到PLC ResultAck[{context.InspectionId}]: Ack={value}");
+                    return;
+                }
+
+                await Task.Delay(50).ConfigureAwait(false);
+            }
+
+            string message = $"HandshakeV1等待PLC ResultAck超时: {_appConfig.PlcResultAckAddress}, {timeoutMs}ms";
+            DiagLog($"[{context.TriggerSource}] [{context.InspectionId}] {message}");
+            RecordHealthError("PLC.HandshakeV1", message, context.InspectionId);
         }
 
         private async Task<bool> WriteDetectionResultToPlcAsync(

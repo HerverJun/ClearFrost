@@ -105,6 +105,11 @@ namespace ClearFrost.Interfaces
         Task<bool> WriteResultAsync(string resultAddress, short valueToWrite);
 
         /// <summary>
+        /// 读取 PLC 单字。
+        /// </summary>
+        Task<(bool Success, short Value)> ReadWordAsync(string address);
+
+        /// <summary>
         /// 写入放行信号
         /// </summary>
         /// <param name="resultAddress">结果地址</param>

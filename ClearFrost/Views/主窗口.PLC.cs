@@ -237,10 +237,151 @@ namespace ClearFrost
             return success;
         }
 
+        private async Task HandlePlcTriggerAsync(PlcTriggerContext triggerContext)
+        {
+            triggerContext ??= new PlcTriggerContext
+            {
+                TriggerSource = "PLC",
+                TriggerAddress = _appConfig.PlcTriggerAddress,
+                TriggerValue = 1,
+                TriggerTime = DateTimeOffset.Now
+            };
+
+            string triggerSource = string.IsNullOrWhiteSpace(triggerContext.TriggerSource)
+                ? "PLC"
+                : triggerContext.TriggerSource;
+
+            if (!await EnsureStartupReadyForProductionAsync("PLC触发检测"))
+            {
+                await RejectPlcTriggerWithoutClearingAsync(triggerContext, "StartupNotReady", 90, "启动诊断未通过，PLC触发未接单");
+                return;
+            }
+
+            var cameraReady = await WaitForCameraReadyForInspectionAsync(timeoutMs: 1200);
+            if (!cameraReady.Ready)
+            {
+                await RejectPlcTriggerWithoutClearingAsync(
+                    triggerContext,
+                    "CameraNotReady",
+                    100,
+                    $"相机未就绪，PLC触发未接单: {cameraReady.Message}");
+                return;
+            }
+
+            DetectionTriggerDecision decision = await TryStartDetectionCycleAsync(triggerSource, null);
+            if (!decision.Accepted)
+            {
+                await RejectPlcTriggerWithoutClearingAsync(
+                    triggerContext,
+                    "VisionBusy",
+                    91,
+                    $"视觉忙碌，PLC触发未接单: {decision.DropReason?.ToString() ?? "Busy"}");
+                return;
+            }
+
+            bool acknowledged = await AcknowledgeAcceptedPlcTriggerAsync(triggerContext);
+            if (!acknowledged)
+            {
+                _detectionGate.Release();
+                await RejectPlcTriggerWithoutClearingAsync(
+                    triggerContext,
+                    "TriggerAckFailed",
+                    92,
+                    _plcService.LastError ?? "PLC触发确认失败");
+                return;
+            }
+
+            await RunAcceptedDetectionCycleAsync(
+                triggerSource,
+                triggerContext.TriggerSeq,
+                triggerContext.TriggerTime == default ? DateTimeOffset.Now : triggerContext.TriggerTime);
+        }
+
+        private async Task<bool> AcknowledgeAcceptedPlcTriggerAsync(PlcTriggerContext triggerContext)
+        {
+            string triggerAddress = string.IsNullOrWhiteSpace(triggerContext.TriggerAddress)
+                ? _appConfig.PlcTriggerAddress
+                : triggerContext.TriggerAddress;
+            if (string.IsNullOrWhiteSpace(triggerAddress))
+            {
+                await _uiController.LogToFrontend("PLC触发确认失败: 触发地址为空", "error");
+                return false;
+            }
+
+            if (_appConfig.PlcProtocolMode == PlcProtocolMode.HandshakeV1)
+            {
+                await _plcService.WriteResultAsync(_appConfig.PlcVisionOnlineAddress, 1);
+                await _plcService.WriteResultAsync(_appConfig.PlcVisionReadyAddress, 0);
+                await _plcService.WriteResultAsync(_appConfig.PlcVisionBusyAddress, 1);
+                await _plcService.WriteResultAsync(_appConfig.PlcInspectionDoneAddress, 0);
+                await _plcService.WriteResultAsync(_appConfig.PlcResultValidAddress, 0);
+                await _plcService.WriteResultAsync(_appConfig.PlcErrorCodeAddress, 0);
+                short ackValue = triggerContext.TriggerSeq.HasValue
+                    ? ClampIntToShort(triggerContext.TriggerSeq.Value)
+                    : (short)1;
+                bool ackSuccess = await _plcService.WriteResultAsync(_appConfig.PlcTriggerAckAddress, ackValue);
+                if (!ackSuccess)
+                {
+                    await _uiController.LogToFrontend(
+                        $"PLC触发确认失败: TriggerAck 写入失败 {_appConfig.PlcTriggerAckAddress}",
+                        "error");
+                    return false;
+                }
+            }
+
+            bool clearSuccess = await _plcService.WriteResultAsync(triggerAddress, 0);
+            if (!clearSuccess)
+            {
+                if (_appConfig.PlcProtocolMode == PlcProtocolMode.HandshakeV1)
+                {
+                    await _plcService.WriteResultAsync(_appConfig.PlcTriggerAckAddress, 0);
+                }
+
+                await _uiController.LogToFrontend(
+                    $"PLC触发确认失败: 无法清触发位 {triggerAddress}, {_plcService.LastError}",
+                    "error");
+                return false;
+            }
+
+            DiagLog($"PLC触发已接单并确认: 地址={triggerAddress}, TriggerSeq={triggerContext.TriggerSeq?.ToString() ?? "-"}");
+            return true;
+        }
+
+        private async Task RejectPlcTriggerWithoutClearingAsync(
+            PlcTriggerContext triggerContext,
+            string code,
+            short plcErrorCode,
+            string message)
+        {
+            DiagLog($"PLC触发未接单: {code}, Seq={triggerContext.TriggerSeq?.ToString() ?? "-"}, {message}");
+            RecordHealthError("PLC.Trigger", message);
+
+            if (_appConfig.PlcProtocolMode == PlcProtocolMode.HandshakeV1 && _plcService.IsConnected)
+            {
+                await _plcService.WriteResultAsync(_appConfig.PlcVisionOnlineAddress, 1);
+                await _plcService.WriteResultAsync(_appConfig.PlcVisionReadyAddress, 0);
+                await _plcService.WriteResultAsync(_appConfig.PlcVisionBusyAddress, 0);
+                await _plcService.WriteResultAsync(_appConfig.PlcErrorCodeAddress, plcErrorCode);
+                await _plcService.WriteResultAsync(_appConfig.PlcResultValidAddress, 0);
+                await _plcService.WriteResultAsync(_appConfig.PlcInspectionDoneAddress, 0);
+                await _plcService.WriteResultAsync(_appConfig.PlcHeartbeatAddress, 1);
+            }
+
+            await _uiController.LogToFrontend(message, "warning");
+            await SendHealthSnapshotToFrontendAsync();
+        }
+
+        private static short ClampIntToShort(int value)
+        {
+            if (value > short.MaxValue) return short.MaxValue;
+            if (value < short.MinValue) return short.MinValue;
+            return (short)value;
+        }
+
         /// <summary>
         /// 手动放行
         /// </summary>
-        private async Task fx_btn_LogicAsync()
+        private async Task fx_btn_LogicAsync(string? requestJson)
         {
             if (Interlocked.Exchange(ref _manualReleaseInProgress, 1) != 0)
             {
@@ -253,14 +394,59 @@ namespace ClearFrost
                 return;
             }
 
+            ManualReleaseRequest request = ManualReleaseRequest.Parse(
+                requestJson,
+                ResolveCurrentOperatorId(),
+                _appConfig.CurrentOperatorRole);
+
             try
             {
-                await _uiController.LogToFrontend("强制放行已触发，正在写入 PLC 放行信号", "info");
+                if (!request.TryAuthorize(out string denialReason))
+                {
+                    await AuditManualReleaseAsync(request, OperationAuditStatus.Denied, denialReason);
+                    await _uiController.LogToFrontend($"强制放行已拒绝: {denialReason}", "error");
+                    await _uiController.SendUiCommand("toast", new
+                    {
+                        message = "强制放行已拒绝",
+                        type = "error",
+                        durationMs = 2200
+                    });
+                    return;
+                }
+
+                if (_appConfig.TriggerSource != TriggerSource.PLC)
+                {
+                    const string reason = "当前不是 PLC 触发模式，禁止写 PLC 放行";
+                    await AuditManualReleaseAsync(request, OperationAuditStatus.Denied, reason);
+                    await _uiController.LogToFrontend(reason, "error");
+                    return;
+                }
+
+                if (!_plcService.IsConnected)
+                {
+                    const string reason = "PLC未连接，禁止手动放行";
+                    await AuditManualReleaseAsync(request, OperationAuditStatus.Denied, reason);
+                    await _uiController.LogToFrontend(reason, "error");
+                    return;
+                }
+
+                bool auditReady = await AuditManualReleaseAsync(
+                    request,
+                    OperationAuditStatus.Requested,
+                    "手动放行已授权，准备写入 PLC");
+                if (!auditReady)
+                {
+                    await _uiController.LogToFrontend("强制放行已阻止: 审计 outbox 写入失败", "error");
+                    return;
+                }
+
+                await _uiController.LogToFrontend("强制放行已授权，正在写入 PLC 放行信号", "warning");
 
                 bool success = await _plcService.WriteReleaseSignalAsync(_appConfig.PlcResultAddress);
 
                 if (success)
                 {
+                    await AuditManualReleaseAsync(request, OperationAuditStatus.Succeeded, "PLC 放行信号已写入");
                     await _uiController.LogToFrontend("强制放行信号已发送", "success");
                     await _uiController.SendUiCommand("toast", new
                     {
@@ -271,7 +457,9 @@ namespace ClearFrost
                 }
                 else
                 {
-                    await _uiController.LogToFrontend("强制放行失败: PLC未连接或写入错误", "error");
+                    string reason = _plcService.LastError ?? "PLC未连接或写入错误";
+                    await AuditManualReleaseAsync(request, OperationAuditStatus.Failed, reason);
+                    await _uiController.LogToFrontend($"强制放行失败: {reason}", "error");
                     await _uiController.SendUiCommand("toast", new
                     {
                         message = "强制放行失败",
@@ -282,6 +470,7 @@ namespace ClearFrost
             }
             catch (Exception ex)
             {
+                await AuditManualReleaseAsync(request, OperationAuditStatus.Failed, ex.Message);
                 await _uiController.LogToFrontend($"强制放行异常: {ex.Message}", "error");
                 await _uiController.SendUiCommand("toast", new
                 {
@@ -294,6 +483,37 @@ namespace ClearFrost
             {
                 Interlocked.Exchange(ref _manualReleaseInProgress, 0);
             }
+        }
+
+        private async Task<bool> AuditManualReleaseAsync(
+            ManualReleaseRequest request,
+            OperationAuditStatus status,
+            string details)
+        {
+            return await _operationAuditService.AppendAsync(new OperationAuditRecord
+            {
+                CorrelationId = request.RequestId,
+                Operation = "ManualRelease",
+                Status = status,
+                OperatorId = request.OperatorId,
+                Role = request.Role,
+                Reason = request.Reason,
+                InspectionId = request.InspectionId,
+                Details = details,
+                FailureBlocker = status == OperationAuditStatus.Requested ? "AuditBeforePlcWrite" : string.Empty
+            }).ConfigureAwait(false);
+        }
+
+        private string ResolveCurrentOperatorId()
+        {
+            if (!string.IsNullOrWhiteSpace(_appConfig.CurrentOperatorId))
+            {
+                return _appConfig.CurrentOperatorId.Trim();
+            }
+
+            return string.IsNullOrWhiteSpace(Environment.UserName)
+                ? "unknown"
+                : Environment.UserName;
         }
 
         #endregion

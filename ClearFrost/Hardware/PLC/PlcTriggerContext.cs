@@ -13,6 +13,8 @@ namespace ClearFrost.Hardware
     public sealed class PlcTriggerContext
     {
         public string TriggerSource { get; init; } = "PLC";
+        public string TriggerAddress { get; init; } = string.Empty;
+        public short TriggerValue { get; init; } = 1;
         public int? TriggerSeq { get; init; }
         public DateTimeOffset TriggerTime { get; init; } = DateTimeOffset.Now;
     }

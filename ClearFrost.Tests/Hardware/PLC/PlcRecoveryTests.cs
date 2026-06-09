@@ -147,7 +147,7 @@ public class PlcServiceRecoveryTests
 
         legacyTriggered.Should().BeTrue();
         contextTriggered.Should().BeFalse();
-        device.Writes.Should().Contain(("D555", (short)0));
+        device.Writes.Should().BeEmpty("monitoring only reports a trigger; business ack clears it after inspection is accepted");
     }
 
     [Fact]
@@ -185,25 +185,22 @@ public class PlcServiceRecoveryTests
         legacyTriggered.Should().BeFalse();
         receivedContext.Should().NotBeNull();
         receivedContext!.TriggerSource.Should().Be("PLC");
+        receivedContext.TriggerAddress.Should().Be("D555");
+        receivedContext.TriggerValue.Should().Be(1);
         receivedContext.TriggerSeq.Should().Be(42);
-        device.Writes.Should().Contain(("D555", (short)0));
+        device.Writes.Should().BeEmpty("trigger reset is owned by the accepted inspection ack path");
     }
 
     [Fact]
-    public async Task MonitoringLoop_触发复位失败时不发送触发事件并断开()
+    public async Task MonitoringLoop_触发保持高电平时只派发一次且不复位()
     {
         var service = new PlcService();
-        using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
         var device = new FakePlcDevice(
             isConnected: true,
-            readResultFactory: address => (true, (short)(address == "D555" ? 1 : 0), string.Empty),
-            writeResultFactory: (address, value) =>
-            {
-                cancellationTokenSource.Cancel();
-                return (false, $"复位失败: {address}");
-            });
-        bool triggered = false;
-        service.TriggerReceived += () => triggered = true;
+            readResultFactory: address => (true, (short)(address == "D555" ? 1 : 0), string.Empty));
+        int triggerCount = 0;
+        service.TriggerReceived += () => triggerCount++;
 
         PlcTestReflectionHelper.SetPrivateField(service, "_plcDevice", device);
         PlcTestReflectionHelper.SetPrivateField(service, "_lastProtocolMode", PlcProtocolMode.Legacy);
@@ -211,11 +208,9 @@ public class PlcServiceRecoveryTests
 
         await InvokeMonitoringLoopAsync(service, "D555", 50, 0, cancellationTokenSource.Token);
 
-        triggered.Should().BeFalse();
-        service.IsConnected.Should().BeFalse();
-        service.LastError.Should().Contain("复位失败");
-        device.DisconnectCalled.Should().BeTrue();
-        PlcTestReflectionHelper.GetPrivateField<IPlcDevice?>(service, "_plcDevice").Should().BeNull();
+        triggerCount.Should().Be(1);
+        device.Writes.Should().BeEmpty();
+        device.DisconnectCalled.Should().BeFalse();
     }
 
     [Fact]

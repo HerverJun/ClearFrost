@@ -27,6 +27,7 @@ namespace ClearFrost.Services
         #region 私有字段
 
         private IPlcDevice? _plcDevice;
+        private readonly SemaphoreSlim _ioLock = new SemaphoreSlim(1, 1);
         private CancellationTokenSource? _monitoringCts;
         private Task? _monitoringTask;
         private bool _isConnecting;
@@ -47,6 +48,8 @@ namespace ClearFrost.Services
         private int _lastSiemensSlot = 2;
         private int _lastPollingIntervalMs = 500;
         private int _lastTriggerDelayMs = 800;
+        private bool _triggerPendingAck;
+        private string _pendingTriggerKey = string.Empty;
 
         private static readonly TimeSpan TriggerDebounceWindow = TimeSpan.FromSeconds(2);
         private const int ReconnectRetryDelayMs = 2000;
@@ -123,7 +126,7 @@ namespace ClearFrost.Services
                         // Socket 连接成功后，进行一次读操作验证 PLC 是否真正可通信
                         // HslCommunication 库的 ConnectServer 仅建立 TCP 连接，不验证 PLC 可用性
                         string testAddress = GetConnectivityProbeAddress(protocolType, _lastTriggerAddress);
-                        var (readSuccess, _) = await _plcDevice.ReadInt16Async(testAddress);
+                        var (readSuccess, _) = await ReadInt16SerializedAsync(_plcDevice, testAddress);
                         if (readSuccess)
                         {
                             LastError = null;
@@ -321,7 +324,7 @@ namespace ClearFrost.Services
                     }
 
                     string address = triggerAddress;
-                    var (success, value) = await plc.ReadInt16Async(address);
+                    var (success, value) = await ReadInt16SerializedAsync(plc, address, token).ConfigureAwait(false);
                     pollCount++;
 
                     if (!success)
@@ -350,16 +353,6 @@ namespace ClearFrost.Services
                             triggerSeq = triggerSeqResult.Value;
                         }
 
-                        // 收到触发信号，复位
-                        bool resetSuccess = await plc.WriteInt16Async(address, 0);
-                        Debug.WriteLine($"[PlcService] ↩ 复位信号 - {(resetSuccess ? "成功" : "失败")}");
-                        if (!resetSuccess)
-                        {
-                            LastError = plc.LastError ?? "复位触发信号失败";
-                            SyncConnectionStateFromDevice(plc);
-                            throw new InvalidOperationException(LastError);
-                        }
-
                         // 显式 2 秒防抖：窗口内只接受第一个触发
                         long nowTicks = DateTime.UtcNow.Ticks;
                         long lastTicks = Interlocked.Read(ref _lastAcceptedTriggerTicks);
@@ -374,12 +367,25 @@ namespace ClearFrost.Services
                         Interlocked.Exchange(ref _lastAcceptedTriggerTicks, nowTicks);
                         await Task.Delay(triggerDelayMs, token);
 
+                        string triggerKey = BuildTriggerKey(address, triggerSeq, value);
+                        if (_triggerPendingAck && string.Equals(_pendingTriggerKey, triggerKey, StringComparison.Ordinal))
+                        {
+                            Debug.WriteLine($"[PlcService] 触发仍在等待视觉接单确认，跳过重复派发: {triggerKey}");
+                            await Task.Delay(pollingIntervalMs, token);
+                            continue;
+                        }
+
+                        _triggerPendingAck = true;
+                        _pendingTriggerKey = triggerKey;
+
                         // 触发事件通知
                         if (_lastProtocolMode == PlcProtocolMode.HandshakeV1)
                         {
                             var context = new PlcTriggerContext
                             {
                                 TriggerSource = "PLC",
+                                TriggerAddress = address,
+                                TriggerValue = value,
                                 TriggerSeq = triggerSeq,
                                 TriggerTime = DateTimeOffset.Now
                             };
@@ -394,6 +400,11 @@ namespace ClearFrost.Services
                             TriggerReceived?.Invoke();
                             Debug.WriteLine("[PlcService] ✅ TriggerReceived 事件已发送");
                         }
+                    }
+                    else
+                    {
+                        _triggerPendingAck = false;
+                        _pendingTriggerKey = string.Empty;
                     }
 
                     await Task.Delay(pollingIntervalMs, token);
@@ -454,7 +465,7 @@ namespace ClearFrost.Services
 
             try
             {
-                bool success = await plc.WriteInt16Async(address, (short)(isQualified ? 1 : 0));
+                bool success = await WriteInt16SerializedAsync(plc, address, (short)(isQualified ? 1 : 0)).ConfigureAwait(false);
                 if (!success)
                 {
                     LastError = plc.LastError;
@@ -481,7 +492,7 @@ namespace ClearFrost.Services
 
             try
             {
-                bool success = await plc.WriteInt16Async(address, valueToWrite);
+                bool success = await WriteInt16SerializedAsync(plc, address, valueToWrite).ConfigureAwait(false);
                 if (!success)
                 {
                     LastError = plc.LastError;
@@ -499,6 +510,35 @@ namespace ClearFrost.Services
             }
         }
 
+        public async Task<(bool Success, short Value)> ReadWordAsync(string addressToRead)
+        {
+            if (!TryGetConnectedDeviceForOperation(addressToRead, out var plc, out string address))
+            {
+                return (false, 0);
+            }
+
+            try
+            {
+                var (success, value) = await ReadInt16SerializedAsync(plc, address).ConfigureAwait(false);
+                if (!success)
+                {
+                    LastError = plc.LastError;
+                    SyncConnectionStateFromDevice(plc);
+                    ErrorOccurred?.Invoke($"读取失败: {LastError}");
+                    return (false, 0);
+                }
+
+                return (true, value);
+            }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+                SyncConnectionStateFromDevice(plc);
+                ErrorOccurred?.Invoke($"读取异常: {ex.Message}");
+                return (false, 0);
+            }
+        }
+
         public async Task<bool> WriteReleaseSignalAsync(string resultAddress)
         {
             if (!TryGetConnectedDeviceForOperation(resultAddress, out var plc, out string address))
@@ -508,7 +548,7 @@ namespace ClearFrost.Services
 
             try
             {
-                bool success = await plc.WriteInt16Async(address, 1);
+                bool success = await WriteInt16SerializedAsync(plc, address, 1).ConfigureAwait(false);
                 if (!success)
                 {
                     LastError = plc.LastError;
@@ -539,7 +579,7 @@ namespace ClearFrost.Services
             try
             {
                 ushort readLength = GetStringReadLength(safeWordLength);
-                var (success, bytes) = await plc.ReadBytesAsync(address, readLength);
+                var (success, bytes) = await ReadBytesSerializedAsync(plc, address, readLength).ConfigureAwait(false);
                 if (!success)
                 {
                     LastError = plc.LastError;
@@ -574,6 +614,61 @@ namespace ClearFrost.Services
         #endregion
 
         #region 辅助方法
+
+        private async Task<(bool Success, short Value)> ReadInt16SerializedAsync(
+            IPlcDevice plc,
+            string address,
+            CancellationToken cancellationToken = default)
+        {
+            await _ioLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await plc.ReadInt16Async(address).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ioLock.Release();
+            }
+        }
+
+        private async Task<bool> WriteInt16SerializedAsync(
+            IPlcDevice plc,
+            string address,
+            short value,
+            CancellationToken cancellationToken = default)
+        {
+            await _ioLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await plc.WriteInt16Async(address, value).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ioLock.Release();
+            }
+        }
+
+        private async Task<(bool Success, byte[] Value)> ReadBytesSerializedAsync(
+            IPlcDevice plc,
+            string address,
+            ushort length,
+            CancellationToken cancellationToken = default)
+        {
+            await _ioLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await plc.ReadBytesAsync(address, length).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ioLock.Release();
+            }
+        }
+
+        private static string BuildTriggerKey(string address, int? triggerSeq, short triggerValue)
+        {
+            return $"{address}|{triggerSeq?.ToString(CultureInfo.InvariantCulture) ?? "-"}|{triggerValue.ToString(CultureInfo.InvariantCulture)}";
+        }
 
         private void SetConnectionState(bool connected)
         {
@@ -698,7 +793,7 @@ namespace ClearFrost.Services
                 }
 
                 string testAddress = GetConnectivityProbeAddress(protocolType, _lastTriggerAddress);
-                var (readSuccess, _) = await _plcDevice.ReadInt16Async(testAddress);
+                var (readSuccess, _) = await ReadInt16SerializedAsync(_plcDevice, testAddress, token).ConfigureAwait(false);
                 if (!readSuccess)
                 {
                     LastError = _plcDevice.LastError;
@@ -750,7 +845,7 @@ namespace ClearFrost.Services
 
             try
             {
-                var (success, value) = await plc.ReadInt16Async(_lastTriggerSeqAddress);
+                var (success, value) = await ReadInt16SerializedAsync(plc, _lastTriggerSeqAddress).ConfigureAwait(false);
                 if (!success)
                 {
                     LastError = plc.LastError;
@@ -880,6 +975,7 @@ namespace ClearFrost.Services
 
             StopMonitoring();
             Disconnect();
+            _ioLock.Dispose();
 
             GC.SuppressFinalize(this);
         }

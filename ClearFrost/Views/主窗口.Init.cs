@@ -19,6 +19,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using ClearFrost.Core.Recipes;
 using ClearFrost.Core.Rules;
+using ClearFrost.Core.Security;
 using ClearFrost.Yolo;
 using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
@@ -47,12 +48,19 @@ namespace ClearFrost
             _plcService.TriggerReceived += () =>
             {
                 Debug.WriteLine($"[主窗口] 📥 收到PLC触发事件 - {DateTime.Now:HH:mm:ss.fff}");
+                var context = new PlcTriggerContext
+                {
+                    TriggerSource = "PLC",
+                    TriggerAddress = _appConfig.PlcTriggerAddress,
+                    TriggerValue = 1,
+                    TriggerTime = DateTimeOffset.Now
+                };
+
                 InvokeOnUIThread(() =>
                 {
                     SafeFireAndForget(_uiController.FlashPlcTrigger(), "PLC触发指示灯");
+                    SafeFireAndForget(HandlePlcTriggerAsync(context), "PLC触发检测");
                 });
-
-                InvokeOnUIThread(() => SafeFireAndForget(btnCapture_LogicAsync("PLC半自动"), "PLC触发检测"));
             };
             _plcService.TriggerContextReceived += (context) =>
             {
@@ -60,11 +68,8 @@ namespace ClearFrost
                 InvokeOnUIThread(() =>
                 {
                     SafeFireAndForget(_uiController.FlashPlcTrigger(), "PLC触发指示灯");
+                    SafeFireAndForget(HandlePlcTriggerAsync(context), "PLC上下文触发检测");
                 });
-
-                InvokeOnUIThread(() => SafeFireAndForget(
-                    btnCapture_LogicAsync(context.TriggerSource, context.TriggerSeq),
-                    "PLC上下文触发检测"));
             };
             _plcService.ErrorOccurred += (error) =>
             {
@@ -192,7 +197,7 @@ namespace ClearFrost
             _uiController.OnOpenCamera += (s, e) => SafeFireAndForget(btnOpenCamera_LogicAsync(), "启动系统");
             _uiController.OnManualDetect += (s, e) => InvokeOnUIThread(() => SafeFireAndForget(ManualDetectAsync(), "手动检测"));
             _uiController.OnCaptureCameraPreview += (s, json) => InvokeOnUIThread(() => SafeFireAndForget(CaptureCameraPreviewFrameAsync(json), "获取相机预览单帧"));
-            _uiController.OnManualRelease += (s, e) => SafeFireAndForget(fx_btn_LogicAsync(), "手动放行"); // Async void handler
+            _uiController.OnManualRelease += (s, payloadJson) => SafeFireAndForget(fx_btn_LogicAsync(payloadJson), "手动放行");
             _uiController.OnOpenSettings += (s, e) => InvokeOnUIThread(() => btnSettings_Logic());
             _uiController.OnCollectDataset += (s, e) => SafeFireAndForget(CollectDatasetAsync(), "数据集收集");
             _uiController.OnRunHistoryRulePreview += (s, json) => SafeFireAndForget(RunHistoryRulePreviewAsync(json), "历史图规则复判");
@@ -202,6 +207,7 @@ namespace ClearFrost
             _uiController.OnRequestHealthSnapshot += (s, e) => SafeFireAndForget(SendHealthSnapshotToFrontendAsync(showToast: true), "前端刷新健康快照");
             _uiController.OnThresholdChanged += (s, val) =>
             {
+                if (IsRuntimeMutationBlocked("ROI阈值更新")) return;
                 _appConfig.IouThreshold = Math.Clamp(val / 100f, 0f, 1f);
                 if (_appConfig.Save())
                 {
@@ -307,6 +313,7 @@ namespace ClearFrost
             {
                 try
                 {
+                    if (!await EnsureRuntimeMutationAllowedAsync("相机切换")) return;
                     var newCam = _cameraService is CameraService cameraService
                         ? cameraService.SwitchActiveCamera(cameraId)
                         : null;
@@ -371,6 +378,7 @@ namespace ClearFrost
             {
                 try
                 {
+                    if (!await EnsureRuntimeMutationAllowedAsync("相机配置更新")) return;
                     using var doc = JsonDocument.Parse(json);
                     var r = doc.RootElement;
 
@@ -453,6 +461,7 @@ namespace ClearFrost
             {
                 try
                 {
+                    if (!await EnsureRuntimeMutationAllowedAsync("相机配置删除")) return;
                     var camToRemove = _appConfig.Cameras.FirstOrDefault(c => c.Id == cameraId);
                     if (camToRemove == null)
                     {
@@ -588,6 +597,7 @@ namespace ClearFrost
             {
                 try
                 {
+                    if (!await EnsureRuntimeMutationAllowedAsync("相机直连配置")) return;
                     using var doc = JsonDocument.Parse(json);
                     var root = doc.RootElement;
                     string sn = root.TryGetProperty("serialNumber", out var snEl) ? snEl.GetString()?.Trim() ?? "" : "";
@@ -754,6 +764,7 @@ namespace ClearFrost
             // 订阅ROI更新事件
             _uiController.OnUpdateROI += (sender, normalizedRect) =>
             {
+                if (IsRuntimeMutationBlocked("ROI更新")) return;
                 _currentROI = Recipe.NormalizeRoi(normalizedRect);
                 TrySaveCurrentRecipeSnapshot("ROI更新");
             };
@@ -761,6 +772,7 @@ namespace ClearFrost
             // 订阅YOLO参数修改事件
             _uiController.OnSetConfidence += (sender, conf) =>
             {
+                if (IsRuntimeMutationBlocked("置信度阈值更新")) return;
                 _appConfig.Confidence = conf;
                 if (_appConfig.Save())
                 {
@@ -770,6 +782,7 @@ namespace ClearFrost
 
             _uiController.OnSetIou += (sender, iou) =>
             {
+                if (IsRuntimeMutationBlocked("IOU阈值更新")) return;
                 _appConfig.IouThreshold = Math.Clamp(iou, 0f, 1f);
                 if (_appConfig.Save())
                 {
@@ -780,6 +793,7 @@ namespace ClearFrost
             // 订阅任务类型修改事件
             _uiController.OnSetTaskType += (sender, taskType) =>
             {
+                if (IsRuntimeMutationBlocked("检测任务类型更新")) return;
                 _appConfig.TaskType = taskType;
                 if (_appConfig.Save())
                 {
@@ -793,6 +807,7 @@ namespace ClearFrost
             {
                 try
                 {
+                    if (!await EnsureRuntimeMutationAllowedAsync("辅助模型1更新")) return;
                     if (string.IsNullOrEmpty(modelName))
                     {
                         _detectionService.UnloadAuxiliary1Model();
@@ -850,6 +865,7 @@ namespace ClearFrost
             {
                 try
                 {
+                    if (!await EnsureRuntimeMutationAllowedAsync("辅助模型2更新")) return;
                     if (string.IsNullOrEmpty(modelName))
                     {
                         _detectionService.UnloadAuxiliary2Model();
@@ -905,6 +921,7 @@ namespace ClearFrost
 
             _uiController.OnToggleMultiModelFallback += async (sender, enabled) =>
             {
+                if (!await EnsureRuntimeMutationAllowedAsync("多模型自动切换策略更新")) return;
                 _appConfig.EnableMultiModelFallback = enabled;
                 _detectionService.SetEnableFallback(enabled);
                 if (_appConfig.Save())
@@ -959,13 +976,18 @@ namespace ClearFrost
                 InvokeOnUIThread(() => SafeFireAndForget(ExportConfigMigrationAsync(), "导出配置迁移"));
 
             _uiController.OnImportConfigMigration += (sender, e) =>
-                InvokeOnUIThread(() => SafeFireAndForget(ImportConfigMigrationAsync(), "导入配置迁移"));
+                InvokeOnUIThread(() =>
+                {
+                    if (IsRuntimeMutationBlocked("配置迁移导入")) return;
+                    SafeFireAndForget(ImportConfigMigrationAsync(), "导入配置迁移");
+                });
 
             // 订阅配置保存事件
             _uiController.OnSaveSettings += async (sender, configJson) =>
             {
                 try
                 {
+                    if (!await EnsureRuntimeMutationAllowedAsync("系统设置保存和部署")) return;
                     // 使用 JsonDocument 解析，允许部分更新
                     using (JsonDocument doc = JsonDocument.Parse(configJson))
                     {
@@ -991,6 +1013,10 @@ namespace ClearFrost
                         string plcTraceSavedAddress = _appConfig.PlcTraceSavedAddress;
                         string plcHeartbeatAddress = _appConfig.PlcHeartbeatAddress;
                         string plcResetFaultAddress = _appConfig.PlcResetFaultAddress;
+                        string plcTriggerAckAddress = _appConfig.PlcTriggerAckAddress;
+                        string plcResultValidAddress = _appConfig.PlcResultValidAddress;
+                        string plcResultAckAddress = _appConfig.PlcResultAckAddress;
+                        int plcResultAckTimeoutMs = _appConfig.PlcResultAckTimeoutMs;
                         int plcTriggerDelayMs = _appConfig.PlcTriggerDelayMs;
                         int plcPollingIntervalMs = _appConfig.PlcPollingIntervalMs;
                         short plcOkValue = _appConfig.PlcOkValue;
@@ -1003,6 +1029,8 @@ namespace ClearFrost
                         int barcodeWordLength = _appConfig.BarcodeWordLength;
                         string barcodeEncoding = _appConfig.BarcodeEncoding;
                         bool barcodeRequired = _appConfig.BarcodeRequired;
+                        string currentOperatorId = _appConfig.CurrentOperatorId;
+                        ProductionRole currentOperatorRole = _appConfig.CurrentOperatorRole;
 
                         TriggerSource triggerSource = _appConfig.TriggerSource;
                         string serialPortName = _appConfig.SerialPhotoelectricPortName;
@@ -1065,6 +1093,10 @@ namespace ClearFrost
                         if (root.TryGetProperty("PlcTraceSavedAddress", out var ptsa)) plcTraceSavedAddress = GetJsonStringValue(ptsa, plcTraceSavedAddress);
                         if (root.TryGetProperty("PlcHeartbeatAddress", out var phb)) plcHeartbeatAddress = GetJsonStringValue(phb, plcHeartbeatAddress);
                         if (root.TryGetProperty("PlcResetFaultAddress", out var prf)) plcResetFaultAddress = GetJsonStringValue(prf, plcResetFaultAddress);
+                        if (root.TryGetProperty("PlcTriggerAckAddress", out var pta)) plcTriggerAckAddress = GetJsonStringValue(pta, plcTriggerAckAddress);
+                        if (root.TryGetProperty("PlcResultValidAddress", out var prv)) plcResultValidAddress = GetJsonStringValue(prv, plcResultValidAddress);
+                        if (root.TryGetProperty("PlcResultAckAddress", out var pra)) plcResultAckAddress = GetJsonStringValue(pra, plcResultAckAddress);
+                        if (root.TryGetProperty("PlcResultAckTimeoutMs", out var prat)) plcResultAckTimeoutMs = prat.TryGetInt32(out int pratVal) ? Math.Clamp(pratVal, 0, 30000) : plcResultAckTimeoutMs;
                         if (root.TryGetProperty("PlcTriggerDelayMs", out var ptd)) plcTriggerDelayMs = ptd.TryGetInt32(out int ptdVal) ? Math.Max(0, ptdVal) : plcTriggerDelayMs;
                         if (root.TryGetProperty("PlcPollingIntervalMs", out var ppi)) plcPollingIntervalMs = ppi.TryGetInt32(out int ppiVal) ? Math.Max(50, ppiVal) : plcPollingIntervalMs;
                         if (root.TryGetProperty("PlcOkValue", out var pok)) plcOkValue = pok.TryGetInt16(out short pokVal) ? pokVal : plcOkValue;
@@ -1077,6 +1109,8 @@ namespace ClearFrost
                         if (root.TryGetProperty("BarcodeWordLength", out var bwl)) barcodeWordLength = bwl.TryGetInt32(out int bwlVal) ? Math.Clamp(bwlVal, 1, 64) : barcodeWordLength;
                         if (root.TryGetProperty("BarcodeEncoding", out var benc)) barcodeEncoding = benc.GetString() ?? barcodeEncoding;
                         if (root.TryGetProperty("BarcodeRequired", out var br)) barcodeRequired = br.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("CurrentOperatorId", out var coi)) currentOperatorId = GetJsonStringValue(coi, currentOperatorId);
+                        if (root.TryGetProperty("CurrentOperatorRole", out var cor)) currentOperatorRole = GetJsonEnumValue(cor, currentOperatorRole);
 
                         bool shouldValidatePlcAddresses = triggerSource == TriggerSource.PLC;
                         PlcProtocolType plcProtocolType;
@@ -1135,6 +1169,9 @@ namespace ClearFrost
                         plcTraceSavedAddress = NormalizeOptionalPlcAddressForSave(plcTraceSavedAddress, plcProtocolType, plcDriverProvider, 564, requiresHandshakeAddresses);
                         plcHeartbeatAddress = NormalizeOptionalPlcAddressForSave(plcHeartbeatAddress, plcProtocolType, plcDriverProvider, 565, requiresHandshakeAddresses);
                         plcResetFaultAddress = NormalizeOptionalPlcAddressForSave(plcResetFaultAddress, plcProtocolType, plcDriverProvider, 566, requiresHandshakeAddresses);
+                        plcTriggerAckAddress = NormalizeOptionalPlcAddressForSave(plcTriggerAckAddress, plcProtocolType, plcDriverProvider, 567, requiresHandshakeAddresses);
+                        plcResultValidAddress = NormalizeOptionalPlcAddressForSave(plcResultValidAddress, plcProtocolType, plcDriverProvider, 568, requiresHandshakeAddresses);
+                        plcResultAckAddress = NormalizeOptionalPlcAddressForSave(plcResultAckAddress, plcProtocolType, plcDriverProvider, 569, requiresHandshakeAddresses);
                         barcodeAddress = NormalizeOptionalPlcAddressForSave(barcodeAddress, plcProtocolType, plcDriverProvider, 570, shouldValidatePlcAddresses && barcodeEnabled);
 
                         _appConfig.PlcProtocol = plcProtocol;
@@ -1154,6 +1191,10 @@ namespace ClearFrost
                         _appConfig.PlcTraceSavedAddress = plcTraceSavedAddress;
                         _appConfig.PlcHeartbeatAddress = plcHeartbeatAddress;
                         _appConfig.PlcResetFaultAddress = plcResetFaultAddress;
+                        _appConfig.PlcTriggerAckAddress = plcTriggerAckAddress;
+                        _appConfig.PlcResultValidAddress = plcResultValidAddress;
+                        _appConfig.PlcResultAckAddress = plcResultAckAddress;
+                        _appConfig.PlcResultAckTimeoutMs = Math.Clamp(plcResultAckTimeoutMs, 0, 30000);
                         _appConfig.PlcTriggerDelayMs = plcTriggerDelayMs;
                         _appConfig.PlcPollingIntervalMs = plcPollingIntervalMs;
                         _appConfig.PlcOkValue = plcOkValue;
@@ -1166,6 +1207,8 @@ namespace ClearFrost
                         _appConfig.BarcodeWordLength = Math.Clamp(barcodeWordLength, 1, 64);
                         _appConfig.BarcodeEncoding = string.IsNullOrWhiteSpace(barcodeEncoding) ? "ASCII" : barcodeEncoding.Trim().ToUpperInvariant();
                         _appConfig.BarcodeRequired = barcodeRequired;
+                        _appConfig.CurrentOperatorId = string.IsNullOrWhiteSpace(currentOperatorId) ? string.Empty : currentOperatorId.Trim();
+                        _appConfig.CurrentOperatorRole = currentOperatorRole;
 #pragma warning disable CS0618
                         var activeCamBefore = _appConfig.ActiveCamera;
                         string previousCameraId = activeCamBefore?.Id ?? string.Empty;
@@ -1289,6 +1332,7 @@ namespace ClearFrost
             {
                 InvokeOnUIThread(async () =>
                 {
+                    if (!await EnsureRuntimeMutationAllowedAsync("数据保存路径修改")) return;
                     using (var fbd = new FolderBrowserDialog())
                     {
                         fbd.Description = "选择数据存储根目录";
@@ -1756,6 +1800,100 @@ namespace ClearFrost
                 isRunning,
                 isBusy
             });
+        }
+
+        private bool IsRuntimeMutationBlocked(
+            string operation,
+            ProductionOperation requiredOperation = ProductionOperation.EngineeringChange)
+        {
+            if (!ProductionAuthorizationService.Authorize(_appConfig.CurrentOperatorRole, requiredOperation, out string denialReason))
+            {
+                SafeFireAndForget(
+                    ReportUnauthorizedOperationAsync(operation, requiredOperation, denialReason),
+                    $"权限阻止{operation}");
+                return true;
+            }
+
+            if (!IsProductionRunning)
+            {
+                return false;
+            }
+
+            SafeFireAndForget(ReportRuntimeMutationBlockedAsync(operation), $"运行中阻止{operation}");
+            return true;
+        }
+
+        private async Task<bool> EnsureRuntimeMutationAllowedAsync(
+            string operation,
+            ProductionOperation requiredOperation = ProductionOperation.EngineeringChange)
+        {
+            if (!await EnsureProductionOperationAuthorizedAsync(operation, requiredOperation))
+            {
+                return false;
+            }
+
+            if (!IsProductionRunning)
+            {
+                return true;
+            }
+
+            await ReportRuntimeMutationBlockedAsync(operation);
+            return false;
+        }
+
+        private async Task ReportRuntimeMutationBlockedAsync(string operation)
+        {
+            string message = $"检测运行中，已阻止{operation}。请先停止检测。";
+            RecordHealthError("RuntimeConfigLock", message);
+            await _uiController.LogToFrontend(message, "warning");
+            await _uiController.SendUiCommand("toast", new
+            {
+                message,
+                type = "warning",
+                durationMs = 2200
+            });
+            await SendHealthSnapshotToFrontendAsync();
+        }
+
+        private async Task<bool> EnsureProductionOperationAuthorizedAsync(
+            string operation,
+            ProductionOperation requiredOperation)
+        {
+            if (ProductionAuthorizationService.Authorize(_appConfig.CurrentOperatorRole, requiredOperation, out string denialReason))
+            {
+                return true;
+            }
+
+            await ReportUnauthorizedOperationAsync(operation, requiredOperation, denialReason);
+            return false;
+        }
+
+        private async Task ReportUnauthorizedOperationAsync(
+            string operation,
+            ProductionOperation requiredOperation,
+            string denialReason)
+        {
+            ProductionRole requiredRole = ProductionAuthorizationService.GetRequiredRole(requiredOperation);
+            string message = $"{operation}已拒绝: {denialReason}";
+            RecordHealthError("Authorization", message);
+            await _operationAuditService.AppendAsync(new OperationAuditRecord
+            {
+                Operation = operation,
+                Status = OperationAuditStatus.Denied,
+                OperatorId = ResolveCurrentOperatorId(),
+                Role = _appConfig.CurrentOperatorRole,
+                Details = message,
+                FailureBlocker = $"RequiredRole={requiredRole}"
+            }).ConfigureAwait(false);
+
+            await _uiController.LogToFrontend(message, "error");
+            await _uiController.SendUiCommand("toast", new
+            {
+                message,
+                type = "error",
+                durationMs = 2200
+            });
+            await SendHealthSnapshotToFrontendAsync();
         }
 
         /// <summary>
