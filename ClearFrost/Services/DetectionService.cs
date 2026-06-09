@@ -15,6 +15,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
@@ -34,6 +35,7 @@ namespace ClearFrost.Services
         private YoloDetector? _yolo;
         private MultiModelManager? _modelManager;
         private readonly bool _useGpu;
+        private readonly SemaphoreSlim _lifecycleLock = new SemaphoreSlim(1, 1);
         private int _gpuDeviceId;
         private readonly List<string> _availableModels = new List<string>();
         private string _currentModelName = "未加载";
@@ -89,6 +91,9 @@ namespace ClearFrost.Services
             gpuDeviceId = Math.Max(0, gpuDeviceId);
             _gpuDeviceId = gpuDeviceId;
 
+            await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
             if (!File.Exists(modelPath))
             {
                 ErrorOccurred?.Invoke($"模型文件不存在: {modelPath}");
@@ -149,6 +154,11 @@ namespace ClearFrost.Services
             {
                 ErrorOccurred?.Invoke($"加载模型失败: {ex.Message}");
                 return false;
+            }
+            }
+            finally
+            {
+                _lifecycleLock.Release();
             }
         }
 
@@ -308,16 +318,24 @@ namespace ClearFrost.Services
 
                 if (_modelManager != null)
                 {
-                    // 重新加载主模型
-                    await Task.Run(() => _modelManager.LoadPrimaryModel(modelPath));
-
-                    if (_modelManager.IsPrimaryLoaded)
+                    await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+                    try
                     {
-                        _currentModelName = modelName;
-                        ModelLoaded?.Invoke(modelName);
-                        return true;
+                        // 重新加载主模型
+                        await Task.Run(() => _modelManager.LoadPrimaryModel(modelPath));
+
+                        if (_modelManager.IsPrimaryLoaded)
+                        {
+                            _currentModelName = modelName;
+                            ModelLoaded?.Invoke(modelName);
+                            return true;
+                        }
+                        return false;
                     }
-                    return false;
+                    finally
+                    {
+                        _lifecycleLock.Release();
+                    }
                 }
 
                 return await LoadModelAsync(modelPath, _useGpu, _gpuDeviceId);
@@ -356,6 +374,9 @@ namespace ClearFrost.Services
 
             try
             {
+                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
                 var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
@@ -372,6 +393,11 @@ namespace ClearFrost.Services
 
                 DetectionCompleted?.Invoke(result);
                 return result;
+                }
+                finally
+                {
+                    _lifecycleLock.Release();
+                }
             }
             catch (Exception ex)
             {
@@ -403,6 +429,9 @@ namespace ClearFrost.Services
 
             try
             {
+                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
                 var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
@@ -419,6 +448,11 @@ namespace ClearFrost.Services
 
                 DetectionCompleted?.Invoke(result);
                 return result;
+                }
+                finally
+                {
+                    _lifecycleLock.Release();
+                }
             }
             catch (Exception ex)
             {
@@ -563,36 +597,52 @@ namespace ClearFrost.Services
         /// <returns>标注后的图像</returns>
         public Bitmap GenerateResultImage(Bitmap original, List<YoloResult> results, string[] labels)
         {
-            if (_modelManager != null && _modelManager.IsPrimaryLoaded)
+            _lifecycleLock.Wait();
+            try
             {
-                Bitmap? image = _modelManager.GeneratePrimaryResultImage(original, results, labels);
-                if (image != null)
+                if (_modelManager != null && _modelManager.IsPrimaryLoaded)
                 {
-                    return image;
+                    Bitmap? image = _modelManager.GeneratePrimaryResultImage(original, results, labels);
+                    if (image != null)
+                    {
+                        return image;
+                    }
                 }
-            }
 
-            if (_yolo != null)
+                if (_yolo != null)
+                {
+                    return (Bitmap)_yolo.GenerateImage(original, results, labels);
+                }
+
+                // 返回原图的副本
+                return new Bitmap(original);
+            }
+            finally
             {
-                return (Bitmap)_yolo.GenerateImage(original, results, labels);
+                _lifecycleLock.Release();
             }
-
-            // 返回原图的副本
-            return new Bitmap(original);
         }
 
         internal Mat? GenerateResultMat(Mat original, List<YoloResult> results, string[] labels)
         {
-            if (_modelManager != null && _modelManager.IsPrimaryLoaded)
+            _lifecycleLock.Wait();
+            try
             {
-                Mat? image = _modelManager.GeneratePrimaryResultMat(original, results, labels);
-                if (image != null)
+                if (_modelManager != null && _modelManager.IsPrimaryLoaded)
                 {
-                    return image;
+                    Mat? image = _modelManager.GeneratePrimaryResultMat(original, results, labels);
+                    if (image != null)
+                    {
+                        return image;
+                    }
                 }
-            }
 
-            return _yolo?.GenerateImageMat(original, results, labels);
+                return _yolo?.GenerateImageMat(original, results, labels);
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         #endregion
@@ -605,67 +655,131 @@ namespace ClearFrost.Services
         /// <param name="taskType">任务类型整数值</param>
         public void SetTaskMode(int taskType)
         {
-            _modelManager?.SetTaskMode((YoloTaskType)taskType);
-            if (_yolo != null)
+            _lifecycleLock.Wait();
+            try
             {
-                _yolo.TaskMode = (YoloTaskType)taskType;
+                _modelManager?.SetTaskMode((YoloTaskType)taskType);
+                if (_yolo != null)
+                {
+                    _yolo.TaskMode = (YoloTaskType)taskType;
+                }
+            }
+            finally
+            {
+                _lifecycleLock.Release();
             }
         }
 
         public void SetEnableFallback(bool enabled)
         {
-            if (_modelManager != null)
+            _lifecycleLock.Wait();
+            try
             {
-                _modelManager.EnableFallback = enabled;
+                if (_modelManager != null)
+                {
+                    _modelManager.EnableFallback = enabled;
+                }
+            }
+            finally
+            {
+                _lifecycleLock.Release();
             }
         }
 
         public async Task<bool> LoadAuxiliary1ModelAsync(string modelPath)
         {
-            if (_modelManager == null || string.IsNullOrEmpty(modelPath))
-                return false;
-
-            bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, modelPath, 1);
-            if (ok)
+            await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+            try
             {
-                Debug.WriteLine($"[DetectionService] 辅助模型1已加载: {Path.GetFileName(modelPath)}");
-            }
+                if (_modelManager == null || string.IsNullOrEmpty(modelPath))
+                    return false;
 
-            return ok;
+                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, modelPath, 1);
+                if (ok)
+                {
+                    Debug.WriteLine($"[DetectionService] 辅助模型1已加载: {Path.GetFileName(modelPath)}");
+                }
+
+                return ok;
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public async Task<bool> LoadAuxiliary2ModelAsync(string modelPath)
         {
-            if (_modelManager == null || string.IsNullOrEmpty(modelPath))
-                return false;
-
-            bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, modelPath, 2);
-            if (ok)
+            await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+            try
             {
-                Debug.WriteLine($"[DetectionService] 辅助模型2已加载: {Path.GetFileName(modelPath)}");
-            }
+                if (_modelManager == null || string.IsNullOrEmpty(modelPath))
+                    return false;
 
-            return ok;
+                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, modelPath, 2);
+                if (ok)
+                {
+                    Debug.WriteLine($"[DetectionService] 辅助模型2已加载: {Path.GetFileName(modelPath)}");
+                }
+
+                return ok;
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public void UnloadAuxiliary1Model()
         {
-            _modelManager?.UnloadAuxiliary1Model();
+            _lifecycleLock.Wait();
+            try
+            {
+                _modelManager?.UnloadAuxiliary1Model();
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public void UnloadAuxiliary2Model()
         {
-            _modelManager?.UnloadAuxiliary2Model();
+            _lifecycleLock.Wait();
+            try
+            {
+                _modelManager?.UnloadAuxiliary2Model();
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public string[] GetLabels()
         {
-            return _modelManager?.PrimaryLabels ?? _yolo?.Labels ?? Array.Empty<string>();
+            _lifecycleLock.Wait();
+            try
+            {
+                return _modelManager?.PrimaryLabels ?? _yolo?.Labels ?? Array.Empty<string>();
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public object? GetLastMetrics()
         {
-            return _modelManager?.GetPrimaryLastMetrics() ?? _yolo?.LastMetrics;
+            _lifecycleLock.Wait();
+            try
+            {
+                return _modelManager?.GetPrimaryLastMetrics() ?? _yolo?.LastMetrics;
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         #endregion
@@ -747,11 +861,20 @@ namespace ClearFrost.Services
             if (_disposed) return;
             _disposed = true;
 
-            _yolo?.Dispose();
-            _yolo = null;
+            _lifecycleLock.Wait();
+            try
+            {
+                _yolo?.Dispose();
+                _yolo = null;
 
-            _modelManager?.Dispose();
-            _modelManager = null;
+                _modelManager?.Dispose();
+                _modelManager = null;
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+                _lifecycleLock.Dispose();
+            }
 
             GC.SuppressFinalize(this);
         }

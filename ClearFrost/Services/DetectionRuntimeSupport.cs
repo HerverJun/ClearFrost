@@ -1,9 +1,13 @@
 ﻿using System;
 using System.Diagnostics;
+using System.IO;
+using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using ClearFrost.Core.Inspection;
+using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
 using OpenCvSharp;
 
@@ -344,6 +348,7 @@ namespace ClearFrost.Services
 
             Interlocked.Decrement(ref _pendingCount);
             long dropped = Interlocked.Increment(ref _droppedCount);
+            DetectionTraceOutbox.Append(payload, "DetectionRecordQueueFull");
             Debug.WriteLine($"[DetectionRecordQueue] 数据库记录队列已满，丢弃新记录。Dropped={dropped}, Pending={PendingCount}/{_capacity}");
             return false;
         }
@@ -380,6 +385,7 @@ namespace ClearFrost.Services
                         catch (Exception ex)
                         {
                             Interlocked.Increment(ref _failedCount);
+                            DetectionTraceOutbox.Append(payload, $"DatabaseSaveFailed: {ex.Message}");
                             Debug.WriteLine($"[DetectionRecordQueue] 数据库写入失败: {ex.Message}");
                             Trace.TraceError($"[DetectionRecordQueue] 数据库写入失败: {ex}");
                         }
@@ -425,6 +431,42 @@ namespace ClearFrost.Services
             finally
             {
                 _cts.Dispose();
+            }
+        }
+    }
+
+    internal static class DetectionTraceOutbox
+    {
+        private static readonly object WriteLock = new object();
+        private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+        public static void Append(DetectionPersistencePayload payload, string reason)
+        {
+            if (payload == null)
+            {
+                return;
+            }
+
+            try
+            {
+                string directory = Path.Combine(RuntimePaths.DataDirectory, "outbox");
+                Directory.CreateDirectory(directory);
+                string path = Path.Combine(directory, $"detection-trace-{DateTime.Now:yyyyMMdd}.ndjson");
+                string json = JsonSerializer.Serialize(new
+                {
+                    Timestamp = DateTimeOffset.Now,
+                    Reason = reason ?? string.Empty,
+                    Payload = payload
+                });
+
+                lock (WriteLock)
+                {
+                    File.AppendAllText(path, json + Environment.NewLine, Utf8NoBom);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DetectionTraceOutbox] 写入追溯 outbox 失败: {ex.Message}");
             }
         }
     }
