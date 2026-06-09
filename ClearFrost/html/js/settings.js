@@ -1,4 +1,4 @@
-﻿// ==========================================
+// ==========================================
 // ClearFrost settings workspace
 // ==========================================
 (function () {
@@ -980,6 +980,9 @@
                 ["TraceSaved", "cfg-plc-trace-saved"],
                 ["Heartbeat", "cfg-plc-heartbeat"],
                 ["ResetFault", "cfg-plc-reset-fault"],
+                ["TriggerAck", "cfg-plc-trigger-ack"],
+                ["ResultValid", "cfg-plc-result-valid"],
+                ["ResultAck", "cfg-plc-result-ack"],
             ];
             for (const [label, inputId] of handshakeFields) {
                 const error = validatePlcAddress(byId(inputId)?.value || "", protocol, driver);
@@ -1105,6 +1108,10 @@
             PlcTraceSavedAddress: "cfg-plc-trace-saved",
             PlcHeartbeatAddress: "cfg-plc-heartbeat",
             PlcResetFaultAddress: "cfg-plc-reset-fault",
+            PlcTriggerAckAddress: "cfg-plc-trigger-ack",
+            PlcResultValidAddress: "cfg-plc-result-valid",
+            PlcResultAckAddress: "cfg-plc-result-ack",
+            PlcResultAckTimeoutMs: "cfg-plc-result-ack-timeout",
             PlcTriggerDelayMs: "cfg-plc-trigger-delay",
             PlcPollingIntervalMs: "cfg-plc-polling-interval",
             PlcOkValue: "cfg-plc-ok-value",
@@ -1128,6 +1135,8 @@
             BarcodeWordLength: "cfg-barcode-word-length",
             BarcodeEncoding: "cfg-barcode-encoding",
             BarcodeRequired: "cfg-barcode-required",
+            CurrentOperatorId: "cfg-current-operator-id",
+            CurrentOperatorRole: "cfg-current-operator-role",
         };
 
         for (const [propName, inputId] of Object.entries(mapping)) {
@@ -1167,6 +1176,7 @@
         }
         updatePlcAddressUi();
         updateTriggerSourceUi();
+        window.updateOperatorStatus?.();
         if (store.state.modelList?.length) {
             selectModelOption(byId("model-select"), data.CurrentModelFileName);
             selectModelOption(byId("auxiliary1-select"), data.Auxiliary1ModelPath);
@@ -1379,6 +1389,10 @@
             "cfg-plc-trace-saved": "PlcTraceSavedAddress",
             "cfg-plc-heartbeat": "PlcHeartbeatAddress",
             "cfg-plc-reset-fault": "PlcResetFaultAddress",
+            "cfg-plc-trigger-ack": "PlcTriggerAckAddress",
+            "cfg-plc-result-valid": "PlcResultValidAddress",
+            "cfg-plc-result-ack": "PlcResultAckAddress",
+            "cfg-plc-result-ack-timeout": "PlcResultAckTimeoutMs",
             "cfg-plc-trigger-delay": "PlcTriggerDelayMs",
             "cfg-plc-polling-interval": "PlcPollingIntervalMs",
             "cfg-plc-ok-value": "PlcOkValue",
@@ -1402,9 +1416,12 @@
             "cfg-barcode-word-length": "BarcodeWordLength",
             "cfg-barcode-encoding": "BarcodeEncoding",
             "cfg-barcode-required": "BarcodeRequired",
+            "cfg-current-operator-id": "CurrentOperatorId",
+            "cfg-current-operator-role": "CurrentOperatorRole",
         };
         const numericFields = new Set([
             "PlcPort", "PlcTriggerDelayMs", "PlcPollingIntervalMs", "PlcOkValue", "PlcNgValue",
+            "PlcResultAckTimeoutMs",
             "PlcSiemensRack", "PlcSiemensSlot", "ExposureTime", "GainRaw",
             "MaxRetryCount", "RetryIntervalMs", "GpuIndex", "BarcodeWordLength",
             "SerialPhotoelectricBaudRate", "SerialPhotoelectricDebounceMs", "SerialPhotoelectricTimeoutMs",
@@ -1451,6 +1468,8 @@
         }
 
         const data = collectSettingsData();
+        store.state.settings = { ...(store.state.settings || {}), ...data };
+        window.updateOperatorStatus?.();
         bridge.sendCommand("save_settings", data);
     }
 
@@ -1596,6 +1615,10 @@
             "cfg-plc-trace-saved": preset.PlcTraceSavedAddress ?? "D564",
             "cfg-plc-heartbeat": preset.PlcHeartbeatAddress ?? "D565",
             "cfg-plc-reset-fault": preset.PlcResetFaultAddress ?? "D566",
+            "cfg-plc-trigger-ack": preset.PlcTriggerAckAddress ?? "D567",
+            "cfg-plc-result-valid": preset.PlcResultValidAddress ?? "D568",
+            "cfg-plc-result-ack": preset.PlcResultAckAddress ?? "D569",
+            "cfg-plc-result-ack-timeout": preset.PlcResultAckTimeoutMs ?? 2000,
             "cfg-plc-siemens-cpu-model": preset.PlcSiemensCpuModel ?? "S1200",
             "cfg-plc-siemens-rack": preset.PlcSiemensRack ?? 0,
             "cfg-plc-siemens-slot": preset.PlcSiemensSlot ?? 2,

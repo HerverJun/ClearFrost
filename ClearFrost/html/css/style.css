@@ -1,4 +1,4 @@
-﻿/* CSS Fallbacks for critical Tailwind colors */
+/* CSS Fallbacks for critical Tailwind colors */
 .bg-celadon-500 {
     background-color: #06b6d4 !important;
 }
@@ -1129,12 +1129,49 @@ input[type="range"]::-webkit-slider-runnable-track {
 .stitch-top-status-lights {
     min-width: 0;
     display: flex;
+    align-items: center;
     justify-content: center;
+    gap: 12px;
 }
 
 .stitch-top-status-lights .stitch-status-lights {
+    flex: 1 1 360px;
     width: min(420px, 100%);
+    max-width: 420px;
     margin: 0;
+}
+
+.stitch-operator-chip {
+    min-width: 132px;
+    max-width: 168px;
+    height: 34px;
+    flex: 0 1 148px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 4px 12px;
+    border: 1px solid rgba(160, 180, 210, 0.42);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(244, 248, 252, 0.9) 100%);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+.stitch-operator-chip span {
+    color: #667085;
+    font-size: 10px;
+    line-height: 1.1;
+    font-weight: 800;
+}
+
+.stitch-operator-chip strong {
+    min-width: 0;
+    overflow: hidden;
+    color: #0b5cab;
+    font-size: 11px;
+    line-height: 1.3;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .stitch-nav-actions {
@@ -1999,6 +2036,26 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 @media (max-width: 1360px) {
+    .stitch-topbar {
+        column-gap: 16px;
+        padding: 14px 24px;
+    }
+
+    .stitch-top-status-lights {
+        gap: 8px;
+    }
+
+    .stitch-top-status-lights .stitch-status-light {
+        min-width: 96px;
+        padding: 0 8px;
+    }
+
+    .stitch-operator-chip {
+        min-width: 112px;
+        max-width: 140px;
+        padding: 4px 9px;
+    }
+
     .stitch-left-panel {
         width: 300px;
         flex-basis: 300px;
@@ -2018,11 +2075,13 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 /* Stitch modal surfaces */
 .cf-stitch-page #settings-modal,
+.cf-stitch-page #manual-release-modal,
 .cf-stitch-page #log-history-modal {
     background: rgba(27, 28, 29, 0.58) !important;
 }
 
 .cf-stitch-page #settings-modal > .cf-ornate-modal,
+.cf-stitch-page #manual-release-modal > .cf-ornate-modal,
 .cf-stitch-page #log-history-modal > .cf-ornate-modal {
     color: var(--stitch-text);
     background: var(--stitch-bg) !important;
@@ -2041,11 +2100,13 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page #settings-modal .cf-ornate-modal::before,
+.cf-stitch-page #manual-release-modal .cf-ornate-modal::before,
 .cf-stitch-page #log-history-modal .cf-ornate-modal::before {
     display: none;
 }
 
 .cf-stitch-page #settings-modal .cf-ornate-header,
+.cf-stitch-page #manual-release-modal .cf-ornate-header,
 .cf-stitch-page #log-history-modal .cf-ornate-header {
     min-height: 72px;
     height: 72px;
@@ -2055,6 +2116,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page #settings-modal .cf-ornate-header h3,
+.cf-stitch-page #manual-release-modal .cf-ornate-header h3,
 .cf-stitch-page #log-history-modal .cf-ornate-header h3 {
     color: var(--stitch-text) !important;
     font-family: "Noto Serif", "Microsoft YaHei", serif;
@@ -3129,6 +3191,151 @@ input[type="range"]::-webkit-slider-runnable-track {
     color: #0f172a !important;
     background: #f2f4f7 !important;
     border-color: #e4e7ec !important;
+}
+
+.cf-stitch-page #manual-release-modal {
+    --manual-primary: #0b5cab;
+    --manual-primary-hover: #084c93;
+    --manual-danger: #b42318;
+    --manual-border: #dbe3ee;
+}
+
+.cf-stitch-page #manual-release-modal > .cf-manual-release-modal {
+    width: min(520px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    border-radius: 12px !important;
+    background: #ffffff !important;
+}
+
+.cf-stitch-page #manual-release-modal .cf-ornate-header {
+    min-height: 64px !important;
+    height: 64px !important;
+    padding: 0 22px !important;
+}
+
+.cf-stitch-page #manual-release-modal .cf-ornate-header h3 {
+    font-size: 18px;
+}
+
+.cf-stitch-page #manual-release-modal .cf-ornate-header button {
+    width: 30px;
+    height: 30px;
+    display: inline-grid;
+    place-items: center;
+    padding: 0 !important;
+    border-radius: 8px !important;
+    color: #64748b !important;
+    background: transparent !important;
+    border: 0 !important;
+    font-size: 22px;
+    line-height: 1;
+}
+
+.cf-stitch-page #manual-release-modal .cf-ornate-header button:hover {
+    color: var(--manual-danger) !important;
+    background: #fee4e2 !important;
+}
+
+.cf-manual-release-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.cf-manual-release-summary > div {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--manual-border);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.cf-manual-release-summary span {
+    display: block;
+    margin-bottom: 5px;
+    color: #667085;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.cf-manual-release-summary strong {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    color: #172033;
+    font-size: 12px;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-stitch-page #manual-release-modal label {
+    margin-bottom: 7px !important;
+    color: #475467 !important;
+    font-weight: 800 !important;
+}
+
+.cf-stitch-page #manual-release-modal input,
+.cf-stitch-page #manual-release-modal textarea {
+    width: 100%;
+    border: 1px solid var(--manual-border) !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    color: #172033 !important;
+    box-shadow: none !important;
+    outline: none;
+}
+
+.cf-stitch-page #manual-release-modal textarea {
+    min-height: 118px;
+    line-height: 1.5;
+}
+
+.cf-stitch-page #manual-release-modal input:focus,
+.cf-stitch-page #manual-release-modal textarea:focus {
+    border-color: var(--manual-primary) !important;
+    box-shadow: 0 0 0 3px rgba(11, 92, 171, 0.14) !important;
+}
+
+.cf-manual-release-request {
+    min-height: 24px;
+    display: flex;
+    align-items: center;
+    color: #667085;
+    font-family: "Inter", "Microsoft YaHei", sans-serif;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.cf-stitch-page #manual-release-modal > .cf-ornate-modal > div:last-child {
+    height: 60px !important;
+    gap: 10px !important;
+}
+
+.cf-stitch-page #manual-release-modal > .cf-ornate-modal > div:last-child button {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+}
+
+.cf-stitch-page #manual-release-modal button[data-action="closeManualReleaseModal"] {
+    color: #475467 !important;
+}
+
+.cf-stitch-page #manual-release-modal .cf-manual-release-submit {
+    color: #ffffff !important;
+    background: var(--manual-danger) !important;
+    border: 1px solid var(--manual-danger) !important;
+    box-shadow: 0 4px 12px rgba(180, 35, 24, 0.22) !important;
+}
+
+.cf-stitch-page #manual-release-modal .cf-manual-release-submit:hover {
+    background: #971b12 !important;
+    border-color: #971b12 !important;
 }
 
 .cf-stitch-page #settings-modal .cf-plc-group,
@@ -4249,6 +4456,10 @@ input[type="range"]::-webkit-slider-runnable-track {
     .cf-stitch-page #settings-modal .cf-plc-span-2,
     .cf-stitch-page #settings-modal .cf-plc-span-3 {
         grid-column: 1 / -1;
+    }
+
+    .cf-manual-release-summary {
+        grid-template-columns: 1fr;
     }
 
     .cf-stitch-page #settings-modal .cf-serial-port-row,

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
@@ -55,6 +55,10 @@
                     </span>
                     <strong id="status-plc-trigger-text">待触发</strong>
                 </div>
+            </div>
+            <div id="operator-status-chip" class="stitch-operator-chip" title="当前操作员">
+                <span id="operator-status-role">操作员</span>
+                <strong id="operator-status-id">未设置</strong>
             </div>
         </div>
         <nav class="stitch-nav-actions" aria-label="操作">
@@ -211,7 +215,7 @@
                         </svg>
                         手动拍照
                     </button>
-                    <button data-cmd="manual_release">
+                    <button data-action="openManualReleaseModal">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M9 12 11 14 15.5 9.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
@@ -224,6 +228,54 @@
     </div>
 
     <!-- MODALS: 瓷感磨砂 -->
+
+    <!-- Manual Release Modal -->
+    <div id="manual-release-modal"
+        class="fixed inset-0 bg-ink-900/60 z-[70] hidden flex items-center justify-center p-4">
+        <div class="glass-panel-lite cf-ornate-modal cf-manual-release-modal w-full rounded-2xl overflow-hidden shadow-2xl flex flex-col">
+            <div
+                class="h-16 border-b border-celadon-100 flex justify-between items-center px-6 bg-porcelain-50/50 shrink-0 cf-ornate-header">
+                <h3 class="text-base font-serif font-black text-ink-800 tracking-widest">强制放行确认</h3>
+                <button data-action="closeManualReleaseModal"
+                    class="p-2 hover:bg-red-50 text-ink-400 hover:text-vermilion rounded-full transition-[background-color,color] text-xl">&times;</button>
+            </div>
+            <div class="p-6 space-y-4 bg-porcelain-100/30">
+                <div class="cf-manual-release-summary">
+                    <div>
+                        <span>操作员</span>
+                        <strong id="manual-release-operator-id">未设置</strong>
+                    </div>
+                    <div>
+                        <span>角色</span>
+                        <strong id="manual-release-operator-role">操作员</strong>
+                    </div>
+                    <div>
+                        <span>检测单号</span>
+                        <strong id="manual-release-inspection-id">-</strong>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">放行原因</label>
+                    <textarea id="manual-release-reason" rows="4"
+                        class="w-full tech-input px-4 py-3 rounded-xl text-xs font-bold resize-none"
+                        placeholder="请输入不少于 6 个字符的原因"></textarea>
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-ink-400 mb-1 block">确认令牌</label>
+                    <input id="manual-release-token" type="text"
+                        class="w-full tech-input px-4 py-2.5 rounded-xl text-xs font-bold"
+                        placeholder="CONFIRM_MANUAL_RELEASE">
+                </div>
+                <div id="manual-release-request-id" class="cf-manual-release-request">请求号: -</div>
+            </div>
+            <div class="h-16 border-t border-slate-100 bg-white flex justify-end items-center px-6 gap-3 shrink-0">
+                <button data-action="closeManualReleaseModal"
+                    class="px-5 py-2 text-xs font-bold text-ink-400 hover:text-ink-600 transition-colors">取消</button>
+                <button data-action="submitManualRelease"
+                    class="px-7 py-2 rounded-xl text-xs font-bold shadow-float cf-manual-release-submit">提交放行申请</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Settings Modal -->
     <div id="settings-modal"
@@ -715,6 +767,26 @@
                                         <input id="cfg-plc-reset-fault"
                                             class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D566">
                                     </div>
+                                    <div>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">触发确认</label>
+                                        <input id="cfg-plc-trigger-ack"
+                                            class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D567">
+                                    </div>
+                                    <div>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">结果有效</label>
+                                        <input id="cfg-plc-result-valid"
+                                            class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D568">
+                                    </div>
+                                    <div>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">结果确认</label>
+                                        <input id="cfg-plc-result-ack"
+                                            class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="D569">
+                                    </div>
+                                    <div>
+                                        <label class="text-[10px] text-ink-400 mb-1 block">确认超时(ms)</label>
+                                        <input id="cfg-plc-result-ack-timeout" type="number" min="0" max="30000" step="50"
+                                            class="w-full tech-input px-3 py-2 rounded-lg text-xs font-mono" placeholder="2000">
+                                    </div>
                                 </div>
                             </div>
                         </section>
@@ -920,6 +992,20 @@
                                     <button data-cmd="select_storage_folder"
                                         class="px-6 text-xs font-bold bg-white border border-slate-200 text-ink-600 hover:border-celadon-400 rounded-xl transition-[background-color,border-color,color,box-shadow] shadow-sm">浏览</button>
                                 </div>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">当前操作员</label>
+                                <input id="cfg-current-operator-id" type="text"
+                                    class="w-full tech-input px-4 py-2.5 rounded-xl text-xs font-bold" placeholder="operator-id">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold text-ink-400 mb-1 block">当前角色</label>
+                                <select id="cfg-current-operator-role"
+                                    class="w-full tech-input px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer">
+                                    <option value="Operator">操作员</option>
+                                    <option value="ShiftLead">班组长</option>
+                                    <option value="Engineer">工程师</option>
+                                </select>
                             </div>
                         </div>
                     </div>

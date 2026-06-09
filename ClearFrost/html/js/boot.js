@@ -1,4 +1,4 @@
-﻿// ==========================================
+// ==========================================
 // ClearFrost boot and generic shell actions
 // ==========================================
 (function () {
@@ -82,6 +82,102 @@
         return !message || window.confirm(message);
     }
 
+    function getCurrentSettings() {
+        return window.CF_STORE?.state?.settings || {};
+    }
+
+    function getCurrentInspection() {
+        return window.CF_STORE?.state?.inspection || {};
+    }
+
+    function getRoleLabel(role) {
+        switch (role) {
+            case "Engineer":
+                return "工程师";
+            case "ShiftLead":
+                return "班组长";
+            default:
+                return "操作员";
+        }
+    }
+
+    function updateOperatorStatus() {
+        const settings = getCurrentSettings();
+        const operatorId = String(settings.CurrentOperatorId || "").trim() || "未设置";
+        const role = String(settings.CurrentOperatorRole || "Operator");
+        const roleLabel = getRoleLabel(role);
+
+        const idNode = document.getElementById("operator-status-id");
+        const roleNode = document.getElementById("operator-status-role");
+        if (idNode) idNode.textContent = operatorId;
+        if (roleNode) roleNode.textContent = roleLabel;
+    }
+
+    function openManualReleaseModal() {
+        updateOperatorStatus();
+        const settings = getCurrentSettings();
+        const inspection = getCurrentInspection();
+        const modal = document.getElementById("manual-release-modal");
+        if (!modal) return;
+
+        const operatorId = String(settings.CurrentOperatorId || "").trim() || "未设置";
+        const role = String(settings.CurrentOperatorRole || "Operator");
+        const inspectionId = String(inspection.inspectionId || inspection.InspectionId || "").trim() || "-";
+        const requestId = `manual-release-${Date.now().toString(36)}`;
+
+        const setText = (id, value) => {
+            const node = document.getElementById(id);
+            if (node) node.textContent = value;
+        };
+
+        setText("manual-release-operator-id", operatorId);
+        setText("manual-release-operator-role", getRoleLabel(role));
+        setText("manual-release-inspection-id", inspectionId);
+        setText("manual-release-request-id", `请求号: ${requestId}`);
+        modal.dataset.requestId = requestId;
+        modal.dataset.inspectionId = inspectionId === "-" ? "" : inspectionId;
+
+        const reason = document.getElementById("manual-release-reason");
+        const token = document.getElementById("manual-release-token");
+        if (reason) reason.value = "";
+        if (token) token.value = "";
+        modal.classList.remove("hidden");
+        window.requestAnimationFrame(() => reason?.focus());
+    }
+
+    function closeManualReleaseModal() {
+        document.getElementById("manual-release-modal")?.classList.add("hidden");
+    }
+
+    function submitManualRelease() {
+        const modal = document.getElementById("manual-release-modal");
+        if (!modal) return;
+
+        const reason = String(document.getElementById("manual-release-reason")?.value || "").trim();
+        const confirmationToken = String(document.getElementById("manual-release-token")?.value || "").trim();
+        if (reason.length < 6) {
+            window.showToast?.("手动放行原因过短", "error", 1400);
+            window.addLog?.("手动放行已取消: 原因不足", "warning");
+            return;
+        }
+
+        if (!confirmationToken) {
+            window.showToast?.("请填写确认令牌", "error", 1400);
+            return;
+        }
+
+        const payload = {
+            requestId: modal.dataset.requestId || `manual-release-${Date.now().toString(36)}`,
+            reason,
+            confirmationToken,
+            inspectionId: modal.dataset.inspectionId || "",
+        };
+
+        window.sendCommand("manual_release", payload);
+        window.handleCommandDispatched?.("manual_release", modal);
+        closeManualReleaseModal();
+    }
+
     function setupDelegatedActions() {
         document.addEventListener("click", (event) => {
             const commandElement = event.target.closest("[data-cmd]");
@@ -151,11 +247,16 @@
         window.updatePlcProtocolModeUi?.();
         window.renderRecentInspections?.();
         window.CF_RENDER?.renderAll?.();
+        updateOperatorStatus();
         setTimeout(() => window.sendCommand("app_ready"), 500);
     });
 
     Object.assign(window, {
+        closeManualReleaseModal,
+        openManualReleaseModal,
+        submitManualRelease,
         startDrag,
         toggleDrawer,
+        updateOperatorStatus,
     });
 })();

@@ -1,4 +1,4 @@
-﻿// ==========================================
+// ==========================================
 // ClearFrost main screen rendering
 // ==========================================
 (function () {
@@ -891,8 +891,8 @@
                 showToast("手动检测已触发", "info", 1200);
                 break;
             case "manual_release":
-                addLog("强制放行按钮已点击", "warning");
-                showToast("强制放行已触发", "warning", 1200);
+                addLog("强制放行申请已提交", "warning");
+                showToast("强制放行申请已提交", "warning", 1200);
                 break;
             default:
                 break;

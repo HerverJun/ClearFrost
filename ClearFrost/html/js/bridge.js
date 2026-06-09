@@ -1,4 +1,4 @@
-﻿// ==========================================
+// ==========================================
 // ClearFrost WebView2 bridge
 // ==========================================
 (function () {
@@ -25,6 +25,14 @@
         return data;
     }
 
+    function formatDevPayload(payload) {
+        try {
+            return JSON.stringify(payload);
+        } catch {
+            return payload?.cmd || "";
+        }
+    }
+
     function sendCommand(cmd, value = null) {
         const payload = {
             cmd,
@@ -41,7 +49,7 @@
             return payload.requestId;
         }
 
-        console.log("[ClearFrost Dev] Mock command:", payload);
+        console.log(`[ClearFrost Dev] Mock command: ${formatDevPayload(payload)}`);
         if (typeof window.addLog === "function") {
             window.addLog(`[Mock] Sent: ${cmd}`, "warning");
         }

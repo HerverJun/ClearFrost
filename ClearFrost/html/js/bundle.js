@@ -25,6 +25,14 @@
         return data;
     }
 
+    function formatDevPayload(payload) {
+        try {
+            return JSON.stringify(payload);
+        } catch {
+            return payload?.cmd || "";
+        }
+    }
+
     function sendCommand(cmd, value = null) {
         const payload = {
             cmd,
@@ -41,7 +49,7 @@
             return payload.requestId;
         }
 
-        console.log("[ClearFrost Dev] Mock command:", payload);
+        console.log(`[ClearFrost Dev] Mock command: ${formatDevPayload(payload)}`);
         if (typeof window.addLog === "function") {
             window.addLog(`[Mock] Sent: ${cmd}`, "warning");
         }
@@ -1273,8 +1281,8 @@
                 showToast("手动检测已触发", "info", 1200);
                 break;
             case "manual_release":
-                addLog("强制放行按钮已点击", "warning");
-                showToast("强制放行已触发", "warning", 1200);
+                addLog("强制放行申请已提交", "warning");
+                showToast("强制放行申请已提交", "warning", 1200);
                 break;
             default:
                 break;
@@ -2356,6 +2364,9 @@
                 ["TraceSaved", "cfg-plc-trace-saved"],
                 ["Heartbeat", "cfg-plc-heartbeat"],
                 ["ResetFault", "cfg-plc-reset-fault"],
+                ["TriggerAck", "cfg-plc-trigger-ack"],
+                ["ResultValid", "cfg-plc-result-valid"],
+                ["ResultAck", "cfg-plc-result-ack"],
             ];
             for (const [label, inputId] of handshakeFields) {
                 const error = validatePlcAddress(byId(inputId)?.value || "", protocol, driver);
@@ -2481,6 +2492,10 @@
             PlcTraceSavedAddress: "cfg-plc-trace-saved",
             PlcHeartbeatAddress: "cfg-plc-heartbeat",
             PlcResetFaultAddress: "cfg-plc-reset-fault",
+            PlcTriggerAckAddress: "cfg-plc-trigger-ack",
+            PlcResultValidAddress: "cfg-plc-result-valid",
+            PlcResultAckAddress: "cfg-plc-result-ack",
+            PlcResultAckTimeoutMs: "cfg-plc-result-ack-timeout",
             PlcTriggerDelayMs: "cfg-plc-trigger-delay",
             PlcPollingIntervalMs: "cfg-plc-polling-interval",
             PlcOkValue: "cfg-plc-ok-value",
@@ -2504,6 +2519,8 @@
             BarcodeWordLength: "cfg-barcode-word-length",
             BarcodeEncoding: "cfg-barcode-encoding",
             BarcodeRequired: "cfg-barcode-required",
+            CurrentOperatorId: "cfg-current-operator-id",
+            CurrentOperatorRole: "cfg-current-operator-role",
         };
 
         for (const [propName, inputId] of Object.entries(mapping)) {
@@ -2543,6 +2560,7 @@
         }
         updatePlcAddressUi();
         updateTriggerSourceUi();
+        window.updateOperatorStatus?.();
         if (store.state.modelList?.length) {
             selectModelOption(byId("model-select"), data.CurrentModelFileName);
             selectModelOption(byId("auxiliary1-select"), data.Auxiliary1ModelPath);
@@ -2755,6 +2773,10 @@
             "cfg-plc-trace-saved": "PlcTraceSavedAddress",
             "cfg-plc-heartbeat": "PlcHeartbeatAddress",
             "cfg-plc-reset-fault": "PlcResetFaultAddress",
+            "cfg-plc-trigger-ack": "PlcTriggerAckAddress",
+            "cfg-plc-result-valid": "PlcResultValidAddress",
+            "cfg-plc-result-ack": "PlcResultAckAddress",
+            "cfg-plc-result-ack-timeout": "PlcResultAckTimeoutMs",
             "cfg-plc-trigger-delay": "PlcTriggerDelayMs",
             "cfg-plc-polling-interval": "PlcPollingIntervalMs",
             "cfg-plc-ok-value": "PlcOkValue",
@@ -2778,9 +2800,12 @@
             "cfg-barcode-word-length": "BarcodeWordLength",
             "cfg-barcode-encoding": "BarcodeEncoding",
             "cfg-barcode-required": "BarcodeRequired",
+            "cfg-current-operator-id": "CurrentOperatorId",
+            "cfg-current-operator-role": "CurrentOperatorRole",
         };
         const numericFields = new Set([
             "PlcPort", "PlcTriggerDelayMs", "PlcPollingIntervalMs", "PlcOkValue", "PlcNgValue",
+            "PlcResultAckTimeoutMs",
             "PlcSiemensRack", "PlcSiemensSlot", "ExposureTime", "GainRaw",
             "MaxRetryCount", "RetryIntervalMs", "GpuIndex", "BarcodeWordLength",
             "SerialPhotoelectricBaudRate", "SerialPhotoelectricDebounceMs", "SerialPhotoelectricTimeoutMs",
@@ -2827,6 +2852,8 @@
         }
 
         const data = collectSettingsData();
+        store.state.settings = { ...(store.state.settings || {}), ...data };
+        window.updateOperatorStatus?.();
         bridge.sendCommand("save_settings", data);
     }
 
@@ -2972,6 +2999,10 @@
             "cfg-plc-trace-saved": preset.PlcTraceSavedAddress ?? "D564",
             "cfg-plc-heartbeat": preset.PlcHeartbeatAddress ?? "D565",
             "cfg-plc-reset-fault": preset.PlcResetFaultAddress ?? "D566",
+            "cfg-plc-trigger-ack": preset.PlcTriggerAckAddress ?? "D567",
+            "cfg-plc-result-valid": preset.PlcResultValidAddress ?? "D568",
+            "cfg-plc-result-ack": preset.PlcResultAckAddress ?? "D569",
+            "cfg-plc-result-ack-timeout": preset.PlcResultAckTimeoutMs ?? 2000,
             "cfg-plc-siemens-cpu-model": preset.PlcSiemensCpuModel ?? "S1200",
             "cfg-plc-siemens-rack": preset.PlcSiemensRack ?? 0,
             "cfg-plc-siemens-slot": preset.PlcSiemensSlot ?? 2,
@@ -4460,6 +4491,102 @@
         return !message || window.confirm(message);
     }
 
+    function getCurrentSettings() {
+        return window.CF_STORE?.state?.settings || {};
+    }
+
+    function getCurrentInspection() {
+        return window.CF_STORE?.state?.inspection || {};
+    }
+
+    function getRoleLabel(role) {
+        switch (role) {
+            case "Engineer":
+                return "工程师";
+            case "ShiftLead":
+                return "班组长";
+            default:
+                return "操作员";
+        }
+    }
+
+    function updateOperatorStatus() {
+        const settings = getCurrentSettings();
+        const operatorId = String(settings.CurrentOperatorId || "").trim() || "未设置";
+        const role = String(settings.CurrentOperatorRole || "Operator");
+        const roleLabel = getRoleLabel(role);
+
+        const idNode = document.getElementById("operator-status-id");
+        const roleNode = document.getElementById("operator-status-role");
+        if (idNode) idNode.textContent = operatorId;
+        if (roleNode) roleNode.textContent = roleLabel;
+    }
+
+    function openManualReleaseModal() {
+        updateOperatorStatus();
+        const settings = getCurrentSettings();
+        const inspection = getCurrentInspection();
+        const modal = document.getElementById("manual-release-modal");
+        if (!modal) return;
+
+        const operatorId = String(settings.CurrentOperatorId || "").trim() || "未设置";
+        const role = String(settings.CurrentOperatorRole || "Operator");
+        const inspectionId = String(inspection.inspectionId || inspection.InspectionId || "").trim() || "-";
+        const requestId = `manual-release-${Date.now().toString(36)}`;
+
+        const setText = (id, value) => {
+            const node = document.getElementById(id);
+            if (node) node.textContent = value;
+        };
+
+        setText("manual-release-operator-id", operatorId);
+        setText("manual-release-operator-role", getRoleLabel(role));
+        setText("manual-release-inspection-id", inspectionId);
+        setText("manual-release-request-id", `请求号: ${requestId}`);
+        modal.dataset.requestId = requestId;
+        modal.dataset.inspectionId = inspectionId === "-" ? "" : inspectionId;
+
+        const reason = document.getElementById("manual-release-reason");
+        const token = document.getElementById("manual-release-token");
+        if (reason) reason.value = "";
+        if (token) token.value = "";
+        modal.classList.remove("hidden");
+        window.requestAnimationFrame(() => reason?.focus());
+    }
+
+    function closeManualReleaseModal() {
+        document.getElementById("manual-release-modal")?.classList.add("hidden");
+    }
+
+    function submitManualRelease() {
+        const modal = document.getElementById("manual-release-modal");
+        if (!modal) return;
+
+        const reason = String(document.getElementById("manual-release-reason")?.value || "").trim();
+        const confirmationToken = String(document.getElementById("manual-release-token")?.value || "").trim();
+        if (reason.length < 6) {
+            window.showToast?.("手动放行原因过短", "error", 1400);
+            window.addLog?.("手动放行已取消: 原因不足", "warning");
+            return;
+        }
+
+        if (!confirmationToken) {
+            window.showToast?.("请填写确认令牌", "error", 1400);
+            return;
+        }
+
+        const payload = {
+            requestId: modal.dataset.requestId || `manual-release-${Date.now().toString(36)}`,
+            reason,
+            confirmationToken,
+            inspectionId: modal.dataset.inspectionId || "",
+        };
+
+        window.sendCommand("manual_release", payload);
+        window.handleCommandDispatched?.("manual_release", modal);
+        closeManualReleaseModal();
+    }
+
     function setupDelegatedActions() {
         document.addEventListener("click", (event) => {
             const commandElement = event.target.closest("[data-cmd]");
@@ -4529,12 +4656,17 @@
         window.updatePlcProtocolModeUi?.();
         window.renderRecentInspections?.();
         window.CF_RENDER?.renderAll?.();
+        updateOperatorStatus();
         setTimeout(() => window.sendCommand("app_ready"), 500);
     });
 
     Object.assign(window, {
+        closeManualReleaseModal,
+        openManualReleaseModal,
+        submitManualRelease,
         startDrag,
         toggleDrawer,
+        updateOperatorStatus,
     });
 })();
 
