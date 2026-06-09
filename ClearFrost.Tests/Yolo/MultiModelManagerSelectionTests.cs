@@ -1,4 +1,4 @@
-using ClearFrost.Yolo;
+﻿using ClearFrost.Yolo;
 using FluentAssertions;
 using OpenCvSharp;
 

@@ -7,7 +7,7 @@ using MVSDK_Net;
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// 
+    /// 用于测试和离线调试的模拟相机。
     /// </summary>
     public class MockCamera : ICamera
     {
@@ -17,7 +17,7 @@ namespace ClearFrost.Hardware
         private GCHandle _bufferHandle;
 
         /// <summary>
-        /// 
+        /// 相机是否处于可用连接状态。
         /// </summary>
         public bool IsConnected => !_disposed;
 
@@ -142,7 +142,7 @@ namespace ClearFrost.Hardware
             return IMVDefine.IMV_OK;
         }
 
-        #region IDisposable ʵ��
+        #region IDisposable 实现
 
         public void Dispose()
         {

@@ -1,4 +1,4 @@
-﻿// ==========================================
+// ==========================================
 // ClearFrost legacy ui.js facade
 // ==========================================
 // UI behavior has been split into focused static modules. Keep this file so

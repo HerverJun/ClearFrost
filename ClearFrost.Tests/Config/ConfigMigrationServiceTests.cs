@@ -1,4 +1,4 @@
-using System.Text.Json.Nodes;
+﻿using System.Text.Json.Nodes;
 using ClearFrost.Config;
 using ClearFrost.Core.Rules;
 using ClearFrost.Hardware;

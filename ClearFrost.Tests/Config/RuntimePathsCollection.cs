@@ -1,4 +1,4 @@
-namespace ClearFrost.Tests.Config;
+﻿namespace ClearFrost.Tests.Config;
 
 [CollectionDefinition("RuntimePaths", DisableParallelization = true)]
 public sealed class RuntimePathsCollection

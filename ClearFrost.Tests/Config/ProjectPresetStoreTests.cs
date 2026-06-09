@@ -1,4 +1,4 @@
-using ClearFrost.Config;
+﻿using ClearFrost.Config;
 using ClearFrost.Helpers;
 using FluentAssertions;
 

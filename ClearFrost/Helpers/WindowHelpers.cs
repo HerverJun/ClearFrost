@@ -1,7 +1,10 @@
 ﻿// ============================================================================
-// 
-// 
-// 
+// 文件名: WindowHelpers.cs
+// 描述:   窗口辅助方法
+//
+// 功能:
+//   - 防止系统休眠
+//   - 支持无边框窗口拖动
 // ============================================================================
 
 using System;
@@ -11,11 +14,11 @@ using System.Windows.Forms;
 namespace ClearFrost.Helpers
 {
     /// <summary>
-    /// 
+    /// 窗口辅助方法。
     /// </summary>
     public static class WindowHelpers
     {
-        #region ��ֹ����
+        #region 防止休眠
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern uint SetThreadExecutionState(uint esFlags);
@@ -25,7 +28,7 @@ namespace ClearFrost.Helpers
         private const uint ES_CONTINUOUS = 0x80000000;
 
         /// <summary>
-        /// 
+        /// 阻止系统和显示器进入休眠。
         /// </summary>
         public static void PreventSleep()
         {
@@ -40,7 +43,7 @@ namespace ClearFrost.Helpers
         }
 
         /// <summary>
-        /// 
+        /// 恢复系统默认休眠策略。
         /// </summary>
         public static void RestoreSleep()
         {
@@ -56,7 +59,7 @@ namespace ClearFrost.Helpers
 
         #endregion
 
-        #region �����϶�
+        #region 窗口拖动
 
         [DllImport("user32.dll")]
         private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
@@ -68,7 +71,7 @@ namespace ClearFrost.Helpers
         private const int HT_CAPTION = 0x2;
 
         /// <summary>
-        /// 
+        /// 触发无边框窗体拖动。
         /// </summary>
         /// 
         public static void StartWindowDrag(Form form)

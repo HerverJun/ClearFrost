@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using ClearFrost.Hardware;
 using ClearFrost.Services;
 using FluentAssertions;

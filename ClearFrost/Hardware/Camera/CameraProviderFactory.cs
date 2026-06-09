@@ -5,17 +5,17 @@ using System.Diagnostics;
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// 
+    /// 相机提供程序工厂。
     /// </summary>
     public static class CameraProviderFactory
     {
         /// <summary>
-        /// 
+        /// 支持的相机厂商。
         /// </summary>
         public static readonly string[] SupportedManufacturers = { "Huaray", "MindVision", "Hikvision" };
 
         /// <summary>
-        /// 
+        /// 创建指定厂商的相机提供程序。
         /// </summary>
         public static ICameraProvider Create(string manufacturer)
         {
@@ -28,7 +28,7 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// 
+        /// 创建模拟相机提供程序。
         /// </summary>
         public static ICameraProvider CreateMock()
         {
@@ -112,11 +112,11 @@ namespace ClearFrost.Hardware
         }
 
         /// <summary>
-        /// 
+        /// 自动识别指定序列号所属的相机厂商。
         /// </summary>
         public static ICameraProvider? AutoDetect(string serialNumber)
         {
-            // 
+            // 优先尝试华睿相机。
             try
             {
                 var mv = new MindVisionCamera();
@@ -129,7 +129,7 @@ namespace ClearFrost.Hardware
             }
             catch (Exception ex) { Debug.WriteLine($"[CameraProviderFactory] Huaray AutoDetect failed: {ex.Message}"); }
 
-            // 
+            // 再尝试海康相机。
             try
             {
                 var hik = new HikvisionCamera();
@@ -147,7 +147,7 @@ namespace ClearFrost.Hardware
     }
 
     /// <summary>
-    /// 
+    /// 模拟相机提供程序。
     /// </summary>
     public class MockCameraProvider : ICameraProvider
     {
@@ -182,7 +182,7 @@ namespace ClearFrost.Hardware
         {
             if (_disposed) return false;
 
-            // 
+            // 生成固定灰度渐变测试帧。
             int w = 1280, h = 1024;
             _dummyBuffer = new byte[w * h];
             for (int y = 0; y < h; y++)
@@ -228,7 +228,7 @@ namespace ClearFrost.Hardware
         {
             if (!_isConnected || !_isGrabbing || _dummyBuffer == null) return null;
 
-            System.Threading.Thread.Sleep(50); // ģ��ɼ��ӳ�
+            System.Threading.Thread.Sleep(50); // 模拟采集延迟
 
             return new CameraFrame
             {

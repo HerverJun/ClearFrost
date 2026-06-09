@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // IoUCalculationTests.cs - IoU (Intersection over Union) 算法测试
 // 
 // 注意: CalculateIntersectionOverUnion 是 YoloDetector 的私有方法，

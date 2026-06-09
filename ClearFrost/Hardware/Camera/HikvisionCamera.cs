@@ -6,25 +6,25 @@ using System.Runtime.InteropServices;
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// 
+    /// 海康相机提供程序。
     /// </summary>
     public class HikvisionCamera : ICameraProvider
     {
-        #region ���� SDK �����ͽṹ
+        #region 海康 SDK 常量和结构
 
         private const uint MV_OK = 0x00000000;
         private const uint MV_E_HANDLE = 0x80000000;
         private const uint MV_E_NETER = 0x80000006;
 
-        // 
+        // 设备传输层类型
         private const uint MV_GIGE_DEVICE = 0x00000001;
         private const uint MV_USB_DEVICE = 0x00000004;
         private const uint MV_CAMERALINK_DEVICE = 0x00000008;
 
-        // 
+        // 设备访问模式
         private const uint MV_ACCESS_Exclusive = 1;
 
-        // 
+        // 常用像素格式
         private const uint PixelType_Gvsp_Mono8 = 0x01080001;
         private const uint PixelType_Gvsp_RGB8 = 0x02180014;
         private const uint PixelType_Gvsp_BGR8 = 0x02180015;
@@ -100,7 +100,7 @@ namespace ClearFrost.Hardware
 
         #endregion
 
-        #region P/Invoke ����
+        #region P/Invoke 声明
 
         [DllImport("MvCameraControl.dll", EntryPoint = "MV_CC_EnumDevices")]
         private static extern int MV_CC_EnumDevices(uint nTLayerType, ref MV_CC_DEVICE_INFO_LIST pstDevList);
@@ -367,7 +367,7 @@ namespace ClearFrost.Hardware
                     PixelFormat = ConvertPixelFormat(frameInfo.enPixelType),
                     FrameNumber = frameInfo.nFrameNum,
                     Timestamp = (ulong)frameInfo.nHostTimeStamp,
-                    NeedsNativeRelease = false  // ʹ��Ԥ���仺���������赥���ͷ�
+                    NeedsNativeRelease = false  // 使用预分配缓冲区，无需单独释放
                 };
             }
             catch (Exception ex)

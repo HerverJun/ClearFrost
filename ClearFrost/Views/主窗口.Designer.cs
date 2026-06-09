@@ -1,4 +1,4 @@
-namespace ClearFrost
+﻿namespace ClearFrost
 {
     partial class 主窗口
     {
