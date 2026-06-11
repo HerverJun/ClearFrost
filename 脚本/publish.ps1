@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Mode = "",
     [string]$Version = "",
     [string]$OutputRoot = "",
@@ -239,6 +239,28 @@ function Write-GeneratedCheckEnv($PublishMode, $VersionInfo, [string]$TargetPath
         "    echo [ERROR] HTML assets missing.",
         "    set `"FAILED=1`"",
         ")",
+        "",
+        "for %%F in (Microsoft.ML.OnnxRuntime.dll onnxruntime.dll onnxruntime_providers_shared.dll DirectML.dll) do (",
+        "    if exist `"%~dp0%%F`" (",
+        "        echo [OK] %%F found.",
+        "    ) else (",
+        "        echo [ERROR] %%F missing. ONNX Runtime cannot initialize.",
+        "        set `"FAILED=1`"",
+        "    )",
+        ")",
+        "",
+        "for %%F in (vcruntime140.dll vcruntime140_1.dll msvcp140.dll) do (",
+        "    if exist `"%~dp0%%F`" (",
+        "        echo [OK] VC++ x64 runtime %%F found app-local.",
+        "    ) else (",
+        "        if exist `"%SystemRoot%\System32\%%F`" (",
+        "            echo [OK] VC++ x64 runtime %%F found in System32.",
+        "        ) else (",
+        "            echo [ERROR] VC++ x64 runtime %%F missing. Install Microsoft Visual C++ 2015-2022 Redistributable x64.",
+        "            set `"FAILED=1`"",
+        "        )",
+        "    )",
+        ")",
         ""
     )
 
@@ -333,6 +355,43 @@ function Reset-OnnxOutputDirectory([string]$TargetPath) {
     Write-Ok "ONNX directory created empty; model files are excluded from the package."
 }
 
+function Copy-VcRuntimeLibraries([string]$TargetPath) {
+    $runtimeFiles = @(
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+        "msvcp140.dll"
+    )
+
+    $sourceDirectories = @(
+        (Join-Path $env:WINDIR "System32")
+    )
+
+    foreach ($runtimeFile in $runtimeFiles) {
+        $targetFile = Join-Path $TargetPath $runtimeFile
+        if (Test-Path -LiteralPath $targetFile) {
+            Write-Ok "$runtimeFile already present."
+            continue
+        }
+
+        $sourceFile = $null
+        foreach ($sourceDirectory in $sourceDirectories) {
+            $candidate = Join-Path $sourceDirectory $runtimeFile
+            if (Test-Path -LiteralPath $candidate) {
+                $sourceFile = $candidate
+                break
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($sourceFile)) {
+            Write-Warn "$runtimeFile was not found in System32. Install Microsoft Visual C++ 2015-2022 Redistributable x64 on this build machine, then publish again."
+            continue
+        }
+
+        Copy-Item -LiteralPath $sourceFile -Destination $targetFile -Force
+        Write-Ok "$runtimeFile copied for app-local ONNX Runtime loading."
+    }
+}
+
 function Add-EmptyDirectoryEntryToZip([string]$ZipPath, [string]$DirectoryEntry) {
     Add-Type -AssemblyName System.IO.Compression | Out-Null
     Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
@@ -389,6 +448,27 @@ function Verify-PublishOutput($PublishMode, $VersionInfo, [string]$TargetPath, [
     $deps = Get-ChildItem -LiteralPath $TargetPath -Filter "*.deps.json" -File -ErrorAction SilentlyContinue
     if ($PublishMode -eq "Lite" -and $deps.Count -eq 0) {
         $errors += ".deps.json is missing. Lite package cannot resolve NuGet dependencies without it."
+    }
+
+    foreach ($requiredRuntimeFile in @(
+        "Microsoft.ML.OnnxRuntime.dll",
+        "onnxruntime.dll",
+        "onnxruntime_providers_shared.dll",
+        "DirectML.dll"
+    )) {
+        if (-not (Test-Path -LiteralPath (Join-Path $TargetPath $requiredRuntimeFile))) {
+            $errors += "$requiredRuntimeFile is missing. ONNX Runtime cannot initialize."
+        }
+    }
+
+    foreach ($requiredVcRuntimeFile in @(
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+        "msvcp140.dll"
+    )) {
+        if (-not (Test-Path -LiteralPath (Join-Path $TargetPath $requiredVcRuntimeFile))) {
+            $errors += "$requiredVcRuntimeFile is missing from the package. ONNX Runtime may fail on clean Windows machines."
+        }
     }
 
     $onnxPath = Join-Path $TargetPath "ONNX"
@@ -493,6 +573,7 @@ function Invoke-PublishPackage($PublishMode, $VersionInfo, [string]$ResolvedOutp
     Write-Step "Post-processing output"
     Remove-DebugFiles $targetPath
     Reset-OnnxOutputDirectory $targetPath
+    Copy-VcRuntimeLibraries $targetPath
 
     $checkEnvPath = Join-Path $script:RepoRoot "check_env.bat"
     if (Test-Path -LiteralPath $checkEnvPath) {

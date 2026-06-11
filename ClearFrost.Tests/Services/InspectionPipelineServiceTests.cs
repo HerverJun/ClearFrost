@@ -261,6 +261,149 @@ public class InspectionPipelineServiceTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_短帧失败_快速补拍成功且不重连()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            config.MaxRetryCount = 0;
+            config.RetryIntervalMs = 0;
+            var camera = FakeCameraService
+                .WithCaptureSequence(null, new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)))
+                .WithFailureKinds(CameraCaptureFailureKind.ShortFrame);
+            var plc = new FakePlcService();
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
+                    UsedModelName = "primary.onnx",
+                    UsedModelLabels = new[] { "part" }
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue);
+            InspectionContext context = CreateContext("CF-SHORT-FRAME-FAST-RETRY", triggerSeq: null);
+            var logs = new List<string>();
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("手动", context.InspectionId, context.TriggerSeq, context),
+                default,
+                progress =>
+                {
+                    if (progress.Kind == InspectionPipelineProgressKind.Log)
+                    {
+                        logs.Add(progress.Message);
+                    }
+
+                    return Task.CompletedTask;
+                });
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeTrue();
+            result.AttemptCount.Should().Be(1);
+            camera.CaptureCalls.Should().Be(2);
+            camera.OpenCalls.Should().Be(0);
+            camera.CloseCalls.Should().Be(0);
+            detection.DetectMatCalls.Should().Be(1);
+            logs.Should().Contain(message => message.Contains("短帧") && message.Contains("快速补拍"));
+            logs.Should().NotContain(message => message.Contains("重连相机"));
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_连续短帧_快速补拍失败后强制重连()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            config.MaxRetryCount = 0;
+            config.RetryIntervalMs = 0;
+            var camera = FakeCameraService
+                .WithCaptureSequence(
+                    null,
+                    null,
+                    null,
+                    new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)))
+                .WithFailureKinds(
+                    CameraCaptureFailureKind.ShortFrame,
+                    CameraCaptureFailureKind.ShortFrame,
+                    CameraCaptureFailureKind.ShortFrame);
+            var plc = new FakePlcService();
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
+                    UsedModelName = "primary.onnx",
+                    UsedModelLabels = new[] { "part" }
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue);
+            InspectionContext context = CreateContext("CF-SHORT-FRAME-RECONNECT", triggerSeq: null);
+            var logs = new List<string>();
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("手动", context.InspectionId, context.TriggerSeq, context),
+                default,
+                progress =>
+                {
+                    if (progress.Kind == InspectionPipelineProgressKind.Log)
+                    {
+                        logs.Add(progress.Message);
+                    }
+
+                    return Task.CompletedTask;
+                });
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeTrue();
+            result.AttemptCount.Should().Be(1);
+            camera.CaptureCalls.Should().Be(4);
+            camera.CloseCalls.Should().Be(1);
+            camera.OpenCalls.Should().Be(1);
+            camera.StartCaptureCalls.Should().Be(1);
+            detection.DetectMatCalls.Should().Be(1);
+            logs.Should().Contain(message => message.Contains("连续返回短帧") && message.Contains("重连相机"));
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task ExecuteAsync_顺序规则忽略Roi内非期望标签_返回Ok()
     {
         string tempDir = CreateTempDirectory();
@@ -563,10 +706,11 @@ public class InspectionPipelineServiceTests
         }
     }
 
-    private sealed class FakeCameraService : ICameraService
+    private sealed class FakeCameraService : ICameraService, ICameraCaptureDiagnostics
     {
         private readonly Mat? _frame;
         private readonly Queue<Mat?> _captureSequence = new Queue<Mat?>();
+        private readonly Queue<CameraCaptureFailureKind> _failureKindSequence = new Queue<CameraCaptureFailureKind>();
         private readonly List<Mat?> _ownedSequenceFrames = new List<Mat?>();
 
         public FakeCameraService(Mat? frame)
@@ -586,6 +730,16 @@ public class InspectionPipelineServiceTests
             return service;
         }
 
+        public FakeCameraService WithFailureKinds(params CameraCaptureFailureKind[] failureKinds)
+        {
+            foreach (CameraCaptureFailureKind failureKind in failureKinds)
+            {
+                _failureKindSequence.Enqueue(failureKind);
+            }
+
+            return this;
+        }
+
         public event Action<Mat>? FrameCaptured;
         public event Action<bool>? ConnectionChanged;
         public event Action<string>? ErrorOccurred;
@@ -599,6 +753,7 @@ public class InspectionPipelineServiceTests
         public bool IsOpen => true;
         public string CameraName => "FakeCamera";
         public string? LastError => LastErrorOverride;
+        public CameraCaptureFailureKind LastCaptureFailureKind { get; private set; }
         public Mat? LastFrame => _frame;
         public bool IsGrabbing => true;
 
@@ -627,10 +782,16 @@ public class InspectionPipelineServiceTests
             Mat? source = _captureSequence.Count > 0 ? _captureSequence.Dequeue() : _frame;
             if (source == null)
             {
-                LastErrorOverride ??= "timeout";
+                LastCaptureFailureKind = _failureKindSequence.Count > 0
+                    ? _failureKindSequence.Dequeue()
+                    : CameraCaptureFailureKind.GetFrameFailed;
+                LastErrorOverride = LastCaptureFailureKind == CameraCaptureFailureKind.ShortFrame
+                    ? "SDK 帧长度不足: actual=5013503, expected>=5013504, width=2448, height=2048, paddingX=0, format=0x01080001"
+                    : LastErrorOverride ?? "timeout";
                 return null;
             }
 
+            LastCaptureFailureKind = CameraCaptureFailureKind.None;
             LastErrorOverride = null;
             return source.Clone();
         }

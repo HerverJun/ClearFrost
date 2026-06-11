@@ -26,7 +26,7 @@ namespace ClearFrost.Services
     /// <summary>
     /// 相机服务实现类，提供相机的控制和图像获取功能
     /// </summary>
-    public class CameraService : ICameraService
+    public class CameraService : ICameraService, ICameraCaptureDiagnostics
     {
         private const uint GvspPixelMono8 = 0x01080001;
         private const uint GvspPixelRgb8 = 0x02180014;
@@ -80,7 +80,7 @@ namespace ClearFrost.Services
                 }
                 catch (Exception ex)
                 {
-                    LastError = $"采集状态读取失败: {ex.Message}";
+                    SetCaptureError(CameraCaptureFailureKind.NotReady, $"采集状态读取失败: {ex.Message}");
                     activeCamera.SetGrabbing(false);
                     Debug.WriteLine($"[CameraService] IsGrabbing SDK check failed: {ex.Message}");
                     return false;
@@ -91,6 +91,8 @@ namespace ClearFrost.Services
             }
         }
         public string? LastError { get; private set; }
+
+        public CameraCaptureFailureKind LastCaptureFailureKind { get; private set; } = CameraCaptureFailureKind.None;
 
         public Mat? LastFrame
         {
@@ -104,6 +106,18 @@ namespace ClearFrost.Services
         }
 
         #endregion
+
+        private void SetCaptureError(CameraCaptureFailureKind failureKind, string message)
+        {
+            LastCaptureFailureKind = failureKind;
+            LastError = message;
+        }
+
+        private void ClearCaptureError()
+        {
+            LastCaptureFailureKind = CameraCaptureFailureKind.None;
+            LastError = null;
+        }
 
         private void CacheLastFrameReference(Mat frame)
         {
@@ -202,7 +216,7 @@ namespace ClearFrost.Services
                 bool success = instance.Open();
                 if (success)
                 {
-                    LastError = null;
+                    ClearCaptureError();
                     _hasLoggedFramePixelFormatDiagnostics = false;
                     ConnectionChanged?.Invoke(true);
                     Debug.WriteLine($"[CameraService] 相机已打开 (SDK): {serialNumber}");
@@ -320,7 +334,7 @@ namespace ClearFrost.Services
 
         private bool FailOpen(string message)
         {
-            LastError = message;
+            SetCaptureError(CameraCaptureFailureKind.NotReady, message);
             ErrorOccurred?.Invoke(message);
             return false;
         }
@@ -391,21 +405,23 @@ namespace ClearFrost.Services
                     int res = activeCamera.Camera.IMV_StartGrabbing();
                     if (res != IMVDefine.IMV_OK)
                     {
-                        LastError = $"启动采集失败: {res}";
+                        string message = $"启动采集失败: {res}";
+                        SetCaptureError(CameraCaptureFailureKind.NotReady, message);
                         activeCamera.SetGrabbing(false);
-                        ErrorOccurred?.Invoke(LastError);
+                        ErrorOccurred?.Invoke(message);
                         return;
                     }
                 }
 
                 activeCamera.SetGrabbing(true);
-                LastError = null;
+                ClearCaptureError();
             }
             catch (Exception ex)
             {
-                LastError = $"启动采集异常: {ex.Message}";
+                string message = $"启动采集异常: {ex.Message}";
+                SetCaptureError(CameraCaptureFailureKind.NotReady, message);
                 activeCamera.SetGrabbing(false);
-                ErrorOccurred?.Invoke(LastError);
+                ErrorOccurred?.Invoke(message);
                 return;
             }
 
@@ -522,13 +538,13 @@ namespace ClearFrost.Services
                 var camera = activeCamera?.Camera;
                 if (activeCamera == null || camera == null)
                 {
-                    LastError = "未找到活动相机实例";
+                    SetCaptureError(CameraCaptureFailureKind.NotReady, "未找到活动相机实例");
                     return null;
                 }
 
                 if (!activeCamera.IsOpen)
                 {
-                    LastError = "相机未打开";
+                    SetCaptureError(CameraCaptureFailureKind.NotReady, "相机未打开");
                     return null;
                 }
 
@@ -537,9 +553,10 @@ namespace ClearFrost.Services
                     StartCaptureCore();
                     if (!IsGrabbing)
                     {
-                        LastError = string.IsNullOrWhiteSpace(LastError)
+                        string error = string.IsNullOrWhiteSpace(LastError)
                             ? "相机未处于采集状态"
                             : LastError;
+                        SetCaptureError(CameraCaptureFailureKind.NotReady, error);
                         return null;
                     }
                 }
@@ -558,7 +575,7 @@ namespace ClearFrost.Services
                     int res = camera.IMV_ExecuteCommandFeature("TriggerSoftware");
                     if (res != IMVDefine.IMV_OK)
                     {
-                        LastError = $"软触发失败: {res}";
+                        SetCaptureError(CameraCaptureFailureKind.TriggerFailed, $"软触发失败: {res}");
                         activeCamera.SetGrabbing(false);
                         return null;
                     }
@@ -567,19 +584,19 @@ namespace ClearFrost.Services
                     shouldReleaseFrame = res == IMVDefine.IMV_OK;
                     if (!shouldReleaseFrame)
                     {
-                        LastError = $"取帧失败: {res}";
+                        SetCaptureError(CameraCaptureFailureKind.GetFrameFailed, $"取帧失败: {res}");
                         return null;
                     }
 
                     if (frame.frameInfo.size == 0 || frame.pData == IntPtr.Zero)
                     {
-                        LastError = "SDK 返回空帧";
+                        SetCaptureError(CameraCaptureFailureKind.EmptyFrame, "SDK 返回空帧");
                         return null;
                     }
 
-                    if (!TryValidateFrame(frame, out string validationError))
+                    if (!TryValidateFrame(frame, out string validationError, out CameraCaptureFailureKind validationFailureKind))
                     {
-                        LastError = validationError;
+                        SetCaptureError(validationFailureKind, validationError);
                         Debug.WriteLine($"[CameraService] Invalid frame rejected: {validationError}");
                         return null;
                     }
@@ -588,12 +605,12 @@ namespace ClearFrost.Services
                     CacheLastFrameReference(mat);
                     LogFramePixelFormatDiagnostics(activeCamera, frame, mat, "SDK");
 
-                    LastError = null;
+                    ClearCaptureError();
                     return mat;
                 }
                 catch (Exception ex)
                 {
-                    LastError = $"采集转换失败: {ex.Message}";
+                    SetCaptureError(CameraCaptureFailureKind.ConversionFailed, $"采集转换失败: {ex.Message}");
                     Debug.WriteLine($"[CameraService] CaptureFrame failed: {ex.Message}");
                     return null;
                 }
@@ -789,9 +806,13 @@ namespace ClearFrost.Services
             };
         }
 
-        private static bool TryValidateFrame(IMVDefine.IMV_Frame frame, out string error)
+        private static bool TryValidateFrame(
+            IMVDefine.IMV_Frame frame,
+            out string error,
+            out CameraCaptureFailureKind failureKind)
         {
             error = string.Empty;
+            failureKind = CameraCaptureFailureKind.None;
 
             int width = (int)frame.frameInfo.width;
             int height = (int)frame.frameInfo.height;
@@ -801,18 +822,23 @@ namespace ClearFrost.Services
             if (frame.frameInfo.status != 0)
             {
                 error = $"SDK 返回异常帧: status={frame.frameInfo.status}, format=0x{pixelFormat:X8}, size={frame.frameInfo.size}";
+                failureKind = CameraCaptureFailureKind.InvalidFrame;
                 return false;
             }
 
             if (width <= 0 || height <= 0 || paddingX < 0)
             {
                 error = $"SDK 帧尺寸异常: width={width}, height={height}, paddingX={paddingX}, format=0x{pixelFormat:X8}";
+                failureKind = CameraCaptureFailureKind.InvalidFrame;
                 return false;
             }
 
             if (!TryGetMinimumFrameBytes(width, height, paddingX, pixelFormat, out long minimumBytes, out string formatError))
             {
                 error = formatError;
+                failureKind = formatError.StartsWith("不支持的 SDK 帧像素格式", StringComparison.Ordinal)
+                    ? CameraCaptureFailureKind.UnsupportedPixelFormat
+                    : CameraCaptureFailureKind.InvalidFrame;
                 return false;
             }
 
@@ -820,6 +846,7 @@ namespace ClearFrost.Services
             if (actualBytes < minimumBytes)
             {
                 error = $"SDK 帧长度不足: actual={actualBytes}, expected>={minimumBytes}, width={width}, height={height}, paddingX={paddingX}, format=0x{pixelFormat:X8}";
+                failureKind = CameraCaptureFailureKind.ShortFrame;
                 return false;
             }
 

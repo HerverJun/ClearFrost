@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
+using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
 using FluentAssertions;
@@ -226,6 +227,20 @@ namespace ClearFrost.Tests.Services
             fileName.Should().Contain("SN_ABC_001");
             fileName.Should().Contain("CF-20260504-123456-MANUAL-000001");
             fileName.Should().EndWith(".jpg");
+        }
+
+        [Fact]
+        public void ExceptionMessageFormatter_OnnxNative初始化失败_展开内层异常并给出诊断()
+        {
+            var exception = new TypeInitializationException(
+                "Microsoft.ML.OnnxRuntime.NativeMethods",
+                new DllNotFoundException("Unable to load DLL 'onnxruntime.dll'."));
+
+            string message = ExceptionMessageFormatter.FormatForLog(exception);
+
+            message.Should().Contain("ONNX Runtime 原生库初始化失败");
+            message.Should().Contain("onnxruntime.dll");
+            message.Should().Contain("Unable to load DLL");
         }
 
         [Fact]

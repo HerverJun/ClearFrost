@@ -14,6 +14,7 @@
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using OpenCvSharp;
+using ClearFrost.Helpers;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Diagnostics;
@@ -388,7 +389,7 @@ namespace ClearFrost.Yolo
             }
             catch (Exception ex)
             {
-                string reason = ex.Message;
+                string reason = ExceptionMessageFormatter.FormatForLog(ex);
                 Debug.WriteLine($"[YoloDetector] DirectML 初始化失败，回退 CPU: {reason}");
 
                 _gpuActive = false;
@@ -404,7 +405,7 @@ namespace ClearFrost.Yolo
                 catch (Exception cpuEx)
                 {
                     throw new InvalidOperationException(
-                        $"DirectML 初始化失败，CPU 回退加载模型也失败: {cpuEx.Message}",
+                        $"DirectML 初始化失败，CPU 回退加载模型也失败: {ExceptionMessageFormatter.FormatForLog(cpuEx)}",
                         cpuEx);
                 }
             }
