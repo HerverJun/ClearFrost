@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // 文件名: InspectionPipelineService.cs
 // 描述:   单次检测管线服务
 //
@@ -1953,33 +1953,7 @@ namespace ClearFrost.Services
             return (short)value;
         }
 
-        private string BaseStoragePath
-        {
-            get
-            {
-                string? path = _appConfig.StoragePath;
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    return @"C:\GreeVisionData";
-                }
-
-                try
-                {
-                    string? root = Path.GetPathRoot(path);
-                    if (!string.IsNullOrEmpty(root) && !Directory.Exists(root))
-                    {
-                        return @"C:\GreeVisionData";
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Error checking drive: {ex.Message}");
-                    return @"C:\GreeVisionData";
-                }
-
-                return path;
-            }
-        }
+        private string BaseStoragePath => _storageService.BaseStoragePath;
 
         private string Path_Images => Path.Combine(BaseStoragePath, "Images");
 

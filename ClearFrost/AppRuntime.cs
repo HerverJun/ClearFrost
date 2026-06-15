@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -61,7 +61,7 @@ namespace ClearFrost
             PlcService = plcService ?? new PlcService();
             DetectionService = detectionService ?? new DetectionService(appConfig.EnableGpu, appConfig.GpuIndex);
             StorageService = storageService ?? new StorageService(appConfig.StoragePath);
-            StatisticsService = statisticsService ?? new StatisticsService(StorageService.SystemPath.Replace("\\System", ""));
+            StatisticsService = statisticsService ?? new StatisticsService(StorageService.BaseStoragePath);
             DatabaseService = databaseService ?? new SqliteDatabaseService();
             ImageSaveQueue = imageSaveQueue ?? new ImageSaveQueue();
             DetectionRecordQueue = detectionRecordQueue ?? new DetectionRecordQueue(DatabaseService);
@@ -133,7 +133,7 @@ namespace ClearFrost
         public void RefreshStoragePath()
         {
             StorageService.UpdateStoragePath(AppConfig.StoragePath);
-            StatisticsService.UpdateStoragePath(AppConfig.StoragePath);
+            StatisticsService.UpdateStoragePath(StorageService.BaseStoragePath);
             StartupDiagnostics.Run(AppConfig, StorageService, ModelRegistry);
         }
 

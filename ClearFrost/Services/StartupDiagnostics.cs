@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -90,24 +90,7 @@ namespace ClearFrost.Services
 
         private static string ResolveOperationalStoragePath(AppConfig config, IStorageService storageService)
         {
-            try
-            {
-                string imageBasePath = storageService.ImageBasePath;
-                if (!string.IsNullOrWhiteSpace(imageBasePath))
-                {
-                    string? parent = Directory.GetParent(Path.GetFullPath(imageBasePath))?.FullName;
-                    if (!string.IsNullOrWhiteSpace(parent))
-                    {
-                        return parent;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[StartupDiagnostics] 解析运行存储目录失败: {ex.Message}");
-            }
-
-            return config.StoragePath;
+            return storageService.BaseStoragePath;
         }
 
         private static StartupDiagnosticItem CheckNativeDll(string name, string fileName, bool isBlocking)

@@ -1,4 +1,4 @@
-﻿using ClearFrost.Config;
+using ClearFrost.Config;
 using ClearFrost.Core.Models;
 using ClearFrost.Hardware;
 using ClearFrost.Interfaces;
@@ -393,6 +393,7 @@ public class StartupDiagnosticsTests
         public string ImageBasePath => Path.Combine(_basePath, "Images");
         public string LogBasePath => Path.Combine(_basePath, "Logs");
         public string SystemPath => Path.Combine(_basePath, "System");
+        public string BaseStoragePath => _basePath;
 
         public void SaveDetectionImage(Bitmap bitmap, bool isQualified) { }
         public void SaveDetectionImageAsync(Bitmap bitmap, bool isQualified) { }

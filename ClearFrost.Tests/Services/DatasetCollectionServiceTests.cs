@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -286,6 +286,139 @@ public class DatasetCollectionServiceTests
         result.Success.Should().BeTrue();
         result.FailCopied.Should().Be(1);
         Directory.GetFiles(Path.Combine(result.OutputDirectory, "Fail")).Length.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CollectAsync_部分图片路径缺失_按标准目录增量补回()
+    {
+        string tempDir = CreateTempDirectory();
+        string dbPath = Path.Combine(tempDir, "detection.db");
+        string storagePath = CreateTempDirectory();
+        
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+        using var createCommand = connection.CreateCommand();
+        createCommand.CommandText = @"
+            CREATE TABLE IF NOT EXISTS DetectionRecords (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Timestamp TEXT NOT NULL,
+                IsQualified INTEGER NOT NULL,
+                ImagePath TEXT,
+                RenderedImagePath TEXT,
+                ModelName TEXT,
+                RecipeId TEXT,
+                InspectionId TEXT
+            );
+        ";
+        createCommand.ExecuteNonQuery();
+
+        DateTime now = DateTime.Now;
+        string validOriginalDir = Path.Combine(tempDir, "valid_imgs");
+        Directory.CreateDirectory(validOriginalDir);
+        string validImagePath = Path.Combine(validOriginalDir, "original1.jpg");
+        File.WriteAllBytes(validImagePath, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+
+        DateTime invalidRecordTime = now.AddHours(-1);
+        string invalidImagePath = Path.Combine(tempDir, "nonexistent.jpg");
+        string inspectionId = "INS-INCREMENTAL-TEST";
+
+        string standardDir = Path.Combine(
+            storagePath,
+            "Images",
+            "Unqualified",
+            invalidRecordTime.ToString("yyyy年MM月dd日"),
+            invalidRecordTime.ToString("HH"));
+        Directory.CreateDirectory(standardDir);
+        string matchedStandardFilePath = Path.Combine(standardDir, $"FAIL_{inspectionId}.jpg");
+        File.WriteAllBytes(matchedStandardFilePath, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+
+        using (var insertCmd = connection.CreateCommand())
+        {
+            insertCmd.CommandText = @"
+                INSERT INTO DetectionRecords (Timestamp, IsQualified, ImagePath, RenderedImagePath, ModelName, RecipeId, InspectionId)
+                VALUES ($timestamp, $isQualified, $imagePath, $renderedPath, $modelName, $recipeId, $inspectionId);
+            ";
+            insertCmd.Parameters.AddWithValue("$timestamp", now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            insertCmd.Parameters.AddWithValue("$isQualified", 0);
+            insertCmd.Parameters.AddWithValue("$imagePath", validImagePath);
+            insertCmd.Parameters.AddWithValue("$renderedPath", "");
+            insertCmd.Parameters.AddWithValue("$modelName", "model-test");
+            insertCmd.Parameters.AddWithValue("$recipeId", "recipe-test");
+            insertCmd.Parameters.AddWithValue("$inspectionId", "INS-VALID");
+            insertCmd.ExecuteNonQuery();
+        }
+
+        using (var insertCmd = connection.CreateCommand())
+        {
+            insertCmd.CommandText = @"
+                INSERT INTO DetectionRecords (Timestamp, IsQualified, ImagePath, RenderedImagePath, ModelName, RecipeId, InspectionId)
+                VALUES ($timestamp, $isQualified, $imagePath, $renderedPath, $modelName, $recipeId, $inspectionId);
+            ";
+            insertCmd.Parameters.AddWithValue("$timestamp", invalidRecordTime.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            insertCmd.Parameters.AddWithValue("$isQualified", 0);
+            insertCmd.Parameters.AddWithValue("$imagePath", invalidImagePath);
+            insertCmd.Parameters.AddWithValue("$renderedPath", "");
+            insertCmd.Parameters.AddWithValue("$modelName", "model-test");
+            insertCmd.Parameters.AddWithValue("$recipeId", "recipe-test");
+            insertCmd.Parameters.AddWithValue("$inspectionId", inspectionId);
+            insertCmd.ExecuteNonQuery();
+        }
+
+        var service = new DatasetCollectionService(dbPath, storagePath);
+        var result = await service.CollectAsync(maxDays: 15, totalCount: 2, failRatio: 1.0);
+
+        result.Success.Should().BeTrue();
+        result.FailCopied.Should().Be(2);
+
+        string outputFailDir = Path.Combine(result.OutputDirectory, "Fail");
+        Directory.GetFiles(outputFailDir).Length.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task CollectAsync_选中图片全部复制失败_返回失败()
+    {
+        string tempDir = CreateTempDirectory();
+        string dbPath = Path.Combine(tempDir, "detection.db");
+        string storagePath = CreateTempDirectory();
+
+        DateTime now = DateTime.Now;
+        string imagePath = Path.Combine(tempDir, "img_to_delete.jpg");
+        File.WriteAllBytes(imagePath, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+
+        CreateDatabaseWithSingleRecord(dbPath, now, isQualified: false, imagePath, renderedPath: "", "INS-DEL-TEST");
+
+        var service = new DatasetCollectionService(dbPath, storagePath);
+
+        var progress = new SyncProgress(msg =>
+        {
+            if (msg.Contains("开始复制"))
+            {
+                try
+                {
+                    if (File.Exists(imagePath))
+                    {
+                        File.Delete(imagePath);
+                    }
+                }
+                catch
+                {
+                    // 忽略
+                }
+            }
+        });
+
+        var result = await service.CollectAsync(maxDays: 15, totalCount: 1, failRatio: 1.0, progress: progress);
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("未成功复制任何图片");
+        Directory.Exists(result.OutputDirectory).Should().BeFalse();
+    }
+
+    private class SyncProgress : IProgress<string>
+    {
+        private readonly Action<string> _action;
+        public SyncProgress(Action<string> action) => _action = action;
+        public void Report(string value) => _action(value);
     }
 
     #region Helpers

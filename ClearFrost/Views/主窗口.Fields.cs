@@ -1,4 +1,4 @@
-﻿using MVSDK_Net;
+using MVSDK_Net;
 using ClearFrost.Config;
 using ClearFrost.Hardware;
 using ClearFrost.Hardware.Triggers;
@@ -51,36 +51,7 @@ namespace ClearFrost
 
         // ====================== ROI配置 ======================
         // ====================== 文件存储配置 ======================
-        private string BaseStoragePath
-        {
-            get
-            {
-                string? path = _appConfig?.StoragePath;
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    return @"C:\GreeVisionData";
-                }
-
-                // Check if the drive exists
-                try
-                {
-                    string? root = Path.GetPathRoot(path);
-                    if (!string.IsNullOrEmpty(root) && !Directory.Exists(root))
-                    {
-                        // Fallback if configured drive doesn't exist
-                        return @"C:\GreeVisionData";
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // 忽略驱动器检查异常，直接回退默认路径
-                    Debug.WriteLine($"Error checking drive: {ex.Message}");
-                    return @"C:\GreeVisionData";
-                }
-
-                return path;
-            }
-        }
+        private string BaseStoragePath => _storageService?.BaseStoragePath ?? @"C:\GreeVisionData";
         private string Path_Images => Path.Combine(BaseStoragePath, "Images");
         private string Path_Logs => Path.Combine(BaseStoragePath, "Logs");
         private string Path_System => Path.Combine(BaseStoragePath, "System");

@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // 文件名: StorageService.cs
 // 描述:   存储服务实现
 //
@@ -39,6 +39,11 @@ namespace ClearFrost.Services
         public string ImageBasePath => Path.Combine(_baseStoragePath, "Images");
         public string LogBasePath => Path.Combine(_baseStoragePath, "Logs");
         public string SystemPath => Path.Combine(_baseStoragePath, "System");
+
+        /// <summary>
+        /// 已解析的存储根路径（进行驱动器/盘符校验后的实际路径）
+        /// </summary>
+        public string BaseStoragePath => _baseStoragePath;
 
         /// <summary>
         /// 启动日志路径

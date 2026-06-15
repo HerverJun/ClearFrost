@@ -1,4 +1,4 @@
-﻿using System.Drawing;
+using System.Drawing;
 using ClearFrost.Core.Inspection;
 using ClearFrost.Core.Rules;
 using ClearFrost.Hardware;
@@ -345,8 +345,11 @@ public class HealthMonitorTests
 
     private sealed class FakeStorageService : IStorageService
     {
+        private string _basePath;
+
         public FakeStorageService(string basePath)
         {
+            _basePath = basePath;
             ImageBasePath = Path.Combine(basePath, "Images");
             LogBasePath = Path.Combine(basePath, "Logs");
             SystemPath = Path.Combine(basePath, "System");
@@ -356,6 +359,7 @@ public class HealthMonitorTests
         public string ImageBasePath { get; }
         public string LogBasePath { get; }
         public string SystemPath { get; }
+        public string BaseStoragePath => _basePath;
 
         public void SaveDetectionImage(Bitmap bitmap, bool isQualified) { }
         public void SaveDetectionImageAsync(Bitmap bitmap, bool isQualified) { }
@@ -365,7 +369,7 @@ public class HealthMonitorTests
         public void CleanOldData(int retainDays) { }
         public double GetDiskFreeSpaceGb() => 100.0;
         public double PerformEmergencyCleanup() => 100.0;
-        public void UpdateStoragePath(string storagePath) { }
+        public void UpdateStoragePath(string storagePath) => _basePath = storagePath;
         public void EnsureDirectoriesExist()
         {
             Directory.CreateDirectory(ImageBasePath);

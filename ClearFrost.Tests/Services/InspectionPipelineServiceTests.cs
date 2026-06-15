@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -956,8 +956,11 @@ public class InspectionPipelineServiceTests
 
     private sealed class FakeStorageService : IStorageService
     {
+        private string _basePath;
+
         public FakeStorageService(string basePath)
         {
+            _basePath = basePath;
             ImageBasePath = Path.Combine(basePath, "Images");
             LogBasePath = Path.Combine(basePath, "Logs");
             SystemPath = Path.Combine(basePath, "System");
@@ -969,6 +972,7 @@ public class InspectionPipelineServiceTests
         public string ImageBasePath { get; }
         public string LogBasePath { get; }
         public string SystemPath { get; }
+        public string BaseStoragePath => _basePath;
         public List<string> DetectionLogs { get; } = new List<string>();
         public List<string> ErrorLogs { get; } = new List<string>();
 
@@ -981,7 +985,7 @@ public class InspectionPipelineServiceTests
         public double GetDiskFreeSpaceGb() => 100.0;
         public double PerformEmergencyCleanup() => 100.0;
         public void EnsureDirectoriesExist() { }
-        public void UpdateStoragePath(string storagePath) { }
+        public void UpdateStoragePath(string storagePath) => _basePath = storagePath;
         public void Dispose() { }
     }
 

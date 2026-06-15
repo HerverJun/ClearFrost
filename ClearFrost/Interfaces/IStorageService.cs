@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // 文件名: IStorageService.cs
 // 描述:   存储服务接口
 //
@@ -34,6 +34,11 @@ namespace ClearFrost.Interfaces
         /// 系统数据路径
         /// </summary>
         string SystemPath { get; }
+
+        /// <summary>
+        /// 已解析的存储根路径（进行驱动器/盘符校验后的实际路径）
+        /// </summary>
+        string BaseStoragePath { get; }
 
         #endregion
 

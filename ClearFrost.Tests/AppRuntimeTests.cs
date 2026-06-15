@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -460,10 +460,12 @@ namespace ClearFrost.Tests
         private sealed class FakeStorageService : IStorageService
         {
             private readonly List<string> _order;
+            private string _basePath;
 
             public FakeStorageService(string basePath, List<string> order)
             {
                 _order = order;
+                _basePath = basePath;
                 ImageBasePath = Path.Combine(basePath, "Images");
                 LogBasePath = Path.Combine(basePath, "Logs");
                 SystemPath = Path.Combine(basePath, "System");
@@ -472,6 +474,7 @@ namespace ClearFrost.Tests
             public string ImageBasePath { get; private set; }
             public string LogBasePath { get; private set; }
             public string SystemPath { get; private set; }
+            public string BaseStoragePath => _basePath;
 
             public void SaveDetectionImage(Bitmap bitmap, bool isQualified) { }
             public void SaveDetectionImageAsync(Bitmap bitmap, bool isQualified) { }
@@ -484,6 +487,7 @@ namespace ClearFrost.Tests
             public void EnsureDirectoriesExist() { }
             public void UpdateStoragePath(string storagePath)
             {
+                _basePath = storagePath;
                 ImageBasePath = Path.Combine(storagePath, "Images");
                 LogBasePath = Path.Combine(storagePath, "Logs");
                 SystemPath = Path.Combine(storagePath, "System");

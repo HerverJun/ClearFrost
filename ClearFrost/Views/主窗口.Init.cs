@@ -1,4 +1,4 @@
-﻿using MVSDK_Net;
+using MVSDK_Net;
 using ClearFrost.Config;
 using ClearFrost.Models;
 using ClearFrost.Hardware;
@@ -801,6 +801,7 @@ namespace ClearFrost
                         {
                             TrySaveCurrentRecipeSnapshot("辅助模型1更新");
                         }
+                        _appRuntime.RefreshModelRegistry();
                         await _uiController.LogToFrontend("辅助模型1已卸载");
                     }
                     else
@@ -827,6 +828,7 @@ namespace ClearFrost
                                 {
                                     TrySaveCurrentRecipeSnapshot("辅助模型1更新");
                                 }
+                                _appRuntime.RefreshModelRegistry();
                                 await _uiController.LogToFrontend($"? 辅助模型1已加载: {modelName}");
                             }
                             else
@@ -858,6 +860,7 @@ namespace ClearFrost
                         {
                             TrySaveCurrentRecipeSnapshot("辅助模型2更新");
                         }
+                        _appRuntime.RefreshModelRegistry();
                         await _uiController.LogToFrontend("辅助模型2已卸载");
                     }
                     else
@@ -884,6 +887,7 @@ namespace ClearFrost
                                 {
                                     TrySaveCurrentRecipeSnapshot("辅助模型2更新");
                                 }
+                                _appRuntime.RefreshModelRegistry();
                                 await _uiController.LogToFrontend($"? 辅助模型2已加载: {modelName}");
                             }
                             else
@@ -2519,7 +2523,7 @@ namespace ClearFrost
             {
                 var service = new ClearFrost.Services.DatasetCollectionService(
                     ClearFrost.Helpers.RuntimePaths.DatabasePath,
-                    _appConfig.StoragePath);
+                    _storageService.BaseStoragePath);
 
                 var progress = new Progress<string>(msg =>
                 {

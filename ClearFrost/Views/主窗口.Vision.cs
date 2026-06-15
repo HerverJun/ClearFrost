@@ -1,4 +1,4 @@
-﻿using MVSDK_Net;
+using MVSDK_Net;
 using ClearFrost.Config;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
@@ -648,6 +648,7 @@ namespace ClearFrost
                     {
                         TrySaveCurrentRecipeSnapshot("主模型切换");
                     }
+                    _appRuntime.RefreshModelRegistry();
                     await _uiController.LogToFrontend(BuildModelLoadStatusMessage($"模型切换成功: {modelFileName}"), "success");
                 }
                 else
