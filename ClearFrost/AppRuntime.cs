@@ -127,7 +127,15 @@ namespace ClearFrost
 
         public IReadOnlyList<ModelRegistryEntry> RefreshModelRegistry()
         {
-            return ModelRegistry.Scan(CreateModelRegistryScanOptions(AppConfig));
+            try
+            {
+                return ModelRegistry.Scan(CreateModelRegistryScanOptions(AppConfig));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AppRuntime] 刷新模型注册表失败（可能是文件占用等原因）: {ex.Message}");
+                return ModelRegistry?.Entries ?? Array.Empty<ModelRegistryEntry>();
+            }
         }
 
         public void RefreshStoragePath()
