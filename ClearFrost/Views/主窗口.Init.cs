@@ -1,4 +1,4 @@
-﻿using MVSDK_Net;
+using MVSDK_Net;
 using ClearFrost.Config;
 using ClearFrost.Models;
 using ClearFrost.Hardware;
@@ -987,7 +987,11 @@ namespace ClearFrost
             {
                 try
                 {
-                    if (!await EnsureRuntimeMutationAllowedAsync("系统设置保存和部署")) return;
+                    bool hasSystemConfigChanges = CheckSystemConfigChanges(configJson);
+                    if (hasSystemConfigChanges)
+                    {
+                        if (!await EnsureRuntimeMutationAllowedAsync("系统设置保存和部署")) return;
+                    }
                     // 使用 JsonDocument 解析，允许部分更新
                     using (JsonDocument doc = JsonDocument.Parse(configJson))
                     {
@@ -1311,8 +1315,8 @@ namespace ClearFrost
                         InitYolo();
                         RefreshStartupDiagnostics();
 
-                        // 根据 TriggerSource 切换触发源；非 PLC 模式跳过 PLC 连接、监听、条码和写回。
-                        _ = StartTriggerSourceAsync();
+                        // 根据 TriggerSource 切换触发源；使用协调器避免在未运行状态下自动连接 PLC
+                        await RestartTriggerSourceAfterConfigurationChangeAsync("系统设置保存");
 
                         await _uiController.SendUiCommand("closeSettingsModal");
                         await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
@@ -1547,7 +1551,7 @@ namespace ClearFrost
                 await WarnMissingImportedModelFilesAsync();
                 InitYolo();
                 RefreshStartupDiagnostics();
-                _ = StartTriggerSourceAsync();
+                await RestartTriggerSourceAfterConfigurationChangeAsync("配置迁移导入");
 
                 await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
                 await _uiController.InitSettings(_appConfig);
@@ -2619,6 +2623,164 @@ namespace ClearFrost
                 });
                 await _uiController.LogToFrontend($"数据集收集异常: {ex.Message}", "error");
             }
+        }
+
+        private bool CheckSystemConfigChanges(string configJson)
+        {
+            try
+            {
+                using (JsonDocument doc = JsonDocument.Parse(configJson))
+                {
+                    var root = doc.RootElement;
+                    foreach (var property in root.EnumerateObject())
+                    {
+                        string name = property.Name;
+                        if (name == "CurrentOperatorId" || name == "CurrentOperatorRole")
+                        {
+                            continue;
+                        }
+
+                        var prop = _appConfig.GetType().GetProperty(name);
+                        if (prop == null || !prop.CanWrite)
+                        {
+                            continue;
+                        }
+
+                        object? curVal = prop.GetValue(_appConfig);
+                        bool changed = false;
+                        var val = property.Value;
+
+                        try
+                        {
+                            if (prop.PropertyType == typeof(string))
+                            {
+                                string s1 = (curVal as string)?.Trim() ?? string.Empty;
+                                string s2 = (val.GetString())?.Trim() ?? string.Empty;
+
+                                if (name == "StoragePath")
+                                {
+                                    try
+                                    {
+                                        s1 = Path.GetFullPath(s1).TrimEnd('\\', '/');
+                                        s2 = Path.GetFullPath(s2).TrimEnd('\\', '/');
+                                    }
+                                    catch { }
+                                }
+                                else if (name == "InspectionRuleSetJson")
+                                {
+                                    changed = !IsRuleSetJsonEqual(s1, s2);
+                                    goto CheckEnd;
+                                }
+
+                                changed = !string.Equals(s1, s2, StringComparison.Ordinal);
+                            }
+                            else if (prop.PropertyType == typeof(bool))
+                            {
+                                bool b1 = curVal is bool bv && bv;
+                                bool b2 = val.ValueKind == JsonValueKind.True;
+                                changed = (b1 != b2);
+                            }
+                            else if (prop.PropertyType == typeof(int))
+                            {
+                                int i1 = curVal is int ivVal ? ivVal : 0;
+                                int i2 = val.TryGetInt32(out int iv) ? iv : i1;
+                                changed = (i1 != i2);
+                            }
+                            else if (prop.PropertyType == typeof(float))
+                            {
+                                float f1 = curVal is float fvVal ? fvVal : 0f;
+                                float f2 = val.TryGetDouble(out double dv) ? (float)dv : f1;
+                                changed = (Math.Abs(f1 - f2) > 1e-4f);
+                            }
+                            else if (prop.PropertyType == typeof(double))
+                            {
+                                double d1 = curVal is double dvVal ? dvVal : 0.0;
+                                double d2 = val.TryGetDouble(out double dv) ? dv : d1;
+                                changed = (Math.Abs(d1 - d2) > 1e-4);
+                            }
+                            else if (prop.PropertyType == typeof(short))
+                            {
+                                short sh1 = curVal is short svVal ? svVal : (short)0;
+                                short sh2 = val.TryGetInt16(out short sv) ? sv : sh1;
+                                changed = (sh1 != sh2);
+                            }
+                            else if (prop.PropertyType.IsEnum)
+                            {
+                                string e1 = curVal?.ToString() ?? string.Empty;
+                                string e2 = val.GetString() ?? string.Empty;
+                                changed = !string.Equals(e1, e2, StringComparison.OrdinalIgnoreCase);
+                            }
+                            else
+                            {
+                                changed = true;
+                            }
+                        }
+                        catch
+                        {
+                            changed = true;
+                        }
+
+                    CheckEnd:
+                        if (changed)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                return true;
+            }
+            return false;
+        }
+
+        private bool IsRuleSetJsonEqual(string json1, string json2)
+        {
+            if (string.Equals(json1, json2, StringComparison.Ordinal)) return true;
+            try
+            {
+                if (InspectionRuleSetSerializer.TryDeserialize(json1, out var rs1, out _) &&
+                    InspectionRuleSetSerializer.TryDeserialize(json2, out var rs2, out _))
+                {
+                    string s1 = InspectionRuleSetSerializer.Serialize(rs1);
+                    string s2 = InspectionRuleSetSerializer.Serialize(rs2);
+                    return string.Equals(s1, s2, StringComparison.Ordinal);
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        private Task<bool> RestartTriggerSourceAfterConfigurationChangeAsync(string reason)
+        {
+            return TriggerSourceRuntimeCoordinator.RestartAfterConfigurationChangeAsync(
+                IsProductionRunning,
+                () => StopTriggerSourcesAsync(logWarnings: true),
+                StartTriggerSourceAsync,
+                message => _uiController.LogToFrontend(message, "info"),
+                reason);
+        }
+
+        private Task StopTriggerSourcesAsync(bool logWarnings)
+        {
+            try
+            {
+                _plcService.StopMonitoring();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[TriggerSource] Stop PLC monitoring failed: {ex.Message}");
+            }
+            try
+            {
+                _serialTriggerService.Stop();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[TriggerSource] Stop serial trigger failed: {ex.Message}");
+            }
+            return Task.CompletedTask;
         }
 
         #endregion

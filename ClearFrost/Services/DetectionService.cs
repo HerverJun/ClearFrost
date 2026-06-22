@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // 文件名: DetectionService.cs
 // 作者: 蘅芜君
 // 描述:   检测服务实现
@@ -41,6 +41,8 @@ namespace ClearFrost.Services
         private string _currentModelName = "未加载";
         private DetectionRuntimeStatus _runtimeStatus = new DetectionRuntimeStatus();
         private bool _disposed;
+        private string[] _cachedLabels = Array.Empty<string>();
+        private object? _cachedLastMetrics;
 
         #endregion
 
@@ -241,6 +243,7 @@ namespace ClearFrost.Services
                 }
 
                 _currentModelName = modelName;
+                UpdateCachedFields();
                 ModelLoaded?.Invoke(modelName);
                 Debug.WriteLine($"[DetectionService] 模型已加载: {modelName} (MultiModelManager: {_modelManager?.IsPrimaryLoaded ?? false})");
                 return true;
@@ -327,6 +330,7 @@ namespace ClearFrost.Services
                         if (_modelManager.IsPrimaryLoaded)
                         {
                             _currentModelName = modelName;
+                            UpdateCachedFields();
                             ModelLoaded?.Invoke(modelName);
                             return true;
                         }
@@ -380,6 +384,7 @@ namespace ClearFrost.Services
                 var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
+                _cachedLastMetrics = _modelManager?.GetPrimaryLastMetrics() ?? _yolo?.LastMetrics;
 
                 PopulateResult(
                     result,
@@ -435,6 +440,7 @@ namespace ClearFrost.Services
                 var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
+                _cachedLastMetrics = _modelManager?.GetPrimaryLastMetrics() ?? _yolo?.LastMetrics;
 
                 PopulateResult(
                     result,
@@ -597,52 +603,59 @@ namespace ClearFrost.Services
         /// <returns>标注后的图像</returns>
         public Bitmap GenerateResultImage(Bitmap original, List<YoloResult> results, string[] labels)
         {
-            _lifecycleLock.Wait();
             try
             {
-                if (_modelManager != null && _modelManager.IsPrimaryLoaded)
+                var manager = _modelManager;
+                if (manager != null && manager.IsPrimaryLoaded)
                 {
-                    Bitmap? image = _modelManager.GeneratePrimaryResultImage(original, results, labels);
+                    Bitmap? image = manager.GeneratePrimaryResultImage(original, results, labels);
                     if (image != null)
                     {
                         return image;
                     }
                 }
 
-                if (_yolo != null)
+                var detector = _yolo;
+                if (detector != null)
                 {
-                    return (Bitmap)_yolo.GenerateImage(original, results, labels);
+                    return (Bitmap)detector.GenerateImage(original, results, labels);
                 }
-
-                // 返回原图的副本
-                return new Bitmap(original);
             }
-            finally
+            catch (Exception ex)
             {
-                _lifecycleLock.Release();
+                Debug.WriteLine($"[DetectionService] 生成标注图像时发生异常: {ex.Message}");
             }
+
+            // 返回原图的副本
+            return new Bitmap(original);
         }
 
         internal Mat? GenerateResultMat(Mat original, List<YoloResult> results, string[] labels)
         {
-            _lifecycleLock.Wait();
             try
             {
-                if (_modelManager != null && _modelManager.IsPrimaryLoaded)
+                var manager = _modelManager;
+                if (manager != null && manager.IsPrimaryLoaded)
                 {
-                    Mat? image = _modelManager.GeneratePrimaryResultMat(original, results, labels);
+                    Mat? image = manager.GeneratePrimaryResultMat(original, results, labels);
                     if (image != null)
                     {
                         return image;
                     }
                 }
 
-                return _yolo?.GenerateImageMat(original, results, labels);
+                var detector = _yolo;
+                if (detector != null)
+                {
+                    return detector.GenerateImageMat(original, results, labels);
+                }
             }
-            finally
+            catch (Exception ex)
             {
-                _lifecycleLock.Release();
+                Debug.WriteLine($"[DetectionService] 生成标注Mat时发生异常: {ex.Message}");
             }
+
+            return null;
         }
 
         #endregion
@@ -758,28 +771,12 @@ namespace ClearFrost.Services
 
         public string[] GetLabels()
         {
-            _lifecycleLock.Wait();
-            try
-            {
-                return _modelManager?.PrimaryLabels ?? _yolo?.Labels ?? Array.Empty<string>();
-            }
-            finally
-            {
-                _lifecycleLock.Release();
-            }
+            return _cachedLabels;
         }
 
         public object? GetLastMetrics()
         {
-            _lifecycleLock.Wait();
-            try
-            {
-                return _modelManager?.GetPrimaryLastMetrics() ?? _yolo?.LastMetrics;
-            }
-            finally
-            {
-                _lifecycleLock.Release();
-            }
+            return _cachedLastMetrics;
         }
 
         #endregion
@@ -850,6 +847,12 @@ namespace ClearFrost.Services
                 ExecutionProvider = detector.ExecutionProvider,
                 GpuFailureReason = detector.GpuFailureReason ?? string.Empty
             };
+        }
+
+        private void UpdateCachedFields()
+        {
+            _cachedLabels = _modelManager?.PrimaryLabels ?? _yolo?.Labels ?? Array.Empty<string>();
+            _cachedLastMetrics = null;
         }
 
         #endregion
