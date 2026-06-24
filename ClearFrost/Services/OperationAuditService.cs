@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // 文件名: OperationAuditService.cs
 // 描述:   关键生产操作审计 outbox
 // ============================================================================
@@ -39,7 +39,7 @@ namespace ClearFrost.Services
 
     internal sealed class OperationAuditService
     {
-        private readonly SemaphoreSlim _writeLock = new SemaphoreSlim(1, 1);
+        private static readonly SemaphoreSlim _writeLock = new SemaphoreSlim(1, 1);
         private readonly string _outboxDirectory;
 
         public OperationAuditService(string? outboxDirectory = null)

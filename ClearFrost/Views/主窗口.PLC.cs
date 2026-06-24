@@ -1,4 +1,4 @@
-﻿using MVSDK_Net;
+using MVSDK_Net;
 using ClearFrost.Config;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
@@ -253,14 +253,14 @@ namespace ClearFrost
 
             if (!await EnsureStartupReadyForProductionAsync("PLC触发检测"))
             {
-                await RejectPlcTriggerWithoutClearingAsync(triggerContext, "StartupNotReady", 90, "启动诊断未通过，PLC触发未接单");
+                await RejectPlcTriggerWithClearingAsync(triggerContext, "StartupNotReady", 90, "启动诊断未通过，PLC触发未接单");
                 return;
             }
 
             var cameraReady = await WaitForCameraReadyForInspectionAsync(timeoutMs: 1200);
             if (!cameraReady.Ready)
             {
-                await RejectPlcTriggerWithoutClearingAsync(
+                await RejectPlcTriggerWithClearingAsync(
                     triggerContext,
                     "CameraNotReady",
                     100,
@@ -271,7 +271,7 @@ namespace ClearFrost
             DetectionTriggerDecision decision = await TryStartDetectionCycleAsync(triggerSource, null);
             if (!decision.Accepted)
             {
-                await RejectPlcTriggerWithoutClearingAsync(
+                await RejectPlcTriggerWithClearingAsync(
                     triggerContext,
                     "VisionBusy",
                     91,
@@ -279,22 +279,39 @@ namespace ClearFrost
                 return;
             }
 
-            bool acknowledged = await AcknowledgeAcceptedPlcTriggerAsync(triggerContext);
-            if (!acknowledged)
+            bool needReleaseGate = true;
+            try
             {
-                _detectionGate.Release();
-                await RejectPlcTriggerWithoutClearingAsync(
-                    triggerContext,
-                    "TriggerAckFailed",
-                    92,
-                    _plcService.LastError ?? "PLC触发确认失败");
-                return;
-            }
+                bool acknowledged = await AcknowledgeAcceptedPlcTriggerAsync(triggerContext);
+                if (!acknowledged)
+                {
+                    await RejectPlcTriggerWithClearingAsync(
+                        triggerContext,
+                        "TriggerAckFailed",
+                        92,
+                        _plcService.LastError ?? "PLC触发确认失败");
+                    return;
+                }
 
-            await RunAcceptedDetectionCycleAsync(
-                triggerSource,
-                triggerContext.TriggerSeq,
-                triggerContext.TriggerTime == default ? DateTimeOffset.Now : triggerContext.TriggerTime);
+                needReleaseGate = false;
+                await RunAcceptedDetectionCycleAsync(
+                    triggerSource,
+                    triggerContext.TriggerSeq,
+                    triggerContext.TriggerTime == default ? DateTimeOffset.Now : triggerContext.TriggerTime);
+            }
+            catch (Exception ex)
+            {
+                DiagLog($"❌ HandlePlcTriggerAsync 执行时崩溃: {ex.Message}");
+                RecordHealthError("PLC.Trigger", $"HandlePlcTriggerAsync 出现未捕获异常: {ex.Message}");
+            }
+            finally
+            {
+                if (needReleaseGate)
+                {
+                    _detectionGate.Release();
+                    DiagLog("[PLC] HandlePlcTriggerAsync 结束，已在异常或未接单路径中释放 _detectionGate 信号量");
+                }
+            }
         }
 
         private async Task<bool> AcknowledgeAcceptedPlcTriggerAsync(PlcTriggerContext triggerContext)
@@ -345,6 +362,25 @@ namespace ClearFrost
 
             DiagLog($"PLC触发已接单并确认: 地址={triggerAddress}, TriggerSeq={triggerContext.TriggerSeq?.ToString() ?? "-"}");
             return true;
+        }
+
+        private async Task RejectPlcTriggerWithClearingAsync(
+            PlcTriggerContext triggerContext,
+            string code,
+            short plcErrorCode,
+            string message)
+        {
+            await RejectPlcTriggerWithoutClearingAsync(triggerContext, code, plcErrorCode, message).ConfigureAwait(false);
+
+            string triggerAddress = string.IsNullOrWhiteSpace(triggerContext.TriggerAddress)
+                ? _appConfig.PlcTriggerAddress
+                : triggerContext.TriggerAddress;
+
+            if (!string.IsNullOrWhiteSpace(triggerAddress) && _plcService.IsConnected)
+            {
+                bool success = await _plcService.WriteResultAsync(triggerAddress, 0).ConfigureAwait(false);
+                DiagLog($"[PLC] 拒绝触发，清空触发寄存器位 {triggerAddress}: {(success ? "成功" : "失败")}");
+            }
         }
 
         private async Task RejectPlcTriggerWithoutClearingAsync(

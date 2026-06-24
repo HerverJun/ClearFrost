@@ -1,4 +1,4 @@
-﻿using ClearFrost.Hardware;
+using ClearFrost.Hardware;
 // ============================================================================
 // 文件名: PlcService.cs
 // 描述:   PLC 通讯服务实现
@@ -693,17 +693,18 @@ namespace ClearFrost.Services
             plc = null!;
             normalizedAddress = string.Empty;
 
-            if (!IsConnected || _plcDevice == null || string.IsNullOrWhiteSpace(rawAddress))
+            var currentDevice = _plcDevice;
+            if (!IsConnected || currentDevice == null || string.IsNullOrWhiteSpace(rawAddress))
             {
                 return false;
             }
 
-            if (!_plcDevice.IsConnected)
+            if (!currentDevice.IsConnected)
             {
-                SyncConnectionStateFromDevice(_plcDevice);
-                LastError = string.IsNullOrWhiteSpace(_plcDevice.LastError)
+                SyncConnectionStateFromDevice(currentDevice);
+                LastError = string.IsNullOrWhiteSpace(currentDevice.LastError)
                     ? "PLC 未连接"
-                    : _plcDevice.LastError;
+                    : currentDevice.LastError;
                 return false;
             }
 
@@ -718,7 +719,7 @@ namespace ClearFrost.Services
                 return false;
             }
 
-            plc = _plcDevice;
+            plc = currentDevice;
             return true;
         }
 

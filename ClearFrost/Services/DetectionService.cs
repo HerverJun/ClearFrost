@@ -668,35 +668,41 @@ namespace ClearFrost.Services
         /// <param name="taskType">任务类型整数值</param>
         public void SetTaskMode(int taskType)
         {
-            _lifecycleLock.Wait();
-            try
+            Task.Run(async () =>
             {
-                _modelManager?.SetTaskMode((YoloTaskType)taskType);
-                if (_yolo != null)
+                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+                try
                 {
-                    _yolo.TaskMode = (YoloTaskType)taskType;
+                    _modelManager?.SetTaskMode((YoloTaskType)taskType);
+                    if (_yolo != null)
+                    {
+                        _yolo.TaskMode = (YoloTaskType)taskType;
+                    }
                 }
-            }
-            finally
-            {
-                _lifecycleLock.Release();
-            }
+                finally
+                {
+                    _lifecycleLock.Release();
+                }
+            });
         }
 
         public void SetEnableFallback(bool enabled)
         {
-            _lifecycleLock.Wait();
-            try
+            Task.Run(async () =>
             {
-                if (_modelManager != null)
+                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+                try
                 {
-                    _modelManager.EnableFallback = enabled;
+                    if (_modelManager != null)
+                    {
+                        _modelManager.EnableFallback = enabled;
+                    }
                 }
-            }
-            finally
-            {
-                _lifecycleLock.Release();
-            }
+                finally
+                {
+                    _lifecycleLock.Release();
+                }
+            });
         }
 
         public async Task<bool> LoadAuxiliary1ModelAsync(string modelPath)
@@ -745,28 +751,34 @@ namespace ClearFrost.Services
 
         public void UnloadAuxiliary1Model()
         {
-            _lifecycleLock.Wait();
-            try
+            Task.Run(async () =>
             {
-                _modelManager?.UnloadAuxiliary1Model();
-            }
-            finally
-            {
-                _lifecycleLock.Release();
-            }
+                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    _modelManager?.UnloadAuxiliary1Model();
+                }
+                finally
+                {
+                    _lifecycleLock.Release();
+                }
+            });
         }
 
         public void UnloadAuxiliary2Model()
         {
-            _lifecycleLock.Wait();
-            try
+            Task.Run(async () =>
             {
-                _modelManager?.UnloadAuxiliary2Model();
-            }
-            finally
-            {
-                _lifecycleLock.Release();
-            }
+                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    _modelManager?.UnloadAuxiliary2Model();
+                }
+                finally
+                {
+                    _lifecycleLock.Release();
+                }
+            });
         }
 
         public string[] GetLabels()
