@@ -41,6 +41,21 @@ using ClearFrost.Services;
 
 namespace ClearFrost
 {
+    public sealed class WebUiCommandEventArgs : EventArgs
+    {
+        public WebUiCommandEventArgs(string requestId, string payloadJson)
+        {
+            RequestId = requestId ?? string.Empty;
+            PayloadJson = string.IsNullOrWhiteSpace(payloadJson) || string.Equals(payloadJson, "null", StringComparison.OrdinalIgnoreCase)
+                ? "{}"
+                : payloadJson;
+        }
+
+        public string RequestId { get; }
+
+        public string PayloadJson { get; }
+    }
+
     /// <summary>
     /// Manages the WebView2 control and communication between C# and the Web frontend.
     /// </summary>
@@ -99,6 +114,11 @@ namespace ClearFrost
         public event EventHandler? OnResetStatistics;
         public event EventHandler? OnCollectDataset;
         public event EventHandler<string>? OnRunHistoryRulePreview;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryManualReviewRecords;
+        public event EventHandler<WebUiCommandEventArgs>? OnSaveManualReview;
+        public event EventHandler<WebUiCommandEventArgs>? OnCreateReplayDataset;
+        public event EventHandler<WebUiCommandEventArgs>? OnRunReplayComparison;
+        public event EventHandler<WebUiCommandEventArgs>? OnApproveReplayCandidate;
 
         // ================== 多相机事件 ==================
         public event EventHandler? OnGetCameraList;
@@ -883,6 +903,21 @@ namespace ClearFrost
                             case "collect_dataset":
                                 OnCollectDataset?.Invoke(this, EventArgs.Empty);
                                 break;
+                            case "query_manual_review_records":
+                                OnQueryManualReviewRecords?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "save_manual_review":
+                                OnSaveManualReview?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "create_replay_dataset":
+                                OnCreateReplayDataset?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "run_replay_comparison":
+                                OnRunReplayComparison?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "approve_replay_candidate":
+                                OnApproveReplayCandidate?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
 
                             // ================== 多相机命令 ==================
                             case "get_camera_list":
@@ -964,15 +999,23 @@ namespace ClearFrost
 
                             default:
                                 break;
-                        }
                     }
                 }
+            }
             }
             catch (Exception ex)
             {
                 // Optionally log error to debugger or frontend
                 System.Diagnostics.Debug.WriteLine($"Error processing web message: {ex.Message}");
             }
+        }
+
+        private static WebUiCommandEventArgs CreateCommandEventArgs(JsonElement root, string? requestId)
+        {
+            string payload = root.TryGetProperty("value", out JsonElement valueElement)
+                ? valueElement.GetRawText()
+                : "{}";
+            return new WebUiCommandEventArgs(requestId ?? string.Empty, payload);
         }
 
         private async void CoreWebView2_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -1916,6 +1959,11 @@ namespace ClearFrost
                 OnResetStatistics = null;
                 OnCollectDataset = null;
                 OnRunHistoryRulePreview = null;
+                OnQueryManualReviewRecords = null;
+                OnSaveManualReview = null;
+                OnCreateReplayDataset = null;
+                OnRunReplayComparison = null;
+                OnApproveReplayCandidate = null;
                 OnGetCameraList = null;
                 OnSwitchCamera = null;
                 OnAddCamera = null;

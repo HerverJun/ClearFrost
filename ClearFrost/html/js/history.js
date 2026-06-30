@@ -784,6 +784,73 @@
         renderTracePage(page);
     }
 
+    function getReplayLimit() {
+        const raw = Number(byId("replay-query-limit")?.value || 100);
+        if (!Number.isFinite(raw)) return 100;
+        return Math.max(1, Math.min(10000, Math.trunc(raw)));
+    }
+
+    function getReplayPanelPayload() {
+        return {
+            limit: getReplayLimit(),
+            datasetId: String(byId("replay-dataset-input")?.value || "").trim(),
+            runId: String(byId("replay-run-input")?.value || "").trim(),
+            baselineModel: String(byId("replay-baseline-model")?.value || "").trim(),
+            candidateModel: String(byId("replay-candidate-model")?.value || "").trim(),
+            recipeVersion: activeTraceRecord?.recipeVersion || "",
+        };
+    }
+
+    function setReplayPanelStatus(id, text) {
+        const node = byId(id);
+        if (node) node.textContent = text || "";
+    }
+
+    function queryManualReviewRecords() {
+        const requestId = bridge.sendCommand("query_manual_review_records", {
+            limit: getReplayLimit(),
+            recipeVersion: activeTraceRecord?.recipeVersion || "",
+        });
+        setReplayPanelStatus("manual-review-response", `Query ${requestId}`);
+    }
+
+    function saveManualReview() {
+        const inspectionId = activeTraceRecord?.inspectionId || "";
+        if (!inspectionId) {
+            window.showToast?.("Select a trace record before saving truth.", "warning", 1800);
+            return;
+        }
+
+        const revisionRaw = String(byId("manual-review-expected-revision")?.value || "").trim();
+        const requestId = bridge.sendCommand("save_manual_review", {
+            inspectionId,
+            sampleId: inspectionId,
+            groundTruth: byId("manual-review-ground-truth-input")?.value || "OK",
+            disposition: byId("manual-review-disposition-input")?.value || "Confirmed",
+            expectedRevision: revisionRaw ? Number(revisionRaw) : null,
+            notes: String(byId("manual-review-notes")?.value || "").trim(),
+        });
+        setReplayPanelStatus("manual-review-response", `Saving ${requestId}`);
+    }
+
+    function createReplayDataset() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("create_replay_dataset", payload);
+        setReplayPanelStatus("replay-run-status", `Freeze ${requestId}`);
+    }
+
+    function runReplayComparison() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("run_replay_comparison", payload);
+        setReplayPanelStatus("replay-run-status", `Run ${requestId}`);
+    }
+
+    function approveReplayCandidate() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("approve_replay_candidate", payload);
+        setReplayPanelStatus("replay-approval-status", `Approve ${requestId}`);
+    }
+
     Object.assign(window, {
         closeGalleryModal,
         closeImageViewer,
@@ -801,6 +868,11 @@
         receiveStatisticsHistory,
         requestStatisticsHistory,
         runHistoryRulePreview,
+        queryManualReviewRecords,
+        saveManualReview,
+        createReplayDataset,
+        runReplayComparison,
+        approveReplayCandidate,
         searchTraceImages,
         selectTraceHour,
         updateDetectionLogTable,

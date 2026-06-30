@@ -43,7 +43,8 @@ namespace ClearFrost.Services
         public StartupDiagnosticReport Run(
             AppConfig config,
             IStorageService storageService,
-            ModelRegistry? modelRegistry = null)
+            ModelRegistry? modelRegistry = null,
+            Func<ModelRegistryEntry, ProductionModelReadinessResult>? approvalEvidenceValidator = null)
         {
             if (config == null) throw new ArgumentNullException(nameof(config));
             if (storageService == null) throw new ArgumentNullException(nameof(storageService));
@@ -65,6 +66,10 @@ namespace ClearFrost.Services
             if (modelRegistry != null)
             {
                 items.Add(CheckModelRegistry(modelRegistry));
+                if (config.RequireApprovedModelsForProduction)
+                {
+                    items.Add(CheckReplayEvidenceGate(modelRegistry, approvalEvidenceValidator));
+                }
             }
 
             CurrentReport = new StartupDiagnosticReport
@@ -280,6 +285,35 @@ namespace ClearFrost.Services
             }
 
             return Pass("Model registry", "Model registry is ready.", $"{modelRegistry.Entries.Count} entries", isBlocking: true);
+        }
+
+        private static StartupDiagnosticItem CheckReplayEvidenceGate(
+            ModelRegistry modelRegistry,
+            Func<ModelRegistryEntry, ProductionModelReadinessResult>? approvalEvidenceValidator)
+        {
+            if (approvalEvidenceValidator == null)
+            {
+                return Fail(
+                    "Replay evidence gate",
+                    "Replay evidence gate is not configured.",
+                    "RequireApprovedModelsForProduction=true",
+                    isBlocking: true);
+            }
+
+            foreach (ModelRegistryEntry entry in modelRegistry.Entries.Where(e => e.IsPackage && e.ApprovedForProduction))
+            {
+                ProductionModelReadinessResult result = approvalEvidenceValidator(entry);
+                if (!result.Succeeded)
+                {
+                    return Fail(
+                        "Replay evidence gate",
+                        "Approved model evidence validation failed.",
+                        $"{entry.ModelId}/{entry.Version}: {result.ErrorCode} {result.Message}",
+                        isBlocking: true);
+                }
+            }
+
+            return Pass("Replay evidence gate", "Approved model evidence validation passed.", string.Empty, isBlocking: true);
         }
 
         private static string? FindNativeDll(string fileName)

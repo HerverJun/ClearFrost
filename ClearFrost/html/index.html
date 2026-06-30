@@ -1100,6 +1100,91 @@
                     class="p-2 hover:bg-slate-100 rounded-full transition-[background-color,color] text-2xl">&times;</button>
             </header>
 
+            <section id="replay-acceptance-panel" class="border-b border-slate-100 bg-white/90 px-8 py-3">
+                <div class="grid grid-cols-1 xl:grid-cols-3 gap-3 text-[11px] text-ink-600">
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between gap-2">
+                            <strong class="text-ink-800">Manual Review</strong>
+                            <span>Records <b id="manual-review-count">0</b></span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <select id="manual-review-ground-truth-input" class="border border-slate-200 rounded px-2 py-1">
+                                <option value="OK">OK</option>
+                                <option value="NG">NG</option>
+                            </select>
+                            <select id="manual-review-disposition-input" class="border border-slate-200 rounded px-2 py-1">
+                                <option value="Confirmed">Confirmed</option>
+                                <option value="FalseReject">FalseReject</option>
+                                <option value="MissedDetection">MissedDetection</option>
+                                <option value="Invalid">Invalid</option>
+                            </select>
+                            <input id="manual-review-expected-revision" type="number" min="0" placeholder="Revision"
+                                class="border border-slate-200 rounded px-2 py-1">
+                        </div>
+                        <input id="manual-review-notes" type="text" placeholder="Notes"
+                            class="w-full border border-slate-200 rounded px-2 py-1">
+                        <div class="flex gap-2">
+                            <button type="button" data-action="queryManualReviewRecords"
+                                class="px-3 py-1 rounded border border-slate-200">Query</button>
+                            <button type="button" data-action="saveManualReview"
+                                class="px-3 py-1 rounded bg-ink-800 text-white">Save Truth</button>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2 text-[10px] text-slate-500">
+                            <span>Result <b id="manual-review-response"></b></span>
+                            <span>Rev <b id="manual-review-revision"></b></span>
+                            <span>Truth <b id="manual-review-ground-truth"></b></span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between gap-2">
+                            <strong class="text-ink-800">Replay Dataset</strong>
+                            <span id="replay-dataset-id"></span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <input id="replay-query-limit" type="number" min="1" max="10000" value="100"
+                                class="border border-slate-200 rounded px-2 py-1">
+                            <input id="replay-dataset-input" type="text" placeholder="DatasetId"
+                                class="border border-slate-200 rounded px-2 py-1 col-span-2">
+                        </div>
+                        <input id="replay-baseline-model" type="text" placeholder="Baseline selection value"
+                            class="w-full border border-slate-200 rounded px-2 py-1">
+                        <input id="replay-candidate-model" type="text" placeholder="Candidate selection value"
+                            class="w-full border border-slate-200 rounded px-2 py-1">
+                        <div class="flex gap-2">
+                            <button type="button" data-action="createReplayDataset"
+                                class="px-3 py-1 rounded border border-slate-200">Freeze</button>
+                            <button type="button" data-action="runReplayComparison"
+                                class="px-3 py-1 rounded bg-celadon-600 text-white">Run Replay</button>
+                        </div>
+                        <div class="truncate text-[10px] text-slate-500">Hash <b id="replay-dataset-hash"></b></div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between gap-2">
+                            <strong class="text-ink-800">Approval Gate</strong>
+                            <span id="replay-approval-status"></span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <input id="replay-run-input" type="text" placeholder="RunId"
+                                class="border border-slate-200 rounded px-2 py-1">
+                            <button type="button" data-action="approveReplayCandidate"
+                                class="px-3 py-1 rounded bg-rouge-600 text-white">Approve</button>
+                        </div>
+                        <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-slate-500">
+                            <span>Status <b id="replay-run-status"></b></span>
+                            <span>Progress <b id="replay-run-progress"></b></span>
+                            <span>Changed <b id="replay-changed-count"></b></span>
+                            <span>New Miss <b id="replay-new-missed-count"></b></span>
+                            <span>Fixed Miss <b id="replay-fixed-missed-count"></b></span>
+                            <span>New FR <b id="replay-new-false-reject-count"></b></span>
+                            <span>Fixed FR <b id="replay-fixed-false-reject-count"></b></span>
+                        </div>
+                        <div id="replay-rejection-reasons" class="min-h-4 text-[10px] text-rouge-600"></div>
+                    </div>
+                </div>
+            </section>
+
             <div class="flex flex-1 overflow-hidden">
                 <div class="w-60 border-r border-slate-100 flex flex-col bg-slate-50/50 shrink-0">
                     <div class="cf-trace-sidebar-head">

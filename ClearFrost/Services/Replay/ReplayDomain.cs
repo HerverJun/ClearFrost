@@ -19,10 +19,31 @@ namespace ClearFrost.Services.Replay
     public static class ReplayRunStatuses
     {
         public const string Pending = "Pending";
+        public const string Preparing = "Preparing";
+        public const string BaselineRunning = "BaselineRunning";
+        public const string CandidateRunning = "CandidateRunning";
+        public const string Reporting = "Reporting";
         public const string Running = "Running";
         public const string Completed = "Completed";
         public const string Failed = "Failed";
         public const string Canceled = "Canceled";
+        public const string Interrupted = "Interrupted";
+    }
+
+    public static class ReplayReviewDispositions
+    {
+        public const string Confirmed = "Confirmed";
+        public const string FalseReject = "FalseReject";
+        public const string MissedDetection = "MissedDetection";
+        public const string Pending = "Pending";
+        public const string Invalid = "Invalid";
+
+        public static bool IsDatasetEligible(string value)
+        {
+            return string.Equals(value, Confirmed, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(value, FalseReject, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(value, MissedDetection, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     public sealed class ReplayRecipeSnapshot
@@ -93,7 +114,10 @@ namespace ClearFrost.Services.Replay
         public string SampleId { get; set; } = string.Empty;
         public string InspectionId { get; set; } = string.Empty;
         public string GroundTruth { get; set; } = ReplayDecisions.OK;
+        public string SystemDecision { get; set; } = ReplayDecisions.OK;
+        public string Disposition { get; set; } = ReplayReviewDispositions.Pending;
         public string ReviewerId { get; set; } = string.Empty;
+        public string ReviewerRole { get; set; } = string.Empty;
         public long Revision { get; set; }
         public DateTimeOffset ReviewedAt { get; set; } = DateTimeOffset.UtcNow;
         public string Notes { get; set; } = string.Empty;
@@ -162,6 +186,10 @@ namespace ClearFrost.Services.Replay
         public string CandidateDecision { get; set; } = ReplayDecisions.OK;
         public string Classification { get; set; } = string.Empty;
         public bool DecisionChanged { get; set; }
+        public long BaselineElapsedMs { get; set; }
+        public long CandidateElapsedMs { get; set; }
+        public string BaselineRuleSummary { get; set; } = string.Empty;
+        public string CandidateRuleSummary { get; set; } = string.Empty;
     }
 
     public sealed class ReplayComparisonMetrics
@@ -174,6 +202,10 @@ namespace ClearFrost.Services.Replay
         public int ChangedDecisionCount { get; set; }
         public int BaselineCorrectCount { get; set; }
         public int CandidateCorrectCount { get; set; }
+        public double BaselineAccuracy { get; set; }
+        public double CandidateAccuracy { get; set; }
+        public long BaselineP95ElapsedMs { get; set; }
+        public long CandidateP95ElapsedMs { get; set; }
     }
 
     public sealed class ReplayRunReport
@@ -191,6 +223,12 @@ namespace ClearFrost.Services.Replay
         public IReadOnlyList<string> Errors { get; set; } = Array.Empty<string>();
         public string ReportJsonPath { get; set; } = string.Empty;
         public string ReportCsvPath { get; set; } = string.Empty;
+        public string ReportHash { get; set; } = string.Empty;
+        public string RecipeHash { get; set; } = string.Empty;
+        public string RuleSetHash { get; set; } = string.Empty;
+        public string PolicyHash { get; set; } = string.Empty;
+        public string BaselineModelHash { get; set; } = string.Empty;
+        public string CandidateModelHash { get; set; } = string.Empty;
     }
 
     public sealed class ReplayComparisonRequest
@@ -260,6 +298,12 @@ namespace ClearFrost.Services.Replay
         public ReplayModelIdentity CandidateModel { get; set; } = new ReplayModelIdentity();
         public ReplayComparisonMetrics Metrics { get; set; } = new ReplayComparisonMetrics();
         public IReadOnlyList<string> PolicyReasons { get; set; } = Array.Empty<string>();
+        public string ReplayReportPath { get; set; } = string.Empty;
+        public string PolicyHash { get; set; } = string.Empty;
+        public string RecipeHash { get; set; } = string.Empty;
+        public string RuleSetHash { get; set; } = string.Empty;
+        public string BaselineModelHash { get; set; } = string.Empty;
+        public string CandidateModelHash { get; set; } = string.Empty;
     }
 
     public sealed class ModelApprovalEvidenceValidationResult
@@ -338,6 +382,10 @@ namespace ClearFrost.Services.Replay
             ReplayRunReport report,
             CancellationToken cancellationToken = default);
 
+        Task<ReplayRunReport> LoadReportAsync(
+            string runId,
+            CancellationToken cancellationToken = default);
+
         Task RecordRunFailedAsync(
             string runId,
             string message,
@@ -346,6 +394,10 @@ namespace ClearFrost.Services.Replay
         Task RecordRunCanceledAsync(
             string runId,
             CancellationToken cancellationToken = default);
+
+        Task MarkNonTerminalRunsInterruptedAsync(
+            string stationId,
+            CancellationToken cancellationToken = default);
     }
 
     public interface IModelApprovalEvidenceStore
@@ -353,13 +405,59 @@ namespace ClearFrost.Services.Replay
         ModelApprovalEvidence SaveEvidence(
             ReplayRunReport report,
             string approvedBy,
-            string datasetPath);
+            string datasetPath,
+            string policyHash);
 
         ModelApprovalEvidenceValidationResult ValidateEvidence(
             ReplayModelIdentity candidate,
             string evidenceId,
             string expectedEvidenceHash,
             IReplayDatasetStore datasetStore);
+    }
+
+    public sealed class ReplayApprovalRequest
+    {
+        public ReplayRunReport Report { get; init; } = new ReplayRunReport();
+        public ModelRegistryEntry CandidateEntry { get; init; } = new ModelRegistryEntry();
+        public string ApprovedBy { get; init; } = string.Empty;
+        public string ApprovedByRole { get; init; } = string.Empty;
+        public string DatasetPath { get; init; } = string.Empty;
+    }
+
+    public sealed class ReplayApprovalResult
+    {
+        public bool Succeeded { get; init; }
+        public string ErrorCode { get; init; } = string.Empty;
+        public string Message { get; init; } = string.Empty;
+        public bool IsFaulted { get; init; }
+        public ModelApprovalEvidence? Evidence { get; init; }
+        public IReadOnlyList<string> CompensationFailures { get; init; } = Array.Empty<string>();
+
+        public static ReplayApprovalResult Ok(ModelApprovalEvidence evidence, string message)
+        {
+            return new ReplayApprovalResult
+            {
+                Succeeded = true,
+                Evidence = evidence,
+                Message = message ?? string.Empty
+            };
+        }
+
+        public static ReplayApprovalResult Fail(
+            string errorCode,
+            string message,
+            bool isFaulted = false,
+            IReadOnlyList<string>? compensationFailures = null)
+        {
+            return new ReplayApprovalResult
+            {
+                Succeeded = false,
+                ErrorCode = errorCode ?? string.Empty,
+                Message = message ?? string.Empty,
+                IsFaulted = isFaulted,
+                CompensationFailures = compensationFailures ?? Array.Empty<string>()
+            };
+        }
     }
 
     internal static class ReplayMetrics
@@ -375,7 +473,11 @@ namespace ClearFrost.Services.Replay
                 CandidateFixedFalseRejectCount = samples.Count(sample => IsFixedFalseReject(sample)),
                 ChangedDecisionCount = samples.Count(sample => sample.DecisionChanged),
                 BaselineCorrectCount = samples.Count(sample => IsCorrect(sample.GroundTruth, sample.BaselineDecision)),
-                CandidateCorrectCount = samples.Count(sample => IsCorrect(sample.GroundTruth, sample.CandidateDecision))
+                CandidateCorrectCount = samples.Count(sample => IsCorrect(sample.GroundTruth, sample.CandidateDecision)),
+                BaselineAccuracy = samples.Count == 0 ? 0 : samples.Count(sample => IsCorrect(sample.GroundTruth, sample.BaselineDecision)) / (double)samples.Count,
+                CandidateAccuracy = samples.Count == 0 ? 0 : samples.Count(sample => IsCorrect(sample.GroundTruth, sample.CandidateDecision)) / (double)samples.Count,
+                BaselineP95ElapsedMs = Percentile95(samples.Select(sample => sample.BaselineElapsedMs)),
+                CandidateP95ElapsedMs = Percentile95(samples.Select(sample => sample.CandidateElapsedMs))
             };
         }
 
@@ -429,11 +531,45 @@ namespace ClearFrost.Services.Replay
             return string.Equals(Normalize(value), ReplayDecisions.NG, StringComparison.Ordinal);
         }
 
+        internal static bool TryNormalizeDecision(string value, out string normalized)
+        {
+            if (string.Equals(value, ReplayDecisions.OK, StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = ReplayDecisions.OK;
+                return true;
+            }
+
+            if (string.Equals(value, ReplayDecisions.NG, StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = ReplayDecisions.NG;
+                return true;
+            }
+
+            normalized = string.Empty;
+            return false;
+        }
+
         internal static string Normalize(string value)
         {
-            return string.Equals(value, ReplayDecisions.NG, StringComparison.OrdinalIgnoreCase)
-                ? ReplayDecisions.NG
-                : ReplayDecisions.OK;
+            return TryNormalizeDecision(value, out string normalized)
+                ? normalized
+                : throw new InvalidOperationException($"Unknown replay decision: {value}");
+        }
+
+        private static long Percentile95(IEnumerable<long> values)
+        {
+            List<long> ordered = values
+                .Where(value => value >= 0)
+                .OrderBy(value => value)
+                .ToList();
+            if (ordered.Count == 0)
+            {
+                return 0;
+            }
+
+            int index = (int)Math.Ceiling(ordered.Count * 0.95d) - 1;
+            index = Math.Clamp(index, 0, ordered.Count - 1);
+            return ordered[index];
         }
     }
 

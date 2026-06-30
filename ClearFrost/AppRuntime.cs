@@ -8,10 +8,13 @@ using System.Threading.Tasks;
 using ClearFrost.Config;
 using ClearFrost.Core.Models;
 using ClearFrost.Core.Recipes;
+using ClearFrost.Core.Rules;
 using ClearFrost.Hardware;
 using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
+using ClearFrost.Services.Replay;
+using Microsoft.Data.Sqlite;
 
 namespace ClearFrost
 {
@@ -69,6 +72,49 @@ namespace ClearFrost
             RecipeManager.LoadOrCreateDefault(appConfig);
             ModelRegistry = modelRegistry ?? new ModelRegistry();
             RefreshModelRegistry();
+            OperationAuditService = new OperationAuditService(Path.Combine(StorageService.LogBasePath, "Outbox"));
+            DecisionEvaluator = new InspectionDecisionEvaluator();
+            ReplayPolicy = new ReplayAcceptancePolicy();
+            ManualReviewStore = new SqliteManualReviewStore(
+                DatabaseService,
+                Path.Combine(StorageService.SystemPath, "manual-review.db"),
+                OperationAuditService);
+            ReplayDatasetStore = new FileReplayDatasetStore(
+                DatabaseService,
+                Path.Combine(StorageService.SystemPath, "ReplayDatasets"));
+            ReplayRunStore = new SqliteReplayRunStore(
+                Path.Combine(StorageService.SystemPath, "replay-runs.db"),
+                Path.Combine(StorageService.SystemPath, "ReplayReports"));
+            ReplayRunStore.MarkNonTerminalRunsInterruptedAsync("default").GetAwaiter().GetResult();
+            ModelApprovalEvidenceStore = new FileModelApprovalEvidenceStore(
+                Path.Combine(StorageService.SystemPath, "ReplayEvidence"),
+                ReplayPolicy);
+            ReplayProductionGate = new ReplayApprovalEvidenceProductionGate(
+                ModelApprovalEvidenceStore,
+                ReplayDatasetStore);
+            ReplayIntegrityScanner = new ReplayIntegrityScanner(
+                ModelRegistry,
+                ReplayProductionGate,
+                OperationAuditService);
+            ReplayModelValidator = new ReplayModelValidator();
+            ReplayInferenceRunner = new ProductionReplayInferenceRunner(
+                detectionServiceFactory: () => new DetectionService(appConfig.EnableGpu, appConfig.GpuIndex),
+                decisionEvaluator: DecisionEvaluator,
+                useGpu: appConfig.EnableGpu,
+                gpuIndex: appConfig.GpuIndex);
+            ReplayApplicationService = new ReplayApplicationService(
+                ReplayDatasetStore,
+                ReplayInferenceRunner,
+                ReplayModelValidator,
+                ReplayRunStore,
+                ReplayPolicy);
+            ReplayApprovalApplicationService = new ReplayApprovalApplicationService(
+                ModelRegistry,
+                () => RefreshModelRegistry(),
+                ModelApprovalEvidenceStore,
+                ReplayProductionGate,
+                ReplayPolicy,
+                OperationAuditService);
             HealthMonitor = new HealthMonitor(
                 CameraService,
                 PlcService,
@@ -78,7 +124,7 @@ namespace ClearFrost
                 DetectionRecordQueue);
             WebUIController = webUIController ?? new WebUIController();
             StartupDiagnostics = startupDiagnostics ?? new StartupDiagnostics();
-            StartupDiagnostics.Run(AppConfig, StorageService, ModelRegistry);
+            StartupDiagnostics.Run(AppConfig, StorageService, ModelRegistry, ReplayProductionGate.Validate);
             DiagnosticPackageExporter = diagnosticPackageExporter ?? new DiagnosticPackageExporter();
         }
 
@@ -105,6 +151,32 @@ namespace ClearFrost
         public RecipeManager RecipeManager { get; }
 
         public ModelRegistry ModelRegistry { get; }
+
+        public OperationAuditService OperationAuditService { get; }
+
+        public IInspectionDecisionEvaluator DecisionEvaluator { get; }
+
+        public ReplayAcceptancePolicy ReplayPolicy { get; }
+
+        public IManualReviewStore ManualReviewStore { get; }
+
+        public IReplayDatasetStore ReplayDatasetStore { get; }
+
+        public IReplayRunStore ReplayRunStore { get; }
+
+        public IReplayInferenceRunner ReplayInferenceRunner { get; }
+
+        public IReplayModelValidator ReplayModelValidator { get; }
+
+        public ReplayApplicationService ReplayApplicationService { get; }
+
+        public IModelApprovalEvidenceStore ModelApprovalEvidenceStore { get; }
+
+        public ReplayApprovalEvidenceProductionGate ReplayProductionGate { get; }
+
+        public ReplayIntegrityScanner ReplayIntegrityScanner { get; }
+
+        internal ReplayApprovalApplicationService ReplayApprovalApplicationService { get; }
 
         public HealthMonitor HealthMonitor { get; }
 
@@ -348,6 +420,15 @@ namespace ClearFrost
             catch (Exception ex)
             {
                 Debug.WriteLine($"[AppRuntime] 释放 StorageService 失败: {ex.Message}");
+            }
+
+            try
+            {
+                SqliteConnection.ClearAllPools();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AppRuntime] 清理 SQLite 连接池失败: {ex.Message}");
             }
 
             try

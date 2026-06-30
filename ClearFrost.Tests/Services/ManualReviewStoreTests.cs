@@ -30,7 +30,9 @@ public class ManualReviewStoreTests
                 InspectionId = "INS-NG-1",
                 SampleId = "S-NG-1",
                 GroundTruth = ReplayDecisions.NG,
+                Disposition = ReplayReviewDispositions.Confirmed,
                 ReviewerId = "qa01",
+                ReviewerRole = "Engineer",
                 ExpectedRevision = 0
             });
 
@@ -66,7 +68,9 @@ public class ManualReviewStoreTests
                 InspectionId = "INS-OK-1",
                 SampleId = "S-OK-1",
                 GroundTruth = ReplayDecisions.OK,
+                Disposition = ReplayReviewDispositions.Confirmed,
                 ReviewerId = "qa01",
+                ReviewerRole = "Engineer",
                 ExpectedRevision = 0
             });
             ManualReviewSaveResult conflict = await store.SaveReviewAsync(new ManualReviewSaveRequest
@@ -74,7 +78,9 @@ public class ManualReviewStoreTests
                 InspectionId = "INS-OK-1",
                 SampleId = "S-OK-1",
                 GroundTruth = ReplayDecisions.NG,
+                Disposition = ReplayReviewDispositions.MissedDetection,
                 ReviewerId = "qa02",
+                ReviewerRole = "Engineer",
                 ExpectedRevision = 0
             });
             ManualReviewSaveResult update = await store.SaveReviewAsync(new ManualReviewSaveRequest
@@ -82,7 +88,9 @@ public class ManualReviewStoreTests
                 InspectionId = "INS-OK-1",
                 SampleId = "S-OK-1",
                 GroundTruth = ReplayDecisions.NG,
+                Disposition = ReplayReviewDispositions.MissedDetection,
                 ReviewerId = "qa02",
+                ReviewerRole = "Engineer",
                 ExpectedRevision = 1
             });
 

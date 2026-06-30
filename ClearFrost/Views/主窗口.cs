@@ -67,7 +67,7 @@ namespace ClearFrost
             _databaseService = _appRuntime.DatabaseService;
             _uiController.DatabaseService = _databaseService;
             SafeFireAndForget(_databaseService.InitializeAsync(), "数据库初始化");
-            _operationAuditService = new OperationAuditService(Path.Combine(Path_Logs, "Outbox"));
+            _operationAuditService = _appRuntime.OperationAuditService;
             _uiController.AuditService = _operationAuditService;
             _imageSaveQueue = _appRuntime.ImageSaveQueue;
             _detectionRecordQueue = _appRuntime.DetectionRecordQueue;
@@ -83,7 +83,8 @@ namespace ClearFrost
                 () => _appConfig.Save(),
                 SnapshotCurrentROI,
                 ResolveCurrentOperatorId,
-                () => _appConfig.CurrentOperatorRole.ToString());
+                () => _appConfig.CurrentOperatorRole.ToString(),
+                _appRuntime.ReplayProductionGate.Validate);
             _healthMonitor = _appRuntime.HealthMonitor;
             _startupDiagnostics = _appRuntime.StartupDiagnostics;
             _inspectionPipelineService = new InspectionPipelineService(
@@ -100,6 +101,7 @@ namespace ClearFrost
                 _healthMonitor,
                 SnapshotCurrentROI,
                 () => _cameraManager.ActiveCameraId ?? string.Empty,
+                _appRuntime.DecisionEvaluator,
                 DiagLog);
             _serialTriggerService = new SerialPhotoelectricTriggerService();
             LogStartupDiagnostics();
@@ -142,7 +144,11 @@ namespace ClearFrost
                 RecordHealthError("StartupDiagnostics", $"刷新模型注册表失败: {ex.Message}");
             }
 
-            StartupDiagnosticReport report = _startupDiagnostics.Run(_appConfig, _storageService, _modelRegistry);
+            StartupDiagnosticReport report = _startupDiagnostics.Run(
+                _appConfig,
+                _storageService,
+                _modelRegistry,
+                _appRuntime.ReplayProductionGate.Validate);
             LogStartupDiagnostics();
             return report;
         }

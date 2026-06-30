@@ -59,10 +59,10 @@ namespace ClearFrost.Services
 
             AddText(archive, "config.sanitized.json", BuildSanitizedConfigJson(request.AppConfig));
             AddJson(archive, "recipe.json", request.Recipe);
-            AddJson(archive, "model_registry.json", request.ModelEntries);
+            AddJson(archive, "model_registry.json", SanitizeModelEntries(request.ModelEntries));
             AddJson(archive, "startup_diagnostics.json", request.StartupDiagnostics);
             AddJson(archive, "health.json", request.HealthSnapshot);
-            AddJson(archive, "recent_records.json", request.RecentRecords);
+            AddJson(archive, "recent_records.json", SanitizeRecentRecords(request.RecentRecords));
             AddText(archive, "system_info.txt", BuildSystemInfo());
             await AddLogsAsync(archive, request.LogsDirectory, cancellationToken).ConfigureAwait(false);
 
@@ -72,7 +72,88 @@ namespace ClearFrost.Services
         private static string BuildSanitizedConfigJson(AppConfig config)
         {
             JsonNode? node = JsonSerializer.SerializeToNode(config, JsonOptions);
+            if (node is JsonObject obj)
+            {
+                Redact(obj, nameof(AppConfig.CurrentOperatorId));
+                Redact(obj, nameof(AppConfig.StoragePath));
+            }
+
             return node?.ToJsonString(JsonOptions) ?? "{}";
+        }
+
+        private static IReadOnlyList<object> SanitizeModelEntries(IReadOnlyList<ModelRegistryEntry> entries)
+        {
+            return (entries ?? Array.Empty<ModelRegistryEntry>())
+                .Select(entry => new
+                {
+                    entry.ModelId,
+                    entry.Version,
+                    entry.ModelHash,
+                    ModelFileName = Path.GetFileName(entry.ModelPath ?? string.Empty),
+                    entry.IsPackage,
+                    entry.Status,
+                    entry.Message,
+                    entry.TaskType,
+                    entry.InputWidth,
+                    entry.InputHeight,
+                    entry.ApprovalStatus,
+                    entry.ApprovedForProduction
+                })
+                .Cast<object>()
+                .ToList();
+        }
+
+        private static IReadOnlyList<object> SanitizeRecentRecords(IReadOnlyList<DetectionRecord> records)
+        {
+            return (records ?? Array.Empty<DetectionRecord>())
+                .Select(record => new
+                {
+                    record.Id,
+                    record.Timestamp,
+                    record.IsQualified,
+                    record.InspectionId,
+                    record.TriggerSource,
+                    ProductBarcode = Redacted(record.ProductBarcode),
+                    Barcode = Redacted(record.Barcode),
+                    record.TraceStatus,
+                    record.QueueStatus,
+                    ImagePath = Redacted(record.ImagePath),
+                    RenderedImagePath = Redacted(record.RenderedImagePath),
+                    TraceImagePath = Redacted(record.TraceImagePath),
+                    record.ErrorStage,
+                    record.ErrorCode,
+                    record.ErrorMessage,
+                    record.TotalMs,
+                    record.RecipeId,
+                    record.RecipeVersion,
+                    record.ModelId,
+                    record.ModelVersion,
+                    record.ModelHash,
+                    record.WasFallback,
+                    record.UsedModelName,
+                    record.TargetLabel,
+                    record.ExpectedCount,
+                    record.ActualCount,
+                    record.InferenceMs,
+                    record.ModelName,
+                    record.CameraId,
+                    record.RuleSummary
+                })
+                .Cast<object>()
+                .ToList();
+        }
+
+        private static void Redact(JsonObject obj, string name)
+        {
+            if (obj.ContainsKey(name))
+            {
+                obj[name] = "<redacted>";
+            }
+        }
+
+        private static string Redacted(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : "<redacted>";
         }
 
         private static string BuildSystemInfo()
@@ -134,7 +215,11 @@ namespace ClearFrost.Services
 
             string fullPath = info.FullName.ToLowerInvariant();
             if (fullPath.Contains($"{Path.DirectorySeparatorChar}images{Path.DirectorySeparatorChar}") ||
-                fullPath.Contains(".onnx"))
+                fullPath.Contains(".onnx") ||
+                fullPath.Contains($"{Path.DirectorySeparatorChar}outbox{Path.DirectorySeparatorChar}") ||
+                fullPath.Contains($"{Path.DirectorySeparatorChar}replayevidence{Path.DirectorySeparatorChar}") ||
+                fullPath.Contains($"{Path.DirectorySeparatorChar}replaydatasets{Path.DirectorySeparatorChar}") ||
+                fullPath.Contains($"{Path.DirectorySeparatorChar}replayreports{Path.DirectorySeparatorChar}"))
             {
                 return false;
             }

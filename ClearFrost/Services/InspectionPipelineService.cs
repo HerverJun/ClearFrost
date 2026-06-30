@@ -158,6 +158,7 @@ namespace ClearFrost.Services
         private readonly HealthMonitor _healthMonitor;
         private readonly Func<float[]?> _roiSnapshotProvider;
         private readonly Func<string> _activeCameraIdProvider;
+        private readonly IInspectionDecisionEvaluator _decisionEvaluator;
         private readonly Action<string>? _diagLog;
         private const int RuntimeCameraRecoverySettleMs = 150;
         private const int RuntimeCameraReconnectSettleMs = 250;
@@ -176,6 +177,7 @@ namespace ClearFrost.Services
             HealthMonitor healthMonitor,
             Func<float[]?> roiSnapshotProvider,
             Func<string> activeCameraIdProvider,
+            IInspectionDecisionEvaluator? decisionEvaluator = null,
             Action<string>? diagLog = null)
         {
             _appConfig = appConfig ?? throw new ArgumentNullException(nameof(appConfig));
@@ -191,6 +193,7 @@ namespace ClearFrost.Services
             _healthMonitor = healthMonitor ?? throw new ArgumentNullException(nameof(healthMonitor));
             _roiSnapshotProvider = roiSnapshotProvider ?? throw new ArgumentNullException(nameof(roiSnapshotProvider));
             _activeCameraIdProvider = activeCameraIdProvider ?? throw new ArgumentNullException(nameof(activeCameraIdProvider));
+            _decisionEvaluator = decisionEvaluator ?? new InspectionDecisionEvaluator();
             _diagLog = diagLog;
         }
 
@@ -714,7 +717,7 @@ namespace ClearFrost.Services
                 string ruleSetJson = InspectionRuleSetSerializer.Serialize(ruleSet);
                 InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
                 float[]? roiSnapshot = _roiSnapshotProvider();
-                MultiModelCandidateEvaluator candidateEvaluator = CreateRuleCandidateEvaluator(
+                MultiModelCandidateEvaluator candidateEvaluator = _decisionEvaluator.CreateCandidateEvaluator(
                     ruleSet,
                     frameToProcess.Width,
                     frameToProcess.Height,
@@ -756,15 +759,47 @@ namespace ClearFrost.Services
 
                 context.CurrentStage = InspectionStage.RoiFilter;
                 var roiSw = Stopwatch.StartNew();
-                results = FilterResultsByROI(results, frameToProcess.Width, frameToProcess.Height, roiSnapshot);
+                InspectionDecisionResult decision = _decisionEvaluator.Evaluate(new InspectionDecisionRequest
+                {
+                    RuleSet = ruleSet,
+                    Detections = results,
+                    Labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>(),
+                    ImageWidth = frameToProcess.Width,
+                    ImageHeight = frameToProcess.Height,
+                    Roi = roiSnapshot
+                });
+                results = decision.FilteredDetections.ToList();
                 roiSw.Stop();
                 pipelineResult.Timings.RoiFilterMs = roiSw.ElapsedMilliseconds;
                 context.RoiMs = pipelineResult.Timings.RoiFilterMs;
                 pipelineResult.FinalResultCount = results.Count;
-                pipelineResult.AddStage(InspectionStage.RoiFilter, true, roiSw.ElapsedMilliseconds, $"ROI 后目标数: {results.Count}");
+                pipelineResult.AddStage(
+                    InspectionStage.RoiFilter,
+                    decision.Succeeded,
+                    roiSw.ElapsedMilliseconds,
+                    decision.Succeeded ? $"ROI 后目标数: {results.Count}" : decision.Message,
+                    decision.Succeeded ? null : decision.ErrorCode);
 
                 string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
-                if (detectionFailed)
+                if (!decision.Succeeded)
+                {
+                    isQualified = false;
+                    result.JudgeResult = decision.JudgeResult;
+                    pipelineResult.JudgeResult = decision.JudgeResult;
+                    result.IsRuleEvaluated = true;
+                    result.IsQualified = false;
+                    if (string.IsNullOrWhiteSpace(context.ErrorCode))
+                    {
+                        context.SetError(InspectionStage.RoiFilter, decision.ErrorCode, decision.Message);
+                    }
+
+                    await PublishLogAsync(
+                        progressAsync,
+                        context,
+                        $"ROI/规则判定失败({request.InspectionId})，已强制判定为不合格: {decision.Message}",
+                        "error").ConfigureAwait(false);
+                }
+                else if (detectionFailed)
                 {
                     isQualified = false;
                     if (string.IsNullOrWhiteSpace(context.ErrorCode))
@@ -780,7 +815,7 @@ namespace ClearFrost.Services
                 }
                 else
                 {
-                    InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(ruleSet, results, labels);
+                    InspectionJudgeResult judgeResult = decision.JudgeResult;
                     result.JudgeResult = judgeResult;
                     pipelineResult.JudgeResult = judgeResult;
                     result.IsRuleEvaluated = true;

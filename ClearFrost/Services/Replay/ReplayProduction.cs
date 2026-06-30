@@ -169,15 +169,18 @@ namespace ClearFrost.Services.Replay
     public sealed class ProductionReplayInferenceRunner : IReplayInferenceRunner
     {
         private readonly Func<IDetectionService> _detectionServiceFactory;
+        private readonly IInspectionDecisionEvaluator _decisionEvaluator;
         private readonly bool _useGpu;
         private readonly int _gpuIndex;
 
         public ProductionReplayInferenceRunner(
             Func<IDetectionService>? detectionServiceFactory = null,
+            IInspectionDecisionEvaluator? decisionEvaluator = null,
             bool useGpu = false,
             int gpuIndex = 0)
         {
             _detectionServiceFactory = detectionServiceFactory ?? (() => new DetectionService(useGpu, gpuIndex));
+            _decisionEvaluator = decisionEvaluator ?? new InspectionDecisionEvaluator();
             _useGpu = useGpu;
             _gpuIndex = Math.Max(0, gpuIndex);
         }
@@ -202,7 +205,7 @@ namespace ClearFrost.Services.Replay
                     throw new InvalidOperationException($"Replay model load failed: {model.ModelPath}");
                 }
 
-                return new ProductionReplayInferenceSession(detectionService, model, recipe);
+                return new ProductionReplayInferenceSession(detectionService, model, recipe, _decisionEvaluator);
             }
             catch
             {
@@ -227,16 +230,19 @@ namespace ClearFrost.Services.Replay
         {
             private readonly IDetectionService _detectionService;
             private readonly ReplayRecipeSnapshot _recipe;
+            private readonly IInspectionDecisionEvaluator _decisionEvaluator;
             private bool _disposed;
 
             public ProductionReplayInferenceSession(
                 IDetectionService detectionService,
                 ReplayModelIdentity model,
-                ReplayRecipeSnapshot recipe)
+                ReplayRecipeSnapshot recipe,
+                IInspectionDecisionEvaluator decisionEvaluator)
             {
                 _detectionService = detectionService;
                 Model = model;
                 _recipe = recipe;
+                _decisionEvaluator = decisionEvaluator;
             }
 
             public ReplayModelIdentity Model { get; }
@@ -267,22 +273,31 @@ namespace ClearFrost.Services.Replay
                 }
 
                 string[] labels = detection.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
-                InspectionJudgeResult judge = InspectionRuleEngine.Evaluate(
-                    _recipe.GetRuleSet(),
-                    detection.Results ?? new System.Collections.Generic.List<YoloResult>(),
-                    labels);
+                InspectionDecisionResult decision = _decisionEvaluator.Evaluate(new InspectionDecisionRequest
+                {
+                    RuleSet = _recipe.GetRuleSet(),
+                    Detections = detection.Results ?? new System.Collections.Generic.List<YoloResult>(),
+                    Labels = labels,
+                    ImageWidth = image.Width,
+                    ImageHeight = image.Height,
+                    Roi = _recipe.Roi
+                });
+                if (!decision.Succeeded)
+                {
+                    throw new InvalidOperationException($"{decision.ErrorCode}: {decision.Message}");
+                }
 
                 return new ReplayInferenceOutput
                 {
                     SampleId = sample.SampleId,
                     InspectionId = sample.InspectionId,
-                    Decision = judge.IsQualified ? ReplayDecisions.OK : ReplayDecisions.NG,
+                    Decision = decision.JudgeResult.IsQualified ? ReplayDecisions.OK : ReplayDecisions.NG,
                     Confidence = detection.Results?.Count > 0 ? detection.Results.Max(result => result.Confidence) : 0,
                     ElapsedMs = detection.ElapsedMs,
                     ModelId = Model.ModelId,
                     ModelVersion = Model.Version,
                     ModelHash = Model.Sha256,
-                    RuleSummary = judge.Summary
+                    RuleSummary = decision.JudgeResult.Summary
                 };
             }
 

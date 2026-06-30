@@ -65,7 +65,7 @@ namespace ClearFrost.Services
         }
     }
 
-    internal sealed class ProductionModelReadinessResult
+    public sealed class ProductionModelReadinessResult
     {
         public bool Succeeded { get; init; }
         public string ErrorCode { get; init; } = string.Empty;
@@ -774,9 +774,30 @@ namespace ClearFrost.Services
 
         private ProductionModelReadinessResult ValidateApprovalEvidence(ModelRegistryEntry? entry)
         {
-            if (_approvalEvidenceValidator == null || entry == null || !entry.IsPackage)
+            if (!_config.RequireApprovedModelsForProduction)
             {
                 return ProductionModelReadinessResult.Ok();
+            }
+
+            if (entry == null)
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayEvidenceEntryMissing",
+                    "Production approval is enabled but the registry entry is missing.");
+            }
+
+            if (!entry.IsPackage)
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayEvidencePackageRequired",
+                    "Production approval is enabled and requires a manifest-backed package.");
+            }
+
+            if (_approvalEvidenceValidator == null)
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayEvidenceGateMissing",
+                    "Production approval is enabled but Replay evidence gate is not configured.");
             }
 
             return _approvalEvidenceValidator(entry);

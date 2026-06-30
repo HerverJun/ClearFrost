@@ -28,6 +28,7 @@ namespace ClearFrost.Services.Replay
         public string InspectionId { get; init; } = string.Empty;
         public DateTime Timestamp { get; init; }
         public bool SystemIsQualified { get; init; }
+        public string SystemDecision => SystemIsQualified ? ReplayDecisions.OK : ReplayDecisions.NG;
         public string ReviewStatus { get; init; } = ManualReviewStatuses.Pending;
         public ReplayManualReviewRecord? Review { get; init; }
     }
@@ -37,7 +38,9 @@ namespace ClearFrost.Services.Replay
         public string InspectionId { get; init; } = string.Empty;
         public string SampleId { get; init; } = string.Empty;
         public string GroundTruth { get; init; } = ReplayDecisions.OK;
+        public string Disposition { get; init; } = ReplayReviewDispositions.Pending;
         public string ReviewerId { get; init; } = string.Empty;
+        public string ReviewerRole { get; init; } = ProductionRole.Engineer.ToString();
         public long? ExpectedRevision { get; init; }
         public string Notes { get; init; } = string.Empty;
     }
@@ -60,11 +63,17 @@ namespace ClearFrost.Services.Replay
 
         public static ManualReviewSaveResult Fail(string errorCode, string message)
         {
+            return Fail(errorCode, message, null);
+        }
+
+        public static ManualReviewSaveResult Fail(string errorCode, string message, ReplayManualReviewRecord? currentRecord)
+        {
             return new ManualReviewSaveResult
             {
                 Succeeded = false,
                 ErrorCode = errorCode ?? string.Empty,
-                Message = message ?? string.Empty
+                Message = message ?? string.Empty,
+                Record = currentRecord
             };
         }
     }
@@ -144,6 +153,26 @@ namespace ClearFrost.Services.Replay
                 return ManualReviewSaveResult.Fail("ManualReviewInspectionIdMissing", "InspectionId is required.");
             }
 
+            DetectionRecord? detectionRecord = await FindDetectionRecordAsync(request.InspectionId, cancellationToken)
+                .ConfigureAwait(false);
+            if (detectionRecord == null)
+            {
+                return ManualReviewSaveResult.Fail(
+                    "ManualReviewDetectionRecordMissing",
+                    $"Detection record is required for manual review: {request.InspectionId}.");
+            }
+
+            string systemDecision = detectionRecord.IsQualified ? ReplayDecisions.OK : ReplayDecisions.NG;
+            if (!TryNormalizeReview(
+                    request,
+                    systemDecision,
+                    out string disposition,
+                    out string groundTruth,
+                    out string validationError))
+            {
+                return ManualReviewSaveResult.Fail("ManualReviewDispositionInvalid", validationError);
+            }
+
             await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
             await using SqliteConnection connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -163,7 +192,8 @@ namespace ClearFrost.Services.Replay
                         .ConfigureAwait(false);
                     return ManualReviewSaveResult.Fail(
                         "ReviewRevisionConflict",
-                        $"Review revision conflict. Expected={request.ExpectedRevision.Value}; Actual={existingRevision}.");
+                        $"Review revision conflict. Expected={request.ExpectedRevision.Value}; Actual={existingRevision}.",
+                        existing);
                 }
 
                 var record = new ReplayManualReviewRecord
@@ -172,8 +202,13 @@ namespace ClearFrost.Services.Replay
                         ? request.InspectionId.Trim()
                         : request.SampleId.Trim(),
                     InspectionId = request.InspectionId.Trim(),
-                    GroundTruth = ReplayMetrics.Normalize(request.GroundTruth),
+                    GroundTruth = groundTruth,
+                    SystemDecision = systemDecision,
+                    Disposition = disposition,
                     ReviewerId = request.ReviewerId?.Trim() ?? string.Empty,
+                    ReviewerRole = string.IsNullOrWhiteSpace(request.ReviewerRole)
+                        ? ProductionRole.Engineer.ToString()
+                        : request.ReviewerRole.Trim(),
                     Revision = existingRevision + 1,
                     ReviewedAt = DateTimeOffset.UtcNow,
                     Notes = request.Notes ?? string.Empty
@@ -183,13 +218,16 @@ namespace ClearFrost.Services.Replay
                 command.Transaction = transaction;
                 command.CommandText = @"
                     INSERT INTO ManualReviewRecords
-                        (InspectionId, SampleId, GroundTruth, ReviewerId, Revision, ReviewedAt, Notes)
+                        (InspectionId, SampleId, GroundTruth, SystemDecision, Disposition, ReviewerId, ReviewerRole, Revision, ReviewedAt, Notes)
                     VALUES
-                        ($inspectionId, $sampleId, $groundTruth, $reviewerId, $revision, $reviewedAt, $notes)
+                        ($inspectionId, $sampleId, $groundTruth, $systemDecision, $disposition, $reviewerId, $reviewerRole, $revision, $reviewedAt, $notes)
                     ON CONFLICT(InspectionId) DO UPDATE SET
                         SampleId = excluded.SampleId,
                         GroundTruth = excluded.GroundTruth,
+                        SystemDecision = excluded.SystemDecision,
+                        Disposition = excluded.Disposition,
                         ReviewerId = excluded.ReviewerId,
+                        ReviewerRole = excluded.ReviewerRole,
                         Revision = excluded.Revision,
                         ReviewedAt = excluded.ReviewedAt,
                         Notes = excluded.Notes;
@@ -197,7 +235,10 @@ namespace ClearFrost.Services.Replay
                 command.Parameters.AddWithValue("$inspectionId", record.InspectionId);
                 command.Parameters.AddWithValue("$sampleId", record.SampleId);
                 command.Parameters.AddWithValue("$groundTruth", record.GroundTruth);
+                command.Parameters.AddWithValue("$systemDecision", record.SystemDecision);
+                command.Parameters.AddWithValue("$disposition", record.Disposition);
                 command.Parameters.AddWithValue("$reviewerId", record.ReviewerId);
+                command.Parameters.AddWithValue("$reviewerRole", record.ReviewerRole);
                 command.Parameters.AddWithValue("$revision", record.Revision);
                 command.Parameters.AddWithValue("$reviewedAt", record.ReviewedAt.ToString("O", CultureInfo.InvariantCulture));
                 command.Parameters.AddWithValue("$notes", record.Notes);
@@ -255,6 +296,7 @@ namespace ClearFrost.Services.Replay
             command.Transaction = transaction;
             command.CommandText = @"
                 SELECT InspectionId, SampleId, GroundTruth, ReviewerId, Revision, ReviewedAt, Notes
+                , SystemDecision, Disposition, ReviewerRole
                 FROM ManualReviewRecords
                 WHERE InspectionId = $inspectionId
                 LIMIT 1;
@@ -282,7 +324,10 @@ namespace ClearFrost.Services.Replay
                 ReviewerId = reader.GetString(3),
                 Revision = reader.GetInt64(4),
                 ReviewedAt = reviewedAt,
-                Notes = reader.GetString(6)
+                Notes = reader.GetString(6),
+                SystemDecision = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
+                Disposition = reader.IsDBNull(8) ? ReplayReviewDispositions.Invalid : reader.GetString(8),
+                ReviewerRole = reader.IsDBNull(9) ? string.Empty : reader.GetString(9)
             };
         }
 
@@ -301,7 +346,10 @@ namespace ClearFrost.Services.Replay
                     InspectionId TEXT PRIMARY KEY,
                     SampleId TEXT NOT NULL,
                     GroundTruth TEXT NOT NULL,
+                    SystemDecision TEXT NOT NULL DEFAULT '',
+                    Disposition TEXT NOT NULL DEFAULT 'Invalid',
                     ReviewerId TEXT NOT NULL,
+                    ReviewerRole TEXT NOT NULL DEFAULT '',
                     Revision INTEGER NOT NULL,
                     ReviewedAt TEXT NOT NULL,
                     Notes TEXT
@@ -309,6 +357,91 @@ namespace ClearFrost.Services.Replay
                 CREATE INDEX IF NOT EXISTS idx_manual_review_status ON ManualReviewRecords(GroundTruth, ReviewedAt);
             ";
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await EnsureColumnAsync(connection, "ManualReviewRecords", "SystemDecision", "TEXT NOT NULL DEFAULT ''", cancellationToken)
+                .ConfigureAwait(false);
+            await EnsureColumnAsync(connection, "ManualReviewRecords", "Disposition", "TEXT NOT NULL DEFAULT 'Invalid'", cancellationToken)
+                .ConfigureAwait(false);
+            await EnsureColumnAsync(connection, "ManualReviewRecords", "ReviewerRole", "TEXT NOT NULL DEFAULT ''", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        private async Task<DetectionRecord?> FindDetectionRecordAsync(
+            string inspectionId,
+            CancellationToken cancellationToken)
+        {
+            string normalized = inspectionId.Trim();
+            List<DetectionRecord> replayRecords = await _databaseService.GetReplayRecordsAsync(new DetectionReplayQuery { Limit = 10000 })
+                .ConfigureAwait(false);
+            DetectionRecord? match = replayRecords.FirstOrDefault(record =>
+                string.Equals(record.InspectionId, normalized, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+            {
+                return match;
+            }
+
+            List<DetectionRecord> records = await _databaseService.GetRecordsAsync(limit: 10000).ConfigureAwait(false);
+            return records.FirstOrDefault(record =>
+                string.Equals(record.InspectionId, normalized, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool TryNormalizeReview(
+            ManualReviewSaveRequest request,
+            string systemDecision,
+            out string disposition,
+            out string groundTruth,
+            out string error)
+        {
+            disposition = request.Disposition?.Trim() ?? string.Empty;
+            groundTruth = string.Empty;
+            error = string.Empty;
+            if (!ReplayReviewDispositions.IsDatasetEligible(disposition))
+            {
+                error = $"Disposition must be Confirmed, FalseReject, or MissedDetection. Actual={disposition}.";
+                return false;
+            }
+
+            if (!ReplayMetrics.TryNormalizeDecision(request.GroundTruth, out string normalizedTruth))
+            {
+                error = $"Ground truth must be OK or NG. Actual={request.GroundTruth}.";
+                return false;
+            }
+
+            string expected = string.Equals(disposition, ReplayReviewDispositions.Confirmed, StringComparison.OrdinalIgnoreCase)
+                ? systemDecision
+                : string.Equals(disposition, ReplayReviewDispositions.FalseReject, StringComparison.OrdinalIgnoreCase)
+                    ? ReplayDecisions.OK
+                    : ReplayDecisions.NG;
+            if (!string.Equals(expected, normalizedTruth, StringComparison.Ordinal))
+            {
+                error = $"Disposition {disposition} is inconsistent with system decision {systemDecision} and ground truth {normalizedTruth}.";
+                return false;
+            }
+
+            groundTruth = normalizedTruth;
+            return true;
+        }
+
+        private static async Task EnsureColumnAsync(
+            SqliteConnection connection,
+            string tableName,
+            string columnName,
+            string definition,
+            CancellationToken cancellationToken)
+        {
+            await using SqliteCommand check = connection.CreateCommand();
+            check.CommandText = $"PRAGMA table_info({tableName});";
+            await using SqliteDataReader reader = await check.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            await using SqliteCommand alter = connection.CreateCommand();
+            alter.CommandText = $"ALTER TABLE {tableName} ADD COLUMN {columnName} {definition};";
+            await alter.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         private async Task<SqliteConnection> OpenConnectionAsync(CancellationToken cancellationToken)
@@ -338,7 +471,9 @@ namespace ClearFrost.Services.Replay
                     Operation = "ManualReview",
                     Status = status,
                     OperatorId = request.ReviewerId,
-                    Role = ProductionRole.Engineer,
+                    Role = Enum.TryParse(request.ReviewerRole, ignoreCase: true, out ProductionRole role)
+                        ? role
+                        : ProductionRole.Engineer,
                     InspectionId = request.InspectionId,
                     Details = details
                 }, cancellationToken);

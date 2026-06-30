@@ -57,6 +57,56 @@ public class ProductionModelActivationServiceTests
     }
 
     [Fact]
+    public async Task ActivatePrimaryAsync_审批开启但Gate缺失时激活和Ready都拒绝()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string modelPath = CreatePackage(packageRoot, "pkg-main", "1", "main.onnx");
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = true
+            };
+            var registry = new ModelRegistry();
+            var recipeManager = new RecipeManager(Path.Combine(tempDir, "recipe.json"));
+            recipeManager.LoadOrCreateDefault(config);
+            var detection = new FakeDetectionService();
+            ProductionModelActivationService service = CreateService(
+                config,
+                registry,
+                recipeManager,
+                detection,
+                packageRoot,
+                omitApprovalEvidenceValidator: true);
+            registry.Scan(ScanOptions(packageRoot));
+            ProductionModelReference reference = ProductionModelReference.FromApprovedPackage(registry.Resolve(modelPath)!);
+
+            ProductionModelActivationResult activation = await service.ActivatePrimaryAsync(
+                reference.ToSelectionValue(),
+                "missing gate",
+                useGpu: false,
+                gpuIndex: 0);
+
+            activation.Succeeded.Should().BeFalse();
+            activation.ErrorCode.Should().Be("ReplayEvidenceGateMissing");
+            detection.RuntimeModelSnapshot.Primary.IsLoaded.Should().BeFalse();
+
+            config.CurrentModelReference = reference;
+            config.CurrentModelFileName = Path.GetFileName(modelPath);
+            (await detection.LoadModelAsync(modelPath, false, 0)).Should().BeTrue();
+            ProductionModelReadinessResult ready = service.EnsureReadyForProduction();
+            ready.Succeeded.Should().BeFalse();
+            ready.ErrorCode.Should().Be("ReplayEvidenceGateMissing");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task ActivatePrimaryAsync_LoadModel失败不改变旧运行时配置或Recipe()
     {
         string tempDir = CreateTempDirectory();
@@ -973,7 +1023,8 @@ public class ProductionModelActivationServiceTests
         FakeDetectionService detection,
         string packageRoot,
         Func<bool>? saveConfig = null,
-        Func<IReadOnlyList<ModelRegistryEntry>>? refreshRegistry = null)
+        Func<IReadOnlyList<ModelRegistryEntry>>? refreshRegistry = null,
+        bool omitApprovalEvidenceValidator = false)
     {
         return new ProductionModelActivationService(
             config,
@@ -984,7 +1035,8 @@ public class ProductionModelActivationServiceTests
             saveConfig ?? (() => true),
             () => null,
             () => "op",
-            () => "Engineer");
+            () => "Engineer",
+            omitApprovalEvidenceValidator ? null : _ => ProductionModelReadinessResult.Ok());
     }
 
     private static ModelRegistryScanOptions ScanOptions(string packageRoot)

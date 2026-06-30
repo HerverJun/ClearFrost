@@ -135,6 +135,61 @@ namespace ClearFrost.Tests
         }
 
         [Fact]
+        public async Task Constructor_统一创建Replay闭环服务和生产Gate()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                var order = new List<string>();
+                var appConfig = new AppConfig
+                {
+                    StoragePath = tempDir,
+                    RequireApprovedModelsForProduction = true
+                };
+                using var cameraManager = new CameraManager(true);
+                var databaseService = new FakeDatabaseService(order);
+                var runtime = new AppRuntime(
+                    appConfig,
+                    cameraManager,
+                    new FakeCameraService(order),
+                    new FakePlcService(order),
+                    new FakeDetectionService(order),
+                    new FakeStorageService(tempDir, order),
+                    new FakeStatisticsService(order),
+                    databaseService,
+                    new ImageSaveQueue(),
+                    new DetectionRecordQueue(databaseService),
+                    new WebUIController());
+
+                runtime.DecisionEvaluator.Should().NotBeNull();
+                runtime.ReplayPolicy.Should().NotBeNull();
+                runtime.ManualReviewStore.Should().NotBeNull();
+                runtime.ReplayDatasetStore.Should().NotBeNull();
+                runtime.ReplayRunStore.Should().NotBeNull();
+                runtime.ModelApprovalEvidenceStore.Should().NotBeNull();
+                runtime.ReplayProductionGate.Should().NotBeNull();
+                runtime.ReplayIntegrityScanner.Should().NotBeNull();
+                runtime.ReplayApplicationService.Should().NotBeNull();
+                runtime.ReplayApprovalApplicationService.Should().NotBeNull();
+                runtime.StartupDiagnostics.CurrentReport.Items.Should().Contain(item =>
+                    item.Name == "Replay evidence gate" &&
+                    item.Status == StartupDiagnosticStatus.Pass &&
+                    item.IsBlocking);
+
+                await runtime.DisposeAsync();
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Fact]
         public async Task Constructor_默认配置使用Cpu检测服务()
         {
             string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));

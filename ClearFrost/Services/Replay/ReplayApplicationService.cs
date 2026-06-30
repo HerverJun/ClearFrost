@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,17 +13,20 @@ namespace ClearFrost.Services.Replay
         private readonly IReplayInferenceRunner _inferenceRunner;
         private readonly IReplayModelValidator _modelValidator;
         private readonly IReplayRunStore _runStore;
+        private readonly ReplayAcceptancePolicy _policy;
 
         public ReplayApplicationService(
             IReplayDatasetStore datasetStore,
             IReplayInferenceRunner inferenceRunner,
             IReplayModelValidator modelValidator,
-            IReplayRunStore runStore)
+            IReplayRunStore runStore,
+            ReplayAcceptancePolicy? policy = null)
         {
             _datasetStore = datasetStore ?? throw new ArgumentNullException(nameof(datasetStore));
             _inferenceRunner = inferenceRunner ?? throw new ArgumentNullException(nameof(inferenceRunner));
             _modelValidator = modelValidator ?? throw new ArgumentNullException(nameof(modelValidator));
             _runStore = runStore ?? throw new ArgumentNullException(nameof(runStore));
+            _policy = policy ?? new ReplayAcceptancePolicy();
         }
 
         public async Task<ReplayRunReport> RunComparisonAsync(
@@ -42,16 +46,21 @@ namespace ClearFrost.Services.Replay
             var report = new ReplayRunReport
             {
                 RunId = runId,
-                Status = ReplayRunStatuses.Running,
+                Status = ReplayRunStatuses.Preparing,
                 DatasetId = dataset.DatasetId,
                 DatasetHash = dataset.DatasetHash,
                 BaselineModel = request.BaselineModel,
                 CandidateModel = request.CandidateModel,
-                StartedAt = DateTimeOffset.UtcNow
+                StartedAt = DateTimeOffset.UtcNow,
+                RecipeHash = FileReplayDatasetStore.ComputeRecipeHash(dataset.Recipe),
+                RuleSetHash = FileReplayDatasetStore.ComputeRuleSetHash(dataset.Recipe.RuleSetJson),
+                PolicyHash = _policy.PolicyHash,
+                BaselineModelHash = request.BaselineModel.Sha256,
+                CandidateModelHash = request.CandidateModel.Sha256
             };
 
             await _runStore.RecordRunStartedAsync(report, cancellationToken).ConfigureAwait(false);
-            Publish(progress, runId, "validate", 0, dataset.Samples.Count, "Validating replay models");
+            Publish(progress, runId, ReplayRunStatuses.Preparing, "validate", 0, dataset.Samples.Count, "Validating replay models");
 
             try
             {
@@ -68,6 +77,7 @@ namespace ClearFrost.Services.Replay
                 Dictionary<string, ReplayInferenceOutput> baselineOutputs = await RunModelAsync(
                     runId,
                     "baseline",
+                    ReplayRunStatuses.BaselineRunning,
                     request.BaselineModel,
                     dataset,
                     progress,
@@ -76,6 +86,7 @@ namespace ClearFrost.Services.Replay
                 Dictionary<string, ReplayInferenceOutput> candidateOutputs = await RunModelAsync(
                     runId,
                     "candidate",
+                    ReplayRunStatuses.CandidateRunning,
                     request.CandidateModel,
                     dataset,
                     progress,
@@ -92,19 +103,19 @@ namespace ClearFrost.Services.Replay
                 report.Metrics = ReplayMetrics.Compute(comparisons);
 
                 report = await _runStore.SaveReportAsync(report, cancellationToken).ConfigureAwait(false);
-                Publish(progress, runId, "completed", dataset.Samples.Count, dataset.Samples.Count, "Replay completed");
+                Publish(progress, runId, ReplayRunStatuses.Completed, "completed", dataset.Samples.Count, dataset.Samples.Count, "Replay completed");
                 return report;
             }
             catch (OperationCanceledException)
             {
                 await _runStore.RecordRunCanceledAsync(runId, CancellationToken.None).ConfigureAwait(false);
-                Publish(progress, runId, "canceled", 0, dataset.Samples.Count, "Replay canceled");
+                Publish(progress, runId, ReplayRunStatuses.Canceled, "canceled", 0, dataset.Samples.Count, "Replay canceled");
                 throw;
             }
             catch (Exception ex)
             {
                 await _runStore.RecordRunFailedAsync(runId, ex.Message, CancellationToken.None).ConfigureAwait(false);
-                Publish(progress, runId, "failed", 0, dataset.Samples.Count, ex.Message);
+                Publish(progress, runId, ReplayRunStatuses.Failed, "failed", 0, dataset.Samples.Count, ex.Message);
                 throw;
             }
         }
@@ -131,6 +142,7 @@ namespace ClearFrost.Services.Replay
         private async Task<Dictionary<string, ReplayInferenceOutput>> RunModelAsync(
             string runId,
             string phase,
+            string status,
             ReplayModelIdentity model,
             ReplayDatasetSnapshot dataset,
             IProgress<ReplayRunProgress>? progress,
@@ -152,7 +164,7 @@ namespace ClearFrost.Services.Replay
                 var replayProgress = new ReplayRunProgress
                 {
                     RunId = runId,
-                    Status = ReplayRunStatuses.Running,
+                    Status = status,
                     Phase = phase,
                     CompletedSamples = i + 1,
                     TotalSamples = dataset.Samples.Count,
@@ -193,7 +205,11 @@ namespace ClearFrost.Services.Replay
                     DecisionChanged = !string.Equals(
                         ReplayMetrics.Normalize(baseline.Decision),
                         ReplayMetrics.Normalize(candidate.Decision),
-                        StringComparison.Ordinal)
+                        StringComparison.Ordinal),
+                    BaselineElapsedMs = baseline.ElapsedMs,
+                    CandidateElapsedMs = candidate.ElapsedMs,
+                    BaselineRuleSummary = baseline.RuleSummary,
+                    CandidateRuleSummary = candidate.RuleSummary
                 };
                 comparison.Classification = ReplayMetrics.Classify(comparison);
                 comparisons.Add(comparison);
@@ -205,6 +221,7 @@ namespace ClearFrost.Services.Replay
         private static void Publish(
             IProgress<ReplayRunProgress>? progress,
             string runId,
+            string status,
             string phase,
             int completed,
             int total,
@@ -213,13 +230,7 @@ namespace ClearFrost.Services.Replay
             progress?.Report(new ReplayRunProgress
             {
                 RunId = runId,
-                Status = string.Equals(phase, "completed", StringComparison.OrdinalIgnoreCase)
-                    ? ReplayRunStatuses.Completed
-                    : string.Equals(phase, "failed", StringComparison.OrdinalIgnoreCase)
-                        ? ReplayRunStatuses.Failed
-                        : string.Equals(phase, "canceled", StringComparison.OrdinalIgnoreCase)
-                            ? ReplayRunStatuses.Canceled
-                            : ReplayRunStatuses.Running,
+                Status = status,
                 Phase = phase,
                 CompletedSamples = completed,
                 TotalSamples = total,
@@ -230,6 +241,17 @@ namespace ClearFrost.Services.Replay
 
     public sealed class ReplayAcceptancePolicy
     {
+        private readonly ReplayAcceptancePolicyOptions _options;
+
+        public ReplayAcceptancePolicy(ReplayAcceptancePolicyOptions? options = null)
+        {
+            _options = options ?? ReplayAcceptancePolicyOptions.ProductionDefault();
+        }
+
+        public ReplayAcceptancePolicyOptions Options => _options;
+
+        public string PolicyHash => ComputePolicyHash(_options);
+
         public ReplayApprovalDecision Evaluate(ReplayRunReport report)
         {
             if (report == null) throw new ArgumentNullException(nameof(report));
@@ -240,14 +262,27 @@ namespace ClearFrost.Services.Replay
                 reasons.Add($"Replay status is {report.Status}.");
             }
 
-            if (report.Metrics.CandidateNewMissedDetectionCount > 0)
+            if (report.Metrics.CandidateNewMissedDetectionCount > _options.MaximumNewMissedDetections)
             {
                 reasons.Add($"Candidate introduced missed detections: {report.Metrics.CandidateNewMissedDetectionCount}.");
             }
 
-            if (report.Metrics.CandidateNewFalseRejectCount > 0)
+            if (_options.MaximumNewFalseRejects.HasValue &&
+                report.Metrics.CandidateNewFalseRejectCount > _options.MaximumNewFalseRejects.Value)
             {
                 reasons.Add($"Candidate introduced false rejects: {report.Metrics.CandidateNewFalseRejectCount}.");
+            }
+
+            if (_options.MinimumCandidateAccuracy.HasValue &&
+                report.Metrics.CandidateAccuracy < _options.MinimumCandidateAccuracy.Value)
+            {
+                reasons.Add($"Candidate accuracy {report.Metrics.CandidateAccuracy:P2} is below policy {_options.MinimumCandidateAccuracy.Value:P2}.");
+            }
+
+            if (_options.MaximumCandidateP95ElapsedMs.HasValue &&
+                report.Metrics.CandidateP95ElapsedMs > _options.MaximumCandidateP95ElapsedMs.Value)
+            {
+                reasons.Add($"Candidate P95 latency {report.Metrics.CandidateP95ElapsedMs}ms exceeds policy {_options.MaximumCandidateP95ElapsedMs.Value}ms.");
             }
 
             if (report.Errors.Count > 0)
@@ -259,6 +294,31 @@ namespace ClearFrost.Services.Replay
             {
                 Approved = reasons.Count == 0,
                 Reasons = reasons
+            };
+        }
+
+        public static string ComputePolicyHash(ReplayAcceptancePolicyOptions options)
+        {
+            return FileReplayDatasetStore.ComputeSha256(JsonSerializer.SerializeToUtf8Bytes(
+                options ?? ReplayAcceptancePolicyOptions.ProductionDefault(),
+                ReplayJson.Options));
+        }
+    }
+
+    public sealed class ReplayAcceptancePolicyOptions
+    {
+        public int Version { get; set; } = 1;
+        public int MaximumNewMissedDetections { get; set; }
+        public int? MaximumNewFalseRejects { get; set; }
+        public double? MinimumCandidateAccuracy { get; set; }
+        public long? MaximumCandidateP95ElapsedMs { get; set; }
+
+        public static ReplayAcceptancePolicyOptions ProductionDefault()
+        {
+            return new ReplayAcceptancePolicyOptions
+            {
+                Version = 1,
+                MaximumNewMissedDetections = 0
             };
         }
     }

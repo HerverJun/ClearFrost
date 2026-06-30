@@ -23,6 +23,7 @@ using ClearFrost.Yolo;
 using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
+using ClearFrost.Services.Replay;
 
 namespace ClearFrost
 {
@@ -99,7 +100,7 @@ namespace ClearFrost
         // 架构说明:
         // - _cameraManager: 多相机配置管理器,负责相机列表和切换
         // - cam: 当前活动相机的 SDK 句柄,用于直接硬件操作
-        // TODO: 后续版本考虑将 cam 的 SDK 调用封装到 ICameraService
+        // 当前仍保留 SDK 句柄以兼容既有相机流程；新增流程优先走 ICameraService。
         private CameraManager _cameraManager;
         private ICamera cam; // 活动相机 SDK 句柄 (由 _cameraManager.ActiveCamera 提供)
         private volatile bool _isCameraOpening = false;
@@ -110,6 +111,11 @@ namespace ClearFrost
         private int _shutdownState = 0;
         private int _productionRunningState = 0;
         private int _manualReleaseInProgress = 0;
+        private readonly SemaphoreSlim _replayOperationLock = new SemaphoreSlim(1, 1);
+        private string _lastReplayDatasetId = string.Empty;
+        private string _lastReplayRunId = string.Empty;
+        private ReplayModelIdentity? _lastReplayBaselineModel;
+        private ReplayModelIdentity? _lastReplayCandidateModel;
 
         private bool IsShutdownInProgress => Volatile.Read(ref _shutdownState) != 0;
         private bool IsProductionRunning => Volatile.Read(ref _productionRunningState) != 0;

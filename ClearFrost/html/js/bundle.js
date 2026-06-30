@@ -305,8 +305,18 @@
             completedSamples: pickValue(data, "completedSamples", "CompletedSamples"),
             totalSamples: pickValue(data, "totalSamples", "TotalSamples"),
             message: pickValue(data, "message", "Message"),
+            errorCode: pickValue(data, "errorCode", "ErrorCode"),
+            succeeded: pickValue(data, "succeeded", "Succeeded"),
             approvalAvailable: pickValue(data, "approvalAvailable", "ApprovalAvailable"),
             rejectionReasons: Array.isArray(rejectionReasons) ? rejectionReasons : [String(rejectionReasons || "")].filter(Boolean),
+            reportJsonPath: pickValue(data, "reportJsonPath", "ReportJsonPath"),
+            reportCsvPath: pickValue(data, "reportCsvPath", "ReportCsvPath"),
+            reportHash: pickValue(data, "reportHash", "ReportHash"),
+            policyHash: pickValue(data, "policyHash", "PolicyHash"),
+            recipeHash: pickValue(data, "recipeHash", "RecipeHash"),
+            ruleSetHash: pickValue(data, "ruleSetHash", "RuleSetHash"),
+            evidenceId: pickValue(data, "evidenceId", "EvidenceId"),
+            evidenceHash: pickValue(data, "evidenceHash", "EvidenceHash"),
             metrics: {
                 sampleCount: pickValue(metrics, "sampleCount", "SampleCount"),
                 candidateNewMissedDetectionCount: pickValue(metrics, "candidateNewMissedDetectionCount", "CandidateNewMissedDetectionCount"),
@@ -314,6 +324,10 @@
                 candidateNewFalseRejectCount: pickValue(metrics, "candidateNewFalseRejectCount", "CandidateNewFalseRejectCount"),
                 candidateFixedFalseRejectCount: pickValue(metrics, "candidateFixedFalseRejectCount", "CandidateFixedFalseRejectCount"),
                 changedDecisionCount: pickValue(metrics, "changedDecisionCount", "ChangedDecisionCount"),
+                baselineAccuracy: pickValue(metrics, "baselineAccuracy", "BaselineAccuracy"),
+                candidateAccuracy: pickValue(metrics, "candidateAccuracy", "CandidateAccuracy"),
+                baselineP95ElapsedMs: pickValue(metrics, "baselineP95ElapsedMs", "BaselineP95ElapsedMs"),
+                candidateP95ElapsedMs: pickValue(metrics, "candidateP95ElapsedMs", "CandidateP95ElapsedMs"),
             },
         };
     }
@@ -414,11 +428,20 @@
             state.replay.currentRunId = cleanReplay.runId;
         }
 
-        if (cleanReplay.approvalAvailable !== undefined || cleanReplay.rejectionReasons) {
+        if (
+            cleanReplay.approvalAvailable !== undefined ||
+            cleanReplay.rejectionReasons ||
+            cleanReplay.succeeded !== undefined ||
+            cleanReplay.evidenceId ||
+            cleanReplay.errorCode
+        ) {
             state.replay.approval = {
                 ...state.replay.approval,
-                available: cleanReplay.approvalAvailable,
-                rejectionReasons: cleanReplay.rejectionReasons || [],
+                ...cleanReplay,
+                available: cleanReplay.approvalAvailable !== undefined
+                    ? cleanReplay.approvalAvailable
+                    : state.replay.approval.available,
+                rejectionReasons: cleanReplay.rejectionReasons || state.replay.approval.rejectionReasons || [],
             };
         }
 
@@ -1022,8 +1045,17 @@
         setText("replay-fixed-missed-count", metrics.candidateFixedMissedDetectionCount ?? "");
         setText("replay-new-false-reject-count", metrics.candidateNewFalseRejectCount ?? "");
         setText("replay-fixed-false-reject-count", metrics.candidateFixedFalseRejectCount ?? "");
-        setText("replay-approval-status", approvalAvailable === true ? "Available" : approvalAvailable === false ? "Rejected" : "");
-        setText("replay-rejection-reasons", (approval.rejectionReasons || []).join("; "));
+        setText("replay-approval-status",
+            approval.succeeded === true
+                ? "Approved"
+                : approval.succeeded === false
+                    ? (approval.errorCode || "Rejected")
+                    : approvalAvailable === true
+                        ? "Available"
+                        : approvalAvailable === false
+                            ? "Rejected"
+                            : "");
+        setText("replay-rejection-reasons", (approval.rejectionReasons || []).join("; ") || approval.message || approval.evidenceHash || "");
     }
 
     function renderManualReviewStatus(state) {
@@ -1568,6 +1600,7 @@
     bridge.registerMessageHandler("replayRunFailed", (data) => store.applyReplayUpdate(data));
     bridge.registerMessageHandler("replayRunCanceled", (data) => store.applyReplayUpdate(data));
     bridge.registerMessageHandler("modelApprovalAvailability", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayApprovalResponse", (data) => store.applyReplayUpdate(data));
     bridge.registerMessageHandler("detectionFrame", handleDetectionFrame);
     bridge.registerMessageHandler("uiCommand", handleUiCommand);
 })();
@@ -4550,6 +4583,73 @@
         renderTracePage(page);
     }
 
+    function getReplayLimit() {
+        const raw = Number(byId("replay-query-limit")?.value || 100);
+        if (!Number.isFinite(raw)) return 100;
+        return Math.max(1, Math.min(10000, Math.trunc(raw)));
+    }
+
+    function getReplayPanelPayload() {
+        return {
+            limit: getReplayLimit(),
+            datasetId: String(byId("replay-dataset-input")?.value || "").trim(),
+            runId: String(byId("replay-run-input")?.value || "").trim(),
+            baselineModel: String(byId("replay-baseline-model")?.value || "").trim(),
+            candidateModel: String(byId("replay-candidate-model")?.value || "").trim(),
+            recipeVersion: activeTraceRecord?.recipeVersion || "",
+        };
+    }
+
+    function setReplayPanelStatus(id, text) {
+        const node = byId(id);
+        if (node) node.textContent = text || "";
+    }
+
+    function queryManualReviewRecords() {
+        const requestId = bridge.sendCommand("query_manual_review_records", {
+            limit: getReplayLimit(),
+            recipeVersion: activeTraceRecord?.recipeVersion || "",
+        });
+        setReplayPanelStatus("manual-review-response", `Query ${requestId}`);
+    }
+
+    function saveManualReview() {
+        const inspectionId = activeTraceRecord?.inspectionId || "";
+        if (!inspectionId) {
+            window.showToast?.("Select a trace record before saving truth.", "warning", 1800);
+            return;
+        }
+
+        const revisionRaw = String(byId("manual-review-expected-revision")?.value || "").trim();
+        const requestId = bridge.sendCommand("save_manual_review", {
+            inspectionId,
+            sampleId: inspectionId,
+            groundTruth: byId("manual-review-ground-truth-input")?.value || "OK",
+            disposition: byId("manual-review-disposition-input")?.value || "Confirmed",
+            expectedRevision: revisionRaw ? Number(revisionRaw) : null,
+            notes: String(byId("manual-review-notes")?.value || "").trim(),
+        });
+        setReplayPanelStatus("manual-review-response", `Saving ${requestId}`);
+    }
+
+    function createReplayDataset() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("create_replay_dataset", payload);
+        setReplayPanelStatus("replay-run-status", `Freeze ${requestId}`);
+    }
+
+    function runReplayComparison() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("run_replay_comparison", payload);
+        setReplayPanelStatus("replay-run-status", `Run ${requestId}`);
+    }
+
+    function approveReplayCandidate() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("approve_replay_candidate", payload);
+        setReplayPanelStatus("replay-approval-status", `Approve ${requestId}`);
+    }
+
     Object.assign(window, {
         closeGalleryModal,
         closeImageViewer,
@@ -4567,6 +4667,11 @@
         receiveStatisticsHistory,
         requestStatisticsHistory,
         runHistoryRulePreview,
+        queryManualReviewRecords,
+        saveManualReview,
+        createReplayDataset,
+        runReplayComparison,
+        approveReplayCandidate,
         searchTraceImages,
         selectTraceHour,
         updateDetectionLogTable,

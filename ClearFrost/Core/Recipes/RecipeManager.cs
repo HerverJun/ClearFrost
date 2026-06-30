@@ -313,6 +313,62 @@ namespace ClearFrost.Core.Recipes
                 .ToList();
         }
 
+        public bool TryLoadVersion(
+            string recipeId,
+            string version,
+            out Recipe recipe,
+            out string error)
+        {
+            recipe = new Recipe();
+            error = string.Empty;
+            string normalizedRecipeId = string.IsNullOrWhiteSpace(recipeId) ? "default" : recipeId.Trim();
+            string normalizedVersion = version?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(normalizedVersion))
+            {
+                error = "Recipe version is required.";
+                return false;
+            }
+
+            RecipeVersionInfo? info = LoadVersionHistory()
+                .FirstOrDefault(item =>
+                    string.Equals(item.RecipeId, normalizedRecipeId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(item.Version, normalizedVersion, StringComparison.OrdinalIgnoreCase));
+            if (info == null || string.IsNullOrWhiteSpace(info.SnapshotPath))
+            {
+                error = $"Recipe version not found: {normalizedRecipeId}/{normalizedVersion}.";
+                return false;
+            }
+
+            string snapshotPath = Path.IsPathRooted(info.SnapshotPath)
+                ? info.SnapshotPath
+                : Path.Combine(Path.GetDirectoryName(_recipePath) ?? string.Empty, info.SnapshotPath);
+            try
+            {
+                if (!File.Exists(snapshotPath))
+                {
+                    error = $"Recipe snapshot missing: {snapshotPath}.";
+                    return false;
+                }
+
+                recipe = JsonSerializer.Deserialize<Recipe>(File.ReadAllText(snapshotPath), JsonOptions)
+                    ?? new Recipe();
+                NormalizeNestedSnapshots(recipe);
+                if (!string.Equals(recipe.RecipeId, normalizedRecipeId, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(recipe.Version, normalizedVersion, StringComparison.OrdinalIgnoreCase))
+                {
+                    error = $"Recipe snapshot identity mismatch: {snapshotPath}.";
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
         private static Recipe EnsureProductionSnapshot(Recipe recipe, AppConfig config, out bool migrated)
         {
             NormalizeNestedSnapshots(recipe);

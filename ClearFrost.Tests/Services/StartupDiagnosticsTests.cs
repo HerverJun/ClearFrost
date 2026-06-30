@@ -22,7 +22,8 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "Model registry" &&
@@ -71,7 +72,8 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                registry);
+                registry,
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "Model registry" &&
@@ -133,7 +135,8 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "PLC address config" &&
@@ -169,7 +172,8 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "PLC address config" &&
@@ -177,6 +181,32 @@ public class StartupDiagnosticsTests
                 !i.IsBlocking &&
                 i.Details == TriggerSource.SerialPhotoelectric.ToString());
             report.IsReady.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_审批开启但Gate缺失会阻塞Ready()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig { StoragePath = tempDir };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Replay evidence gate" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking);
+            report.IsReady.Should().BeFalse();
         }
         finally
         {
@@ -200,7 +230,8 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "PLC address config" &&
@@ -232,7 +263,8 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "PLC address config" &&
@@ -262,7 +294,8 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "PLC address config" &&
@@ -289,7 +322,8 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "Storage directory" &&
@@ -371,6 +405,11 @@ public class StartupDiagnosticsTests
         string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(StartupDiagnosticsTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static ProductionModelReadinessResult PassGate(ModelRegistryEntry entry)
+    {
+        return ProductionModelReadinessResult.Ok();
     }
 
     private static void DeleteDirectory(string path)

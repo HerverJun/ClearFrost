@@ -522,8 +522,17 @@
         setText("replay-fixed-missed-count", metrics.candidateFixedMissedDetectionCount ?? "");
         setText("replay-new-false-reject-count", metrics.candidateNewFalseRejectCount ?? "");
         setText("replay-fixed-false-reject-count", metrics.candidateFixedFalseRejectCount ?? "");
-        setText("replay-approval-status", approvalAvailable === true ? "Available" : approvalAvailable === false ? "Rejected" : "");
-        setText("replay-rejection-reasons", (approval.rejectionReasons || []).join("; "));
+        setText("replay-approval-status",
+            approval.succeeded === true
+                ? "Approved"
+                : approval.succeeded === false
+                    ? (approval.errorCode || "Rejected")
+                    : approvalAvailable === true
+                        ? "Available"
+                        : approvalAvailable === false
+                            ? "Rejected"
+                            : "");
+        setText("replay-rejection-reasons", (approval.rejectionReasons || []).join("; ") || approval.message || approval.evidenceHash || "");
     }
 
     function renderManualReviewStatus(state) {
@@ -1068,6 +1077,7 @@
     bridge.registerMessageHandler("replayRunFailed", (data) => store.applyReplayUpdate(data));
     bridge.registerMessageHandler("replayRunCanceled", (data) => store.applyReplayUpdate(data));
     bridge.registerMessageHandler("modelApprovalAvailability", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayApprovalResponse", (data) => store.applyReplayUpdate(data));
     bridge.registerMessageHandler("detectionFrame", handleDetectionFrame);
     bridge.registerMessageHandler("uiCommand", handleUiCommand);
 })();

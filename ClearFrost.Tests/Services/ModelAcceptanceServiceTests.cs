@@ -38,7 +38,7 @@ public class ModelAcceptanceServiceTests
     }
 
     [Fact]
-    public void ApprovePackage_通过验收后启用只做校验不写第二生产状态()
+    public void ApprovePackage_旧验收入口只返回ReplayEvidenceRequired且不写Approved()
     {
         string tempDir = CreateTempDirectory();
         try
@@ -69,7 +69,8 @@ public class ModelAcceptanceServiceTests
                 Summary = "golden replay passed"
             });
 
-            approval.Succeeded.Should().BeTrue();
+            approval.Succeeded.Should().BeFalse();
+            approval.ErrorCode.Should().Be("ReplayEvidenceRequired");
 
             registry.Scan(new ModelRegistryScanOptions
             {
@@ -78,10 +79,10 @@ public class ModelAcceptanceServiceTests
                 Warmup = (_, _) => true
             });
             second = registry.Resolve("pkg-b")!;
-            second.ApprovedForProduction.Should().BeTrue();
-            second.ApprovalStatus.Should().Be(ModelApprovalStatuses.Approved);
+            second.ApprovedForProduction.Should().BeFalse();
+            second.ApprovalStatus.Should().Be(ModelApprovalStatuses.Pending);
 
-            service.EnableApprovedModel(second).Succeeded.Should().BeTrue();
+            service.EnableApprovedModel(second).Succeeded.Should().BeFalse();
             File.Exists(Path.Combine(tempDir, "state.json")).Should().BeFalse();
         }
         finally

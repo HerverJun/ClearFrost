@@ -10,6 +10,9 @@ public class WebUIReplayContractTests
         string root = FindRepositoryRoot();
         string stateJs = File.ReadAllText(Path.Combine(root, "ClearFrost", "html", "js", "state.js"));
         string renderMainJs = File.ReadAllText(Path.Combine(root, "ClearFrost", "html", "js", "render-main.js"));
+        string historyJs = File.ReadAllText(Path.Combine(root, "ClearFrost", "html", "js", "history.js"));
+        string indexHtml = File.ReadAllText(Path.Combine(root, "ClearFrost", "html", "index.html"));
+        string controllerEvents = File.ReadAllText(Path.Combine(root, "ClearFrost", "Views", "WebUIController.cs"));
         string controller = File.ReadAllText(Path.Combine(root, "ClearFrost", "Views", "WebUIController.Messages.cs"));
 
         foreach (string field in new[]
@@ -41,9 +44,27 @@ public class WebUIReplayContractTests
         renderMainJs.Should().Contain("replayRunFailed");
         renderMainJs.Should().Contain("replayRunCanceled");
         renderMainJs.Should().Contain("modelApprovalAvailability");
+        renderMainJs.Should().Contain("replayApprovalResponse");
+        historyJs.Should().Contain("query_manual_review_records");
+        historyJs.Should().Contain("save_manual_review");
+        historyJs.Should().Contain("create_replay_dataset");
+        historyJs.Should().Contain("run_replay_comparison");
+        historyJs.Should().Contain("approve_replay_candidate");
+        historyJs.Should().Contain("requestId");
+        indexHtml.Should().Contain("replay-acceptance-panel");
+        indexHtml.Should().Contain("manual-review-ground-truth-input");
+        indexHtml.Should().Contain("replay-baseline-model");
+        indexHtml.Should().Contain("replay-candidate-model");
+        indexHtml.Should().Contain("replay-approval-status");
+        controllerEvents.Should().Contain("OnQueryManualReviewRecords");
+        controllerEvents.Should().Contain("OnSaveManualReview");
+        controllerEvents.Should().Contain("OnCreateReplayDataset");
+        controllerEvents.Should().Contain("OnRunReplayComparison");
+        controllerEvents.Should().Contain("OnApproveReplayCandidate");
         controller.Should().Contain("SendReplayRunStatus");
         controller.Should().Contain("SendReplayRunCompleted");
         controller.Should().Contain("SendModelApprovalAvailability");
+        controller.Should().Contain("SendReplayApprovalResponse");
         controller.Should().Contain("SendManualReviewRecords");
         controller.Should().Contain("SendManualReviewResponse");
     }
@@ -75,6 +96,9 @@ public class WebUIReplayContractTests
         bundle.Should().Contain("replayRunCompleted");
         bundle.Should().Contain("manualReviewResponse");
         bundle.Should().Contain("modelApprovalAvailability");
+        bundle.Should().Contain("replayApprovalResponse");
+        bundle.Should().Contain("create_replay_dataset");
+        bundle.Should().Contain("approve_replay_candidate");
     }
 
     private static string FindRepositoryRoot()

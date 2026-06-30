@@ -41,28 +41,28 @@ namespace ClearFrost
             return Task.CompletedTask;
         }
 
-        public Task SendDatasetCreateStatus(object payload)
+        public Task SendDatasetCreateStatus(object payload, string? requestId = null)
         {
-            PostMessage("datasetCreateStatus", payload);
+            PostMessage("datasetCreateStatus", payload, requestId);
             return Task.CompletedTask;
         }
 
-        public Task SendManualReviewRecords(IEnumerable<ManualReviewTraceItem> records)
+        public Task SendManualReviewRecords(IEnumerable<ManualReviewTraceItem> records, string? requestId = null)
         {
             PostMessage("manualReviewRecords", new
             {
                 records = records ?? System.Array.Empty<ManualReviewTraceItem>()
-            });
+            }, requestId);
             return Task.CompletedTask;
         }
 
-        public Task SendManualReviewResponse(ManualReviewSaveResult result)
+        public Task SendManualReviewResponse(ManualReviewSaveResult result, string? requestId = null)
         {
-            PostMessage("manualReviewResponse", result);
+            PostMessage("manualReviewResponse", result, requestId);
             return Task.CompletedTask;
         }
 
-        public Task SendReplayRunStatus(ReplayRunProgress progress)
+        public Task SendReplayRunStatus(ReplayRunProgress progress, string? requestId = null)
         {
             string messageType = progress.Status switch
             {
@@ -72,11 +72,11 @@ namespace ClearFrost
                 _ => "replayRunProgress"
             };
 
-            PostMessage(messageType, progress);
+            PostMessage(messageType, progress, requestId);
             return Task.CompletedTask;
         }
 
-        public Task SendReplayRunCompleted(ReplayRunReport report)
+        public Task SendReplayRunCompleted(ReplayRunReport report, string? requestId = null)
         {
             PostMessage("replayRunCompleted", new
             {
@@ -87,19 +87,40 @@ namespace ClearFrost
                 metrics = report.Metrics,
                 reportJsonPath = report.ReportJsonPath,
                 reportCsvPath = report.ReportCsvPath,
+                reportHash = report.ReportHash,
+                policyHash = report.PolicyHash,
+                recipeHash = report.RecipeHash,
+                ruleSetHash = report.RuleSetHash,
                 approvalAvailable = report.Metrics.CandidateNewMissedDetectionCount == 0 &&
                     report.Metrics.CandidateNewFalseRejectCount == 0
-            });
+            }, requestId);
             return Task.CompletedTask;
         }
 
-        public Task SendModelApprovalAvailability(bool available, IEnumerable<string> rejectionReasons)
+        public Task SendModelApprovalAvailability(bool available, IEnumerable<string> rejectionReasons, string? requestId = null)
         {
             PostMessage("modelApprovalAvailability", new
             {
                 approvalAvailable = available,
                 rejectionReasons = rejectionReasons ?? System.Array.Empty<string>()
-            });
+            }, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendReplayApprovalResponse(ReplayApprovalResult result, string? requestId = null)
+        {
+            PostMessage("replayApprovalResponse", new
+            {
+                succeeded = result.Succeeded,
+                errorCode = result.ErrorCode,
+                message = result.Message,
+                isFaulted = result.IsFaulted,
+                evidenceId = result.Evidence?.EvidenceId ?? string.Empty,
+                evidenceHash = result.Evidence?.EvidenceHash ?? string.Empty,
+                datasetHash = result.Evidence?.DatasetHash ?? string.Empty,
+                reportHash = result.Evidence?.ReplayReportHash ?? string.Empty,
+                compensationFailures = result.CompensationFailures ?? System.Array.Empty<string>()
+            }, requestId);
             return Task.CompletedTask;
         }
 

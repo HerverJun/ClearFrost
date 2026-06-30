@@ -204,8 +204,18 @@
             completedSamples: pickValue(data, "completedSamples", "CompletedSamples"),
             totalSamples: pickValue(data, "totalSamples", "TotalSamples"),
             message: pickValue(data, "message", "Message"),
+            errorCode: pickValue(data, "errorCode", "ErrorCode"),
+            succeeded: pickValue(data, "succeeded", "Succeeded"),
             approvalAvailable: pickValue(data, "approvalAvailable", "ApprovalAvailable"),
             rejectionReasons: Array.isArray(rejectionReasons) ? rejectionReasons : [String(rejectionReasons || "")].filter(Boolean),
+            reportJsonPath: pickValue(data, "reportJsonPath", "ReportJsonPath"),
+            reportCsvPath: pickValue(data, "reportCsvPath", "ReportCsvPath"),
+            reportHash: pickValue(data, "reportHash", "ReportHash"),
+            policyHash: pickValue(data, "policyHash", "PolicyHash"),
+            recipeHash: pickValue(data, "recipeHash", "RecipeHash"),
+            ruleSetHash: pickValue(data, "ruleSetHash", "RuleSetHash"),
+            evidenceId: pickValue(data, "evidenceId", "EvidenceId"),
+            evidenceHash: pickValue(data, "evidenceHash", "EvidenceHash"),
             metrics: {
                 sampleCount: pickValue(metrics, "sampleCount", "SampleCount"),
                 candidateNewMissedDetectionCount: pickValue(metrics, "candidateNewMissedDetectionCount", "CandidateNewMissedDetectionCount"),
@@ -213,6 +223,10 @@
                 candidateNewFalseRejectCount: pickValue(metrics, "candidateNewFalseRejectCount", "CandidateNewFalseRejectCount"),
                 candidateFixedFalseRejectCount: pickValue(metrics, "candidateFixedFalseRejectCount", "CandidateFixedFalseRejectCount"),
                 changedDecisionCount: pickValue(metrics, "changedDecisionCount", "ChangedDecisionCount"),
+                baselineAccuracy: pickValue(metrics, "baselineAccuracy", "BaselineAccuracy"),
+                candidateAccuracy: pickValue(metrics, "candidateAccuracy", "CandidateAccuracy"),
+                baselineP95ElapsedMs: pickValue(metrics, "baselineP95ElapsedMs", "BaselineP95ElapsedMs"),
+                candidateP95ElapsedMs: pickValue(metrics, "candidateP95ElapsedMs", "CandidateP95ElapsedMs"),
             },
         };
     }
@@ -313,11 +327,20 @@
             state.replay.currentRunId = cleanReplay.runId;
         }
 
-        if (cleanReplay.approvalAvailable !== undefined || cleanReplay.rejectionReasons) {
+        if (
+            cleanReplay.approvalAvailable !== undefined ||
+            cleanReplay.rejectionReasons ||
+            cleanReplay.succeeded !== undefined ||
+            cleanReplay.evidenceId ||
+            cleanReplay.errorCode
+        ) {
             state.replay.approval = {
                 ...state.replay.approval,
-                available: cleanReplay.approvalAvailable,
-                rejectionReasons: cleanReplay.rejectionReasons || [],
+                ...cleanReplay,
+                available: cleanReplay.approvalAvailable !== undefined
+                    ? cleanReplay.approvalAvailable
+                    : state.replay.approval.available,
+                rejectionReasons: cleanReplay.rejectionReasons || state.replay.approval.rejectionReasons || [],
             };
         }
 
