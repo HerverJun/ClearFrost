@@ -108,8 +108,13 @@ public class SqliteDatabaseServiceTests
                 "PlcWriteMs",
                 "UsedModelName",
                 "ProductBarcode",
+                "Barcode",
                 "BarcodeReadSucceeded",
-                "BarcodeError"
+                "BarcodeError",
+                "PlcTriggerSeq",
+                "QueueStatus",
+                "TraceImagePath",
+                "RecipeVersion"
             });
 
             CountRows(dbPath).Should().Be(1);
@@ -178,8 +183,12 @@ public class SqliteDatabaseServiceTests
                 IsQualified = false,
                 InspectionId = "CF-20260429-153012000-MANUAL-000001",
                 TriggerSource = "手动",
+                TriggerSeq = 17,
+                PlcTriggerSeq = 17,
                 TraceStatus = TraceStatus.Partial,
+                QueueStatus = "{\"TraceStatus\":\"Partial\"}",
                 ProductBarcode = "SN-20260504-0001",
+                Barcode = "SN-20260504-0001",
                 BarcodeReadSucceeded = true,
                 BarcodeError = "",
                 ImagePath = @"C:\Trace\FAIL_CF-20260429-153012000-MANUAL-000001.jpg",
@@ -190,6 +199,7 @@ public class SqliteDatabaseServiceTests
                 PlcWriteMs = 3,
                 UsedModelName = "model-a",
                 WasFallback = true,
+                RecipeVersion = "20260429153012000",
                 TargetLabel = "screw",
                 ExpectedCount = 4,
                 ActualCount = 0,
@@ -206,10 +216,15 @@ public class SqliteDatabaseServiceTests
             record.InspectionId.Should().Be("CF-20260429-153012000-MANUAL-000001");
             record.TraceStatus.Should().Be(TraceStatus.Partial);
             record.ProductBarcode.Should().Be("SN-20260504-0001");
+            record.Barcode.Should().Be("SN-20260504-0001");
+            record.PlcTriggerSeq.Should().Be(17);
+            record.QueueStatus.Should().Contain("Partial");
             record.BarcodeReadSucceeded.Should().BeTrue();
             record.BarcodeError.Should().BeEmpty();
             record.ErrorCode.Should().Be("CaptureFrameFailed");
             record.ImagePath.Should().Contain("FAIL_CF-20260429");
+            record.TraceImagePath.Should().Contain("FAIL_CF-20260429");
+            record.RecipeVersion.Should().Be("20260429153012000");
             record.CaptureMs.Should().Be(12);
             record.PlcWriteMs.Should().Be(3);
             record.UsedModelName.Should().Be("model-a");
@@ -301,6 +316,63 @@ public class SqliteDatabaseServiceTests
             topRecords.Should().HaveCount(2);
             topRecords[0].InspectionId.Should().Be("CF-20260504-144500-CCC");
             topRecords[1].InspectionId.Should().Be("CF-20260504-143000-BBB");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task GetReplayRecordsAsync_支持条码模型和配方版本筛选()
+    {
+        string tempDir = CreateTempDirectory();
+
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "runtime", "detection.db");
+            using var service = new SqliteDatabaseService(dbPath);
+            await service.InitializeAsync();
+
+            await service.SaveDetectionRecordAsync(new DetectionRecord
+            {
+                Timestamp = new DateTime(2026, 5, 1, 8, 0, 0),
+                IsQualified = false,
+                InspectionId = "CF-REPLAY-001",
+                ProductBarcode = "BC-001",
+                Barcode = "BC-001",
+                ModelName = "main.onnx",
+                ModelVersion = "v1",
+                RecipeVersion = "r1",
+                ImagePath = Path.Combine(tempDir, "a.jpg")
+            });
+            await service.SaveDetectionRecordAsync(new DetectionRecord
+            {
+                Timestamp = new DateTime(2026, 5, 1, 9, 0, 0),
+                IsQualified = true,
+                InspectionId = "CF-REPLAY-002",
+                ProductBarcode = "BC-002",
+                Barcode = "BC-002",
+                ModelName = "main.onnx",
+                ModelVersion = "v2",
+                RecipeVersion = "r2",
+                ImagePath = Path.Combine(tempDir, "b.jpg")
+            });
+
+            List<DetectionRecord> records = await service.GetReplayRecordsAsync(new DetectionReplayQuery
+            {
+                StartTime = new DateTime(2026, 5, 1, 0, 0, 0),
+                EndTime = new DateTime(2026, 5, 1, 23, 59, 59),
+                ProductOrBarcode = "BC-001",
+                IsQualified = false,
+                ModelName = "main.onnx",
+                ModelVersion = "v1",
+                RecipeVersion = "r1",
+                Limit = 20
+            });
+
+            records.Should().ContainSingle();
+            records[0].InspectionId.Should().Be("CF-REPLAY-001");
         }
         finally
         {

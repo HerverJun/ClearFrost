@@ -394,7 +394,8 @@ namespace ClearFrost
             {
                 PackageDirectory = packageDirectory,
                 OnnxDirectory = Path.Combine(baseDirectory, "ONNX"),
-                StrictPackageMode = appConfig.StrictModelPackageMode
+                StrictPackageMode = appConfig.StrictModelPackageMode,
+                RequireProductionApproval = appConfig.RequireApprovedModelsForProduction
             };
         }
     }

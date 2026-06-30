@@ -1113,12 +1113,16 @@ namespace ClearFrost.Services
             context.CurrentStage = InspectionStage.SaveRecord;
             payload.ImagePath = context.ImagePath ?? string.Empty;
             payload.RenderedImagePath = context.RenderedImagePath ?? string.Empty;
+            payload.TraceImagePath = string.IsNullOrWhiteSpace(context.RenderedImagePath)
+                ? context.ImagePath ?? string.Empty
+                : context.RenderedImagePath;
             payload.ErrorStage = context.ErrorStage ?? string.Empty;
             payload.ErrorCode = context.ErrorCode ?? string.Empty;
             payload.ErrorMessage = context.ErrorMessage ?? string.Empty;
             payload.TotalMs = context.TotalMs;
             payload.SaveImageMs = context.SaveImageMs;
             payload.TraceStatus = ResolveTraceStatus(imageQueued, recordQueued: true);
+            payload.QueueStatus = BuildQueueStatus(context, imageQueued, recordQueued: true);
 
             var dbSw = Stopwatch.StartNew();
             bool dbQueued = _detectionRecordQueue.Enqueue(payload);
@@ -1126,6 +1130,7 @@ namespace ClearFrost.Services
             context.SaveRecordMs = dbSw.ElapsedMilliseconds;
             payload.SaveRecordMs = context.SaveRecordMs;
             context.TraceStatus = ResolveTraceStatus(imageQueued, dbQueued);
+            payload.QueueStatus = BuildQueueStatus(context, imageQueued, dbQueued);
             context.RecordQueuePending = _detectionRecordQueue.PendingCount;
 
             if (!dbQueued)
@@ -1171,13 +1176,19 @@ namespace ClearFrost.Services
                 InspectionId = context.InspectionId,
                 TriggerSource = context.TriggerSource,
                 TriggerSeq = context.TriggerSeq,
+                PlcTriggerSeq = context.TriggerSeq,
                 ResultSeq = context.ResultSeq,
                 ProductBarcode = context.ProductBarcode ?? string.Empty,
+                Barcode = context.ProductBarcode ?? string.Empty,
                 BarcodeReadSucceeded = context.BarcodeReadSucceeded,
                 BarcodeError = context.BarcodeError ?? string.Empty,
                 TraceStatus = context.TraceStatus,
+                QueueStatus = BuildQueueStatus(context, imageQueued: false, recordQueued: false),
                 ImagePath = context.ImagePath ?? string.Empty,
                 RenderedImagePath = context.RenderedImagePath ?? string.Empty,
+                TraceImagePath = string.IsNullOrWhiteSpace(context.RenderedImagePath)
+                    ? context.ImagePath ?? string.Empty
+                    : context.RenderedImagePath,
                 ErrorStage = context.ErrorStage ?? string.Empty,
                 ErrorCode = context.ErrorCode ?? string.Empty,
                 ErrorMessage = context.ErrorMessage ?? string.Empty,
@@ -1244,40 +1255,18 @@ namespace ClearFrost.Services
                 return;
             }
 
-            var handshakeSw = Stopwatch.StartNew();
-            if (!context.ResultSeq.HasValue && context.TriggerSeq.HasValue)
+            var coordinator = new PlcHandshakeV1Coordinator(_plcService, DiagLog);
+            PlcHandshakeV1Result result = await coordinator.CompleteInspectionAsync(
+                PlcHandshakeV1Addresses.FromConfig(_appConfig),
+                context,
+                isQualified).ConfigureAwait(false);
+            context.HandshakeCompleteMs = result.ElapsedMs;
+            if (!result.Succeeded)
             {
-                context.ResultSeq = context.TriggerSeq;
+                RecordHealthError("PLC.HandshakeV1", result.Message, context.InspectionId);
             }
 
-            short errorCode = MapHandshakeErrorCode(context);
-            short traceSaved = context.TraceStatus is TraceStatus.Queued or TraceStatus.Full ? (short)1 : (short)0;
-
-            await WriteHandshakeWordAsync(_appConfig.PlcVisionBusyAddress, 0, "VisionBusy", context).ConfigureAwait(false);
-            if (context.ResultSeq.HasValue)
-            {
-                await WriteHandshakeWordAsync(
-                    _appConfig.PlcResultSeqAddress,
-                    ClampIntToShort(context.ResultSeq.Value),
-                    "ResultSeq",
-                    context).ConfigureAwait(false);
-            }
-
-            await WriteHandshakeWordAsync(_appConfig.PlcErrorCodeAddress, errorCode, "ErrorCode", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcTraceSavedAddress, traceSaved, "TraceSaved", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcResultValidAddress, 1, "ResultValid", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcInspectionDoneAddress, 1, "InspectionDone", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcHeartbeatAddress, 1, "Heartbeat", context).ConfigureAwait(false);
-            bool readyForNextTrigger = await WaitForPlcResultAckAsync(context).ConfigureAwait(false);
-            if (readyForNextTrigger)
-            {
-                await WriteHandshakeWordAsync(_appConfig.PlcVisionReadyAddress, 1, "VisionReady", context).ConfigureAwait(false);
-            }
-
-            handshakeSw.Stop();
-            context.HandshakeCompleteMs = handshakeSw.ElapsedMilliseconds;
-
-            DiagLog($"HandshakeV1完成[{context.InspectionId}]: Result={(isQualified ? "OK" : "NG")}, ResultSeq={context.ResultSeq?.ToString() ?? "-"}, TraceSaved={traceSaved}, ErrorCode={errorCode}");
+            DiagLog($"HandshakeV1完成[{context.InspectionId}]: Result={(isQualified ? "OK" : "NG")}, ResultSeq={context.ResultSeq?.ToString() ?? "-"}, Ack={result.ResultAckReceived}");
         }
 
         private async Task<bool> WriteHandshakeWordAsync(
@@ -1520,6 +1509,18 @@ namespace ClearFrost.Services
                 (false, true) => TraceStatus.Partial,
                 _ => TraceStatus.Failed
             };
+        }
+
+        private static string BuildQueueStatus(InspectionContext context, bool imageQueued, bool recordQueued)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                TraceStatus = ResolveTraceStatus(imageQueued, recordQueued).ToString(),
+                ImageQueued = imageQueued,
+                RecordQueued = recordQueued,
+                ImageQueuePending = context.ImageQueuePending,
+                RecordQueuePending = context.RecordQueuePending
+            });
         }
 
         private static string SerializeHealthSnapshot(HealthSnapshot snapshot)

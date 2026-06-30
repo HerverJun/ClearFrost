@@ -126,6 +126,7 @@ namespace ClearFrost
         public string ImageBasePath { get; set; } = "";
         public bool UseFileBackedImageTransport { get; set; }
         public IDatabaseService? DatabaseService { get; set; }
+        internal OperationAuditService? AuditService { get; set; }
 
         /// <summary>
         /// Maps the image folder to a virtual host for direct access.
@@ -313,14 +314,15 @@ namespace ClearFrost
         /// <summary>
         /// Sends the real-time camera image as base64 to the frontend.
         /// </summary>
-        public async Task UpdateImage(string base64Image)
+        public Task UpdateImage(string base64Image)
         {
-            if (!IsWebViewControlUsable(_webView)) return;
+            if (!IsWebViewControlUsable(_webView)) return Task.CompletedTask;
             PostMessage("previewFrame", new
             {
                 base64 = base64Image,
                 frameId = Interlocked.Increment(ref _previewFrameId)
             });
+            return Task.CompletedTask;
         }
 
         public Task UpdateImageUrl(string url)
@@ -856,6 +858,18 @@ namespace ClearFrost
                                 break;
                             case "get_detection_logs":
                                 await SendDetectionLogs();
+                                break;
+                            case "query_audit_records":
+                                if (root.TryGetProperty("value", out JsonElement auditQueryElement))
+                                {
+                                    await SendAuditRecordsAsync(auditQueryElement, requestId);
+                                }
+                                break;
+                            case "export_audit_records":
+                                if (root.TryGetProperty("value", out JsonElement auditExportElement))
+                                {
+                                    await ExportAuditRecordsAsync(auditExportElement, requestId);
+                                }
                                 break;
                             case "get_statistics_history":
                                 OnGetStatisticsHistory?.Invoke(this, EventArgs.Empty);
@@ -1512,6 +1526,29 @@ namespace ClearFrost
             return null;
         }
 
+        private static DateTimeOffset? TryGetDateTimeOffsetProperty(JsonElement element, string propertyName)
+        {
+            if (!element.TryGetProperty(propertyName, out JsonElement propertyElement))
+            {
+                return null;
+            }
+
+            string? raw = propertyElement.ValueKind == JsonValueKind.String
+                ? propertyElement.GetString()
+                : propertyElement.GetRawText();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return null;
+            }
+
+            if (DateTimeOffset.TryParse(raw, out DateTimeOffset value))
+            {
+                return value;
+            }
+
+            return null;
+        }
+
         private static bool TryParseTraceDate(string value, out DateTime date)
         {
             if (DateTime.TryParse(value, out date))
@@ -1636,6 +1673,94 @@ namespace ClearFrost
                 await LogToFrontend($"读取检测日志失败: {ex.Message}", "error");
                 PostMessage("detectionLogTable", Array.Empty<object>());
             }
+        }
+
+        private async Task SendAuditRecordsAsync(JsonElement queryElement, string? requestId)
+        {
+            if (!IsWebViewControlUsable(_webView))
+            {
+                return;
+            }
+
+            if (AuditService == null)
+            {
+                PostMessage("auditRecords", new
+                {
+                    records = Array.Empty<object>(),
+                    error = "审计服务未初始化"
+                }, requestId);
+                return;
+            }
+
+            OperationAuditQuery query = ParseAuditQuery(queryElement);
+            OperationAuditQueryResult result = await AuditService.QueryAsync(query).ConfigureAwait(false);
+            PostMessage("auditRecords", new
+            {
+                records = result.Records.Select(record => new
+                {
+                    timestamp = record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"),
+                    correlationId = record.CorrelationId,
+                    operation = record.Operation,
+                    status = record.Status.ToString(),
+                    operatorId = record.OperatorId,
+                    role = record.Role.ToString(),
+                    reason = record.Reason,
+                    inspectionId = record.InspectionId,
+                    details = record.Details,
+                    failureBlocker = record.FailureBlocker
+                }).ToArray(),
+                error = result.ErrorMessage
+            }, requestId);
+        }
+
+        private async Task ExportAuditRecordsAsync(JsonElement queryElement, string? requestId)
+        {
+            if (!IsWebViewControlUsable(_webView))
+            {
+                return;
+            }
+
+            if (AuditService == null)
+            {
+                PostMessage("auditExport", new { path = "", error = "审计服务未初始化" }, requestId);
+                return;
+            }
+
+            try
+            {
+                string outputDirectory = string.IsNullOrWhiteSpace(LogBasePath)
+                    ? Path.Combine(RuntimePaths.DataDirectory, "outbox")
+                    : Path.Combine(LogBasePath, "Outbox");
+                string outputPath = Path.Combine(outputDirectory, $"operation-audit-export-{DateTime.Now:yyyyMMddHHmmss}.csv");
+                string path = await AuditService.ExportCsvAsync(ParseAuditQuery(queryElement), outputPath).ConfigureAwait(false);
+                PostMessage("auditExport", new { path = path, error = "" }, requestId);
+            }
+            catch (Exception ex)
+            {
+                PostMessage("auditExport", new { path = "", error = ex.Message }, requestId);
+            }
+        }
+
+        private static OperationAuditQuery ParseAuditQuery(JsonElement element)
+        {
+            OperationAuditStatus? status = null;
+            string statusText = TryGetStringProperty(element, "status") ?? TryGetStringProperty(element, "Status") ?? string.Empty;
+            if (Enum.TryParse(statusText, ignoreCase: true, out OperationAuditStatus parsedStatus))
+            {
+                status = parsedStatus;
+            }
+
+            return new OperationAuditQuery
+            {
+                StartTime = TryGetDateTimeOffsetProperty(element, "startTime") ?? TryGetDateTimeOffsetProperty(element, "StartTime"),
+                EndTime = TryGetDateTimeOffsetProperty(element, "endTime") ?? TryGetDateTimeOffsetProperty(element, "EndTime"),
+                Operation = TryGetStringProperty(element, "operation") ?? TryGetStringProperty(element, "Operation") ?? string.Empty,
+                OperatorId = TryGetStringProperty(element, "operatorId") ?? TryGetStringProperty(element, "OperatorId") ?? string.Empty,
+                Role = TryGetStringProperty(element, "role") ?? TryGetStringProperty(element, "Role") ?? string.Empty,
+                Status = status,
+                FailureReason = TryGetStringProperty(element, "failureReason") ?? TryGetStringProperty(element, "FailureReason") ?? string.Empty,
+                Limit = TryGetInt32Property(element, "limit") ?? TryGetInt32Property(element, "Limit") ?? 200
+            };
         }
 
         /// <summary>

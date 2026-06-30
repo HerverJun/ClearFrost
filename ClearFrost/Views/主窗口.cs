@@ -68,6 +68,7 @@ namespace ClearFrost
             _uiController.DatabaseService = _databaseService;
             SafeFireAndForget(_databaseService.InitializeAsync(), "数据库初始化");
             _operationAuditService = new OperationAuditService(Path.Combine(Path_Logs, "Outbox"));
+            _uiController.AuditService = _operationAuditService;
             _imageSaveQueue = _appRuntime.ImageSaveQueue;
             _detectionRecordQueue = _appRuntime.DetectionRecordQueue;
             _recipeManager = _appRuntime.RecipeManager;

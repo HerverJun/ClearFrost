@@ -834,6 +834,12 @@ namespace ClearFrost
                         string modelPath = Path.Combine(模型路径, modelName);
                         if (File.Exists(modelPath))
                         {
+                            if (!IsModelApprovedForProduction(modelName, out string approvalError))
+                            {
+                                await _uiController.LogToFrontend(approvalError, "error");
+                                return;
+                            }
+
                             bool ok = await _detectionService.LoadAuxiliary1ModelAsync(modelPath);
                             if (ok)
                             {
@@ -892,6 +898,12 @@ namespace ClearFrost
                         string modelPath = Path.Combine(模型路径, modelName);
                         if (File.Exists(modelPath))
                         {
+                            if (!IsModelApprovedForProduction(modelName, out string approvalError))
+                            {
+                                await _uiController.LogToFrontend(approvalError, "error");
+                                return;
+                            }
+
                             bool ok = await _detectionService.LoadAuxiliary2ModelAsync(modelPath);
                             if (ok)
                             {
@@ -1313,7 +1325,7 @@ namespace ClearFrost
                             throw new InvalidOperationException(_appConfig.LastError ?? "配置保存失败");
                         }
                         configSaved = true;
-                        SaveCurrentRecipeSnapshot();
+                        SaveCurrentRecipeSnapshot("系统设置保存");
 
                         // 更新相关路径
                         _uiController.ImageBasePath = Path_Images;
@@ -1553,7 +1565,7 @@ namespace ClearFrost
                 CameraInstance? activeCamera = _cameraManager.ActiveCamera;
                 cam = activeCamera?.Camera ?? new RealCamera();
 
-                SaveCurrentRecipeSnapshot();
+                SaveCurrentRecipeSnapshot("配置迁移导入");
                 YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
                 _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
                 _detectionService.SetTaskMode(_appConfig.TaskType);

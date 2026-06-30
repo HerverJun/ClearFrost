@@ -14,6 +14,7 @@ namespace ClearFrost.Core.Models
         public string PackageDirectory { get; init; } = string.Empty;
         public string OnnxDirectory { get; init; } = string.Empty;
         public bool StrictPackageMode { get; init; }
+        public bool RequireProductionApproval { get; init; }
         public Func<string, ModelPackageManifest, bool>? Warmup { get; init; }
     }
 
@@ -108,8 +109,14 @@ namespace ClearFrost.Core.Models
                             UsedModelName = Path.GetFileName(onnxFiles[0]),
                             ModelPath = onnxFiles[0],
                             IsPackage = true,
-                            Status = options.StrictPackageMode ? ModelRegistryStatus.Blocked : ModelRegistryStatus.Warning,
-                            Message = options.StrictPackageMode ? "Model package manifest is missing." : "Manifest missing; package kept as warning for compatibility."
+                            Status = options.StrictPackageMode || options.RequireProductionApproval
+                                ? ModelRegistryStatus.Blocked
+                                : ModelRegistryStatus.Warning,
+                            Message = options.StrictPackageMode || options.RequireProductionApproval
+                                ? "Model package manifest is missing."
+                                : "Manifest missing; package kept as warning for compatibility.",
+                            ApprovalStatus = ModelApprovalStatuses.Pending,
+                            ApprovedForProduction = false
                         });
                     }
 
@@ -215,6 +222,24 @@ namespace ClearFrost.Core.Models
                 }
             }
 
+            if (options.RequireProductionApproval)
+            {
+                if (manifest.InputWidth <= 0 || manifest.InputHeight <= 0)
+                {
+                    failures.Add("Model input size metadata is missing.");
+                }
+
+                if (string.IsNullOrWhiteSpace(manifest.TaskType))
+                {
+                    failures.Add("Model task type metadata is missing.");
+                }
+
+                if (!IsApprovedForProduction(manifest))
+                {
+                    failures.Add("Model is not approved for production.");
+                }
+            }
+
             ModelRegistryStatus status = failures.Count > 0
                 ? ModelRegistryStatus.Blocked
                 : warnings.Count > 0
@@ -239,7 +264,12 @@ namespace ClearFrost.Core.Models
                 Status = status,
                 Message = messageText,
                 Labels = manifest.Labels ?? new List<string>(),
-                Manifest = manifest
+                Manifest = manifest,
+                TaskType = manifest.TaskType ?? string.Empty,
+                InputWidth = manifest.InputWidth,
+                InputHeight = manifest.InputHeight,
+                ApprovalStatus = manifest.Approval?.Status ?? ModelApprovalStatuses.Pending,
+                ApprovedForProduction = IsApprovedForProduction(manifest)
             };
         }
 
@@ -262,9 +292,17 @@ namespace ClearFrost.Core.Models
                     ModelPath = modelPath,
                     IsPackage = false,
                     Status = ModelRegistryStatus.Warning,
-                    Message = "Bare ONNX model discovered; kept for legacy compatibility."
+                    Message = "Bare ONNX model discovered; kept for legacy compatibility.",
+                    ApprovalStatus = ModelApprovalStatuses.Legacy,
+                    ApprovedForProduction = true
                 });
             }
+        }
+
+        public bool IsApprovedForProduction(string? usedModelName)
+        {
+            ModelRegistryEntry? entry = Resolve(usedModelName);
+            return entry == null || entry.ApprovedForProduction;
         }
 
         private static bool DefaultWarmup(string modelPath)
@@ -278,6 +316,14 @@ namespace ClearFrost.Core.Models
             {
                 return false;
             }
+        }
+
+        private static bool IsApprovedForProduction(ModelPackageManifest manifest)
+        {
+            return string.Equals(
+                manifest.Approval?.Status,
+                ModelApprovalStatuses.Approved,
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private static string ComputeSha256(string path)

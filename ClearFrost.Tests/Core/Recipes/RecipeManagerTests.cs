@@ -153,6 +153,46 @@ public class RecipeManagerTests
         }
     }
 
+    [Fact]
+    public void SaveNewVersion_生成可查询的版本历史()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            var manager = new RecipeManager(recipePath);
+            var config = new AppConfig
+            {
+                CurrentOperatorId = "op01",
+                CurrentOperatorRole = ClearFrost.Core.Security.ProductionRole.Engineer,
+                CurrentModelFileName = "main.onnx",
+                TargetLabel = "part",
+                TargetCount = 1
+            };
+
+            Recipe first = manager.SaveNewVersion(config, null, "op01", "Engineer", "初始配方");
+            Thread.Sleep(2);
+            config.TargetCount = 2;
+            Recipe second = manager.SaveNewVersion(config, null, "op02", "ShiftLead", "数量调整");
+
+            first.Version.Should().NotBe(second.Version);
+            RecipeVersionInfo current = manager.GetCurrentVersionInfo();
+            current.Version.Should().Be(second.Version);
+            current.OperatorId.Should().Be("op02");
+            current.ChangeSummary.Should().Be("数量调整");
+
+            IReadOnlyList<RecipeVersionInfo> history = manager.GetVersionHistory();
+            history.Should().HaveCount(2);
+            history.Should().Contain(item => item.Version == first.Version && item.ChangeSummary == "初始配方");
+            history.Should().Contain(item => File.Exists(item.SnapshotPath));
+            File.Exists(manager.HistoryPath).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(RecipeManagerTests), Guid.NewGuid().ToString("N"));

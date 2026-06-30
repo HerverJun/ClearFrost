@@ -83,6 +83,12 @@
                         d="m5.5 16 4.2-4.2a1.5 1.5 0 0 1 2.1 0l2 2 1.1-1.1a1.5 1.5 0 0 1 2.1 0l1.5 1.5M15.5 8.5h.01" />
                 </svg>
             </button>
+            <button data-action="openAuditModal" title="Audit" aria-label="Audit">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12h6m-6 4h6M7 3h10l3 3v15H4V3h3Zm10 0v4h4" />
+                </svg>
+            </button>
         </nav>
     </header>
 
@@ -1223,6 +1229,69 @@
                             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
                     </svg> 导出 CSV
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audit Query Modal -->
+    <div id="audit-modal"
+        class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
+        <div class="glass-panel-lite cf-ornate-modal w-full max-w-6xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[82vh]">
+            <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0 cf-ornate-header">
+                <div class="flex items-center gap-4">
+                    <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">AUDIT RECORDS</h3>
+                    <span id="audit-count-badge"
+                        class="px-2 py-0.5 text-[10px] font-bold bg-celadon-50 text-celadon-600 rounded-full">0 rows</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input id="audit-start-time" type="datetime-local" class="tech-input rounded-lg px-3 py-1.5 text-xs">
+                    <input id="audit-end-time" type="datetime-local" class="tech-input rounded-lg px-3 py-1.5 text-xs">
+                    <input id="audit-operation-filter" type="text" placeholder="Operation"
+                        class="tech-input rounded-lg px-3 py-1.5 text-xs w-28">
+                    <input id="audit-operator-filter" type="text" placeholder="Operator"
+                        class="tech-input rounded-lg px-3 py-1.5 text-xs w-28">
+                    <select id="audit-status-filter" class="tech-input rounded-lg px-3 py-1.5 text-xs">
+                        <option value="">Any</option>
+                        <option value="Requested">Requested</option>
+                        <option value="Denied">Denied</option>
+                        <option value="Succeeded">Succeeded</option>
+                        <option value="Failed">Failed</option>
+                    </select>
+                    <button data-action="queryAuditRecords"
+                        class="px-3 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">Refresh</button>
+                    <button data-action="exportAuditRecords"
+                        class="px-3 py-1.5 text-xs font-bold text-ink-600 bg-white border border-slate-200 hover:border-celadon-300 rounded-lg transition-colors">Export</button>
+                    <button data-action="closeAuditModal"
+                        class="text-2xl text-ink-400 hover:text-vermilion transition-colors">&times;</button>
+                </div>
+            </div>
+            <div id="audit-error" class="hidden px-8 py-2 text-xs text-rouge-600 bg-rouge-50 border-b border-rouge-100"></div>
+            <div class="flex-1 overflow-auto p-6 scroller bg-slate-50/30">
+                <div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-soft">
+                    <table class="w-full text-left border-collapse min-w-[1100px]">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200">
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Time</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Operation</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Status</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Operator</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Role</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Inspection</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Details</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Failure</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audit-table" class="text-[11px] text-ink-600 font-mono divide-y divide-slate-100">
+                            <tr>
+                                <td colspan="8" class="px-4 py-10 text-center text-ink-300 italic">No audit records loaded.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
+                <span id="audit-export-path" class="text-[10px] text-ink-400 font-mono truncate"></span>
+                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Read-only audit outbox query</span>
             </div>
         </div>
     </div>

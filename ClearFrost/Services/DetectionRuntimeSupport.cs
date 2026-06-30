@@ -123,13 +123,17 @@ namespace ClearFrost.Services
         public string InspectionId { get; set; } = string.Empty;
         public string TriggerSource { get; init; } = string.Empty;
         public int? TriggerSeq { get; init; }
+        public int? PlcTriggerSeq { get; init; }
         public int? ResultSeq { get; init; }
         public string ProductBarcode { get; init; } = string.Empty;
+        public string Barcode { get; init; } = string.Empty;
         public bool? BarcodeReadSucceeded { get; init; }
         public string BarcodeError { get; init; } = string.Empty;
         public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;
+        public string QueueStatus { get; set; } = string.Empty;
         public string ImagePath { get; set; } = string.Empty;
         public string RenderedImagePath { get; set; } = string.Empty;
+        public string TraceImagePath { get; set; } = string.Empty;
         public string ErrorStage { get; set; } = string.Empty;
         public string ErrorCode { get; set; } = string.Empty;
         public string ErrorMessage { get; set; } = string.Empty;
@@ -166,13 +170,17 @@ namespace ClearFrost.Services
                 InspectionId = InspectionId,
                 TriggerSource = TriggerSource,
                 TriggerSeq = TriggerSeq,
+                PlcTriggerSeq = PlcTriggerSeq,
                 ResultSeq = ResultSeq,
                 ProductBarcode = ProductBarcode,
+                Barcode = Barcode,
                 BarcodeReadSucceeded = BarcodeReadSucceeded,
                 BarcodeError = BarcodeError,
                 TraceStatus = TraceStatus,
+                QueueStatus = QueueStatus,
                 ImagePath = ImagePath,
                 RenderedImagePath = RenderedImagePath,
+                TraceImagePath = TraceImagePath,
                 ErrorStage = ErrorStage,
                 ErrorCode = ErrorCode,
                 ErrorMessage = ErrorMessage,

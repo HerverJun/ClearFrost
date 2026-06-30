@@ -68,6 +68,12 @@ namespace ClearFrost
                 try
                 {
                     string modelPath = Path.Combine(模型路径, 模型名);
+                    if (!IsModelApprovedForProduction(模型名, out string approvalError))
+                    {
+                        await _uiController.LogToFrontend(approvalError, "error");
+                        return;
+                    }
+
                     bool success = await _detectionService.LoadModelAsync(modelPath, useGpu, gpuIndex);
                     if (success)
                     {
@@ -150,10 +156,17 @@ namespace ClearFrost
                 string aux1Path = Path.Combine(模型路径, _appConfig.Auxiliary1ModelPath);
                 if (File.Exists(aux1Path))
                 {
-                    bool ok = await _detectionService.LoadAuxiliary1ModelAsync(aux1Path);
-                    if (ok)
+                    if (!IsModelApprovedForProduction(_appConfig.Auxiliary1ModelPath, out string approvalError))
                     {
-                        await _uiController.LogToFrontend($"已恢复辅助模型1: {_appConfig.Auxiliary1ModelPath}");
+                        await _uiController.LogToFrontend(approvalError, "error");
+                    }
+                    else
+                    {
+                        bool ok = await _detectionService.LoadAuxiliary1ModelAsync(aux1Path);
+                        if (ok)
+                        {
+                            await _uiController.LogToFrontend($"已恢复辅助模型1: {_appConfig.Auxiliary1ModelPath}");
+                        }
                     }
                 }
                 else
@@ -167,10 +180,17 @@ namespace ClearFrost
                 string aux2Path = Path.Combine(模型路径, _appConfig.Auxiliary2ModelPath);
                 if (File.Exists(aux2Path))
                 {
-                    bool ok = await _detectionService.LoadAuxiliary2ModelAsync(aux2Path);
-                    if (ok)
+                    if (!IsModelApprovedForProduction(_appConfig.Auxiliary2ModelPath, out string approvalError))
                     {
-                        await _uiController.LogToFrontend($"已恢复辅助模型2: {_appConfig.Auxiliary2ModelPath}");
+                        await _uiController.LogToFrontend(approvalError, "error");
+                    }
+                    else
+                    {
+                        bool ok = await _detectionService.LoadAuxiliary2ModelAsync(aux2Path);
+                        if (ok)
+                        {
+                            await _uiController.LogToFrontend($"已恢复辅助模型2: {_appConfig.Auxiliary2ModelPath}");
+                        }
                     }
                 }
                 else
@@ -640,6 +660,12 @@ namespace ClearFrost
                     return;
                 }
 
+                if (!IsModelApprovedForProduction(modelFileName, out string approvalError))
+                {
+                    await _uiController.LogToFrontend(approvalError, "error");
+                    return;
+                }
+
                 bool success = await _detectionService.LoadModelAsync(modelPath, _appConfig.EnableGpu, _appConfig.GpuIndex);
                 if (success)
                 {
@@ -660,6 +686,24 @@ namespace ClearFrost
             {
                 await _uiController.LogToFrontend($"模型切换异常: {ex.Message}", "error");
             }
+        }
+
+        private bool IsModelApprovedForProduction(string modelName, out string message)
+        {
+            message = string.Empty;
+            if (!_appConfig.RequireApprovedModelsForProduction)
+            {
+                return true;
+            }
+
+            ModelRegistryEntry? entry = _modelRegistry.Resolve(modelName);
+            if (entry == null || entry.ApprovedForProduction)
+            {
+                return true;
+            }
+
+            message = $"模型未通过上线验收，禁止进入生产链路: {modelName} ({entry.ApprovalStatus})";
+            return false;
         }
 
         /// <summary>
@@ -808,7 +852,8 @@ namespace ClearFrost
         private async Task RunAcceptedDetectionCycleAsync(
             string triggerSource,
             int? triggerSeq,
-            DateTimeOffset triggerTime)
+            DateTimeOffset triggerTime,
+            bool plcTriggerAccepted = false)
         {
             string inspectionId = InspectionIdGenerator.Next(triggerSource, triggerTime);
             var context = new InspectionContext
@@ -817,6 +862,7 @@ namespace ClearFrost
                 TriggerTime = triggerTime,
                 TriggerSource = triggerSource,
                 TriggerSeq = triggerSeq,
+                PlcTriggerAccepted = plcTriggerAccepted,
                 CurrentStage = InspectionStage.Triggered,
                 TraceStatus = TraceStatus.Unknown
             };
@@ -1351,12 +1397,12 @@ namespace ClearFrost
             return safe;
         }
 
-        private async Task<string> SaveDetectionImage(Mat image, bool isQualified, Mat? renderedImage = null)
+        private Task<string> SaveDetectionImage(Mat image, bool isQualified, Mat? renderedImage = null)
         {
             List<ImageSavePayload>? payloads = CreateImageSavePayloads(image, isQualified, renderedImage);
             if (payloads == null || payloads.Count == 0)
             {
-                return string.Empty;
+                return Task.FromResult(string.Empty);
             }
 
             string originalPath = payloads[0].Path;
@@ -1370,7 +1416,7 @@ namespace ClearFrost
                 }
             }
 
-            return originalPath;
+            return Task.FromResult(originalPath);
         }
 
         private void RecordHealthError(string source, string message, string? inspectionId = null)
@@ -1527,18 +1573,21 @@ namespace ClearFrost
                 : Recipe.NormalizeRoi(_currentROI);
         }
 
-        private Recipe SaveCurrentRecipeSnapshot()
+        private Recipe SaveCurrentRecipeSnapshot(string changeSummary = "生产配置保存")
         {
-            Recipe recipe = _recipeManager.GenerateDefault(_appConfig, SnapshotCurrentROI());
-            _recipeManager.Save(recipe);
-            return recipe;
+            return _recipeManager.SaveNewVersion(
+                _appConfig,
+                SnapshotCurrentROI(),
+                ResolveCurrentOperatorId(),
+                _appConfig.CurrentOperatorRole.ToString(),
+                changeSummary);
         }
 
         private void TrySaveCurrentRecipeSnapshot(string operation)
         {
             try
             {
-                SaveCurrentRecipeSnapshot();
+                SaveCurrentRecipeSnapshot(operation);
             }
             catch (Exception ex)
             {

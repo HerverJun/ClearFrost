@@ -343,6 +343,97 @@
         }).join("");
     }
 
+    function buildAuditQuery() {
+        return {
+            startTime: byId("audit-start-time")?.value || "",
+            endTime: byId("audit-end-time")?.value || "",
+            operation: byId("audit-operation-filter")?.value || "",
+            operatorId: byId("audit-operator-filter")?.value || "",
+            status: byId("audit-status-filter")?.value || "",
+            limit: 500,
+        };
+    }
+
+    function openAuditModal() {
+        byId("audit-modal")?.classList.remove("hidden");
+        queryAuditRecords();
+    }
+
+    function closeAuditModal() {
+        byId("audit-modal")?.classList.add("hidden");
+    }
+
+    function setAuditError(message) {
+        const node = byId("audit-error");
+        if (!node) return;
+        node.textContent = message || "";
+        node.classList.toggle("hidden", !message);
+    }
+
+    function queryAuditRecords() {
+        setAuditError("");
+        const tbody = byId("audit-table");
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">Loading audit records...</td></tr>';
+        }
+        bridge.sendCommand("query_audit_records", buildAuditQuery());
+    }
+
+    function exportAuditRecords() {
+        setAuditError("");
+        bridge.sendCommand("export_audit_records", buildAuditQuery());
+    }
+
+    function updateAuditRecords(data) {
+        const records = Array.isArray(data) ? data : (data?.records || data?.Records || []);
+        const error = data?.error || data?.Error || "";
+        const tbody = byId("audit-table");
+        const badge = byId("audit-count-badge");
+        if (!tbody) return;
+
+        if (error) {
+            setAuditError(error);
+        }
+
+        if (badge) badge.textContent = `${records.length} rows`;
+        if (!records.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">No audit records matched.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = records.map((record) => {
+            const status = String(record.status || "");
+            const statusClass = status === "Failed" || status === "Denied"
+                ? "bg-rouge-50 text-rouge-600 border-rouge-200"
+                : "bg-bamboo-50 text-bamboo-600 border-bamboo-200";
+            return `
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-3 py-3 whitespace-nowrap">${escapeHtml(record.timestamp || "-")}</td>
+                    <td class="px-3 py-3">${escapeHtml(record.operation || "-")}</td>
+                    <td class="px-3 py-3"><span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusClass}">${escapeHtml(status || "-")}</span></td>
+                    <td class="px-3 py-3">${escapeHtml(record.operatorId || "-")}</td>
+                    <td class="px-3 py-3">${escapeHtml(record.role || "-")}</td>
+                    <td class="px-3 py-3">${escapeHtml(record.inspectionId || "-")}</td>
+                    <td class="px-3 py-3 max-w-md whitespace-normal break-words">${escapeHtml(record.details || record.reason || "-")}</td>
+                    <td class="px-3 py-3 max-w-xs whitespace-normal break-words">${escapeHtml(record.failureBlocker || "-")}</td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    function updateAuditExport(data) {
+        const error = data?.error || data?.Error || "";
+        const path = data?.path || data?.Path || "";
+        if (error) {
+            setAuditError(error);
+            return;
+        }
+
+        const node = byId("audit-export-path");
+        if (node) node.textContent = path ? `Exported: ${path}` : "";
+        window.showToast?.("Audit CSV exported", "success", 1600);
+    }
+
     function updateNGDates(data) {
         if (data === undefined) {
             bridge.sendCommand("get_ng_dates");
@@ -696,19 +787,25 @@
     Object.assign(window, {
         closeGalleryModal,
         closeImageViewer,
+        closeAuditModal,
         closeLogHistoryModal,
         closeStatisticsHistoryModal,
+        exportAuditRecords,
         openGalleryModal,
+        openAuditModal,
         openLogHistoryModal,
         openStatisticsHistoryModal,
         loadNextTracePage,
         loadPreviousTracePage,
+        queryAuditRecords,
         receiveStatisticsHistory,
         requestStatisticsHistory,
         runHistoryRulePreview,
         searchTraceImages,
         selectTraceHour,
         updateDetectionLogTable,
+        updateAuditExport,
+        updateAuditRecords,
         updateNGDates,
         updateNGHours,
         updateNGImages,
@@ -717,6 +814,8 @@
 
     bridge.registerMessageHandler("statisticsHistory", receiveStatisticsHistory);
     bridge.registerMessageHandler("detectionLogTable", updateDetectionLogTable);
+    bridge.registerMessageHandler("auditRecords", updateAuditRecords);
+    bridge.registerMessageHandler("auditExport", updateAuditExport);
     bridge.registerMessageHandler("historyDates", updateNGDates);
     bridge.registerMessageHandler("historyHours", updateNGHours);
     bridge.registerMessageHandler("historyImages", updateNGImages);

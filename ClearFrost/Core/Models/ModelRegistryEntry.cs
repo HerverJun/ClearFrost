@@ -22,5 +22,10 @@ namespace ClearFrost.Core.Models
         public string Message { get; init; } = string.Empty;
         public IReadOnlyList<string> Labels { get; init; } = new List<string>();
         public ModelPackageManifest? Manifest { get; init; }
+        public string TaskType { get; init; } = string.Empty;
+        public int InputWidth { get; init; }
+        public int InputHeight { get; init; }
+        public string ApprovalStatus { get; init; } = ModelApprovalStatuses.Pending;
+        public bool ApprovedForProduction { get; init; }
     }
 }

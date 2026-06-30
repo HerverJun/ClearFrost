@@ -171,6 +171,7 @@ namespace ClearFrost.Config
         public bool UseFileBackedWebImageTransport { get; set; } = true;
         public string ModelPackageDirectory { get; set; } = "models";
         public bool StrictModelPackageMode { get; set; } = false;
+        public bool RequireApprovedModelsForProduction { get; set; } = true;
 
         // ================== Multi-Model Fallback Settings ==================
         /// <summary>

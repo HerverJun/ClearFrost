@@ -297,7 +297,8 @@ namespace ClearFrost
                 await RunAcceptedDetectionCycleAsync(
                     triggerSource,
                     triggerContext.TriggerSeq,
-                    triggerContext.TriggerTime == default ? DateTimeOffset.Now : triggerContext.TriggerTime);
+                    triggerContext.TriggerTime == default ? DateTimeOffset.Now : triggerContext.TriggerTime,
+                    plcTriggerAccepted: _appConfig.PlcProtocolMode == PlcProtocolMode.HandshakeV1);
             }
             catch (Exception ex)
             {
@@ -327,39 +328,20 @@ namespace ClearFrost
 
             if (_appConfig.PlcProtocolMode == PlcProtocolMode.HandshakeV1)
             {
-                var handshakeWrites = new (string Address, short Value, string SignalName)[]
+                var coordinator = new PlcHandshakeV1Coordinator(_plcService, DiagLog);
+                PlcHandshakeV1Result result = await coordinator.AcceptTriggerAsync(
+                    PlcHandshakeV1Addresses.FromConfig(_appConfig, triggerAddress),
+                    triggerContext).ConfigureAwait(false);
+                if (!result.Succeeded)
                 {
-                    (_appConfig.PlcVisionOnlineAddress, 1, "VisionOnline"),
-                    (_appConfig.PlcVisionReadyAddress, 0, "VisionReady"),
-                    (_appConfig.PlcVisionBusyAddress, 1, "VisionBusy"),
-                    (_appConfig.PlcInspectionDoneAddress, 0, "InspectionDone"),
-                    (_appConfig.PlcResultValidAddress, 0, "ResultValid"),
-                    (_appConfig.PlcErrorCodeAddress, 0, "ErrorCode")
-                };
-
-                foreach (var write in handshakeWrites)
-                {
-                    if (!await TryWriteAcceptedPlcHandshakeWordAsync(
-                        write.Address,
-                        write.Value,
-                        write.SignalName).ConfigureAwait(false))
-                    {
-                        await ResetAcceptedPlcHandshakeAsync().ConfigureAwait(false);
-                        return false;
-                    }
-                }
-
-                short ackValue = triggerContext.TriggerSeq.HasValue
-                    ? ClampIntToShort(triggerContext.TriggerSeq.Value)
-                    : (short)1;
-                if (!await TryWriteAcceptedPlcHandshakeWordAsync(
-                    _appConfig.PlcTriggerAckAddress,
-                    ackValue,
-                    "TriggerAck").ConfigureAwait(false))
-                {
-                    await ResetAcceptedPlcHandshakeAsync().ConfigureAwait(false);
+                    await _uiController.LogToFrontend(
+                        $"PLC触发确认失败: {result.Message}, {_plcService.LastError}",
+                        "error");
                     return false;
                 }
+
+                DiagLog($"PLC触发已接单并确认: 地址={triggerAddress}, TriggerSeq={triggerContext.TriggerSeq?.ToString() ?? "-"}");
+                return true;
             }
 
             bool clearSuccess = await _plcService.WriteResultAsync(triggerAddress, 0);
@@ -445,13 +427,16 @@ namespace ClearFrost
 
             if (_appConfig.PlcProtocolMode == PlcProtocolMode.HandshakeV1 && _plcService.IsConnected)
             {
-                await _plcService.WriteResultAsync(_appConfig.PlcVisionOnlineAddress, 1);
-                await _plcService.WriteResultAsync(_appConfig.PlcVisionReadyAddress, 0);
-                await _plcService.WriteResultAsync(_appConfig.PlcVisionBusyAddress, 0);
-                await _plcService.WriteResultAsync(_appConfig.PlcErrorCodeAddress, plcErrorCode);
-                await _plcService.WriteResultAsync(_appConfig.PlcResultValidAddress, 0);
-                await _plcService.WriteResultAsync(_appConfig.PlcInspectionDoneAddress, 0);
-                await _plcService.WriteResultAsync(_appConfig.PlcHeartbeatAddress, 1);
+                var coordinator = new PlcHandshakeV1Coordinator(_plcService, DiagLog);
+                PlcHandshakeV1Result result = await coordinator.RejectTriggerAsync(
+                    PlcHandshakeV1Addresses.FromConfig(_appConfig, triggerContext.TriggerAddress),
+                    triggerContext,
+                    plcErrorCode,
+                    clearTrigger: false).ConfigureAwait(false);
+                if (!result.Succeeded)
+                {
+                    RecordHealthError("PLC.HandshakeV1", result.Message);
+                }
             }
 
             await _uiController.LogToFrontend(message, "warning");
