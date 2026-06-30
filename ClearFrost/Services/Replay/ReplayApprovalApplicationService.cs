@@ -137,6 +137,13 @@ namespace ClearFrost.Services.Replay
                         compensationFailures.Add($"Registry refresh failed: {refreshEx.Message}");
                     }
 
+                    if (evidence != null &&
+                        _evidenceStore is FileModelApprovalEvidenceStore fileEvidenceStore &&
+                        !fileEvidenceStore.TryDeleteUnpublishedEvidence(evidence.EvidenceId, out string evidenceDeleteError))
+                    {
+                        compensationFailures.Add($"Unpublished evidence cleanup failed: {evidenceDeleteError}");
+                    }
+
                     await AppendAuditAsync(
                         request,
                         compensationFailures.Count == 0 ? OperationAuditStatus.Denied : OperationAuditStatus.Failed,

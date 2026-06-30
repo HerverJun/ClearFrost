@@ -176,6 +176,66 @@ public class ReplayClosureTests
     }
 
     [Fact]
+    public async Task ReplayApproval_Gate失败会恢复Manifest并清理未发布Evidence()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            var runner = new DeterministicReplayRunner(fixture.Decisions);
+            var policy = new ReplayAcceptancePolicy();
+            var service = new ReplayApplicationService(
+                fixture.DatasetStore,
+                runner,
+                new PassingReplayModelValidator(),
+                fixture.RunStore,
+                policy);
+            ReplayRunReport report = await service.RunComparisonAsync(new ReplayComparisonRequest
+            {
+                RunId = "run-cleanup",
+                DatasetId = fixture.Dataset.DatasetId,
+                BaselineModel = fixture.BaselineModel,
+                CandidateModel = fixture.CandidateModel
+            });
+
+            var registry = new ModelRegistry();
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: false));
+            ModelRegistryEntry candidate = registry.Resolve(fixture.CandidateModel.ModelPath)!;
+            byte[] originalManifest = await File.ReadAllBytesAsync(candidate.ManifestPath);
+            string evidenceRoot = Path.Combine(tempDir, "evidence-cleanup");
+            var evidenceStore = new FileModelApprovalEvidenceStore(evidenceRoot, policy);
+            var rejectingGate = new ReplayApprovalEvidenceProductionGate(
+                evidenceStore,
+                new HashMismatchDatasetStore());
+            var approval = new ReplayApprovalApplicationService(
+                registry,
+                () => registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true)),
+                evidenceStore,
+                rejectingGate,
+                policy);
+
+            ReplayApprovalResult result = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
+            {
+                Report = report,
+                CandidateEntry = candidate,
+                ApprovedBy = "qa01",
+                ApprovedByRole = "Engineer",
+                DatasetPath = fixture.Dataset.RootDirectory
+            });
+
+            result.Succeeded.Should().BeFalse();
+            result.IsFaulted.Should().BeFalse();
+            (await File.ReadAllBytesAsync(candidate.ManifestPath)).Should().Equal(originalManifest);
+            Directory.Exists(evidenceRoot).Should().BeTrue();
+            Directory.EnumerateFiles(evidenceRoot, "*.json").Should().BeEmpty();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task FormalCompositionRootChain_历史真值DatasetReplay批准激活重启Ready与篡改拒绝()
     {
         string tempDir = CreateTempDirectory();
@@ -823,6 +883,30 @@ public class ReplayClosureTests
         public string[] GetLabels() => Array.Empty<string>();
         public object? GetLastMetrics() => null;
         public void Dispose() { }
+    }
+
+    private sealed class HashMismatchDatasetStore : IReplayDatasetStore
+    {
+        public Task<ReplayDatasetSnapshot> CreateSnapshotAsync(
+            ReplayDatasetCreateRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<ReplayDatasetSnapshot> LoadSnapshotAsync(
+            string datasetId,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<string> ComputeSnapshotHashAsync(
+            string datasetId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult("mismatched-dataset-hash");
+        }
     }
 }
 #pragma warning restore CS0067

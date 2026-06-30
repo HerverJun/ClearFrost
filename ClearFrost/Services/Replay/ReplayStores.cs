@@ -895,6 +895,26 @@ namespace ClearFrost.Services.Replay
             return Path.Combine(_rootDirectory, fileName);
         }
 
+        internal bool TryDeleteUnpublishedEvidence(string evidenceId, out string error)
+        {
+            error = string.Empty;
+            try
+            {
+                string path = ResolvePath(evidenceId);
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
         internal static string ComputeEvidenceHash(ModelApprovalEvidence evidence)
         {
             var canonical = new ModelApprovalEvidence
