@@ -123,7 +123,7 @@ namespace ClearFrost.Services
                     return new OperationAuditQueryResult();
                 }
 
-                var records = new List<OperationAuditRecord>(limit);
+                var records = new List<OperationAuditRecord>();
                 foreach (string path in EnumerateAuditFiles())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -146,15 +146,6 @@ namespace ClearFrost.Services
                         }
 
                         records.Add(record);
-                        if (records.Count >= limit)
-                        {
-                            break;
-                        }
-                    }
-
-                    if (records.Count >= limit)
-                    {
-                        break;
                     }
                 }
 

@@ -1,10 +1,12 @@
 ﻿using ClearFrost.Services;
+using ClearFrost.Tests.Yolo;
 using ClearFrost.Yolo;
 using FluentAssertions;
 using OpenCvSharp;
 
 namespace ClearFrost.Tests.Services;
 
+[Collection(OnnxRuntimeCollection.Name)]
 public class DetectionServiceTests
 {
     [Fact]

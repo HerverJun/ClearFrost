@@ -40,7 +40,7 @@ namespace ClearFrost.Core.Models
 
             var entries = new List<ModelRegistryEntry>();
             ScanPackages(options, entries);
-            ScanBareOnnx(options.OnnxDirectory, entries);
+            ScanBareOnnx(options.OnnxDirectory, options.RequireProductionApproval, entries);
 
             IReadOnlyList<ModelRegistryEntry> snapshot = entries.AsReadOnly();
             Volatile.Write(ref _entries, snapshot);
@@ -177,7 +177,7 @@ namespace ClearFrost.Core.Models
                 string expectedHash = manifest.EffectiveHash;
                 if (string.IsNullOrWhiteSpace(expectedHash))
                 {
-                    if (options.StrictPackageMode)
+                    if (options.StrictPackageMode || options.RequireProductionApproval)
                     {
                         failures.Add("Model hash is missing.");
                     }
@@ -203,7 +203,7 @@ namespace ClearFrost.Core.Models
             if (manifest.Labels == null || manifest.Labels.Count == 0 || manifest.Labels.All(string.IsNullOrWhiteSpace))
             {
                 string message = "Labels are missing.";
-                if (options.StrictPackageMode)
+                if (options.StrictPackageMode || options.RequireProductionApproval)
                 {
                     failures.Add(message);
                 }
@@ -273,7 +273,7 @@ namespace ClearFrost.Core.Models
             };
         }
 
-        private void ScanBareOnnx(string onnxDirectory, List<ModelRegistryEntry> entries)
+        private void ScanBareOnnx(string onnxDirectory, bool requireProductionApproval, List<ModelRegistryEntry> entries)
         {
             if (string.IsNullOrWhiteSpace(onnxDirectory) || !Directory.Exists(onnxDirectory))
             {
@@ -291,10 +291,10 @@ namespace ClearFrost.Core.Models
                     UsedModelName = fileName,
                     ModelPath = modelPath,
                     IsPackage = false,
-                    Status = ModelRegistryStatus.Warning,
+                    Status = requireProductionApproval ? ModelRegistryStatus.Blocked : ModelRegistryStatus.Warning,
                     Message = "Bare ONNX model discovered; kept for legacy compatibility.",
                     ApprovalStatus = ModelApprovalStatuses.Legacy,
-                    ApprovedForProduction = true
+                    ApprovedForProduction = false
                 });
             }
         }
@@ -302,7 +302,97 @@ namespace ClearFrost.Core.Models
         public bool IsApprovedForProduction(string? usedModelName)
         {
             ModelRegistryEntry? entry = Resolve(usedModelName);
-            return entry == null || entry.ApprovedForProduction;
+            return entry != null && entry.ApprovedForProduction;
+        }
+
+        public ModelProductionValidationResult ValidateForProductionActivation(string modelPath)
+        {
+            if (string.IsNullOrWhiteSpace(modelPath))
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelPathEmpty", "模型路径为空。");
+            }
+
+            string fullPath = GetFullPathSafe(modelPath);
+            if (!File.Exists(fullPath))
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelFileMissing", $"模型文件不存在: {fullPath}");
+            }
+
+            IReadOnlyList<ModelRegistryEntry> entries = Entries;
+            string fileName = Path.GetFileName(fullPath);
+            var sameNameDifferentPath = entries
+                .Where(entry => string.Equals(Path.GetFileName(entry.ModelPath), fileName, StringComparison.OrdinalIgnoreCase))
+                .Select(entry => GetFullPathSafe(entry.ModelPath))
+                .Where(path => !string.Equals(path, fullPath, StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (sameNameDifferentPath.Count > 0)
+            {
+                return ModelProductionValidationResult.Fail(
+                    "ProductionModelNameAmbiguous",
+                    $"模型文件名存在不同路径条目，禁止按同名模型进入生产: {fileName}");
+            }
+
+            var exactMatches = entries
+                .Where(entry => string.Equals(GetFullPathSafe(entry.ModelPath), fullPath, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (exactMatches.Count == 0)
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelNotRegistered", $"模型未注册: {fullPath}");
+            }
+
+            if (exactMatches.Count > 1)
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelPathAmbiguous", $"模型路径存在重复注册条目: {fullPath}");
+            }
+
+            ModelRegistryEntry entry = exactMatches[0];
+            if (!entry.IsPackage || string.IsNullOrWhiteSpace(entry.ManifestPath) || entry.Manifest == null)
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelManifestMissing", $"模型缺少有效 manifest: {fullPath}");
+            }
+
+            if (entry.Status != ModelRegistryStatus.Ready)
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelRegistryBlocked", entry.Message);
+            }
+
+            if (!entry.ApprovedForProduction)
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelNotApproved", $"模型未批准: {entry.ApprovalStatus}");
+            }
+
+            if (entry.Labels.Count == 0 || entry.Labels.All(string.IsNullOrWhiteSpace))
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelLabelsMissing", "模型类别元数据缺失。");
+            }
+
+            if (entry.InputWidth <= 0 || entry.InputHeight <= 0)
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelInputSizeMissing", "模型输入尺寸元数据缺失。");
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.TaskType))
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelTaskTypeMissing", "模型任务类型元数据缺失。");
+            }
+
+            string actualHash = ComputeSha256(fullPath);
+            if (string.IsNullOrWhiteSpace(entry.ModelHash) ||
+                !string.Equals(entry.ModelHash, actualHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelHashMismatch", "模型文件 SHA-256 与注册表不一致。");
+            }
+
+            string expectedHash = entry.Manifest.EffectiveHash;
+            if (string.IsNullOrWhiteSpace(expectedHash) ||
+                !string.Equals(expectedHash, actualHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelManifestHashMismatch", "模型文件 SHA-256 与 manifest 不一致。");
+            }
+
+            return ModelProductionValidationResult.Ok(entry, fullPath, actualHash);
         }
 
         private static bool DefaultWarmup(string modelPath)

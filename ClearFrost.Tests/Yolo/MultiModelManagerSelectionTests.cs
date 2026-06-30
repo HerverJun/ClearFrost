@@ -4,6 +4,7 @@ using OpenCvSharp;
 
 namespace ClearFrost.Tests.Yolo;
 
+[Collection(OnnxRuntimeCollection.Name)]
 public class MultiModelManagerSelectionTests
 {
     [Fact]

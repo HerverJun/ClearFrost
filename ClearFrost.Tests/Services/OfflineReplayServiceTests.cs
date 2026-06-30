@@ -91,6 +91,156 @@ public class OfflineReplayServiceTests
         batch.Results.Single().Status.Should().Be("ImageMissing");
     }
 
+    [Fact]
+    public async Task ReplayAsync_推理失败不计为ResultChanged()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string imagePath = Path.Combine(tempDir, "sample.jpg");
+            using (var image = new Mat(32, 32, MatType.CV_8UC3, Scalar.All(100)))
+            {
+                Cv2.ImWrite(imagePath, image);
+            }
+
+            var database = new FakeDatabaseService(new DetectionRecord
+            {
+                Id = 12,
+                InspectionId = "CF-REPLAY-INFER-FAIL",
+                Timestamp = DateTime.Now,
+                IsQualified = true,
+                ImagePath = imagePath,
+                ModelName = "old.onnx"
+            });
+            var detection = new FakeDetectionService
+            {
+                Result = new DetectionResultData
+                {
+                    HasError = true,
+                    ErrorMessage = "runtime failed",
+                    UsedModelName = "new.onnx"
+                }
+            };
+            var service = new OfflineReplayService(database, detection, CreateRuleSet);
+
+            OfflineReplayBatchResult batch = await service.ReplayAsync(new DetectionReplayQuery(), 0.5f, 0.3f);
+
+            batch.ReplayedCount.Should().Be(0);
+            batch.SuccessCount.Should().Be(0);
+            batch.DifferenceCount.Should().Be(0);
+            batch.InferenceFailedCount.Should().Be(1);
+            OfflineReplayResult result = batch.Results.Single();
+            result.NewIsQualified.Should().BeNull();
+            result.Status.Should().Be("InferenceFailed");
+            result.Difference.Should().Be("InferenceFailed");
+            result.ErrorMessage.Should().Be("runtime failed");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayAsync_混合批次只统计成功样本通过率和差异()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string okImagePath = Path.Combine(tempDir, "ok.jpg");
+            string inferImagePath = Path.Combine(tempDir, "infer.jpg");
+            using (var image = new Mat(32, 32, MatType.CV_8UC3, Scalar.All(100)))
+            {
+                Cv2.ImWrite(okImagePath, image);
+                Cv2.ImWrite(inferImagePath, image);
+            }
+
+            string unreadablePath = Path.Combine(tempDir, "bad.jpg");
+            File.WriteAllText(unreadablePath, "not an image");
+
+            var database = new FakeDatabaseService(
+                new DetectionRecord { Id = 20, InspectionId = "OK", IsQualified = false, ImagePath = okImagePath },
+                new DetectionRecord { Id = 21, InspectionId = "MISSING", IsQualified = false, ImagePath = Path.Combine(tempDir, "missing.jpg") },
+                new DetectionRecord { Id = 22, InspectionId = "READFAIL", IsQualified = false, ImagePath = unreadablePath },
+                new DetectionRecord { Id = 23, InspectionId = "INFER", IsQualified = true, ImagePath = inferImagePath });
+            var detection = new FakeDetectionService();
+            detection.Results.Enqueue(new DetectionResultData
+            {
+                Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.91f, 0), Detection(18, 18, 8, 8, 0.88f, 0) },
+                UsedModelName = "new.onnx",
+                UsedModelLabels = new[] { "part" }
+            });
+            detection.Results.Enqueue(new DetectionResultData
+            {
+                HasError = true,
+                ErrorMessage = "inference failed",
+                UsedModelName = "new.onnx"
+            });
+            var service = new OfflineReplayService(database, detection, CreateRuleSet);
+
+            OfflineReplayBatchResult batch = await service.ReplayAsync(new DetectionReplayQuery(), 0.5f, 0.3f);
+
+            batch.InputCount.Should().Be(4);
+            batch.SuccessCount.Should().Be(1);
+            batch.ReplayedCount.Should().Be(1);
+            batch.DifferenceCount.Should().Be(1);
+            batch.ImageMissingCount.Should().Be(1);
+            batch.ImageReadFailedCount.Should().Be(1);
+            batch.InferenceFailedCount.Should().Be(1);
+            batch.PassRate.Should().Be(1.0);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayAsync_规则失败单独统计且不计差异()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string imagePath = Path.Combine(tempDir, "rule.jpg");
+            using (var image = new Mat(32, 32, MatType.CV_8UC3, Scalar.All(100)))
+            {
+                Cv2.ImWrite(imagePath, image);
+            }
+
+            var database = new FakeDatabaseService(new DetectionRecord
+            {
+                Id = 24,
+                InspectionId = "RULEFAIL",
+                IsQualified = true,
+                ImagePath = imagePath
+            });
+            var detection = new FakeDetectionService
+            {
+                Result = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.91f, 0) },
+                    UsedModelLabels = new[] { "part" }
+                }
+            };
+            var service = new OfflineReplayService(
+                database,
+                detection,
+                () => throw new InvalidOperationException("rule config broken"));
+
+            OfflineReplayBatchResult batch = await service.ReplayAsync(new DetectionReplayQuery(), 0.5f, 0.3f);
+
+            batch.ReplayedCount.Should().Be(0);
+            batch.RuleFailedCount.Should().Be(1);
+            batch.DifferenceCount.Should().Be(0);
+            batch.Results.Single().NewIsQualified.Should().BeNull();
+            batch.Results.Single().Status.Should().Be("RuleFailed");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static InspectionRuleSet CreateRuleSet()
     {
         return new InspectionRuleSet
@@ -178,6 +328,7 @@ public class OfflineReplayServiceTests
             UsedModelName = "fake.onnx",
             UsedModelLabels = new[] { "part" }
         };
+        public Queue<DetectionResultData> Results { get; } = new Queue<DetectionResultData>();
 
         public bool IsModelLoaded => true;
         public string CurrentModelName => "fake.onnx";
@@ -189,7 +340,7 @@ public class OfflineReplayServiceTests
         public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
         public Task<bool> SwitchModelAsync(string modelName) => Task.FromResult(true);
         public Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal = null, MultiModelCandidateEvaluator? candidateEvaluator = null)
-            => Task.FromResult(Result);
+            => Task.FromResult(Results.Count > 0 ? Results.Dequeue() : Result);
         public Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal = null, MultiModelCandidateEvaluator? candidateEvaluator = null)
             => Task.FromResult(Result);
         public Bitmap GenerateResultImage(Bitmap original, List<YoloResult> results, string[] labels) => new Bitmap(original);

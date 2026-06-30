@@ -28,4 +28,38 @@ namespace ClearFrost.Core.Models
         public string ApprovalStatus { get; init; } = ModelApprovalStatuses.Pending;
         public bool ApprovedForProduction { get; init; }
     }
+
+    public sealed class ModelProductionValidationResult
+    {
+        public bool Succeeded { get; init; }
+        public string ErrorCode { get; init; } = string.Empty;
+        public string Message { get; init; } = string.Empty;
+        public ModelRegistryEntry? Entry { get; init; }
+        public string NormalizedModelPath { get; init; } = string.Empty;
+        public string ActualSha256 { get; init; } = string.Empty;
+
+        public static ModelProductionValidationResult Ok(
+            ModelRegistryEntry entry,
+            string normalizedModelPath,
+            string actualSha256)
+        {
+            return new ModelProductionValidationResult
+            {
+                Succeeded = true,
+                Entry = entry,
+                NormalizedModelPath = normalizedModelPath ?? string.Empty,
+                ActualSha256 = actualSha256 ?? string.Empty
+            };
+        }
+
+        public static ModelProductionValidationResult Fail(string errorCode, string message)
+        {
+            return new ModelProductionValidationResult
+            {
+                Succeeded = false,
+                ErrorCode = errorCode ?? string.Empty,
+                Message = message ?? string.Empty
+            };
+        }
+    }
 }

@@ -84,6 +84,28 @@ public class RecipeManagerTests
     }
 
     [Fact]
+    public void GenerateDefault_不会提前修改CurrentRecipe()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            var manager = new RecipeManager(recipePath);
+            manager.Save(new Recipe { RecipeId = "default", Version = "v1", TargetLabel = "old" });
+
+            Recipe candidate = manager.GenerateDefault(new AppConfig { TargetLabel = "new" });
+
+            candidate.TargetLabel.Should().Be("new");
+            manager.CurrentRecipe.TargetLabel.Should().Be("old");
+            manager.CurrentRecipe.Version.Should().Be("v1");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void LoadOrCreateDefault_迁移旧版Recipe并保留版本()
     {
         string tempDir = CreateTempDirectory();
@@ -186,6 +208,138 @@ public class RecipeManagerTests
             history.Should().Contain(item => item.Version == first.Version && item.ChangeSummary == "初始配方");
             history.Should().Contain(item => File.Exists(item.SnapshotPath));
             File.Exists(manager.HistoryPath).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void SaveNewVersion_快照写入失败时保持旧版本()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            bool failSnapshot = false;
+            var manager = new RecipeManager(recipePath, (path, content) =>
+            {
+                if (failSnapshot && path.Contains($"{Path.DirectorySeparatorChar}Versions{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new IOException("snapshot failed");
+                }
+
+                ClearFrost.Helpers.AtomicFileWriter.WriteAllText(path, content);
+            });
+            manager.Save(new Recipe { RecipeId = "default", Version = "v1", TargetLabel = "old" });
+            failSnapshot = true;
+
+            Action act = () => manager.SaveNewVersion(new AppConfig { TargetLabel = "new" }, null, "op", "Engineer", "fail");
+
+            act.Should().Throw<IOException>();
+            manager.CurrentRecipe.Version.Should().Be("v1");
+            manager.CurrentRecipe.TargetLabel.Should().Be("old");
+            File.ReadAllText(recipePath).Should().Contain("old").And.NotContain("new");
+            manager.GetVersionHistory().Should().NotContain(item => item.ChangeSummary == "fail");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void SaveNewVersion_当前文件写入失败时保持旧版本()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            bool failCurrent = false;
+            var manager = new RecipeManager(recipePath, (path, content) =>
+            {
+                if (failCurrent && string.Equals(path, recipePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new IOException("current failed");
+                }
+
+                ClearFrost.Helpers.AtomicFileWriter.WriteAllText(path, content);
+            });
+            manager.Save(new Recipe { RecipeId = "default", Version = "v1", TargetLabel = "old" });
+            failCurrent = true;
+
+            Action act = () => manager.SaveNewVersion(new AppConfig { TargetLabel = "new" }, null, "op", "Engineer", "fail-current");
+
+            act.Should().Throw<IOException>();
+            manager.CurrentRecipe.Version.Should().Be("v1");
+            File.ReadAllText(recipePath).Should().Contain("old").And.NotContain("new");
+            manager.GetVersionHistory().Should().NotContain(item => item.ChangeSummary == "fail-current");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void SaveNewVersion_历史写入失败时回滚当前文件并保持旧版本()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            bool failHistoryOnce = false;
+            var manager = new RecipeManager(recipePath, (path, content) =>
+            {
+                if (failHistoryOnce && path.EndsWith("recipe_versions.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    failHistoryOnce = false;
+                    throw new IOException("history failed");
+                }
+
+                ClearFrost.Helpers.AtomicFileWriter.WriteAllText(path, content);
+            });
+            manager.Save(new Recipe { RecipeId = "default", Version = "v1", TargetLabel = "old" });
+            failHistoryOnce = true;
+
+            Action act = () => manager.SaveNewVersion(new AppConfig { TargetLabel = "new" }, null, "op", "Engineer", "fail-history");
+
+            act.Should().Throw<IOException>();
+            manager.CurrentRecipe.Version.Should().Be("v1");
+            File.ReadAllText(recipePath).Should().Contain("old").And.NotContain("new");
+            manager.GetVersionHistory().Should().NotContain(item => item.ChangeSummary == "fail-history");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task SaveNewVersion_并发保存生成唯一版本()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            var manager = new RecipeManager(recipePath);
+            manager.Save(new Recipe { RecipeId = "default", Version = "v1", TargetLabel = "old" });
+
+            Task<Recipe>[] tasks = Enumerable.Range(0, 20)
+                .Select(index => Task.Run(() => manager.SaveNewVersion(
+                    new AppConfig { TargetLabel = $"part-{index}" },
+                    null,
+                    $"op{index}",
+                    "Engineer",
+                    $"change-{index}")))
+                .ToArray();
+
+            Recipe[] recipes = await Task.WhenAll(tasks);
+
+            recipes.Select(recipe => recipe.Version).Should().OnlyHaveUniqueItems();
+            manager.GetVersionHistory(50).Select(item => item.Version).Should().OnlyHaveUniqueItems();
+            manager.CurrentRecipe.TargetLabel.Should().StartWith("part-");
         }
         finally
         {

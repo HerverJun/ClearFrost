@@ -406,7 +406,7 @@ public class InspectionPipelineServiceTests
         {
             AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
             config.PlcProtocolMode = PlcProtocolMode.HandshakeV1;
-            config.PlcResultAckTimeoutMs = 0;
+            config.PlcResultAckTimeoutMs = 50;
             var camera = new FakeCameraService(new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
             var plc = new FakePlcService();
             var detection = new FakeDetectionService
@@ -432,6 +432,9 @@ public class InspectionPipelineServiceTests
                 imageQueue,
                 recordQueue);
             InspectionContext context = CreateContext("CF-HANDSHAKE-001", triggerSeq: 42, triggerSource: "PLC");
+            context.PlcTriggerAccepted = true;
+            plc.ReadSequence.Enqueue((true, 0));
+            plc.ReadSequence.Enqueue((true, 1));
 
             using InspectionPipelineResult result = await service.ExecuteAsync(
                 new InspectionPipelineRequest("PLC", context.InspectionId, context.TriggerSeq, context),
@@ -440,11 +443,63 @@ public class InspectionPipelineServiceTests
             await imageQueue.StopAsync();
 
             result.FinalQualified.Should().BeTrue();
-            plc.Writes.Should().Contain(write => write.Address == config.PlcVisionReadyAddress && write.Value == 0);
-            plc.Writes.Should().Contain(write => write.Address == config.PlcVisionBusyAddress && write.Value == 1);
             plc.Writes.Should().Contain(write => write.Address == config.PlcVisionBusyAddress && write.Value == 0);
-            plc.Writes.Should().NotContain(write => write.Address == config.PlcTriggerAckAddress);
+            plc.Writes.Should().Contain(write => write.Address == config.PlcResultAddress && write.Value == config.PlcOkValue);
+            plc.Writes.Should().ContainSingle(write => write.Address == config.PlcResultValidAddress && write.Value == 1);
+            plc.Writes.Should().Contain(write => write.Address == config.PlcTriggerAckAddress && write.Value == 0);
             plc.Writes.Last(write => write.Address == config.PlcVisionReadyAddress).Value.Should().Be(1);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_HandshakeV1_取消时仍执行一次终态握手()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            config.PlcProtocolMode = PlcProtocolMode.HandshakeV1;
+            config.PlcResultAckTimeoutMs = 50;
+            var camera = new FakeCameraService(new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService();
+            plc.ReadSequence.Enqueue((true, 0));
+            plc.ReadSequence.Enqueue((true, 1));
+            var detection = new FakeDetectionService
+            {
+                ThrowOnDetect = new OperationCanceledException("cancelled")
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue);
+            InspectionContext context = CreateContext("CF-HANDSHAKE-CANCEL", triggerSeq: 43, triggerSource: "PLC");
+            context.PlcTriggerAccepted = true;
+
+            Func<Task> act = async () => await service.ExecuteAsync(
+                new InspectionPipelineRequest("PLC", context.InspectionId, context.TriggerSeq, context),
+                default);
+
+            await act.Should().ThrowAsync<OperationCanceledException>();
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            plc.Writes.Should().ContainSingle(write => write.Address == config.PlcResultValidAddress && write.Value == 1);
+            plc.Writes.Should().ContainSingle(write => write.Address == config.PlcInspectionDoneAddress && write.Value == 1);
+            plc.Writes.Last(write => write.Address == config.PlcVisionReadyAddress).Value.Should().Be(1);
+            database.SavedRecords.Should().BeEmpty();
         }
         finally
         {
@@ -655,6 +710,7 @@ public class InspectionPipelineServiceTests
         public string BarcodeValue { get; init; } = "SN-DEFAULT";
         public List<short> WrittenValues { get; } = new List<short>();
         public List<(string Address, short Value)> Writes { get; } = new List<(string Address, short Value)>();
+        public Queue<(bool Success, short Value)> ReadSequence { get; } = new Queue<(bool Success, short Value)>();
         public int ReadStringCalls { get; private set; }
 
         public Task<bool> ConnectAsync(PlcConnectionOptions options) => Task.FromResult(true);
@@ -681,7 +737,14 @@ public class InspectionPipelineServiceTests
 
         public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
         public Task<(bool Success, short Value)> ReadWordAsync(string address)
-            => Task.FromResult((true, (short)1));
+        {
+            if (ReadSequence.Count > 0)
+            {
+                return Task.FromResult(ReadSequence.Dequeue());
+            }
+
+            return Task.FromResult((true, (short)0));
+        }
         public Task<(bool Success, string Value)> ReadStringAsync(string startAddress, int wordLength, string encodingName)
         {
             ReadStringCalls++;
@@ -702,6 +765,7 @@ public class InspectionPipelineServiceTests
             UsedModelName = "fake.onnx",
             UsedModelLabels = new[] { "part" }
         };
+        public Exception? ThrowOnDetect { get; init; }
 
         public int DetectMatCalls { get; private set; }
         public bool IsModelLoaded => true;
@@ -722,6 +786,11 @@ public class InspectionPipelineServiceTests
             MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
             DetectMatCalls++;
+            if (ThrowOnDetect != null)
+            {
+                throw ThrowOnDetect;
+            }
+
             return Task.FromResult(DetectionResult);
         }
 

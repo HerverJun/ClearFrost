@@ -11,7 +11,7 @@ namespace ClearFrost.Core.Models
         public string ModelHash { get; set; } = string.Empty;
         public string Sha256 { get; set; } = string.Empty;
         public List<string> Labels { get; set; } = new List<string>();
-        public string TaskType { get; set; } = "Detect";
+        public string TaskType { get; set; } = string.Empty;
         public int InputWidth { get; set; }
         public int InputHeight { get; set; }
         public string AcceptanceDataset { get; set; } = string.Empty;

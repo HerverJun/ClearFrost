@@ -54,6 +54,39 @@ public class PlcHandshakeV1CoordinatorTests
     }
 
     [Fact]
+    public async Task AcceptTriggerAsync_任一关键写入失败都不清触发位()
+    {
+        PlcHandshakeV1Addresses template = CreateAddresses();
+        string[] criticalAddresses =
+        {
+            template.VisionOnlineAddress,
+            template.VisionReadyAddress,
+            template.VisionBusyAddress,
+            template.InspectionDoneAddress,
+            template.ResultValidAddress,
+            template.TraceSavedAddress,
+            template.ErrorCodeAddress,
+            template.TriggerAckAddress
+        };
+
+        foreach (string failAddress in criticalAddresses)
+        {
+            var plc = new SimulatedPlcService();
+            PlcHandshakeV1Addresses addresses = CreateAddresses();
+            plc.FailWrites.Add(failAddress);
+            var coordinator = new PlcHandshakeV1Coordinator(plc);
+
+            PlcHandshakeV1Result result = await coordinator.AcceptTriggerAsync(
+                addresses,
+                new PlcTriggerContext { TriggerAddress = addresses.TriggerAddress, TriggerSeq = 7 });
+
+            result.Succeeded.Should().BeFalse(failAddress);
+            result.ErrorCode.Should().NotBeEmpty(failAddress);
+            plc.Writes.Should().NotContain(write => write.Address == addresses.TriggerAddress && write.Value == 0, failAddress);
+        }
+    }
+
+    [Fact]
     public async Task RejectTriggerAsync_拒绝接单时不残留Busy和Ack()
     {
         var plc = new SimulatedPlcService();
@@ -93,11 +126,47 @@ public class PlcHandshakeV1CoordinatorTests
     }
 
     [Fact]
+    public async Task RejectTriggerAsync_任一关键写入失败都不继续清触发位()
+    {
+        PlcHandshakeV1Addresses template = CreateAddresses();
+        string[] criticalAddresses =
+        {
+            template.VisionOnlineAddress,
+            template.VisionReadyAddress,
+            template.VisionBusyAddress,
+            template.TriggerAckAddress,
+            template.ErrorCodeAddress,
+            template.ResultValidAddress,
+            template.InspectionDoneAddress,
+            template.TraceSavedAddress,
+            template.HeartbeatAddress
+        };
+
+        foreach (string failAddress in criticalAddresses)
+        {
+            var plc = new SimulatedPlcService();
+            PlcHandshakeV1Addresses addresses = CreateAddresses();
+            plc.FailWrites.Add(failAddress);
+            var coordinator = new PlcHandshakeV1Coordinator(plc);
+
+            PlcHandshakeV1Result result = await coordinator.RejectTriggerAsync(
+                addresses,
+                new PlcTriggerContext { TriggerAddress = addresses.TriggerAddress },
+                errorCode: 92,
+                clearTrigger: true);
+
+            result.Succeeded.Should().BeFalse(failAddress);
+            plc.Writes.Should().NotContain(write => write.Address == addresses.TriggerAddress && write.Value == 0, failAddress);
+        }
+    }
+
+    [Fact]
     public async Task CompleteInspectionAsync_ResultAck确认后才恢复Ready并清除结果信号()
     {
         var plc = new SimulatedPlcService();
         PlcHandshakeV1Addresses addresses = CreateAddresses();
-        plc.ReadValues[addresses.ResultAckAddress] = 1;
+        plc.ReadSequence.Enqueue((true, 0));
+        plc.ReadSequence.Enqueue((true, 1));
         var coordinator = new PlcHandshakeV1Coordinator(plc);
         var context = new InspectionContext
         {
@@ -110,7 +179,9 @@ public class PlcHandshakeV1CoordinatorTests
         PlcHandshakeV1Result result = await coordinator.CompleteInspectionAsync(addresses, context, isQualified: true);
 
         result.Succeeded.Should().BeTrue();
+        plc.LastValue(addresses.ResultAddress).Should().Be(addresses.OkValue);
         plc.LastValue(addresses.ResultSeqAddress).Should().Be(5);
+        plc.LastValue(addresses.TraceSavedAddress).Should().Be(0);
         plc.LastValue(addresses.ResultValidAddress).Should().Be(0);
         plc.LastValue(addresses.InspectionDoneAddress).Should().Be(0);
         plc.LastValue(addresses.TriggerAckAddress).Should().Be(0);
@@ -139,11 +210,132 @@ public class PlcHandshakeV1CoordinatorTests
         plc.LastValue(addresses.VisionBusyAddress).Should().Be(0);
     }
 
+    [Fact]
+    public async Task CompleteInspectionAsync_TraceFull才写TraceSaved为1()
+    {
+        var plc = new SimulatedPlcService();
+        PlcHandshakeV1Addresses addresses = CreateAddresses();
+        plc.ReadSequence.Enqueue((true, 0));
+        plc.ReadSequence.Enqueue((true, 1));
+        var coordinator = new PlcHandshakeV1Coordinator(plc);
+
+        PlcHandshakeV1Result result = await coordinator.CompleteInspectionAsync(
+            addresses,
+            new InspectionContext { InspectionId = "CF-HS-FULL", TraceStatus = TraceStatus.Full },
+            isQualified: false);
+
+        result.Succeeded.Should().BeTrue();
+        plc.LastValue(addresses.TraceSavedAddress).Should().Be(1);
+        plc.LastValue(addresses.ResultAddress).Should().Be(addresses.NgValue);
+    }
+
+    [Fact]
+    public async Task CompleteInspectionAsync_ResultAck残留非零时不发布结果()
+    {
+        var plc = new SimulatedPlcService();
+        PlcHandshakeV1Addresses addresses = CreateAddresses();
+        plc.ReadSequence.Enqueue((true, 7));
+        var coordinator = new PlcHandshakeV1Coordinator(plc);
+
+        PlcHandshakeV1Result result = await coordinator.CompleteInspectionAsync(
+            addresses,
+            new InspectionContext { InspectionId = "CF-HS-STALE", TraceStatus = TraceStatus.Full },
+            isQualified: true);
+
+        result.Succeeded.Should().BeFalse();
+        result.ErrorCode.Should().Be("HandshakeV1.AckStale");
+        result.SignalName.Should().Be("ResultAck");
+        result.Address.Should().Be(addresses.ResultAckAddress);
+        plc.Writes.Should().NotContain(write => write.Address == addresses.ResultAddress);
+        plc.Writes.Should().NotContain(write => write.Address == addresses.VisionReadyAddress && write.Value == 1);
+    }
+
+    [Fact]
+    public async Task CompleteInspectionAsync_ResultAck读取失败时FailClosed()
+    {
+        var plc = new SimulatedPlcService();
+        PlcHandshakeV1Addresses addresses = CreateAddresses();
+        plc.ReadSequence.Enqueue((false, 0));
+        var coordinator = new PlcHandshakeV1Coordinator(plc);
+
+        PlcHandshakeV1Result result = await coordinator.CompleteInspectionAsync(
+            addresses,
+            new InspectionContext { InspectionId = "CF-HS-READ-FAIL" },
+            isQualified: true);
+
+        result.Succeeded.Should().BeFalse();
+        result.ErrorCode.Should().Be("HandshakeV1.AckReadFailed");
+        plc.Writes.Should().NotContain(write => write.Address == addresses.ResultAddress);
+    }
+
+    [Fact]
+    public async Task CompleteInspectionAsync_Result载荷写失败时不置Valid且不恢复Ready()
+    {
+        var plc = new SimulatedPlcService();
+        PlcHandshakeV1Addresses addresses = CreateAddresses();
+        plc.ReadSequence.Enqueue((true, 0));
+        plc.FailWrites.Add(addresses.ResultAddress);
+        var coordinator = new PlcHandshakeV1Coordinator(plc);
+
+        PlcHandshakeV1Result result = await coordinator.CompleteInspectionAsync(
+            addresses,
+            new InspectionContext { InspectionId = "CF-HS-PAYLOAD" },
+            isQualified: true);
+
+        result.Succeeded.Should().BeFalse();
+        result.ErrorCode.Should().Be("HandshakeV1.WriteFailed");
+        result.SignalName.Should().Be("Result");
+        plc.Writes.Should().NotContain(write => write.Address == addresses.ResultValidAddress && write.Value == 1);
+        plc.Writes.Should().NotContain(write => write.Address == addresses.VisionReadyAddress && write.Value == 1);
+    }
+
+    [Fact]
+    public async Task CompleteInspectionAsync_结果信号复位失败时不恢复Ready()
+    {
+        var plc = new SimulatedPlcService();
+        PlcHandshakeV1Addresses addresses = CreateAddresses();
+        plc.ReadSequence.Enqueue((true, 0));
+        plc.ReadSequence.Enqueue((true, 1));
+        plc.FailWriteOnAttempt[addresses.ResultValidAddress] = 2;
+        var coordinator = new PlcHandshakeV1Coordinator(plc);
+
+        PlcHandshakeV1Result result = await coordinator.CompleteInspectionAsync(
+            addresses,
+            new InspectionContext { InspectionId = "CF-HS-RESET", TraceStatus = TraceStatus.Full },
+            isQualified: true);
+
+        result.Succeeded.Should().BeFalse();
+        result.ResultAckReceived.Should().BeTrue();
+        result.SignalName.Should().Be("ResultValid.Reset");
+        plc.Writes.Should().NotContain(write => write.Address == addresses.VisionReadyAddress && write.Value == 1);
+    }
+
+    [Fact]
+    public async Task CompleteInspectionAsync_Ready写失败时整体失败()
+    {
+        var plc = new SimulatedPlcService();
+        PlcHandshakeV1Addresses addresses = CreateAddresses();
+        plc.ReadSequence.Enqueue((true, 0));
+        plc.ReadSequence.Enqueue((true, 1));
+        plc.FailWrites.Add(addresses.VisionReadyAddress);
+        var coordinator = new PlcHandshakeV1Coordinator(plc);
+
+        PlcHandshakeV1Result result = await coordinator.CompleteInspectionAsync(
+            addresses,
+            new InspectionContext { InspectionId = "CF-HS-READY", TraceStatus = TraceStatus.Full },
+            isQualified: true);
+
+        result.Succeeded.Should().BeFalse();
+        result.ResultAckReceived.Should().BeTrue();
+        result.SignalName.Should().Be("VisionReady");
+    }
+
     private static PlcHandshakeV1Addresses CreateAddresses(int resultAckTimeoutMs = 50)
     {
         return new PlcHandshakeV1Addresses
         {
             TriggerAddress = "D555",
+            ResultAddress = "D556",
             TriggerAckAddress = "D567",
             ResultSeqAddress = "D558",
             VisionOnlineAddress = "D559",
@@ -155,7 +347,9 @@ public class PlcHandshakeV1CoordinatorTests
             HeartbeatAddress = "D565",
             ResultValidAddress = "D568",
             ResultAckAddress = "D569",
-            ResultAckTimeoutMs = resultAckTimeoutMs
+            ResultAckTimeoutMs = resultAckTimeoutMs,
+            OkValue = 1,
+            NgValue = 0
         };
     }
 
@@ -171,7 +365,10 @@ public class PlcHandshakeV1CoordinatorTests
         public string? LastError { get; private set; }
         public List<(string Address, short Value)> Writes { get; } = new List<(string Address, short Value)>();
         public HashSet<string> FailWrites { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, int> FailWriteOnAttempt { get; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, short> ReadValues { get; } = new Dictionary<string, short>(StringComparer.OrdinalIgnoreCase);
+        public Queue<(bool Success, short Value)> ReadSequence { get; } = new Queue<(bool Success, short Value)>();
+        private readonly Dictionary<string, int> _writeCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         public short LastValue(string address)
         {
@@ -186,7 +383,11 @@ public class PlcHandshakeV1CoordinatorTests
         public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite)
         {
             Writes.Add((resultAddress, valueToWrite));
-            if (FailWrites.Contains(resultAddress))
+            _writeCounts.TryGetValue(resultAddress, out int count);
+            count++;
+            _writeCounts[resultAddress] = count;
+            if (FailWrites.Contains(resultAddress) ||
+                (FailWriteOnAttempt.TryGetValue(resultAddress, out int failAttempt) && failAttempt == count))
             {
                 LastError = $"write failed: {resultAddress}";
                 return Task.FromResult(false);
@@ -197,6 +398,17 @@ public class PlcHandshakeV1CoordinatorTests
         }
         public Task<(bool Success, short Value)> ReadWordAsync(string address)
         {
+            if (ReadSequence.Count > 0)
+            {
+                var next = ReadSequence.Dequeue();
+                if (!next.Success)
+                {
+                    LastError = $"read failed: {address}";
+                }
+
+                return Task.FromResult(next);
+            }
+
             return Task.FromResult((true, ReadValues.TryGetValue(address, out short value) ? value : (short)0));
         }
         public Task<bool> WriteReleaseSignalAsync(string resultAddress) => WriteResultAsync(resultAddress, (short)1);

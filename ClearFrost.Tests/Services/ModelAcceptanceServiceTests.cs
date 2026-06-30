@@ -93,6 +93,36 @@ public class ModelAcceptanceServiceTests
         }
     }
 
+    [Fact]
+    public void EnableApprovedModel_模型文件缺失时不写生产状态()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = CreatePackage(packageRoot, "pkg-missing", approved: true);
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+            ModelRegistryEntry entry = registry.Resolve("pkg-missing")!;
+            File.Delete(Path.Combine(packageDir, "model.onnx"));
+
+            var service = new ModelAcceptanceService(Path.Combine(tempDir, "state.json"));
+            ModelAcceptanceResult result = service.EnableApprovedModel(entry);
+
+            result.Succeeded.Should().BeFalse();
+            File.Exists(Path.Combine(tempDir, "state.json")).Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static string CreatePackage(string packageRoot, string modelId, bool approved)
     {
         string packageDir = Path.Combine(packageRoot, modelId);

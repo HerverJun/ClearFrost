@@ -810,13 +810,12 @@ namespace ClearFrost
                     if (!await EnsureRuntimeMutationAllowedAsync("辅助模型1更新")) return;
                     if (string.IsNullOrEmpty(modelName))
                     {
+                        string previousModelName = _appConfig.Auxiliary1ModelPath;
                         _detectionService.UnloadAuxiliary1Model();
-                        _appConfig.Auxiliary1ModelPath = "";
-                        if (_appConfig.Save())
+                        if (await CommitAuxiliaryModelConfigAsync(1, "", previousModelName, "辅助模型1更新"))
                         {
-                            TrySaveCurrentRecipeSnapshot("辅助模型1更新");
+                            await _uiController.LogToFrontend("辅助模型1已卸载");
                         }
-                        await _uiController.LogToFrontend("辅助模型1已卸载");
                     }
                     else
                     {
@@ -834,7 +833,7 @@ namespace ClearFrost
                         string modelPath = Path.Combine(模型路径, modelName);
                         if (File.Exists(modelPath))
                         {
-                            if (!IsModelApprovedForProduction(modelName, out string approvalError))
+                            if (!IsModelApprovedForProduction(modelPath, out string approvalError))
                             {
                                 await _uiController.LogToFrontend(approvalError, "error");
                                 return;
@@ -843,12 +842,11 @@ namespace ClearFrost
                             bool ok = await _detectionService.LoadAuxiliary1ModelAsync(modelPath);
                             if (ok)
                             {
-                                _appConfig.Auxiliary1ModelPath = modelName;
-                                if (_appConfig.Save())
+                                string previousModelName = _appConfig.Auxiliary1ModelPath;
+                                if (await CommitAuxiliaryModelConfigAsync(1, modelName, previousModelName, "辅助模型1更新"))
                                 {
-                                    TrySaveCurrentRecipeSnapshot("辅助模型1更新");
+                                    await _uiController.LogToFrontend($"? 辅助模型1已加载: {modelName}");
                                 }
-                                await _uiController.LogToFrontend($"? 辅助模型1已加载: {modelName}");
                             }
                             else
                             {
@@ -874,13 +872,12 @@ namespace ClearFrost
                     if (!await EnsureRuntimeMutationAllowedAsync("辅助模型2更新")) return;
                     if (string.IsNullOrEmpty(modelName))
                     {
+                        string previousModelName = _appConfig.Auxiliary2ModelPath;
                         _detectionService.UnloadAuxiliary2Model();
-                        _appConfig.Auxiliary2ModelPath = "";
-                        if (_appConfig.Save())
+                        if (await CommitAuxiliaryModelConfigAsync(2, "", previousModelName, "辅助模型2更新"))
                         {
-                            TrySaveCurrentRecipeSnapshot("辅助模型2更新");
+                            await _uiController.LogToFrontend("辅助模型2已卸载");
                         }
-                        await _uiController.LogToFrontend("辅助模型2已卸载");
                     }
                     else
                     {
@@ -898,7 +895,7 @@ namespace ClearFrost
                         string modelPath = Path.Combine(模型路径, modelName);
                         if (File.Exists(modelPath))
                         {
-                            if (!IsModelApprovedForProduction(modelName, out string approvalError))
+                            if (!IsModelApprovedForProduction(modelPath, out string approvalError))
                             {
                                 await _uiController.LogToFrontend(approvalError, "error");
                                 return;
@@ -907,12 +904,11 @@ namespace ClearFrost
                             bool ok = await _detectionService.LoadAuxiliary2ModelAsync(modelPath);
                             if (ok)
                             {
-                                _appConfig.Auxiliary2ModelPath = modelName;
-                                if (_appConfig.Save())
+                                string previousModelName = _appConfig.Auxiliary2ModelPath;
+                                if (await CommitAuxiliaryModelConfigAsync(2, modelName, previousModelName, "辅助模型2更新"))
                                 {
-                                    TrySaveCurrentRecipeSnapshot("辅助模型2更新");
+                                    await _uiController.LogToFrontend($"? 辅助模型2已加载: {modelName}");
                                 }
-                                await _uiController.LogToFrontend($"? 辅助模型2已加载: {modelName}");
                             }
                             else
                             {

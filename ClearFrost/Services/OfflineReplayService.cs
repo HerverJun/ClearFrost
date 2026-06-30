@@ -17,6 +17,12 @@ namespace ClearFrost.Services
         public int InputCount { get; init; }
         public int ReplayedCount { get; init; }
         public int DifferenceCount { get; init; }
+        public int SuccessCount { get; init; }
+        public int InferenceFailedCount { get; init; }
+        public int RuleFailedCount { get; init; }
+        public int ImageMissingCount { get; init; }
+        public int ImageReadFailedCount { get; init; }
+        public double PassRate { get; init; }
         public IReadOnlyList<string> Errors { get; init; } = Array.Empty<string>();
     }
 
@@ -85,12 +91,25 @@ namespace ClearFrost.Services
                 }
             }
 
+            int successCount = results.Count(result => string.Equals(result.Status, "Replayed", StringComparison.Ordinal));
+            int passCount = results.Count(result =>
+                string.Equals(result.Status, "Replayed", StringComparison.Ordinal) &&
+                result.NewIsQualified == true);
+
             return new OfflineReplayBatchResult
             {
                 Results = results,
                 InputCount = records.Count,
-                ReplayedCount = results.Count(result => result.NewIsQualified.HasValue),
-                DifferenceCount = results.Count(result => string.Equals(result.Difference, "ResultChanged", StringComparison.Ordinal)),
+                ReplayedCount = successCount,
+                SuccessCount = successCount,
+                DifferenceCount = results.Count(result =>
+                    string.Equals(result.Status, "Replayed", StringComparison.Ordinal) &&
+                    string.Equals(result.Difference, "ResultChanged", StringComparison.Ordinal)),
+                InferenceFailedCount = results.Count(result => string.Equals(result.Status, "InferenceFailed", StringComparison.Ordinal)),
+                RuleFailedCount = results.Count(result => string.Equals(result.Status, "RuleFailed", StringComparison.Ordinal)),
+                ImageMissingCount = results.Count(result => string.Equals(result.Status, "ImageMissing", StringComparison.Ordinal)),
+                ImageReadFailedCount = results.Count(result => string.Equals(result.Status, "ImageReadFailed", StringComparison.Ordinal)),
+                PassRate = successCount == 0 ? 0 : passCount / (double)successCount,
                 Errors = errors
             };
         }
@@ -109,24 +128,72 @@ namespace ClearFrost.Services
                 return BuildFailedResult(record, imagePath, "ImageMissing", message);
             }
 
+            Mat? image = null;
             try
             {
-                using Mat image = Cv2.ImRead(imagePath, ImreadModes.Color);
-                if (image.Empty())
+                image = Cv2.ImRead(imagePath, ImreadModes.Color);
+                if (image == null || image.Empty())
                 {
                     return BuildFailedResult(record, imagePath, "ImageReadFailed", "历史样本图片读取失败");
                 }
 
                 Stopwatch stopwatch = Stopwatch.StartNew();
-                DetectionResultData detection = await _detectionService.DetectAsync(
-                    image,
-                    confidence,
-                    iouThreshold).ConfigureAwait(false);
+                DetectionResultData detection;
+                using (await DetectionRuntimeConcurrencyGate.EnterAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    detection = await _detectionService.DetectAsync(
+                        image,
+                        confidence,
+                        iouThreshold).ConfigureAwait(false);
+                }
                 stopwatch.Stop();
+
+                if (detection.HasError)
+                {
+                    return new OfflineReplayResult
+                    {
+                        RecordId = record.Id,
+                        InspectionId = record.InspectionId,
+                        ImagePath = imagePath,
+                        OriginalIsQualified = record.IsQualified,
+                        NewIsQualified = null,
+                        Difference = "InferenceFailed",
+                        ElapsedMs = stopwatch.ElapsedMilliseconds,
+                        OriginalRuleSummary = record.RuleSummary,
+                        ModelName = detection.UsedModelName ?? _detectionService.CurrentModelName,
+                        RecipeVersion = record.RecipeVersion,
+                        Status = "InferenceFailed",
+                        ErrorMessage = detection.ErrorMessage
+                    };
+                }
 
                 List<YoloResult> detections = detection.Results ?? new List<YoloResult>();
                 string[] labels = detection.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
-                InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(_ruleSetProvider(), detections, labels);
+                InspectionJudgeResult judgeResult;
+                try
+                {
+                    judgeResult = InspectionRuleEngine.Evaluate(_ruleSetProvider(), detections, labels);
+                }
+                catch (Exception ex)
+                {
+                    return new OfflineReplayResult
+                    {
+                        RecordId = record.Id,
+                        InspectionId = record.InspectionId,
+                        ImagePath = imagePath,
+                        OriginalIsQualified = record.IsQualified,
+                        NewIsQualified = null,
+                        Difference = "RuleFailed",
+                        Confidence = detections.Count == 0 ? 0 : detections.Max(item => item.Confidence),
+                        ElapsedMs = stopwatch.ElapsedMilliseconds,
+                        OriginalRuleSummary = record.RuleSummary,
+                        ModelName = detection.UsedModelName ?? _detectionService.CurrentModelName,
+                        RecipeVersion = record.RecipeVersion,
+                        Status = "RuleFailed",
+                        ErrorMessage = ex.Message
+                    };
+                }
+
                 bool newQualified = !detection.HasError && judgeResult.IsQualified;
                 string difference = record.IsQualified == newQualified ? "NoChange" : "ResultChanged";
 
@@ -146,17 +213,26 @@ namespace ClearFrost.Services
                     ModelName = detection.UsedModelName ?? _detectionService.CurrentModelName,
                     RecipeVersion = record.RecipeVersion,
                     Status = "Replayed",
-                    ErrorMessage = detection.HasError ? detection.ErrorMessage : string.Empty
+                    ErrorMessage = string.Empty
                 };
             }
             catch (OperationCanceledException)
             {
                 throw;
             }
+            catch (OpenCVException ex)
+            {
+                _diagnosticLog?.Invoke($"[OfflineReplay] {record.InspectionId}: {ex.Message}");
+                return BuildFailedResult(record, imagePath, "ImageReadFailed", ex.Message);
+            }
             catch (Exception ex)
             {
                 _diagnosticLog?.Invoke($"[OfflineReplay] {record.InspectionId}: {ex.Message}");
                 return BuildFailedResult(record, imagePath, "ReplayFailed", ex.Message);
+            }
+            finally
+            {
+                image?.Dispose();
             }
         }
 

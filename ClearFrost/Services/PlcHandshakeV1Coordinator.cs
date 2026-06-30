@@ -12,6 +12,7 @@ namespace ClearFrost.Services
     internal sealed class PlcHandshakeV1Addresses
     {
         public string TriggerAddress { get; init; } = string.Empty;
+        public string ResultAddress { get; init; } = string.Empty;
         public string TriggerAckAddress { get; init; } = string.Empty;
         public string TriggerSeqAddress { get; init; } = string.Empty;
         public string ResultSeqAddress { get; init; } = string.Empty;
@@ -25,6 +26,8 @@ namespace ClearFrost.Services
         public string ResultValidAddress { get; init; } = string.Empty;
         public string ResultAckAddress { get; init; } = string.Empty;
         public int ResultAckTimeoutMs { get; init; }
+        public short OkValue { get; init; } = 1;
+        public short NgValue { get; init; } = 0;
 
         public static PlcHandshakeV1Addresses FromConfig(AppConfig config, string? triggerAddress = null)
         {
@@ -33,6 +36,7 @@ namespace ClearFrost.Services
             return new PlcHandshakeV1Addresses
             {
                 TriggerAddress = string.IsNullOrWhiteSpace(triggerAddress) ? config.PlcTriggerAddress : triggerAddress,
+                ResultAddress = config.PlcResultAddress,
                 TriggerAckAddress = config.PlcTriggerAckAddress,
                 TriggerSeqAddress = config.PlcTriggerSeqAddress,
                 ResultSeqAddress = config.PlcResultSeqAddress,
@@ -45,7 +49,9 @@ namespace ClearFrost.Services
                 HeartbeatAddress = config.PlcHeartbeatAddress,
                 ResultValidAddress = config.PlcResultValidAddress,
                 ResultAckAddress = config.PlcResultAckAddress,
-                ResultAckTimeoutMs = config.PlcResultAckTimeoutMs
+                ResultAckTimeoutMs = config.PlcResultAckTimeoutMs,
+                OkValue = config.PlcOkValue,
+                NgValue = config.PlcNgValue
             };
         }
     }
@@ -56,6 +62,17 @@ namespace ClearFrost.Services
         public string Message { get; init; } = string.Empty;
         public long ElapsedMs { get; init; }
         public bool ResultAckReceived { get; init; }
+        public string ErrorCode { get; init; } = string.Empty;
+        public string SignalName { get; init; } = string.Empty;
+        public string Address { get; init; } = string.Empty;
+    }
+
+    internal sealed class PlcHandshakeV1Failure
+    {
+        public string ErrorCode { get; init; } = string.Empty;
+        public string SignalName { get; init; } = string.Empty;
+        public string Address { get; init; } = string.Empty;
+        public string Message { get; init; } = string.Empty;
     }
 
     internal sealed class PlcHandshakeV1Coordinator
@@ -79,32 +96,26 @@ namespace ClearFrost.Services
                 ? addresses.TriggerAddress
                 : triggerContext.TriggerAddress;
 
-            bool success =
-                await WriteWordAsync(addresses.VisionOnlineAddress, 1, "VisionOnline", cancellationToken).ConfigureAwait(false) &&
-                await WriteWordAsync(addresses.VisionReadyAddress, 0, "VisionReady", cancellationToken).ConfigureAwait(false) &&
-                await WriteWordAsync(addresses.VisionBusyAddress, 1, "VisionBusy", cancellationToken).ConfigureAwait(false) &&
-                await WriteWordAsync(addresses.InspectionDoneAddress, 0, "InspectionDone", cancellationToken).ConfigureAwait(false) &&
-                await WriteWordAsync(addresses.ResultValidAddress, 0, "ResultValid", cancellationToken).ConfigureAwait(false) &&
-                await WriteWordAsync(addresses.ErrorCodeAddress, 0, "ErrorCode", cancellationToken).ConfigureAwait(false) &&
-                await WriteWordAsync(
+            PlcHandshakeV1Failure? failure =
+                await TryWriteWordAsync(addresses.VisionOnlineAddress, 1, "VisionOnline", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.VisionReadyAddress, 0, "VisionReady", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.VisionBusyAddress, 1, "VisionBusy", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.InspectionDoneAddress, 0, "InspectionDone", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.ResultValidAddress, 0, "ResultValid", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.TraceSavedAddress, 0, "TraceSaved", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.ErrorCodeAddress, 0, "ErrorCode", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(
                     addresses.TriggerAckAddress,
                     triggerContext.TriggerSeq.HasValue ? ClampIntToShort(triggerContext.TriggerSeq.Value) : (short)1,
                     "TriggerAck",
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(triggerAddress, 0, "Trigger.Clear", cancellationToken).ConfigureAwait(false);
 
-            if (!success)
+            if (failure != null)
             {
                 await ResetAcceptedAsync(addresses, cancellationToken).ConfigureAwait(false);
                 sw.Stop();
-                return Fail("TriggerAck write failed.", sw.ElapsedMilliseconds);
-            }
-
-            if (string.IsNullOrWhiteSpace(triggerAddress) ||
-                !await WriteWordAsync(triggerAddress, 0, "Trigger.Clear", cancellationToken).ConfigureAwait(false))
-            {
-                await ResetAcceptedAsync(addresses, cancellationToken).ConfigureAwait(false);
-                sw.Stop();
-                return Fail("Trigger clear failed.", sw.ElapsedMilliseconds);
+                return Fail(failure, sw.ElapsedMilliseconds);
             }
 
             sw.Stop();
@@ -119,26 +130,29 @@ namespace ClearFrost.Services
             CancellationToken cancellationToken = default)
         {
             var sw = Stopwatch.StartNew();
-            await WriteWordAsync(addresses.VisionOnlineAddress, 1, "VisionOnline", cancellationToken).ConfigureAwait(false);
-            await WriteWordAsync(addresses.VisionReadyAddress, 0, "VisionReady", cancellationToken).ConfigureAwait(false);
-            await WriteWordAsync(addresses.VisionBusyAddress, 0, "VisionBusy", cancellationToken).ConfigureAwait(false);
-            await WriteWordAsync(addresses.TriggerAckAddress, 0, "TriggerAck.Reset", cancellationToken).ConfigureAwait(false);
-            await WriteWordAsync(addresses.ErrorCodeAddress, errorCode, "ErrorCode", cancellationToken).ConfigureAwait(false);
-            await WriteWordAsync(addresses.ResultValidAddress, 0, "ResultValid", cancellationToken).ConfigureAwait(false);
-            await WriteWordAsync(addresses.InspectionDoneAddress, 0, "InspectionDone", cancellationToken).ConfigureAwait(false);
-            await WriteWordAsync(addresses.HeartbeatAddress, 1, "Heartbeat", cancellationToken).ConfigureAwait(false);
+            PlcHandshakeV1Failure? failure =
+                await TryWriteWordAsync(addresses.VisionOnlineAddress, 1, "VisionOnline", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.VisionReadyAddress, 0, "VisionReady", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.VisionBusyAddress, 0, "VisionBusy", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.TriggerAckAddress, 0, "TriggerAck.Reset", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.ErrorCodeAddress, errorCode, "ErrorCode", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.ResultValidAddress, 0, "ResultValid", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.InspectionDoneAddress, 0, "InspectionDone", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.TraceSavedAddress, 0, "TraceSaved", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.HeartbeatAddress, 1, "Heartbeat", cancellationToken).ConfigureAwait(false);
 
-            if (clearTrigger)
+            if (failure == null && clearTrigger)
             {
                 string triggerAddress = string.IsNullOrWhiteSpace(triggerContext.TriggerAddress)
                     ? addresses.TriggerAddress
                     : triggerContext.TriggerAddress;
-                if (string.IsNullOrWhiteSpace(triggerAddress) ||
-                    !await WriteWordAsync(triggerAddress, 0, "Trigger.ClearRejected", cancellationToken).ConfigureAwait(false))
-                {
-                    sw.Stop();
-                    return Fail("Rejected trigger clear failed.", sw.ElapsedMilliseconds);
-                }
+                failure = await TryWriteWordAsync(triggerAddress, 0, "Trigger.ClearRejected", cancellationToken).ConfigureAwait(false);
+            }
+
+            if (failure != null)
+            {
+                sw.Stop();
+                return Fail(failure, sw.ElapsedMilliseconds);
             }
 
             sw.Stop();
@@ -158,43 +172,64 @@ namespace ClearFrost.Services
             }
 
             short errorCode = MapHandshakeErrorCode(context);
-            short traceSaved = context.TraceStatus is TraceStatus.Queued or TraceStatus.Full ? (short)1 : (short)0;
+            short traceSaved = context.TraceStatus == TraceStatus.Full ? (short)1 : (short)0;
+            short resultValue = isQualified ? addresses.OkValue : addresses.NgValue;
 
-            await WriteWordAsync(addresses.VisionBusyAddress, 0, "VisionBusy", cancellationToken).ConfigureAwait(false);
-            if (context.ResultSeq.HasValue)
+            PlcHandshakeV1Failure? ackPreconditionFailure = await EnsureResultAckIsZeroAsync(addresses, cancellationToken).ConfigureAwait(false);
+            if (ackPreconditionFailure != null)
             {
-                await WriteWordAsync(addresses.ResultSeqAddress, ClampIntToShort(context.ResultSeq.Value), "ResultSeq", cancellationToken).ConfigureAwait(false);
+                sw.Stop();
+                return Fail(ackPreconditionFailure, sw.ElapsedMilliseconds);
             }
 
-            await WriteWordAsync(addresses.ErrorCodeAddress, errorCode, "ErrorCode", cancellationToken).ConfigureAwait(false);
-            await WriteWordAsync(addresses.TraceSavedAddress, traceSaved, "TraceSaved", cancellationToken).ConfigureAwait(false);
-            await WriteWordAsync(addresses.ResultValidAddress, 1, "ResultValid", cancellationToken).ConfigureAwait(false);
-            await WriteWordAsync(addresses.InspectionDoneAddress, 1, "InspectionDone", cancellationToken).ConfigureAwait(false);
-            await WriteWordAsync(addresses.HeartbeatAddress, 1, "Heartbeat", cancellationToken).ConfigureAwait(false);
-
-            bool ackReceived = await WaitForResultAckAsync(addresses, cancellationToken).ConfigureAwait(false);
-            if (ackReceived)
+            PlcHandshakeV1Failure? failure =
+                await TryWriteWordAsync(addresses.VisionBusyAddress, 0, "VisionBusy", cancellationToken).ConfigureAwait(false);
+            if (context.ResultSeq.HasValue)
             {
-                await WriteWordAsync(addresses.ResultValidAddress, 0, "ResultValid.Reset", cancellationToken).ConfigureAwait(false);
-                await WriteWordAsync(addresses.InspectionDoneAddress, 0, "InspectionDone.Reset", cancellationToken).ConfigureAwait(false);
-                if (context.PlcTriggerAccepted)
-                {
-                    await WriteWordAsync(addresses.TriggerAckAddress, 0, "TriggerAck.Reset", cancellationToken).ConfigureAwait(false);
-                }
+                failure ??= await TryWriteWordAsync(addresses.ResultSeqAddress, ClampIntToShort(context.ResultSeq.Value), "ResultSeq", cancellationToken).ConfigureAwait(false);
+            }
 
-                await WriteWordAsync(addresses.VisionReadyAddress, 1, "VisionReady", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.ResultAddress, resultValue, "Result", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.ErrorCodeAddress, errorCode, "ErrorCode", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.TraceSavedAddress, traceSaved, "TraceSaved", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.ResultValidAddress, 1, "ResultValid", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.InspectionDoneAddress, 1, "InspectionDone", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.HeartbeatAddress, 1, "Heartbeat", cancellationToken).ConfigureAwait(false);
+            if (failure != null)
+            {
+                sw.Stop();
+                return Fail(failure, sw.ElapsedMilliseconds);
+            }
+
+            PlcHandshakeV1Failure? ackFailure = await WaitForResultAckAsync(addresses, cancellationToken).ConfigureAwait(false);
+            if (ackFailure != null)
+            {
+                sw.Stop();
+                return Fail(ackFailure, sw.ElapsedMilliseconds);
+            }
+
+            failure =
+                await TryWriteWordAsync(addresses.ResultValidAddress, 0, "ResultValid.Reset", cancellationToken).ConfigureAwait(false) ??
+                await TryWriteWordAsync(addresses.InspectionDoneAddress, 0, "InspectionDone.Reset", cancellationToken).ConfigureAwait(false);
+            if (failure == null && context.PlcTriggerAccepted)
+            {
+                failure = await TryWriteWordAsync(addresses.TriggerAckAddress, 0, "TriggerAck.Reset", cancellationToken).ConfigureAwait(false);
+            }
+
+            failure ??= await TryWriteWordAsync(addresses.VisionReadyAddress, 1, "VisionReady", cancellationToken).ConfigureAwait(false);
+            if (failure != null)
+            {
+                sw.Stop();
+                return Fail(failure, sw.ElapsedMilliseconds, resultAckReceived: true);
             }
 
             sw.Stop();
-            string message = ackReceived
-                ? $"Inspection completed: {(isQualified ? "OK" : "NG")}"
-                : "ResultAck timeout; VisionReady remains low.";
             return new PlcHandshakeV1Result
             {
-                Succeeded = ackReceived,
-                Message = message,
+                Succeeded = true,
+                Message = $"Inspection completed: {(isQualified ? "OK" : "NG")}",
                 ElapsedMs = sw.ElapsedMilliseconds,
-                ResultAckReceived = ackReceived
+                ResultAckReceived = true
             };
         }
 
@@ -202,37 +237,72 @@ namespace ClearFrost.Services
             PlcHandshakeV1Addresses addresses,
             CancellationToken cancellationToken = default)
         {
-            await WriteWordAsync(addresses.VisionBusyAddress, 0, "VisionBusy.Reset", cancellationToken).ConfigureAwait(false);
-            await WriteWordAsync(addresses.TriggerAckAddress, 0, "TriggerAck.Reset", cancellationToken).ConfigureAwait(false);
+            await TryWriteWordAsync(addresses.VisionBusyAddress, 0, "VisionBusy.Reset", cancellationToken).ConfigureAwait(false);
+            await TryWriteWordAsync(addresses.TriggerAckAddress, 0, "TriggerAck.Reset", cancellationToken).ConfigureAwait(false);
         }
 
-        private async Task<bool> WaitForResultAckAsync(
+        private async Task<PlcHandshakeV1Failure?> EnsureResultAckIsZeroAsync(
             PlcHandshakeV1Addresses addresses,
             CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(addresses.ResultAckAddress) || addresses.ResultAckTimeoutMs <= 0)
             {
-                return true;
+                return BuildFailure(
+                    "HandshakeV1.AckConfigInvalid",
+                    "ResultAck",
+                    addresses.ResultAckAddress,
+                    "ResultAck address or timeout is invalid.");
             }
 
+            var (failure, value) = await TryReadWordAsync(addresses.ResultAckAddress, "ResultAck.Precheck", cancellationToken).ConfigureAwait(false);
+            if (failure != null)
+            {
+                return failure;
+            }
+
+            if (value != 0)
+            {
+                return BuildFailure(
+                    "HandshakeV1.AckStale",
+                    "ResultAck",
+                    addresses.ResultAckAddress,
+                    $"ResultAck is already non-zero before result publish: {value}.");
+            }
+
+            return null;
+        }
+
+        private async Task<PlcHandshakeV1Failure?> WaitForResultAckAsync(
+            PlcHandshakeV1Addresses addresses,
+            CancellationToken cancellationToken)
+        {
             var sw = Stopwatch.StartNew();
             int timeoutMs = Math.Clamp(addresses.ResultAckTimeoutMs, 0, 30000);
             while (sw.ElapsedMilliseconds <= timeoutMs)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var (success, value) = await _plcService.ReadWordAsync(addresses.ResultAckAddress).ConfigureAwait(false);
-                if (success && value != 0)
+                var (failure, value) = await TryReadWordAsync(addresses.ResultAckAddress, "ResultAck", cancellationToken).ConfigureAwait(false);
+                if (failure != null)
                 {
-                    return true;
+                    return failure;
+                }
+
+                if (value != 0)
+                {
+                    return null;
                 }
 
                 await Task.Delay(50, cancellationToken).ConfigureAwait(false);
             }
 
-            return false;
+            return BuildFailure(
+                "HandshakeV1.AckTimeout",
+                "ResultAck",
+                addresses.ResultAckAddress,
+                $"ResultAck timeout after {timeoutMs}ms.");
         }
 
-        private async Task<bool> WriteWordAsync(
+        private async Task<PlcHandshakeV1Failure?> TryWriteWordAsync(
             string address,
             short value,
             string signalName,
@@ -240,18 +310,89 @@ namespace ClearFrost.Services
         {
             if (string.IsNullOrWhiteSpace(address))
             {
-                _log?.Invoke($"HandshakeV1 address is empty: {signalName}");
-                return false;
+                return BuildFailure(
+                    "HandshakeV1.AddressEmpty",
+                    signalName,
+                    address,
+                    $"HandshakeV1 address is empty: {signalName}");
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            bool success = await _plcService.WriteResultAsync(address, value).ConfigureAwait(false);
-            if (!success)
+            try
             {
-                _log?.Invoke($"HandshakeV1 write failed: {signalName}@{address}={value}, {_plcService.LastError ?? "unknown"}");
+                bool success = await _plcService.WriteResultAsync(address, value).ConfigureAwait(false);
+                if (!success)
+                {
+                    return BuildFailure(
+                        "HandshakeV1.WriteFailed",
+                        signalName,
+                        address,
+                        $"HandshakeV1 write failed: {signalName}@{address}={value}, {_plcService.LastError ?? "unknown"}");
+                }
+
+                return null;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return BuildFailure(
+                    "HandshakeV1.WriteException",
+                    signalName,
+                    address,
+                    $"HandshakeV1 write exception: {signalName}@{address}={value}, {ex.Message}");
+            }
+        }
+
+        private async Task<(PlcHandshakeV1Failure? Failure, short Value)> TryReadWordAsync(
+            string address,
+            string signalName,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(address))
+            {
+                return (
+                    BuildFailure(
+                        "HandshakeV1.AddressEmpty",
+                        signalName,
+                        address,
+                        $"HandshakeV1 address is empty: {signalName}"),
+                    0);
             }
 
-            return success;
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var (success, value) = await _plcService.ReadWordAsync(address).ConfigureAwait(false);
+                if (!success)
+                {
+                    return (
+                        BuildFailure(
+                            "HandshakeV1.AckReadFailed",
+                            signalName,
+                            address,
+                            $"HandshakeV1 read failed: {signalName}@{address}, {_plcService.LastError ?? "unknown"}"),
+                        0);
+                }
+
+                return (null, value);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return (
+                    BuildFailure(
+                        "HandshakeV1.AckReadException",
+                        signalName,
+                        address,
+                        $"HandshakeV1 read exception: {signalName}@{address}, {ex.Message}"),
+                    0);
+            }
         }
 
         private static PlcHandshakeV1Result Ok(string message, long elapsedMs)
@@ -264,13 +405,37 @@ namespace ClearFrost.Services
             };
         }
 
-        private static PlcHandshakeV1Result Fail(string message, long elapsedMs)
+        private PlcHandshakeV1Failure BuildFailure(
+            string errorCode,
+            string signalName,
+            string address,
+            string message)
+        {
+            var failure = new PlcHandshakeV1Failure
+            {
+                ErrorCode = errorCode ?? string.Empty,
+                SignalName = signalName ?? string.Empty,
+                Address = address ?? string.Empty,
+                Message = message ?? string.Empty
+            };
+            _log?.Invoke($"{failure.ErrorCode}: {failure.Message}");
+            return failure;
+        }
+
+        private static PlcHandshakeV1Result Fail(
+            PlcHandshakeV1Failure failure,
+            long elapsedMs,
+            bool resultAckReceived = false)
         {
             return new PlcHandshakeV1Result
             {
                 Succeeded = false,
-                Message = message,
-                ElapsedMs = elapsedMs
+                Message = failure.Message,
+                ElapsedMs = elapsedMs,
+                ResultAckReceived = resultAckReceived,
+                ErrorCode = failure.ErrorCode,
+                SignalName = failure.SignalName,
+                Address = failure.Address
             };
         }
 

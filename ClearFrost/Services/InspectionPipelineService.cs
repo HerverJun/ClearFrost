@@ -206,6 +206,18 @@ namespace ClearFrost.Services
             };
 
             bool finalHandshakeWritten = false;
+            async Task CompleteTerminalHandshakeOnceAsync(bool isQualified)
+            {
+                if (finalHandshakeWritten || !ShouldWriteTerminalHandshake(context))
+                {
+                    return;
+                }
+
+                finalHandshakeWritten = true;
+                await WriteHandshakeDetectionCompletedAsync(context, isQualified).ConfigureAwait(false);
+                pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
+            }
+
             try
             {
                 bool isManualTrigger = IsManualTriggerSource(request.TriggerSource);
@@ -218,8 +230,6 @@ namespace ClearFrost.Services
                         "info").ConfigureAwait(false);
                 }
 
-                await WriteHandshakeDetectionStartedAsync(context).ConfigureAwait(false);
-                pipelineResult.Timings.HandshakeStartMs = context.HandshakeStartMs;
                 await PublishUpdateAsync(
                     progressAsync,
                     context,
@@ -236,9 +246,7 @@ namespace ClearFrost.Services
                     if (shouldStop)
                     {
                         await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
-                        await WriteHandshakeDetectionCompletedAsync(context, pipelineResult.FinalQualified).ConfigureAwait(false);
-                        pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
-                        finalHandshakeWritten = true;
+                        await CompleteTerminalHandshakeOnceAsync(pipelineResult.FinalQualified).ConfigureAwait(false);
                         return pipelineResult;
                     }
                 }
@@ -251,9 +259,7 @@ namespace ClearFrost.Services
                 if (frameToProcess == null)
                 {
                     await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
-                    await WriteHandshakeDetectionCompletedAsync(context, pipelineResult.FinalQualified).ConfigureAwait(false);
-                    pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
-                    finalHandshakeWritten = true;
+                    await CompleteTerminalHandshakeOnceAsync(pipelineResult.FinalQualified).ConfigureAwait(false);
                     return pipelineResult;
                 }
 
@@ -278,13 +284,19 @@ namespace ClearFrost.Services
                 }
 
                 await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
-                await WriteHandshakeDetectionCompletedAsync(context, pipelineResult.FinalQualified).ConfigureAwait(false);
-                pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
-                finalHandshakeWritten = true;
+                await CompleteTerminalHandshakeOnceAsync(pipelineResult.FinalQualified).ConfigureAwait(false);
                 return pipelineResult;
             }
             catch (OperationCanceledException)
             {
+                context.MarkFailed(context.CurrentStage, "OperationCanceled", "检测已取消");
+                pipelineResult.FinalQualified = false;
+                pipelineResult.FinalResultCount = 0;
+                pipelineResult.StatusMessage = "检测已取消";
+                pipelineResult.StatusLevel = "error";
+                pipelineResult.AddStage(context.CurrentStage, false, 0, "检测已取消", "OperationCanceled");
+                await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
+                await CompleteTerminalHandshakeOnceAsync(false).ConfigureAwait(false);
                 throw;
             }
             catch (Exception ex)
@@ -303,8 +315,8 @@ namespace ClearFrost.Services
 
                 if (!finalHandshakeWritten)
                 {
-                    await WriteHandshakeDetectionCompletedAsync(context, false).ConfigureAwait(false);
-                    pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
+                    await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
+                    await CompleteTerminalHandshakeOnceAsync(false).ConfigureAwait(false);
                 }
 
                 await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
@@ -681,12 +693,16 @@ namespace ClearFrost.Services
                     frameToProcess.Width,
                     frameToProcess.Height,
                     roiSnapshot);
-                DetectionResultData result = await _detectionService.DetectAsync(
-                    frameToProcess,
-                    _appConfig.Confidence,
-                    _appConfig.IouThreshold,
-                    fallbackGoal,
-                    candidateEvaluator).ConfigureAwait(false);
+                DetectionResultData result;
+                using (await DetectionRuntimeConcurrencyGate.EnterAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    result = await _detectionService.DetectAsync(
+                        frameToProcess,
+                        _appConfig.Confidence,
+                        _appConfig.IouThreshold,
+                        fallbackGoal,
+                        candidateEvaluator).ConfigureAwait(false);
+                }
                 ApplyRuleTraceSnapshot(result, ruleSetJson, fallbackGoal);
                 inferSw.Stop();
                 pipelineResult.Timings.InferenceMs = inferSw.ElapsedMilliseconds;
@@ -1218,39 +1234,9 @@ namespace ClearFrost.Services
             };
         }
 
-        private async Task WriteHandshakeDetectionStartedAsync(InspectionContext context)
-        {
-            if (!ShouldUsePlcIo())
-            {
-                return;
-            }
-
-            if (_appConfig.PlcProtocolMode != PlcProtocolMode.HandshakeV1)
-            {
-                return;
-            }
-
-            var handshakeSw = Stopwatch.StartNew();
-            await WriteHandshakeWordAsync(_appConfig.PlcVisionOnlineAddress, 1, "VisionOnline", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcVisionReadyAddress, 0, "VisionReady", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcVisionBusyAddress, 1, "VisionBusy", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcInspectionDoneAddress, 0, "InspectionDone", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcResultValidAddress, 0, "ResultValid", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcTraceSavedAddress, 0, "TraceSaved", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcErrorCodeAddress, 0, "ErrorCode", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcHeartbeatAddress, 1, "Heartbeat", context).ConfigureAwait(false);
-            handshakeSw.Stop();
-            context.HandshakeStartMs = handshakeSw.ElapsedMilliseconds;
-        }
-
         private async Task WriteHandshakeDetectionCompletedAsync(InspectionContext context, bool isQualified)
         {
-            if (!ShouldUsePlcIo())
-            {
-                return;
-            }
-
-            if (_appConfig.PlcProtocolMode != PlcProtocolMode.HandshakeV1)
+            if (!ShouldWriteTerminalHandshake(context))
             {
                 return;
             }
@@ -1269,67 +1255,11 @@ namespace ClearFrost.Services
             DiagLog($"HandshakeV1完成[{context.InspectionId}]: Result={(isQualified ? "OK" : "NG")}, ResultSeq={context.ResultSeq?.ToString() ?? "-"}, Ack={result.ResultAckReceived}");
         }
 
-        private async Task<bool> WriteHandshakeWordAsync(
-            string address,
-            short value,
-            string signalName,
-            InspectionContext context)
+        private bool ShouldWriteTerminalHandshake(InspectionContext context)
         {
-            if (string.IsNullOrWhiteSpace(address))
-            {
-                return false;
-            }
-
-            try
-            {
-                bool success = await _plcService.WriteResultAsync(address, value).ConfigureAwait(false);
-                if (!success)
-                {
-                    string message = $"HandshakeV1写入失败: {signalName}@{address}={value}";
-                    DiagLog($"[{context.TriggerSource}] [{context.InspectionId}] {message}");
-                    RecordHealthError("PLC.HandshakeV1", message, context.InspectionId);
-                }
-
-                return success;
-            }
-            catch (Exception ex)
-            {
-                string message = $"HandshakeV1写入异常: {signalName}@{address}={value}, {ex.Message}";
-                DiagLog($"[{context.TriggerSource}] [{context.InspectionId}] {message}");
-                RecordHealthError("PLC.HandshakeV1", message, context.InspectionId);
-                return false;
-            }
-        }
-
-        private async Task<bool> WaitForPlcResultAckAsync(InspectionContext context)
-        {
-            if (string.IsNullOrWhiteSpace(_appConfig.PlcResultAckAddress) ||
-                _appConfig.PlcResultAckTimeoutMs <= 0)
-            {
-                return true;
-            }
-
-            var sw = Stopwatch.StartNew();
-            int timeoutMs = Math.Clamp(_appConfig.PlcResultAckTimeoutMs, 0, 30000);
-            while (sw.ElapsedMilliseconds <= timeoutMs)
-            {
-                var (success, value) = await _plcService.ReadWordAsync(_appConfig.PlcResultAckAddress).ConfigureAwait(false);
-                if (success && value != 0)
-                {
-                    await WriteHandshakeWordAsync(_appConfig.PlcResultValidAddress, 0, "ResultValid.Reset", context).ConfigureAwait(false);
-                    await WriteHandshakeWordAsync(_appConfig.PlcInspectionDoneAddress, 0, "InspectionDone.Reset", context).ConfigureAwait(false);
-                    await WriteHandshakeWordAsync(_appConfig.PlcTriggerAckAddress, 0, "TriggerAck.Reset", context).ConfigureAwait(false);
-                    DiagLog($"HandshakeV1收到PLC ResultAck[{context.InspectionId}]: Ack={value}");
-                    return true;
-                }
-
-                await Task.Delay(50).ConfigureAwait(false);
-            }
-
-            string message = $"HandshakeV1等待PLC ResultAck超时: {_appConfig.PlcResultAckAddress}, {timeoutMs}ms";
-            DiagLog($"[{context.TriggerSource}] [{context.InspectionId}] {message}");
-            RecordHealthError("PLC.HandshakeV1", message, context.InspectionId);
-            return false;
+            return context.PlcTriggerAccepted &&
+                   ShouldUsePlcIo() &&
+                   _appConfig.PlcProtocolMode == PlcProtocolMode.HandshakeV1;
         }
 
         private async Task<bool> WriteDetectionResultToPlcAsync(
@@ -1357,6 +1287,12 @@ namespace ClearFrost.Services
                     $"PLC未连接，检测结果未写入({context.InspectionId})",
                     "error").ConfigureAwait(false);
                 return false;
+            }
+
+            if (_appConfig.PlcProtocolMode == PlcProtocolMode.HandshakeV1)
+            {
+                DiagLog($"[{context.TriggerSource}] [{context.InspectionId}] HandshakeV1结果写入延迟到终态握手");
+                return true;
             }
 
             try

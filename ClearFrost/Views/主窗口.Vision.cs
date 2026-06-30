@@ -68,25 +68,14 @@ namespace ClearFrost
                 try
                 {
                     string modelPath = Path.Combine(模型路径, 模型名);
-                    if (!IsModelApprovedForProduction(模型名, out string approvalError))
-                    {
-                        await _uiController.LogToFrontend(approvalError, "error");
-                        return;
-                    }
-
-                    bool success = await _detectionService.LoadModelAsync(modelPath, useGpu, gpuIndex);
+                    bool success = await ActivatePrimaryProductionModelAsync(
+                        modelPath,
+                        "主模型初始化",
+                        useGpu,
+                        gpuIndex).ConfigureAwait(false);
                     if (success)
                     {
                         模型名 = Path.GetFileName(modelPath);
-                        if (!string.Equals(_appConfig.CurrentModelFileName, 模型名, StringComparison.OrdinalIgnoreCase))
-                        {
-                            _appConfig.CurrentModelFileName = 模型名;
-                            if (_appConfig.Save())
-                            {
-                                TrySaveCurrentRecipeSnapshot("主模型初始化");
-                            }
-                        }
-
                         await _uiController.LogToFrontend(BuildModelLoadStatusMessage($"模型加载成功: {模型名}"), "success");
                         await RestoreMultiModelConfigAsync();
                     }
@@ -156,7 +145,7 @@ namespace ClearFrost
                 string aux1Path = Path.Combine(模型路径, _appConfig.Auxiliary1ModelPath);
                 if (File.Exists(aux1Path))
                 {
-                    if (!IsModelApprovedForProduction(_appConfig.Auxiliary1ModelPath, out string approvalError))
+                    if (!IsModelApprovedForProduction(aux1Path, out string approvalError))
                     {
                         await _uiController.LogToFrontend(approvalError, "error");
                     }
@@ -180,7 +169,7 @@ namespace ClearFrost
                 string aux2Path = Path.Combine(模型路径, _appConfig.Auxiliary2ModelPath);
                 if (File.Exists(aux2Path))
                 {
-                    if (!IsModelApprovedForProduction(_appConfig.Auxiliary2ModelPath, out string approvalError))
+                    if (!IsModelApprovedForProduction(aux2Path, out string approvalError))
                     {
                         await _uiController.LogToFrontend(approvalError, "error");
                     }
@@ -660,21 +649,14 @@ namespace ClearFrost
                     return;
                 }
 
-                if (!IsModelApprovedForProduction(modelFileName, out string approvalError))
-                {
-                    await _uiController.LogToFrontend(approvalError, "error");
-                    return;
-                }
-
-                bool success = await _detectionService.LoadModelAsync(modelPath, _appConfig.EnableGpu, _appConfig.GpuIndex);
+                bool success = await ActivatePrimaryProductionModelAsync(
+                    modelPath,
+                    "主模型切换",
+                    _appConfig.EnableGpu,
+                    _appConfig.GpuIndex).ConfigureAwait(false);
                 if (success)
                 {
                     模型名 = modelFileName;
-                    _appConfig.CurrentModelFileName = modelFileName;
-                    if (_appConfig.Save())
-                    {
-                        TrySaveCurrentRecipeSnapshot("主模型切换");
-                    }
                     await _uiController.LogToFrontend(BuildModelLoadStatusMessage($"模型切换成功: {modelFileName}"), "success");
                 }
                 else
@@ -688,7 +670,7 @@ namespace ClearFrost
             }
         }
 
-        private bool IsModelApprovedForProduction(string modelName, out string message)
+        private bool IsModelApprovedForProduction(string modelPath, out string message)
         {
             message = string.Empty;
             if (!_appConfig.RequireApprovedModelsForProduction)
@@ -696,14 +678,190 @@ namespace ClearFrost
                 return true;
             }
 
-            ModelRegistryEntry? entry = _modelRegistry.Resolve(modelName);
-            if (entry == null || entry.ApprovedForProduction)
+            string fullPath = Path.IsPathRooted(modelPath)
+                ? modelPath
+                : Path.Combine(模型路径, modelPath);
+            try
+            {
+                _appRuntime.RefreshModelRegistry();
+            }
+            catch (Exception ex)
+            {
+                message = $"模型注册表刷新失败，禁止进入生产链路: {ex.Message}";
+                return false;
+            }
+
+            ModelProductionValidationResult validation = _modelRegistry.ValidateForProductionActivation(fullPath);
+            if (validation.Succeeded)
             {
                 return true;
             }
 
-            message = $"模型未通过上线验收，禁止进入生产链路: {modelName} ({entry.ApprovalStatus})";
+            message = $"模型未通过生产准入，禁止进入生产链路: {Path.GetFileName(fullPath)} [{validation.ErrorCode}] {validation.Message}";
             return false;
+        }
+
+        private async Task<bool> ActivatePrimaryProductionModelAsync(
+            string modelPath,
+            string operation,
+            bool useGpu,
+            int gpuIndex)
+        {
+            string fullPath = Path.GetFullPath(modelPath);
+            string modelFileName = Path.GetFileName(fullPath);
+            string previousModelFileName = _appConfig.CurrentModelFileName ?? string.Empty;
+            string previousModelPath = string.IsNullOrWhiteSpace(previousModelFileName)
+                ? string.Empty
+                : Path.Combine(模型路径, previousModelFileName);
+            ModelProductionValidationResult? validation = null;
+
+            if (_appConfig.RequireApprovedModelsForProduction)
+            {
+                try
+                {
+                    _appRuntime.RefreshModelRegistry();
+                }
+                catch (Exception ex)
+                {
+                    await _uiController.LogToFrontend($"模型注册表刷新失败，禁止进入生产链路: {ex.Message}", "error");
+                    return false;
+                }
+
+                validation = _modelRegistry.ValidateForProductionActivation(fullPath);
+                if (!validation.Succeeded)
+                {
+                    await _uiController.LogToFrontend(
+                        $"模型未通过生产准入，禁止进入生产链路: {modelFileName} [{validation.ErrorCode}] {validation.Message}",
+                        "error");
+                    return false;
+                }
+            }
+
+            bool runtimeLoaded = await _detectionService.LoadModelAsync(fullPath, useGpu, gpuIndex).ConfigureAwait(false);
+            if (!runtimeLoaded)
+            {
+                return false;
+            }
+
+            bool configChanged = !string.Equals(previousModelFileName, modelFileName, StringComparison.OrdinalIgnoreCase);
+            try
+            {
+                if (configChanged)
+                {
+                    _appConfig.CurrentModelFileName = modelFileName;
+                    if (!_appConfig.Save())
+                    {
+                        throw new InvalidOperationException(_appConfig.LastError ?? "配置保存失败");
+                    }
+                }
+
+                SaveCurrentRecipeSnapshot(operation);
+
+                if (_appConfig.RequireApprovedModelsForProduction && validation?.Entry != null)
+                {
+                    var acceptance = new ModelAcceptanceService();
+                    ModelAcceptanceResult stateResult = acceptance.EnableApprovedModel(validation.Entry);
+                    if (!stateResult.Succeeded)
+                    {
+                        throw new InvalidOperationException(stateResult.Message);
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                await RollbackPrimaryModelActivationAsync(previousModelFileName, previousModelPath, useGpu, gpuIndex).ConfigureAwait(false);
+                await _uiController.LogToFrontend($"{operation}失败，已回滚模型配置: {ex.Message}", "error");
+                return false;
+            }
+        }
+
+        private async Task RollbackPrimaryModelActivationAsync(
+            string previousModelFileName,
+            string previousModelPath,
+            bool useGpu,
+            int gpuIndex)
+        {
+            _appConfig.CurrentModelFileName = previousModelFileName ?? string.Empty;
+            _appConfig.Save();
+
+            if (!string.IsNullOrWhiteSpace(previousModelPath) && File.Exists(previousModelPath))
+            {
+                await _detectionService.LoadModelAsync(previousModelPath, useGpu, gpuIndex).ConfigureAwait(false);
+                模型名 = previousModelFileName ?? string.Empty;
+            }
+        }
+
+        private async Task<bool> CommitAuxiliaryModelConfigAsync(
+            int slot,
+            string modelName,
+            string previousModelName,
+            string operation)
+        {
+            SetAuxiliaryModelPath(slot, modelName);
+            try
+            {
+                if (!_appConfig.Save())
+                {
+                    throw new InvalidOperationException(_appConfig.LastError ?? "配置保存失败");
+                }
+
+                SaveCurrentRecipeSnapshot(operation);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                await RollbackAuxiliaryModelAsync(slot, previousModelName).ConfigureAwait(false);
+                await _uiController.LogToFrontend($"{operation}失败，已回滚辅助模型配置: {ex.Message}", "error");
+                return false;
+            }
+        }
+
+        private async Task RollbackAuxiliaryModelAsync(int slot, string previousModelName)
+        {
+            string previous = previousModelName ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(previous))
+            {
+                if (slot == 1)
+                {
+                    _detectionService.UnloadAuxiliary1Model();
+                }
+                else
+                {
+                    _detectionService.UnloadAuxiliary2Model();
+                }
+            }
+            else
+            {
+                string previousPath = Path.Combine(模型路径, previous);
+                if (File.Exists(previousPath))
+                {
+                    if (slot == 1)
+                    {
+                        await _detectionService.LoadAuxiliary1ModelAsync(previousPath).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await _detectionService.LoadAuxiliary2ModelAsync(previousPath).ConfigureAwait(false);
+                    }
+                }
+            }
+
+            SetAuxiliaryModelPath(slot, previous);
+            _appConfig.Save();
+        }
+
+        private void SetAuxiliaryModelPath(int slot, string modelName)
+        {
+            if (slot == 1)
+            {
+                _appConfig.Auxiliary1ModelPath = modelName ?? string.Empty;
+            }
+            else
+            {
+                _appConfig.Auxiliary2ModelPath = modelName ?? string.Empty;
+            }
         }
 
         /// <summary>

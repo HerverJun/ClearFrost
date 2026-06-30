@@ -26,7 +26,37 @@ public class ModelRegistryTests
             entry.Status.Should().Be(ModelRegistryStatus.Warning);
             entry.ModelId.Should().Be("legacy");
             entry.ModelHash.Should().Be(ComputeSha256(modelPath));
+            entry.ApprovedForProduction.Should().BeFalse();
             registry.Resolve("legacy.onnx").Should().BeSameAs(entry);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Scan_生产准入开启时裸Onnx被阻断()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string onnxDir = Path.Combine(tempDir, "ONNX");
+            Directory.CreateDirectory(onnxDir);
+            string modelPath = Path.Combine(onnxDir, "legacy.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 1, 2, 3 });
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                OnnxDirectory = onnxDir,
+                RequireProductionApproval = true
+            });
+
+            registry.Entries.Should().ContainSingle();
+            registry.Entries[0].Status.Should().Be(ModelRegistryStatus.Blocked);
+            registry.Entries[0].ApprovedForProduction.Should().BeFalse();
+            registry.ValidateForProductionActivation(modelPath).Succeeded.Should().BeFalse();
         }
         finally
         {
@@ -218,6 +248,135 @@ public class ModelRegistryTests
     }
 
     [Fact]
+    public void ValidateForProductionActivation_未注册模型被拒绝()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string modelPath = Path.Combine(tempDir, "unregistered.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 1, 2, 3 });
+            var registry = new ModelRegistry();
+
+            ModelProductionValidationResult result = registry.ValidateForProductionActivation(modelPath);
+
+            result.Succeeded.Should().BeFalse();
+            result.ErrorCode.Should().Be("ProductionModelNotRegistered");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void ValidateForProductionActivation_同名不同路径被拒绝()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageA = Path.Combine(packageRoot, "pkg-a");
+            string packageB = Path.Combine(packageRoot, "pkg-b");
+            Directory.CreateDirectory(packageA);
+            Directory.CreateDirectory(packageB);
+            string modelA = Path.Combine(packageA, "model.onnx");
+            string modelB = Path.Combine(packageB, "model.onnx");
+            File.WriteAllBytes(modelA, new byte[] { 1 });
+            File.WriteAllBytes(modelB, new byte[] { 2 });
+            WriteApprovedManifest(packageA, "pkg-a", modelA);
+            WriteApprovedManifest(packageB, "pkg-b", modelB);
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            ModelProductionValidationResult result = registry.ValidateForProductionActivation(modelA);
+
+            result.Succeeded.Should().BeFalse();
+            result.ErrorCode.Should().Be("ProductionModelNameAmbiguous");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void ValidateForProductionActivation_批准后文件篡改被拒绝()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-a");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "approved.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 1, 2, 3 });
+            WriteApprovedManifest(packageDir, "pkg-a", modelPath, "approved.onnx");
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+            File.WriteAllBytes(modelPath, new byte[] { 9, 9, 9 });
+
+            ModelProductionValidationResult result = registry.ValidateForProductionActivation(modelPath);
+
+            result.Succeeded.Should().BeFalse();
+            result.ErrorCode.Should().Be("ProductionModelHashMismatch");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Scan_生产准入开启时类别输入尺寸任务类型缺失会阻断()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-metadata");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 1, 2, 3 });
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "pkg-metadata",
+                    Version = "1",
+                    ModelHash = ComputeSha256(modelPath),
+                    Approval = new ModelApprovalMetadata { Status = ModelApprovalStatuses.Approved }
+                }));
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            registry.Entries[0].Status.Should().Be(ModelRegistryStatus.Blocked);
+            registry.Entries[0].Message.Should().Contain("Labels").And.Contain("input size").And.Contain("task type");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void Scan_严格模型包Labels缺失会阻塞Ready()
     {
         string tempDir = CreateTempDirectory();
@@ -270,6 +429,33 @@ public class ModelRegistryTests
                 Version = "1",
                 ModelHash = ComputeSha256(modelPath),
                 Labels = new List<string> { "screw" }
+            }));
+    }
+
+    private static void WriteApprovedManifest(
+        string packageDir,
+        string modelId,
+        string modelPath,
+        string modelFileName = "model.onnx")
+    {
+        File.WriteAllText(
+            Path.Combine(packageDir, "manifest.json"),
+            JsonSerializer.Serialize(new ModelPackageManifest
+            {
+                ModelId = modelId,
+                Version = "1",
+                ModelFileName = modelFileName,
+                ModelHash = ComputeSha256(modelPath),
+                Labels = new List<string> { "screw" },
+                TaskType = "Detect",
+                InputWidth = 640,
+                InputHeight = 640,
+                Approval = new ModelApprovalMetadata
+                {
+                    Status = ModelApprovalStatuses.Approved,
+                    ApprovedAt = DateTimeOffset.Now,
+                    ApprovedBy = "qa"
+                }
             }));
     }
 

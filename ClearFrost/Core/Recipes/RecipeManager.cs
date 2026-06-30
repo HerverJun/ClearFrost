@@ -22,8 +22,15 @@ namespace ClearFrost.Core.Recipes
         private readonly string _backupPath;
         private readonly string _historyPath;
         private readonly string _versionsDirectory;
+        private readonly object _saveLock = new object();
+        private readonly Action<string, string> _writeAllText;
 
         public RecipeManager(string? recipePath = null)
+            : this(recipePath, AtomicFileWriter.WriteAllText)
+        {
+        }
+
+        internal RecipeManager(string? recipePath, Action<string, string> writeAllText)
         {
             _recipePath = string.IsNullOrWhiteSpace(recipePath)
                 ? Path.Combine(RuntimePaths.DataDirectory, "Recipes", "default_recipe.json")
@@ -32,6 +39,7 @@ namespace ClearFrost.Core.Recipes
             string recipeDirectory = Path.GetDirectoryName(_recipePath) ?? RuntimePaths.DataDirectory;
             _historyPath = Path.Combine(recipeDirectory, "recipe_versions.json");
             _versionsDirectory = Path.Combine(recipeDirectory, "Versions");
+            _writeAllText = writeAllText ?? throw new ArgumentNullException(nameof(writeAllText));
         }
 
         public string RecipePath => _recipePath;
@@ -52,14 +60,15 @@ namespace ClearFrost.Core.Recipes
                 {
                     string json = File.ReadAllText(_recipePath);
                     Recipe loadedRecipe = JsonSerializer.Deserialize<Recipe>(json, JsonOptions) ?? Recipe.FromAppConfig(config);
-                    CurrentRecipe = EnsureProductionSnapshot(loadedRecipe, config, out bool migrated);
+                    Recipe candidate = EnsureProductionSnapshot(loadedRecipe, config, out bool migrated);
                     if (migrated)
                     {
-                        Save(CurrentRecipe);
+                        Save(candidate);
                     }
                     else
                     {
-                        EnsureVersionInfo(CurrentRecipe);
+                        EnsureVersionInfo(candidate);
+                        CurrentRecipe = candidate;
                     }
 
                     return CurrentRecipe;
@@ -70,8 +79,8 @@ namespace ClearFrost.Core.Recipes
                 }
             }
 
-            CurrentRecipe = Recipe.FromAppConfig(config);
-            Save(CurrentRecipe);
+            Recipe recipe = Recipe.FromAppConfig(config);
+            Save(recipe);
             return CurrentRecipe;
         }
 
@@ -82,13 +91,12 @@ namespace ClearFrost.Core.Recipes
             string? operatorRole = null,
             string? changeSummary = null)
         {
-            CurrentRecipe = Recipe.FromAppConfig(
+            return Recipe.FromAppConfig(
                 config ?? throw new ArgumentNullException(nameof(config)),
                 roi,
                 operatorId,
                 operatorRole,
                 changeSummary);
-            return CurrentRecipe;
         }
 
         public Recipe SaveNewVersion(
@@ -98,24 +106,28 @@ namespace ClearFrost.Core.Recipes
             string? operatorRole,
             string? changeSummary)
         {
-            string recipeId = string.IsNullOrWhiteSpace(CurrentRecipe?.RecipeId)
-                ? "default"
-                : CurrentRecipe.RecipeId;
-            Recipe recipe = GenerateDefault(config, roi, operatorId, operatorRole, changeSummary);
-            recipe.RecipeId = recipeId;
-            Save(recipe);
-            return recipe;
+            if (config == null) throw new ArgumentNullException(nameof(config));
+
+            lock (_saveLock)
+            {
+                string recipeId = string.IsNullOrWhiteSpace(CurrentRecipe?.RecipeId)
+                    ? "default"
+                    : CurrentRecipe.RecipeId;
+                Recipe recipe = GenerateDefault(config, roi, operatorId, operatorRole, changeSummary);
+                recipe.RecipeId = recipeId;
+                SaveInternal(recipe, ensureUniqueVersion: true);
+                return recipe;
+            }
         }
 
         public void Save(Recipe recipe)
         {
             if (recipe == null) throw new ArgumentNullException(nameof(recipe));
 
-            NormalizeRecipeMetadata(recipe);
-            string json = JsonSerializer.Serialize(recipe, JsonOptions);
-            AtomicFileWriter.WriteAllText(_recipePath, json);
-            CurrentRecipe = recipe;
-            EnsureVersionInfo(recipe);
+            lock (_saveLock)
+            {
+                SaveInternal(recipe, ensureUniqueVersion: false);
+            }
         }
 
         public bool RollbackLastVersion()
@@ -199,7 +211,7 @@ namespace ClearFrost.Core.Recipes
             Directory.CreateDirectory(_versionsDirectory);
             string snapshotPath = BuildSnapshotPath(recipe);
             string snapshotJson = JsonSerializer.Serialize(recipe, JsonOptions);
-            AtomicFileWriter.WriteAllText(snapshotPath, snapshotJson);
+            _writeAllText(snapshotPath, snapshotJson);
 
             List<RecipeVersionInfo> history = LoadVersionHistory()
                 .Where(item =>
@@ -208,6 +220,49 @@ namespace ClearFrost.Core.Recipes
                 .ToList();
             history.Add(ToVersionInfo(recipe, snapshotPath));
             SaveVersionHistory(history);
+        }
+
+        private void SaveInternal(Recipe recipe, bool ensureUniqueVersion)
+        {
+            Recipe oldRecipe = CurrentRecipe;
+            List<RecipeVersionInfo> oldHistory = LoadVersionHistory();
+
+            NormalizeRecipeMetadata(recipe);
+            if (ensureUniqueVersion)
+            {
+                EnsureUniqueVersion(recipe, oldHistory);
+            }
+
+            Directory.CreateDirectory(_versionsDirectory);
+            string recipeJson = JsonSerializer.Serialize(recipe, JsonOptions);
+            string snapshotPath = BuildSnapshotPath(recipe);
+            string snapshotJson = JsonSerializer.Serialize(recipe, JsonOptions);
+            List<RecipeVersionInfo> newHistory = oldHistory
+                .Where(item =>
+                    !string.Equals(item.RecipeId, recipe.RecipeId, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(item.Version, recipe.Version, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            newHistory.Add(ToVersionInfo(recipe, snapshotPath));
+
+            bool currentWritten = false;
+            try
+            {
+                _writeAllText(snapshotPath, snapshotJson);
+                _writeAllText(_recipePath, recipeJson);
+                currentWritten = true;
+                SaveVersionHistory(newHistory);
+                CurrentRecipe = recipe;
+            }
+            catch
+            {
+                if (currentWritten)
+                {
+                    TryRestoreRecipeFile(oldRecipe);
+                }
+
+                TryRestoreVersionHistory(oldHistory);
+                throw;
+            }
         }
 
         private List<RecipeVersionInfo> LoadVersionHistory()
@@ -236,7 +291,53 @@ namespace ClearFrost.Core.Recipes
                     .ThenByDescending(item => item.Version, StringComparer.OrdinalIgnoreCase)
                     .ToList(),
                 JsonOptions);
-            AtomicFileWriter.WriteAllText(_historyPath, json);
+            _writeAllText(_historyPath, json);
+        }
+
+        private void TryRestoreRecipeFile(Recipe oldRecipe)
+        {
+            try
+            {
+                NormalizeRecipeMetadata(oldRecipe);
+                _writeAllText(_recipePath, JsonSerializer.Serialize(oldRecipe, JsonOptions));
+            }
+            catch
+            {
+                // Best-effort rollback; the original save exception remains the actionable failure.
+            }
+        }
+
+        private void TryRestoreVersionHistory(List<RecipeVersionInfo> oldHistory)
+        {
+            try
+            {
+                SaveVersionHistory(oldHistory);
+            }
+            catch
+            {
+                // Best-effort rollback; the original save exception remains the actionable failure.
+            }
+        }
+
+        private static void EnsureUniqueVersion(Recipe recipe, List<RecipeVersionInfo> existingHistory)
+        {
+            var existing = new HashSet<string>(
+                existingHistory
+                    .Where(item => string.Equals(item.RecipeId, recipe.RecipeId, StringComparison.OrdinalIgnoreCase))
+                    .Select(item => item.Version),
+                StringComparer.OrdinalIgnoreCase);
+
+            string baseVersion = string.IsNullOrWhiteSpace(recipe.Version)
+                ? DateTimeOffset.Now.ToString("yyyyMMddHHmmssfffffff", System.Globalization.CultureInfo.InvariantCulture)
+                : recipe.Version;
+            string version = baseVersion;
+            int suffix = 1;
+            while (existing.Contains(version))
+            {
+                version = $"{baseVersion}-{suffix++}";
+            }
+
+            recipe.Version = version;
         }
 
         private string BuildSnapshotPath(Recipe recipe)

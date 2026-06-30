@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using ClearFrost.Core.Models;
 using ClearFrost.Helpers;
@@ -120,9 +121,10 @@ namespace ClearFrost.Services
         public ModelAcceptanceResult EnableApprovedModel(ModelRegistryEntry entry)
         {
             if (entry == null) throw new ArgumentNullException(nameof(entry));
-            if (!entry.ApprovedForProduction)
+            ModelAcceptanceResult validation = ValidateProductionStateEntry(entry);
+            if (!validation.Succeeded)
             {
-                return Fail("模型未批准，不能启用到生产链路。", 0);
+                return validation;
             }
 
             ModelProductionState state = LoadState();
@@ -142,7 +144,7 @@ namespace ClearFrost.Services
             return new ModelAcceptanceResult
             {
                 Succeeded = true,
-                Message = "模型已启用到生产链路。"
+                Message = "模型生产状态已记录；运行时加载由统一激活入口完成。"
             };
         }
 
@@ -190,6 +192,45 @@ namespace ClearFrost.Services
         private void SaveState(ModelProductionState state)
         {
             AtomicFileWriter.WriteAllText(_productionStatePath, JsonSerializer.Serialize(state, JsonOptions));
+        }
+
+        private static ModelAcceptanceResult ValidateProductionStateEntry(ModelRegistryEntry entry)
+        {
+            if (!entry.IsPackage || entry.Manifest == null || string.IsNullOrWhiteSpace(entry.ManifestPath))
+            {
+                return Fail("模型缺少有效 manifest，不能记录为生产状态。", 0);
+            }
+
+            if (!entry.ApprovedForProduction)
+            {
+                return Fail("模型未批准，不能记录为生产状态。", 0);
+            }
+
+            if (entry.Labels.Count == 0 || entry.Labels.All(string.IsNullOrWhiteSpace))
+            {
+                return Fail("类别列表为空，模型不能记录为生产状态。", 0);
+            }
+
+            if (entry.InputWidth <= 0 || entry.InputHeight <= 0)
+            {
+                return Fail("输入尺寸元数据缺失，模型不能记录为生产状态。", 0);
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.TaskType))
+            {
+                return Fail("任务类型元数据缺失，模型不能记录为生产状态。", 0);
+            }
+
+            if (!File.Exists(entry.ModelPath))
+            {
+                return Fail("模型文件不存在，不能记录为生产状态。", 0);
+            }
+
+            return new ModelAcceptanceResult
+            {
+                Succeeded = true,
+                Message = "模型生产状态校验通过。"
+            };
         }
 
         private static ModelAcceptanceResult Fail(string message, double passRate)
