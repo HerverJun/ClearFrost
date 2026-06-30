@@ -171,6 +171,41 @@ public class DetectionServiceTests
         }
     }
 
+    [Fact]
+    public async Task SetEnableFallback_返回前同步更新多模型管理器()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string modelPath = CopyModel(GetSampleOnnxPath(), tempDir, "primary.onnx");
+            using var service = new DetectionService(useGpu: false);
+
+            (await service.LoadModelAsync(modelPath, useGpu: false)).Should().BeTrue();
+
+            service.SetEnableFallback(true);
+            GetModelManager(service)!.EnableFallback.Should().BeTrue();
+
+            service.SetEnableFallback(false);
+            GetModelManager(service)!.EnableFallback.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void GetLabels_返回缓存副本避免外部改写()
+    {
+        using var service = new DetectionService(useGpu: false);
+        SetPrivateField(service, "_cachedLabels", new[] { "ok", "ng" });
+
+        string[] labels = service.GetLabels();
+        labels[0] = "mutated";
+
+        service.GetLabels()[0].Should().Be("ok");
+    }
+
     private static MultiModelManager? GetModelManager(DetectionService service)
     {
         var field = typeof(DetectionService).GetField(

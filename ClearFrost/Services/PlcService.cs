@@ -1,4 +1,4 @@
-using ClearFrost.Hardware;
+﻿using ClearFrost.Hardware;
 // ============================================================================
 // 文件名: PlcService.cs
 // 描述:   PLC 通讯服务实现

@@ -1,4 +1,4 @@
-using MVSDK_Net;
+﻿using MVSDK_Net;
 using ClearFrost.Config;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
@@ -327,21 +327,37 @@ namespace ClearFrost
 
             if (_appConfig.PlcProtocolMode == PlcProtocolMode.HandshakeV1)
             {
-                await _plcService.WriteResultAsync(_appConfig.PlcVisionOnlineAddress, 1);
-                await _plcService.WriteResultAsync(_appConfig.PlcVisionReadyAddress, 0);
-                await _plcService.WriteResultAsync(_appConfig.PlcVisionBusyAddress, 1);
-                await _plcService.WriteResultAsync(_appConfig.PlcInspectionDoneAddress, 0);
-                await _plcService.WriteResultAsync(_appConfig.PlcResultValidAddress, 0);
-                await _plcService.WriteResultAsync(_appConfig.PlcErrorCodeAddress, 0);
+                var handshakeWrites = new (string Address, short Value, string SignalName)[]
+                {
+                    (_appConfig.PlcVisionOnlineAddress, 1, "VisionOnline"),
+                    (_appConfig.PlcVisionReadyAddress, 0, "VisionReady"),
+                    (_appConfig.PlcVisionBusyAddress, 1, "VisionBusy"),
+                    (_appConfig.PlcInspectionDoneAddress, 0, "InspectionDone"),
+                    (_appConfig.PlcResultValidAddress, 0, "ResultValid"),
+                    (_appConfig.PlcErrorCodeAddress, 0, "ErrorCode")
+                };
+
+                foreach (var write in handshakeWrites)
+                {
+                    if (!await TryWriteAcceptedPlcHandshakeWordAsync(
+                        write.Address,
+                        write.Value,
+                        write.SignalName).ConfigureAwait(false))
+                    {
+                        await ResetAcceptedPlcHandshakeAsync().ConfigureAwait(false);
+                        return false;
+                    }
+                }
+
                 short ackValue = triggerContext.TriggerSeq.HasValue
                     ? ClampIntToShort(triggerContext.TriggerSeq.Value)
                     : (short)1;
-                bool ackSuccess = await _plcService.WriteResultAsync(_appConfig.PlcTriggerAckAddress, ackValue);
-                if (!ackSuccess)
+                if (!await TryWriteAcceptedPlcHandshakeWordAsync(
+                    _appConfig.PlcTriggerAckAddress,
+                    ackValue,
+                    "TriggerAck").ConfigureAwait(false))
                 {
-                    await _uiController.LogToFrontend(
-                        $"PLC触发确认失败: TriggerAck 写入失败 {_appConfig.PlcTriggerAckAddress}",
-                        "error");
+                    await ResetAcceptedPlcHandshakeAsync().ConfigureAwait(false);
                     return false;
                 }
             }
@@ -351,7 +367,7 @@ namespace ClearFrost
             {
                 if (_appConfig.PlcProtocolMode == PlcProtocolMode.HandshakeV1)
                 {
-                    await _plcService.WriteResultAsync(_appConfig.PlcTriggerAckAddress, 0);
+                    await ResetAcceptedPlcHandshakeAsync().ConfigureAwait(false);
                 }
 
                 await _uiController.LogToFrontend(
@@ -362,6 +378,41 @@ namespace ClearFrost
 
             DiagLog($"PLC触发已接单并确认: 地址={triggerAddress}, TriggerSeq={triggerContext.TriggerSeq?.ToString() ?? "-"}");
             return true;
+        }
+
+        private async Task<bool> TryWriteAcceptedPlcHandshakeWordAsync(
+            string address,
+            short value,
+            string signalName)
+        {
+            if (string.IsNullOrWhiteSpace(address))
+            {
+                await _uiController.LogToFrontend(
+                    $"PLC触发确认失败: {signalName} 地址为空",
+                    "error");
+                return false;
+            }
+
+            bool success = await _plcService.WriteResultAsync(address, value).ConfigureAwait(false);
+            if (!success)
+            {
+                await _uiController.LogToFrontend(
+                    $"PLC触发确认失败: {signalName} 写入失败 {address}, {_plcService.LastError ?? "未知错误"}",
+                    "error");
+            }
+
+            return success;
+        }
+
+        private async Task ResetAcceptedPlcHandshakeAsync()
+        {
+            if (_appConfig.PlcProtocolMode != PlcProtocolMode.HandshakeV1 || !_plcService.IsConnected)
+            {
+                return;
+            }
+
+            await _plcService.WriteResultAsync(_appConfig.PlcVisionBusyAddress, 0).ConfigureAwait(false);
+            await _plcService.WriteResultAsync(_appConfig.PlcTriggerAckAddress, 0).ConfigureAwait(false);
         }
 
         private async Task RejectPlcTriggerWithClearingAsync(
@@ -450,7 +501,7 @@ namespace ClearFrost
                     return;
                 }
 
-                if (_appConfig.TriggerSource != TriggerSource.PLC)
+                if (!TriggerSourceRuntimeCoordinator.CanWriteManualRelease(_appConfig.TriggerSource))
                 {
                     const string reason = "当前不是 PLC 触发模式，禁止写 PLC 放行";
                     await AuditManualReleaseAsync(request, OperationAuditStatus.Denied, reason);

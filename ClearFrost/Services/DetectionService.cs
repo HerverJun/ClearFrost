@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: DetectionService.cs
 // 作者: 蘅芜君
 // 描述:   检测服务实现
@@ -668,41 +668,43 @@ namespace ClearFrost.Services
         /// <param name="taskType">任务类型整数值</param>
         public void SetTaskMode(int taskType)
         {
-            Task.Run(async () =>
+            if (!TryEnterLifecycleLock())
             {
-                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
-                try
+                return;
+            }
+
+            try
+            {
+                _modelManager?.SetTaskMode((YoloTaskType)taskType);
+                if (_yolo != null)
                 {
-                    _modelManager?.SetTaskMode((YoloTaskType)taskType);
-                    if (_yolo != null)
-                    {
-                        _yolo.TaskMode = (YoloTaskType)taskType;
-                    }
+                    _yolo.TaskMode = (YoloTaskType)taskType;
                 }
-                finally
-                {
-                    _lifecycleLock.Release();
-                }
-            });
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public void SetEnableFallback(bool enabled)
         {
-            Task.Run(async () =>
+            if (!TryEnterLifecycleLock())
             {
-                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
-                try
+                return;
+            }
+
+            try
+            {
+                if (_modelManager != null)
                 {
-                    if (_modelManager != null)
-                    {
-                        _modelManager.EnableFallback = enabled;
-                    }
+                    _modelManager.EnableFallback = enabled;
                 }
-                finally
-                {
-                    _lifecycleLock.Release();
-                }
-            });
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public async Task<bool> LoadAuxiliary1ModelAsync(string modelPath)
@@ -751,39 +753,41 @@ namespace ClearFrost.Services
 
         public void UnloadAuxiliary1Model()
         {
-            Task.Run(async () =>
+            if (!TryEnterLifecycleLock())
             {
-                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
-                try
-                {
-                    _modelManager?.UnloadAuxiliary1Model();
-                }
-                finally
-                {
-                    _lifecycleLock.Release();
-                }
-            });
+                return;
+            }
+
+            try
+            {
+                _modelManager?.UnloadAuxiliary1Model();
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public void UnloadAuxiliary2Model()
         {
-            Task.Run(async () =>
+            if (!TryEnterLifecycleLock())
             {
-                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
-                try
-                {
-                    _modelManager?.UnloadAuxiliary2Model();
-                }
-                finally
-                {
-                    _lifecycleLock.Release();
-                }
-            });
+                return;
+            }
+
+            try
+            {
+                _modelManager?.UnloadAuxiliary2Model();
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public string[] GetLabels()
         {
-            return _cachedLabels;
+            return (string[])_cachedLabels.Clone();
         }
 
         public object? GetLastMetrics()
@@ -863,8 +867,27 @@ namespace ClearFrost.Services
 
         private void UpdateCachedFields()
         {
-            _cachedLabels = _modelManager?.PrimaryLabels ?? _yolo?.Labels ?? Array.Empty<string>();
+            string[] labels = _modelManager?.PrimaryLabels ?? _yolo?.Labels ?? Array.Empty<string>();
+            _cachedLabels = (string[])labels.Clone();
             _cachedLastMetrics = null;
+        }
+
+        private bool TryEnterLifecycleLock()
+        {
+            if (_disposed)
+            {
+                return false;
+            }
+
+            try
+            {
+                _lifecycleLock.Wait();
+                return true;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
         }
 
         #endregion

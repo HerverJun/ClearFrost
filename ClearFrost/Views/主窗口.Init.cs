@@ -1,4 +1,4 @@
-using MVSDK_Net;
+﻿using MVSDK_Net;
 using ClearFrost.Config;
 using ClearFrost.Models;
 using ClearFrost.Hardware;
@@ -948,6 +948,7 @@ namespace ClearFrost
             {
                 try
                 {
+                    if (!await EnsureRuntimeMutationAllowedAsync("项目预设保存")) return;
                     var snapshot = ProjectPresetStore.SavePreset(payloadJson);
                     await _uiController.SendProjectPresets(snapshot);
                     await _uiController.LogToFrontend($"项目预设已保存: {snapshot.Path}", "success");
@@ -962,6 +963,7 @@ namespace ClearFrost
             {
                 try
                 {
+                    if (!await EnsureRuntimeMutationAllowedAsync("项目预设删除")) return;
                     var snapshot = ProjectPresetStore.DeletePreset(presetId);
                     await _uiController.SendProjectPresets(snapshot);
                     await _uiController.LogToFrontend("项目预设已删除", "success");
@@ -985,12 +987,19 @@ namespace ClearFrost
             // 订阅配置保存事件
             _uiController.OnSaveSettings += async (sender, configJson) =>
             {
+                AppConfig previousConfig = AppConfig.FromJson(_appConfig.ToPortableJson());
+                bool configSaved = false;
+
                 try
                 {
                     bool hasSystemConfigChanges = CheckSystemConfigChanges(configJson);
                     if (hasSystemConfigChanges)
                     {
-                        if (!await EnsureRuntimeMutationAllowedAsync("系统设置保存和部署")) return;
+                        if (!await EnsureRuntimeMutationAllowedAsync("系统设置保存和部署"))
+                        {
+                            await _uiController.InitSettings(_appConfig);
+                            return;
+                        }
                     }
                     // 使用 JsonDocument 解析，允许部分更新
                     using (JsonDocument doc = JsonDocument.Parse(configJson))
@@ -1303,6 +1312,7 @@ namespace ClearFrost
                         {
                             throw new InvalidOperationException(_appConfig.LastError ?? "配置保存失败");
                         }
+                        configSaved = true;
                         SaveCurrentRecipeSnapshot();
 
                         // 更新相关路径
@@ -1327,6 +1337,12 @@ namespace ClearFrost
                 }
                 catch (Exception ex)
                 {
+                    if (!configSaved)
+                    {
+                        _appConfig.CopyFrom(previousConfig);
+                    }
+
+                    await _uiController.InitSettings(_appConfig);
                     await _uiController.SendUiCommand("alert", new { message = $"保存失败: {ex.Message}" });
                 }
             };
@@ -2635,7 +2651,7 @@ namespace ClearFrost
                     foreach (var property in root.EnumerateObject())
                     {
                         string name = property.Name;
-                        if (name == "CurrentOperatorId" || name == "CurrentOperatorRole")
+                        if (RuntimeConfigurationChangeClassifier.ShouldIgnoreForSystemConfigChange(name))
                         {
                             continue;
                         }

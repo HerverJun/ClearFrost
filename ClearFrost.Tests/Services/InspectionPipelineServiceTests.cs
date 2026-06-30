@@ -398,6 +398,60 @@ public class InspectionPipelineServiceTests
         }
     }
 
+    [Fact]
+    public async Task ExecuteAsync_HandshakeV1_开始阶段不重复TriggerAck且完成后恢复Ready()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            config.PlcProtocolMode = PlcProtocolMode.HandshakeV1;
+            config.PlcResultAckTimeoutMs = 0;
+            var camera = new FakeCameraService(new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService();
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
+                    UsedModelName = "primary.onnx",
+                    UsedModelLabels = new[] { "part" }
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue);
+            InspectionContext context = CreateContext("CF-HANDSHAKE-001", triggerSeq: 42, triggerSource: "PLC");
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("PLC", context.InspectionId, context.TriggerSeq, context),
+                default);
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeTrue();
+            plc.Writes.Should().Contain(write => write.Address == config.PlcVisionReadyAddress && write.Value == 0);
+            plc.Writes.Should().Contain(write => write.Address == config.PlcVisionBusyAddress && write.Value == 1);
+            plc.Writes.Should().Contain(write => write.Address == config.PlcVisionBusyAddress && write.Value == 0);
+            plc.Writes.Should().NotContain(write => write.Address == config.PlcTriggerAckAddress);
+            plc.Writes.Last(write => write.Address == config.PlcVisionReadyAddress).Value.Should().Be(1);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static InspectionPipelineService CreateService(
         AppConfig config,
         FakeCameraService camera,
@@ -600,6 +654,7 @@ public class InspectionPipelineServiceTests
         public string? LastError { get; init; }
         public string BarcodeValue { get; init; } = "SN-DEFAULT";
         public List<short> WrittenValues { get; } = new List<short>();
+        public List<(string Address, short Value)> Writes { get; } = new List<(string Address, short Value)>();
         public int ReadStringCalls { get; private set; }
 
         public Task<bool> ConnectAsync(PlcConnectionOptions options) => Task.FromResult(true);
@@ -614,10 +669,12 @@ public class InspectionPipelineServiceTests
         }
 
         public void StopMonitoring() { }
-        public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
+        public Task<bool> WriteResultAsync(string resultAddress, bool isQualified)
+            => WriteResultAsync(resultAddress, (short)(isQualified ? 1 : 0));
 
         public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite)
         {
+            Writes.Add((resultAddress, valueToWrite));
             WrittenValues.Add(valueToWrite);
             return Task.FromResult(true);
         }
