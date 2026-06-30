@@ -127,6 +127,15 @@
             detectionLogs: [],
             statistics: [],
         },
+        replay: {
+            dataset: {},
+            runs: {},
+            approval: {},
+        },
+        manualReview: {
+            records: [],
+            lastResponse: {},
+        },
         metrics: {},
         previewFrameId: 0,
     };
@@ -136,6 +145,13 @@
     state.health = state.health || {};
     state.recentInspections = state.recentInspections || [];
     state.history = state.history || {};
+    state.replay = state.replay || { dataset: {}, runs: {}, approval: {} };
+    state.replay.dataset = state.replay.dataset || {};
+    state.replay.runs = state.replay.runs || {};
+    state.replay.approval = state.replay.approval || {};
+    state.manualReview = state.manualReview || { records: [], lastResponse: {} };
+    state.manualReview.records = state.manualReview.records || [];
+    state.manualReview.lastResponse = state.manualReview.lastResponse || {};
     window.CF_STATE = state;
 
     function pickValue(source, ...keys) {
@@ -276,6 +292,47 @@
         };
     }
 
+    function normalizeReplayMessage(payload) {
+        const data = payload?.replay || payload || {};
+        const metrics = pickValue(data, "metrics", "Metrics") || {};
+        const rejectionReasons = pickValue(data, "rejectionReasons", "RejectionReasons", "reasons", "Reasons") || [];
+        return {
+            datasetId: pickValue(data, "datasetId", "DatasetId"),
+            datasetHash: pickValue(data, "datasetHash", "DatasetHash"),
+            runId: pickValue(data, "runId", "RunId"),
+            status: pickValue(data, "status", "Status"),
+            phase: pickValue(data, "phase", "Phase"),
+            completedSamples: pickValue(data, "completedSamples", "CompletedSamples"),
+            totalSamples: pickValue(data, "totalSamples", "TotalSamples"),
+            message: pickValue(data, "message", "Message"),
+            approvalAvailable: pickValue(data, "approvalAvailable", "ApprovalAvailable"),
+            rejectionReasons: Array.isArray(rejectionReasons) ? rejectionReasons : [String(rejectionReasons || "")].filter(Boolean),
+            metrics: {
+                sampleCount: pickValue(metrics, "sampleCount", "SampleCount"),
+                candidateNewMissedDetectionCount: pickValue(metrics, "candidateNewMissedDetectionCount", "CandidateNewMissedDetectionCount"),
+                candidateFixedMissedDetectionCount: pickValue(metrics, "candidateFixedMissedDetectionCount", "CandidateFixedMissedDetectionCount"),
+                candidateNewFalseRejectCount: pickValue(metrics, "candidateNewFalseRejectCount", "CandidateNewFalseRejectCount"),
+                candidateFixedFalseRejectCount: pickValue(metrics, "candidateFixedFalseRejectCount", "CandidateFixedFalseRejectCount"),
+                changedDecisionCount: pickValue(metrics, "changedDecisionCount", "ChangedDecisionCount"),
+            },
+        };
+    }
+
+    function normalizeManualReviewMessage(payload) {
+        const data = payload?.manualReview || payload || {};
+        const record = pickValue(data, "record", "Record") || {};
+        return {
+            succeeded: pickValue(data, "succeeded", "Succeeded"),
+            errorCode: pickValue(data, "errorCode", "ErrorCode"),
+            message: pickValue(data, "message", "Message"),
+            inspectionId: pickValue(data, "inspectionId", "InspectionId") || pickValue(record, "inspectionId", "InspectionId"),
+            reviewStatus: pickValue(data, "reviewStatus", "ReviewStatus"),
+            groundTruth: pickValue(data, "groundTruth", "GroundTruth") || pickValue(record, "groundTruth", "GroundTruth"),
+            revision: pickValue(data, "revision", "Revision") || pickValue(record, "revision", "Revision"),
+            reviewerId: pickValue(data, "reviewerId", "ReviewerId") || pickValue(record, "reviewerId", "ReviewerId"),
+        };
+    }
+
     function notify(reason) {
         pendingReasons.add(reason || "state");
         if (renderScheduled) return;
@@ -339,6 +396,46 @@
         notify("stats");
     }
 
+    function applyReplayUpdate(payload) {
+        const replay = normalizeReplayMessage(payload);
+        const cleanReplay = Object.fromEntries(
+            Object.entries(replay).filter(([, value]) => value !== undefined),
+        );
+
+        if (cleanReplay.datasetId || cleanReplay.datasetHash) {
+            state.replay.dataset = { ...state.replay.dataset, ...cleanReplay };
+        }
+
+        if (cleanReplay.runId) {
+            state.replay.runs[cleanReplay.runId] = {
+                ...(state.replay.runs[cleanReplay.runId] || {}),
+                ...cleanReplay,
+            };
+            state.replay.currentRunId = cleanReplay.runId;
+        }
+
+        if (cleanReplay.approvalAvailable !== undefined || cleanReplay.rejectionReasons) {
+            state.replay.approval = {
+                ...state.replay.approval,
+                available: cleanReplay.approvalAvailable,
+                rejectionReasons: cleanReplay.rejectionReasons || [],
+            };
+        }
+
+        notify("replay");
+    }
+
+    function applyManualReviewUpdate(payload) {
+        const records = pickValue(payload, "records", "Records");
+        if (Array.isArray(records)) {
+            state.manualReview.records = records.map(normalizeManualReviewMessage);
+        } else {
+            state.manualReview.lastResponse = normalizeManualReviewMessage(payload);
+        }
+
+        notify("manualReview");
+    }
+
     function applyHealthSnapshot(snapshot) {
         if (!snapshot) return;
         state.health = snapshot;
@@ -378,6 +475,8 @@
         escapeHtml,
         normalizeHealthLevel,
         normalizeInspection,
+        normalizeManualReviewMessage,
+        normalizeReplayMessage,
     };
 
     window.CF_ERROR_ADVICE = {
@@ -391,7 +490,9 @@
         subscribe,
         notify,
         applyInspectionUpdate,
+        applyManualReviewUpdate,
         applyStatsUpdate,
+        applyReplayUpdate,
         applyHealthSnapshot,
         applyBootstrapSnapshot,
     };
@@ -429,7 +530,7 @@
     let exitAppPending = false;
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
-    const KnownRenderReasons = new Set(["inspection", "stats", "health", "bootstrap", "state"]);
+    const KnownRenderReasons = new Set(["inspection", "stats", "health", "replay", "manualReview", "bootstrap", "state"]);
     const KeyLogPatterns = [
         /PLC/i,
         /Plc/i,
@@ -904,6 +1005,36 @@
         logQueuePressureAdvice(health);
     }
 
+    function renderReplayStatus(state) {
+        const replay = state?.replay || {};
+        const run = replay.currentRunId ? replay.runs?.[replay.currentRunId] : null;
+        const dataset = replay.dataset || {};
+        const approval = replay.approval || {};
+        const approvalAvailable = approval.approvalAvailable ?? approval.available;
+        const metrics = run?.metrics || dataset?.metrics || {};
+
+        setText("replay-dataset-id", dataset.datasetId || run?.datasetId || "");
+        setText("replay-dataset-hash", dataset.datasetHash || run?.datasetHash || "");
+        setText("replay-run-status", run?.status || dataset.status || "");
+        setText("replay-run-progress", run ? `${run.completedSamples ?? 0}/${run.totalSamples ?? 0}` : "");
+        setText("replay-changed-count", metrics.changedDecisionCount ?? "");
+        setText("replay-new-missed-count", metrics.candidateNewMissedDetectionCount ?? "");
+        setText("replay-fixed-missed-count", metrics.candidateFixedMissedDetectionCount ?? "");
+        setText("replay-new-false-reject-count", metrics.candidateNewFalseRejectCount ?? "");
+        setText("replay-fixed-false-reject-count", metrics.candidateFixedFalseRejectCount ?? "");
+        setText("replay-approval-status", approvalAvailable === true ? "Available" : approvalAvailable === false ? "Rejected" : "");
+        setText("replay-rejection-reasons", (approval.rejectionReasons || []).join("; "));
+    }
+
+    function renderManualReviewStatus(state) {
+        const review = state?.manualReview || {};
+        const response = review.lastResponse || {};
+        setText("manual-review-count", Array.isArray(review.records) ? review.records.length : "");
+        setText("manual-review-response", response.message || response.errorCode || "");
+        setText("manual-review-revision", response.revision ?? "");
+        setText("manual-review-ground-truth", response.groundTruth || "");
+    }
+
     function renderAll(state, reasons = []) {
         if (hasRenderReason(reasons, "inspection")) {
             renderInspectionContext(state);
@@ -915,6 +1046,12 @@
         }
         if (hasRenderReason(reasons, "health")) {
             renderHealthSnapshot(state);
+        }
+        if (hasRenderReason(reasons, "replay")) {
+            renderReplayStatus(state);
+        }
+        if (hasRenderReason(reasons, "manualReview")) {
+            renderManualReviewStatus(state);
         }
     }
 
@@ -1382,6 +1519,8 @@
         handleInspectionUpdate,
         renderHealthSnapshot: handleHealthSnapshot,
         renderInspectionContext: () => renderInspectionContext(window.CF_STATE),
+        renderManualReviewStatus: () => renderManualReviewStatus(window.CF_STATE),
+        renderReplayStatus: () => renderReplayStatus(window.CF_STATE),
         renderRecentInspections: () => renderRecentInspections(window.CF_STATE),
         requestExitApp,
         requestOpenCamera,
@@ -1420,6 +1559,15 @@
     bridge.registerMessageHandler("updateCameraName", (data) => updateCameraName(data?.name ?? data));
     bridge.registerMessageHandler("inspectionUpdate", handleInspectionUpdate);
     bridge.registerMessageHandler("healthSnapshot", handleHealthSnapshot);
+    bridge.registerMessageHandler("manualReviewRecords", (data) => store.applyManualReviewUpdate(data));
+    bridge.registerMessageHandler("manualReviewResponse", (data) => store.applyManualReviewUpdate(data));
+    bridge.registerMessageHandler("datasetCreateStatus", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunStatus", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunProgress", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunCompleted", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunFailed", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunCanceled", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("modelApprovalAvailability", (data) => store.applyReplayUpdate(data));
     bridge.registerMessageHandler("detectionFrame", handleDetectionFrame);
     bridge.registerMessageHandler("uiCommand", handleUiCommand);
 })();

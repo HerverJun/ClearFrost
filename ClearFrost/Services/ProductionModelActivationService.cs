@@ -98,6 +98,7 @@ namespace ClearFrost.Services
         private readonly Func<float[]?> _roiSnapshotProvider;
         private readonly Func<string> _operatorIdProvider;
         private readonly Func<string> _operatorRoleProvider;
+        private readonly Func<ModelRegistryEntry, ProductionModelReadinessResult>? _approvalEvidenceValidator;
         private readonly object _faultLock = new object();
         private readonly SemaphoreSlim _activationGate = new SemaphoreSlim(1, 1);
         private bool _faulted;
@@ -112,7 +113,8 @@ namespace ClearFrost.Services
             Func<bool> saveConfig,
             Func<float[]?> roiSnapshotProvider,
             Func<string> operatorIdProvider,
-            Func<string> operatorRoleProvider)
+            Func<string> operatorRoleProvider,
+            Func<ModelRegistryEntry, ProductionModelReadinessResult>? approvalEvidenceValidator = null)
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
@@ -123,6 +125,7 @@ namespace ClearFrost.Services
             _roiSnapshotProvider = roiSnapshotProvider ?? throw new ArgumentNullException(nameof(roiSnapshotProvider));
             _operatorIdProvider = operatorIdProvider ?? throw new ArgumentNullException(nameof(operatorIdProvider));
             _operatorRoleProvider = operatorRoleProvider ?? throw new ArgumentNullException(nameof(operatorRoleProvider));
+            _approvalEvidenceValidator = approvalEvidenceValidator;
         }
 
         public bool IsFaulted
@@ -654,6 +657,12 @@ namespace ClearFrost.Services
                 {
                     return runtimeCheck;
                 }
+
+                ProductionModelReadinessResult evidenceCheck = ValidateApprovalEvidence(resolved.Entry);
+                if (!evidenceCheck.Succeeded)
+                {
+                    return evidenceCheck;
+                }
             }
 
             return ProductionModelReadinessResult.Ok();
@@ -716,6 +725,12 @@ namespace ClearFrost.Services
                 return runtimeCheck;
             }
 
+            ProductionModelReadinessResult evidenceCheck = ValidateApprovalEvidence(primary.Entry);
+            if (!evidenceCheck.Succeeded)
+            {
+                return evidenceCheck;
+            }
+
             foreach ((ModelRole Role, ProductionModelReference? Reference) slot in new[]
             {
                 (ModelRole.Auxiliary1, _config.Auxiliary1ModelReference),
@@ -746,9 +761,25 @@ namespace ClearFrost.Services
                 {
                     return runtimeCheck;
                 }
+
+                evidenceCheck = ValidateApprovalEvidence(resolved.Entry);
+                if (!evidenceCheck.Succeeded)
+                {
+                    return evidenceCheck;
+                }
             }
 
             return ProductionModelReadinessResult.Ok();
+        }
+
+        private ProductionModelReadinessResult ValidateApprovalEvidence(ModelRegistryEntry? entry)
+        {
+            if (_approvalEvidenceValidator == null || entry == null || !entry.IsPackage)
+            {
+                return ProductionModelReadinessResult.Ok();
+            }
+
+            return _approvalEvidenceValidator(entry);
         }
 
         private async Task<bool> LoadResolvedSlotAsync(

@@ -33,6 +33,10 @@ namespace ClearFrost.Core.Models
         public string GoldenDatasetPath { get; set; } = string.Empty;
         public double MinimumPassRate { get; set; }
         public double ActualPassRate { get; set; }
+        public string ReplayEvidenceId { get; set; } = string.Empty;
+        public string ReplayEvidenceHash { get; set; } = string.Empty;
+        public string ReplayDatasetHash { get; set; } = string.Empty;
+        public string ReplayRunId { get; set; } = string.Empty;
     }
 
     public static class ModelApprovalStatuses

@@ -26,6 +26,15 @@
             detectionLogs: [],
             statistics: [],
         },
+        replay: {
+            dataset: {},
+            runs: {},
+            approval: {},
+        },
+        manualReview: {
+            records: [],
+            lastResponse: {},
+        },
         metrics: {},
         previewFrameId: 0,
     };
@@ -35,6 +44,13 @@
     state.health = state.health || {};
     state.recentInspections = state.recentInspections || [];
     state.history = state.history || {};
+    state.replay = state.replay || { dataset: {}, runs: {}, approval: {} };
+    state.replay.dataset = state.replay.dataset || {};
+    state.replay.runs = state.replay.runs || {};
+    state.replay.approval = state.replay.approval || {};
+    state.manualReview = state.manualReview || { records: [], lastResponse: {} };
+    state.manualReview.records = state.manualReview.records || [];
+    state.manualReview.lastResponse = state.manualReview.lastResponse || {};
     window.CF_STATE = state;
 
     function pickValue(source, ...keys) {
@@ -175,6 +191,47 @@
         };
     }
 
+    function normalizeReplayMessage(payload) {
+        const data = payload?.replay || payload || {};
+        const metrics = pickValue(data, "metrics", "Metrics") || {};
+        const rejectionReasons = pickValue(data, "rejectionReasons", "RejectionReasons", "reasons", "Reasons") || [];
+        return {
+            datasetId: pickValue(data, "datasetId", "DatasetId"),
+            datasetHash: pickValue(data, "datasetHash", "DatasetHash"),
+            runId: pickValue(data, "runId", "RunId"),
+            status: pickValue(data, "status", "Status"),
+            phase: pickValue(data, "phase", "Phase"),
+            completedSamples: pickValue(data, "completedSamples", "CompletedSamples"),
+            totalSamples: pickValue(data, "totalSamples", "TotalSamples"),
+            message: pickValue(data, "message", "Message"),
+            approvalAvailable: pickValue(data, "approvalAvailable", "ApprovalAvailable"),
+            rejectionReasons: Array.isArray(rejectionReasons) ? rejectionReasons : [String(rejectionReasons || "")].filter(Boolean),
+            metrics: {
+                sampleCount: pickValue(metrics, "sampleCount", "SampleCount"),
+                candidateNewMissedDetectionCount: pickValue(metrics, "candidateNewMissedDetectionCount", "CandidateNewMissedDetectionCount"),
+                candidateFixedMissedDetectionCount: pickValue(metrics, "candidateFixedMissedDetectionCount", "CandidateFixedMissedDetectionCount"),
+                candidateNewFalseRejectCount: pickValue(metrics, "candidateNewFalseRejectCount", "CandidateNewFalseRejectCount"),
+                candidateFixedFalseRejectCount: pickValue(metrics, "candidateFixedFalseRejectCount", "CandidateFixedFalseRejectCount"),
+                changedDecisionCount: pickValue(metrics, "changedDecisionCount", "ChangedDecisionCount"),
+            },
+        };
+    }
+
+    function normalizeManualReviewMessage(payload) {
+        const data = payload?.manualReview || payload || {};
+        const record = pickValue(data, "record", "Record") || {};
+        return {
+            succeeded: pickValue(data, "succeeded", "Succeeded"),
+            errorCode: pickValue(data, "errorCode", "ErrorCode"),
+            message: pickValue(data, "message", "Message"),
+            inspectionId: pickValue(data, "inspectionId", "InspectionId") || pickValue(record, "inspectionId", "InspectionId"),
+            reviewStatus: pickValue(data, "reviewStatus", "ReviewStatus"),
+            groundTruth: pickValue(data, "groundTruth", "GroundTruth") || pickValue(record, "groundTruth", "GroundTruth"),
+            revision: pickValue(data, "revision", "Revision") || pickValue(record, "revision", "Revision"),
+            reviewerId: pickValue(data, "reviewerId", "ReviewerId") || pickValue(record, "reviewerId", "ReviewerId"),
+        };
+    }
+
     function notify(reason) {
         pendingReasons.add(reason || "state");
         if (renderScheduled) return;
@@ -238,6 +295,46 @@
         notify("stats");
     }
 
+    function applyReplayUpdate(payload) {
+        const replay = normalizeReplayMessage(payload);
+        const cleanReplay = Object.fromEntries(
+            Object.entries(replay).filter(([, value]) => value !== undefined),
+        );
+
+        if (cleanReplay.datasetId || cleanReplay.datasetHash) {
+            state.replay.dataset = { ...state.replay.dataset, ...cleanReplay };
+        }
+
+        if (cleanReplay.runId) {
+            state.replay.runs[cleanReplay.runId] = {
+                ...(state.replay.runs[cleanReplay.runId] || {}),
+                ...cleanReplay,
+            };
+            state.replay.currentRunId = cleanReplay.runId;
+        }
+
+        if (cleanReplay.approvalAvailable !== undefined || cleanReplay.rejectionReasons) {
+            state.replay.approval = {
+                ...state.replay.approval,
+                available: cleanReplay.approvalAvailable,
+                rejectionReasons: cleanReplay.rejectionReasons || [],
+            };
+        }
+
+        notify("replay");
+    }
+
+    function applyManualReviewUpdate(payload) {
+        const records = pickValue(payload, "records", "Records");
+        if (Array.isArray(records)) {
+            state.manualReview.records = records.map(normalizeManualReviewMessage);
+        } else {
+            state.manualReview.lastResponse = normalizeManualReviewMessage(payload);
+        }
+
+        notify("manualReview");
+    }
+
     function applyHealthSnapshot(snapshot) {
         if (!snapshot) return;
         state.health = snapshot;
@@ -277,6 +374,8 @@
         escapeHtml,
         normalizeHealthLevel,
         normalizeInspection,
+        normalizeManualReviewMessage,
+        normalizeReplayMessage,
     };
 
     window.CF_ERROR_ADVICE = {
@@ -290,7 +389,9 @@
         subscribe,
         notify,
         applyInspectionUpdate,
+        applyManualReviewUpdate,
         applyStatsUpdate,
+        applyReplayUpdate,
         applyHealthSnapshot,
         applyBootstrapSnapshot,
     };

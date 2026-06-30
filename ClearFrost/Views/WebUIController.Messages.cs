@@ -5,6 +5,7 @@
 
 using ClearFrost.Config;
 using ClearFrost.Interfaces;
+using ClearFrost.Services.Replay;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -37,6 +38,68 @@ namespace ClearFrost
         public Task SendHistoryRulePreview(object payload)
         {
             PostMessage("historyRulePreview", payload);
+            return Task.CompletedTask;
+        }
+
+        public Task SendDatasetCreateStatus(object payload)
+        {
+            PostMessage("datasetCreateStatus", payload);
+            return Task.CompletedTask;
+        }
+
+        public Task SendManualReviewRecords(IEnumerable<ManualReviewTraceItem> records)
+        {
+            PostMessage("manualReviewRecords", new
+            {
+                records = records ?? System.Array.Empty<ManualReviewTraceItem>()
+            });
+            return Task.CompletedTask;
+        }
+
+        public Task SendManualReviewResponse(ManualReviewSaveResult result)
+        {
+            PostMessage("manualReviewResponse", result);
+            return Task.CompletedTask;
+        }
+
+        public Task SendReplayRunStatus(ReplayRunProgress progress)
+        {
+            string messageType = progress.Status switch
+            {
+                ReplayRunStatuses.Completed => "replayRunCompleted",
+                ReplayRunStatuses.Failed => "replayRunFailed",
+                ReplayRunStatuses.Canceled => "replayRunCanceled",
+                _ => "replayRunProgress"
+            };
+
+            PostMessage(messageType, progress);
+            return Task.CompletedTask;
+        }
+
+        public Task SendReplayRunCompleted(ReplayRunReport report)
+        {
+            PostMessage("replayRunCompleted", new
+            {
+                runId = report.RunId,
+                datasetId = report.DatasetId,
+                datasetHash = report.DatasetHash,
+                status = report.Status,
+                metrics = report.Metrics,
+                reportJsonPath = report.ReportJsonPath,
+                reportCsvPath = report.ReportCsvPath,
+                approvalAvailable = report.Metrics.CandidateNewMissedDetectionCount == 0 &&
+                    report.Metrics.CandidateNewFalseRejectCount == 0
+            });
+            return Task.CompletedTask;
+        }
+
+        public Task SendModelApprovalAvailability(bool available, IEnumerable<string> rejectionReasons)
+        {
+            PostMessage("modelApprovalAvailability", new
+            {
+                approvalAvailable = available,
+                rejectionReasons = rejectionReasons ?? System.Array.Empty<string>()
+            });
             return Task.CompletedTask;
         }
 

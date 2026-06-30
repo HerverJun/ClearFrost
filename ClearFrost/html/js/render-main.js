@@ -30,7 +30,7 @@
     let exitAppPending = false;
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
-    const KnownRenderReasons = new Set(["inspection", "stats", "health", "bootstrap", "state"]);
+    const KnownRenderReasons = new Set(["inspection", "stats", "health", "replay", "manualReview", "bootstrap", "state"]);
     const KeyLogPatterns = [
         /PLC/i,
         /Plc/i,
@@ -505,6 +505,36 @@
         logQueuePressureAdvice(health);
     }
 
+    function renderReplayStatus(state) {
+        const replay = state?.replay || {};
+        const run = replay.currentRunId ? replay.runs?.[replay.currentRunId] : null;
+        const dataset = replay.dataset || {};
+        const approval = replay.approval || {};
+        const approvalAvailable = approval.approvalAvailable ?? approval.available;
+        const metrics = run?.metrics || dataset?.metrics || {};
+
+        setText("replay-dataset-id", dataset.datasetId || run?.datasetId || "");
+        setText("replay-dataset-hash", dataset.datasetHash || run?.datasetHash || "");
+        setText("replay-run-status", run?.status || dataset.status || "");
+        setText("replay-run-progress", run ? `${run.completedSamples ?? 0}/${run.totalSamples ?? 0}` : "");
+        setText("replay-changed-count", metrics.changedDecisionCount ?? "");
+        setText("replay-new-missed-count", metrics.candidateNewMissedDetectionCount ?? "");
+        setText("replay-fixed-missed-count", metrics.candidateFixedMissedDetectionCount ?? "");
+        setText("replay-new-false-reject-count", metrics.candidateNewFalseRejectCount ?? "");
+        setText("replay-fixed-false-reject-count", metrics.candidateFixedFalseRejectCount ?? "");
+        setText("replay-approval-status", approvalAvailable === true ? "Available" : approvalAvailable === false ? "Rejected" : "");
+        setText("replay-rejection-reasons", (approval.rejectionReasons || []).join("; "));
+    }
+
+    function renderManualReviewStatus(state) {
+        const review = state?.manualReview || {};
+        const response = review.lastResponse || {};
+        setText("manual-review-count", Array.isArray(review.records) ? review.records.length : "");
+        setText("manual-review-response", response.message || response.errorCode || "");
+        setText("manual-review-revision", response.revision ?? "");
+        setText("manual-review-ground-truth", response.groundTruth || "");
+    }
+
     function renderAll(state, reasons = []) {
         if (hasRenderReason(reasons, "inspection")) {
             renderInspectionContext(state);
@@ -516,6 +546,12 @@
         }
         if (hasRenderReason(reasons, "health")) {
             renderHealthSnapshot(state);
+        }
+        if (hasRenderReason(reasons, "replay")) {
+            renderReplayStatus(state);
+        }
+        if (hasRenderReason(reasons, "manualReview")) {
+            renderManualReviewStatus(state);
         }
     }
 
@@ -983,6 +1019,8 @@
         handleInspectionUpdate,
         renderHealthSnapshot: handleHealthSnapshot,
         renderInspectionContext: () => renderInspectionContext(window.CF_STATE),
+        renderManualReviewStatus: () => renderManualReviewStatus(window.CF_STATE),
+        renderReplayStatus: () => renderReplayStatus(window.CF_STATE),
         renderRecentInspections: () => renderRecentInspections(window.CF_STATE),
         requestExitApp,
         requestOpenCamera,
@@ -1021,6 +1059,15 @@
     bridge.registerMessageHandler("updateCameraName", (data) => updateCameraName(data?.name ?? data));
     bridge.registerMessageHandler("inspectionUpdate", handleInspectionUpdate);
     bridge.registerMessageHandler("healthSnapshot", handleHealthSnapshot);
+    bridge.registerMessageHandler("manualReviewRecords", (data) => store.applyManualReviewUpdate(data));
+    bridge.registerMessageHandler("manualReviewResponse", (data) => store.applyManualReviewUpdate(data));
+    bridge.registerMessageHandler("datasetCreateStatus", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunStatus", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunProgress", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunCompleted", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunFailed", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunCanceled", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("modelApprovalAvailability", (data) => store.applyReplayUpdate(data));
     bridge.registerMessageHandler("detectionFrame", handleDetectionFrame);
     bridge.registerMessageHandler("uiCommand", handleUiCommand);
 })();

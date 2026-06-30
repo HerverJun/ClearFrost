@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using ClearFrost.Core.Models;
 using ClearFrost.Helpers;
+using ClearFrost.Services.Replay;
 
 namespace ClearFrost.Services
 {
@@ -131,6 +132,62 @@ namespace ClearFrost.Services
             {
                 Succeeded = true,
                 Message = "模型已通过生产启用校验；生产选择以 AppConfig 模型引用为唯一权威。"
+            };
+        }
+
+        public ModelAcceptanceResult ApprovePackageWithReplayEvidence(
+            ModelRegistryEntry entry,
+            ModelApprovalEvidence evidence)
+        {
+            if (entry == null) throw new ArgumentNullException(nameof(entry));
+            if (evidence == null) throw new ArgumentNullException(nameof(evidence));
+
+            if (!entry.IsPackage || entry.Manifest == null || string.IsNullOrWhiteSpace(entry.ManifestPath))
+            {
+                return Fail("只有带 manifest 的模型包可以绑定 Replay 批准证据。", 0);
+            }
+
+            if (!string.Equals(entry.ModelId, evidence.CandidateModel.ModelId, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(entry.Version, evidence.CandidateModel.Version, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(entry.ModelHash, evidence.CandidateModel.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                return Fail("Replay 批准证据与候选模型身份不匹配。", 0);
+            }
+
+            if (evidence.Metrics.CandidateNewMissedDetectionCount > 0 ||
+                evidence.Metrics.CandidateNewFalseRejectCount > 0)
+            {
+                return Fail("Replay 结果包含新增漏检或新增误检，不能批准。", 0);
+            }
+
+            ModelPackageManifest manifest = entry.Manifest;
+            manifest.AcceptanceDataset = evidence.DatasetPath;
+            manifest.AcceptanceMetrics["totalSamples"] = evidence.Metrics.SampleCount;
+            manifest.AcceptanceMetrics["candidateCorrectSamples"] = evidence.Metrics.CandidateCorrectCount;
+            manifest.AcceptanceMetrics["candidateNewMissedDetectionCount"] = evidence.Metrics.CandidateNewMissedDetectionCount;
+            manifest.AcceptanceMetrics["candidateNewFalseRejectCount"] = evidence.Metrics.CandidateNewFalseRejectCount;
+            manifest.Approval = new ModelApprovalMetadata
+            {
+                Status = ModelApprovalStatuses.Approved,
+                ApprovedAt = evidence.CreatedAt,
+                ApprovedBy = evidence.ApprovedBy,
+                Summary = $"Replay evidence {evidence.EvidenceId}",
+                GoldenDatasetPath = evidence.DatasetPath,
+                ActualPassRate = evidence.Metrics.SampleCount == 0
+                    ? 0
+                    : evidence.Metrics.CandidateCorrectCount / (double)evidence.Metrics.SampleCount,
+                ReplayEvidenceId = evidence.EvidenceId,
+                ReplayEvidenceHash = evidence.EvidenceHash,
+                ReplayDatasetHash = evidence.DatasetHash,
+                ReplayRunId = evidence.ReplayRunId
+            };
+
+            AtomicFileWriter.WriteAllText(entry.ManifestPath, JsonSerializer.Serialize(manifest, JsonOptions));
+            return new ModelAcceptanceResult
+            {
+                Succeeded = true,
+                Message = "模型 Replay 批准证据已绑定。",
+                PassRate = manifest.Approval.ActualPassRate
             };
         }
 
