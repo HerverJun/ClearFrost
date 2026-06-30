@@ -347,6 +347,50 @@ public class RecipeManagerTests
         }
     }
 
+    [Fact]
+    public void RestoreTransactionSnapshot_事务前文件不存在_恢复后仍不存在()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            var manager = new RecipeManager(recipePath);
+            RecipeTransactionSnapshot snapshot = manager.CaptureTransactionSnapshot();
+
+            manager.SaveNewVersionForActivationTransaction(
+                new AppConfig { TargetLabel = "new" },
+                null,
+                "op",
+                "Engineer",
+                "transaction",
+                snapshot);
+
+            File.Exists(recipePath).Should().BeTrue();
+            File.Exists(manager.HistoryPath).Should().BeTrue();
+            Directory.Exists(manager.VersionsDirectory).Should().BeTrue();
+
+            IReadOnlyList<string> failures = manager.RestoreTransactionSnapshot(snapshot);
+
+            failures.Should().BeEmpty();
+            File.Exists(recipePath).Should().BeFalse();
+            File.Exists(manager.BackupPath).Should().BeFalse();
+            File.Exists(manager.HistoryPath).Should().BeFalse();
+            File.Exists(manager.HistoryPath + ".bak").Should().BeFalse();
+            Directory.Exists(manager.VersionsDirectory).Should().BeFalse();
+            manager.CurrentRecipe.TargetLabel.Should().Be(snapshot.CurrentRecipe.TargetLabel);
+            Directory.EnumerateFiles(tempDir, "*", SearchOption.AllDirectories)
+                .Select(Path.GetFileName)
+                .Should()
+                .NotContain(name =>
+                    name!.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) ||
+                    name.EndsWith(".bak.bak", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(RecipeManagerTests), Guid.NewGuid().ToString("N"));

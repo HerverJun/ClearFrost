@@ -47,5 +47,46 @@ namespace ClearFrost.Helpers
                 }
             }
         }
+
+        public static void RestoreAllBytes(string targetPath, byte[] content)
+        {
+            string directory = Path.GetDirectoryName(targetPath) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            string tempPath = Path.Combine(
+                string.IsNullOrWhiteSpace(directory) ? "." : directory,
+                $"{Path.GetFileName(targetPath)}.{Guid.NewGuid():N}.tmp");
+
+            try
+            {
+                File.WriteAllBytes(tempPath, content ?? Array.Empty<byte>());
+
+                if (File.Exists(targetPath))
+                {
+                    File.Replace(tempPath, targetPath, null, ignoreMetadataErrors: true);
+                }
+                else
+                {
+                    File.Move(tempPath, targetPath);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(tempPath))
+                    {
+                        File.Delete(tempPath);
+                    }
+                }
+                catch
+                {
+                    // 临时文件清理失败不应覆盖原始恢复错误。
+                }
+            }
+        }
     }
 }

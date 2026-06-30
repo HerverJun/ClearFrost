@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -99,6 +99,7 @@ namespace ClearFrost.Services
         private readonly Func<string> _operatorIdProvider;
         private readonly Func<string> _operatorRoleProvider;
         private readonly object _faultLock = new object();
+        private readonly SemaphoreSlim _activationGate = new SemaphoreSlim(1, 1);
         private bool _faulted;
         private string _faultMessage = string.Empty;
 
@@ -159,14 +160,22 @@ namespace ClearFrost.Services
             int gpuIndex,
             CancellationToken cancellationToken = default)
         {
-            return await ActivateSlotAsync(
-                ModelRole.Primary,
-                selectionValue,
-                operation,
-                useGpu,
-                gpuIndex,
-                allowEmpty: false,
-                cancellationToken).ConfigureAwait(false);
+            await _activationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await ActivateSlotAsync(
+                    ModelRole.Primary,
+                    selectionValue,
+                    operation,
+                    useGpu,
+                    gpuIndex,
+                    allowEmpty: false,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _activationGate.Release();
+            }
         }
 
         public async Task<ProductionModelActivationResult> ActivateAuxiliaryAsync(
@@ -182,14 +191,22 @@ namespace ClearFrost.Services
                 throw new ArgumentOutOfRangeException(nameof(slot));
             }
 
-            return await ActivateSlotAsync(
-                slot == 1 ? ModelRole.Auxiliary1 : ModelRole.Auxiliary2,
-                selectionValue,
-                operation,
-                useGpu,
-                gpuIndex,
-                allowEmpty: true,
-                cancellationToken).ConfigureAwait(false);
+            await _activationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await ActivateSlotAsync(
+                    slot == 1 ? ModelRole.Auxiliary1 : ModelRole.Auxiliary2,
+                    selectionValue,
+                    operation,
+                    useGpu,
+                    gpuIndex,
+                    allowEmpty: true,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _activationGate.Release();
+            }
         }
 
         public async Task<ProductionModelActivationResult> LoadConfiguredModelsAsync(
@@ -198,20 +215,28 @@ namespace ClearFrost.Services
             int gpuIndex,
             CancellationToken cancellationToken = default)
         {
-            _refreshRegistry();
-            if (!TryResolveConfiguredCandidates(out IReadOnlyList<SlotCandidate> candidates, out ProductionModelActivationResult failure))
+            await _activationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                return failure;
-            }
+                _refreshRegistry();
+                if (!TryResolveConfiguredCandidates(out IReadOnlyList<SlotCandidate> candidates, out ProductionModelActivationResult failure))
+                {
+                    return failure;
+                }
 
-            SlotCandidate primary = candidates.First(candidate => candidate.Role == ModelRole.Primary);
-            return await ExecuteActivationTransactionAsync(
-                candidates,
-                primary,
-                operation,
-                useGpu,
-                gpuIndex,
-                cancellationToken).ConfigureAwait(false);
+                SlotCandidate primary = candidates.First(candidate => candidate.Role == ModelRole.Primary);
+                return await ExecuteActivationTransactionAsync(
+                    candidates,
+                    primary,
+                    operation,
+                    useGpu,
+                    gpuIndex,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _activationGate.Release();
+            }
         }
 
         public ProductionModelReadinessResult EnsureReadyForProduction()
@@ -266,7 +291,7 @@ namespace ClearFrost.Services
         {
             bool wasFaulted = IsFaulted;
             AppConfig previousConfig = CaptureConfig();
-            Recipe previousRecipe = _recipeManager.CaptureCurrentSnapshot();
+            RecipeTransactionSnapshot previousRecipe = _recipeManager.CaptureTransactionSnapshot();
             DetectionRuntimeModelSnapshot previousRuntime = _detectionService.RuntimeModelSnapshot;
             var transitionState = new RuntimeTransitionState();
             var compensationFailures = new List<string>();
@@ -299,12 +324,13 @@ namespace ClearFrost.Services
                         resultSlot.Reference);
                 }
 
-                _recipeManager.SaveNewVersion(
+                _recipeManager.SaveNewVersionForActivationTransaction(
                     _config,
                     _roiSnapshotProvider(),
                     _operatorIdProvider(),
                     _operatorRoleProvider(),
-                    operation);
+                    operation,
+                    previousRecipe);
 
                 ProductionModelReadinessResult consistency = EnsureActualConsistency();
                 if (!consistency.Succeeded)
@@ -782,7 +808,7 @@ namespace ClearFrost.Services
 
         private async Task CompensateAsync(
             AppConfig previousConfig,
-            Recipe previousRecipe,
+            RecipeTransactionSnapshot previousRecipe,
             DetectionRuntimeModelSnapshot previousRuntime,
             bool configTouched,
             bool useGpu,
@@ -806,14 +832,8 @@ namespace ClearFrost.Services
                 failures.Add($"Config restore failed: {ex.Message}");
             }
 
-            try
-            {
-                _recipeManager.RestoreSnapshot(previousRecipe);
-            }
-            catch (Exception ex)
-            {
-                failures.Add($"Recipe restore failed: {ex.Message}");
-            }
+            IReadOnlyList<string> recipeRestoreFailures = _recipeManager.RestoreTransactionSnapshot(previousRecipe);
+            failures.AddRange(recipeRestoreFailures.Select(failure => $"Recipe restore failed: {failure}"));
 
             VerifyCompensation(previousConfig, previousRecipe, previousRuntime, failures);
         }
@@ -862,7 +882,7 @@ namespace ClearFrost.Services
 
         private void VerifyCompensation(
             AppConfig previousConfig,
-            Recipe previousRecipe,
+            RecipeTransactionSnapshot previousRecipe,
             DetectionRuntimeModelSnapshot previousRuntime,
             List<string> failures)
         {
@@ -891,25 +911,10 @@ namespace ClearFrost.Services
             }
         }
 
-        private void VerifyRecipeSnapshot(Recipe expected, List<string> failures)
+        private void VerifyRecipeSnapshot(RecipeTransactionSnapshot expected, List<string> failures)
         {
-            Recipe current = _recipeManager.CurrentRecipe ?? new Recipe();
-            if (!RecipeReferencesMatch(current, expected))
-            {
-                failures.Add("CurrentRecipe model references do not match activation snapshot after compensation.");
-            }
-
-            Recipe? persisted = TryReadPersistedRecipe(out string persistedError);
-            if (persisted == null)
-            {
-                failures.Add($"Persisted recipe unavailable after compensation: {persistedError}");
-                return;
-            }
-
-            if (!RecipeReferencesMatch(persisted, expected))
-            {
-                failures.Add("Persisted recipe model references do not match activation snapshot after compensation.");
-            }
+            IReadOnlyList<string> recipeVerificationFailures = _recipeManager.VerifyTransactionSnapshot(expected);
+            failures.AddRange(recipeVerificationFailures.Select(failure => $"Recipe compensation verification failed: {failure}"));
         }
 
         private ProductionModelReadinessResult CheckRuntimeSlot(
