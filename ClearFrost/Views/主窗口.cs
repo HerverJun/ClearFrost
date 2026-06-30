@@ -74,6 +74,16 @@ namespace ClearFrost
             _recipeManager = _appRuntime.RecipeManager;
             _currentROI = _recipeManager.CurrentRecipe.GetRoiSnapshot();
             _modelRegistry = _appRuntime.ModelRegistry;
+            _modelActivationService = new ProductionModelActivationService(
+                _appConfig,
+                _modelRegistry,
+                _recipeManager,
+                _detectionService,
+                () => _appRuntime.RefreshModelRegistry(),
+                () => _appConfig.Save(),
+                SnapshotCurrentROI,
+                ResolveCurrentOperatorId,
+                () => _appConfig.CurrentOperatorRole.ToString());
             _healthMonitor = _appRuntime.HealthMonitor;
             _startupDiagnostics = _appRuntime.StartupDiagnostics;
             _inspectionPipelineService = new InspectionPipelineService(

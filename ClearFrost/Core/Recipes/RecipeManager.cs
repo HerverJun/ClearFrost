@@ -198,6 +198,9 @@ namespace ClearFrost.Core.Recipes
 
         private static void NormalizeNestedSnapshots(Recipe recipe)
         {
+            recipe.CurrentModelReference ??= ClearFrost.Core.Models.ProductionModelReference.Empty();
+            recipe.Auxiliary1ModelReference ??= ClearFrost.Core.Models.ProductionModelReference.Empty();
+            recipe.Auxiliary2ModelReference ??= ClearFrost.Core.Models.ProductionModelReference.Empty();
             recipe.Cameras ??= new();
             recipe.Plc ??= new RecipePlcSnapshot();
             recipe.Barcode ??= new RecipeBarcodeSnapshot();

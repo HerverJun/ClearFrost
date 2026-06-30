@@ -125,6 +125,13 @@ namespace ClearFrost.Services
         public int? TriggerSeq { get; init; }
         public int? PlcTriggerSeq { get; init; }
         public int? ResultSeq { get; init; }
+        public bool TerminalHandshakeAttempted { get; set; }
+        public bool TerminalHandshakeSucceeded { get; set; }
+        public string TerminalHandshakeErrorCode { get; set; } = string.Empty;
+        public string TerminalHandshakeSignalName { get; set; } = string.Empty;
+        public string TerminalHandshakeAddress { get; set; } = string.Empty;
+        public string TerminalHandshakeMessage { get; set; } = string.Empty;
+        public bool CycleSucceeded { get; set; }
         public string ProductBarcode { get; init; } = string.Empty;
         public string Barcode { get; init; } = string.Empty;
         public bool? BarcodeReadSucceeded { get; init; }
@@ -172,6 +179,13 @@ namespace ClearFrost.Services
                 TriggerSeq = TriggerSeq,
                 PlcTriggerSeq = PlcTriggerSeq,
                 ResultSeq = ResultSeq,
+                TerminalHandshakeAttempted = TerminalHandshakeAttempted,
+                TerminalHandshakeSucceeded = TerminalHandshakeSucceeded,
+                TerminalHandshakeErrorCode = TerminalHandshakeErrorCode,
+                TerminalHandshakeSignalName = TerminalHandshakeSignalName,
+                TerminalHandshakeAddress = TerminalHandshakeAddress,
+                TerminalHandshakeMessage = TerminalHandshakeMessage,
+                CycleSucceeded = CycleSucceeded,
                 ProductBarcode = ProductBarcode,
                 Barcode = Barcode,
                 BarcodeReadSucceeded = BarcodeReadSucceeded,

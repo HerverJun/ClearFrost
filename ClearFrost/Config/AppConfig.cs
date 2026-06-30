@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using ClearFrost.Core.Models;
 using ClearFrost.Core.Security;
 using ClearFrost.Core.Rules;
 using ClearFrost.Helpers;
@@ -163,6 +164,7 @@ namespace ClearFrost.Config
         /// 当前使用的主模型文件名（含扩展名，如 "model_v1.onnx"）
         /// </summary>
         public string CurrentModelFileName { get; set; } = "";
+        public ProductionModelReference CurrentModelReference { get; set; } = ProductionModelReference.Empty();
         public int TaskType { get; set; } = 1;
         public bool EnablePreprocessing { get; set; } = true;
         public bool EnableGpu { get; set; } = false;
@@ -178,11 +180,13 @@ namespace ClearFrost.Config
         /// 辅助模型1路径
         /// </summary>
         public string Auxiliary1ModelPath { get; set; } = "";
+        public ProductionModelReference Auxiliary1ModelReference { get; set; } = ProductionModelReference.Empty();
 
         /// <summary>
         /// 辅助模型2路径
         /// </summary>
         public string Auxiliary2ModelPath { get; set; } = "";
+        public ProductionModelReference Auxiliary2ModelReference { get; set; } = ProductionModelReference.Empty();
 
         /// <summary>
         /// 是否启用多模型自动切换
@@ -491,6 +495,9 @@ namespace ClearFrost.Config
 
         private void NormalizeRuntimeSettings()
         {
+            CurrentModelReference ??= ProductionModelReference.Empty();
+            Auxiliary1ModelReference ??= ProductionModelReference.Empty();
+            Auxiliary2ModelReference ??= ProductionModelReference.Empty();
             NormalizePlcAddresses();
             NormalizeSequenceJudgeSettings();
             NormalizeInspectionRuleSetSettings();

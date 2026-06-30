@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using ClearFrost.Config;
+using ClearFrost.Core.Models;
 
 namespace ClearFrost.Core.Recipes
 {
@@ -23,8 +24,11 @@ namespace ClearFrost.Core.Recipes
         public float IouThreshold { get; set; }
         public bool EnableGlobalIou { get; set; }
         public string CurrentModelFileName { get; set; } = string.Empty;
+        public ProductionModelReference CurrentModelReference { get; set; } = ProductionModelReference.Empty();
         public string Auxiliary1ModelPath { get; set; } = string.Empty;
+        public ProductionModelReference Auxiliary1ModelReference { get; set; } = ProductionModelReference.Empty();
         public string Auxiliary2ModelPath { get; set; } = string.Empty;
+        public ProductionModelReference Auxiliary2ModelReference { get; set; } = ProductionModelReference.Empty();
         public bool EnableMultiModelFallback { get; set; }
         public bool EnableGpu { get; set; }
         public int GpuIndex { get; set; }
@@ -66,8 +70,11 @@ namespace ClearFrost.Core.Recipes
                 IouThreshold = config.IouThreshold,
                 EnableGlobalIou = config.EnableGlobalIou,
                 CurrentModelFileName = config.CurrentModelFileName ?? string.Empty,
+                CurrentModelReference = config.CurrentModelReference?.Clone() ?? ProductionModelReference.Empty(),
                 Auxiliary1ModelPath = config.Auxiliary1ModelPath ?? string.Empty,
+                Auxiliary1ModelReference = config.Auxiliary1ModelReference?.Clone() ?? ProductionModelReference.Empty(),
                 Auxiliary2ModelPath = config.Auxiliary2ModelPath ?? string.Empty,
+                Auxiliary2ModelReference = config.Auxiliary2ModelReference?.Clone() ?? ProductionModelReference.Empty(),
                 EnableMultiModelFallback = config.EnableMultiModelFallback,
                 EnableGpu = config.EnableGpu,
                 GpuIndex = config.GpuIndex,

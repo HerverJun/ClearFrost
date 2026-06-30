@@ -2562,9 +2562,15 @@
         updateTriggerSourceUi();
         window.updateOperatorStatus?.();
         if (store.state.modelList?.length) {
-            selectModelOption(byId("model-select"), data.CurrentModelFileName);
-            selectModelOption(byId("auxiliary1-select"), data.Auxiliary1ModelPath);
-            selectModelOption(byId("auxiliary2-select"), data.Auxiliary2ModelPath);
+            selectModelOption(
+                byId("model-select"),
+                modelSelectionValueFromReference(data.CurrentModelReference, data.CurrentModelFileName));
+            selectModelOption(
+                byId("auxiliary1-select"),
+                modelSelectionValueFromReference(data.Auxiliary1ModelReference, data.Auxiliary1ModelPath));
+            selectModelOption(
+                byId("auxiliary2-select"),
+                modelSelectionValueFromReference(data.Auxiliary2ModelReference, data.Auxiliary2ModelPath));
         }
     }
 
@@ -2866,15 +2872,58 @@
             select.value = preferred;
             return;
         }
+        const preferredFileMatch = preferred ? options.find((option) => option.dataset.fileName === preferred) : null;
+        if (preferredFileMatch) {
+            select.value = preferredFileMatch.value;
+            return;
+        }
         if (fallback && options.some((option) => option.value === fallback)) {
             select.value = fallback;
+            return;
+        }
+        const fallbackFileMatch = fallback ? options.find((option) => option.dataset.fileName === fallback) : null;
+        if (fallbackFileMatch) {
+            select.value = fallbackFileMatch.value;
             return;
         }
         select.selectedIndex = options.length ? 0 : -1;
     }
 
+    function encodeModelIdentityPart(value) {
+        const bytes = encodeURIComponent(String(value || "")).replace(/%([0-9A-F]{2})/g, (_, hex) =>
+            String.fromCharCode(parseInt(hex, 16)));
+        return btoa(bytes).replace(/=+$/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+    }
+
+    function modelSelectionValueFromReference(reference, legacyValue = "") {
+        if (!reference) return String(legacyValue || "").trim();
+        const type = String(reference.Type || reference.type || "");
+        const modelId = reference.ModelId || reference.modelId || "";
+        const version = reference.Version || reference.version || "";
+        const sha256 = String(reference.Sha256 || reference.sha256 || "").trim().toLowerCase();
+        const legacyFileName = reference.LegacyFileName || reference.legacyFileName || legacyValue || "";
+        if ((type === "ApprovedPackage" || type === "1") && modelId && version && sha256) {
+            return `approved:${encodeModelIdentityPart(modelId)}:${encodeModelIdentityPart(version)}:${sha256}`;
+        }
+        if ((type === "LegacyOnnx" || type === "2") && legacyFileName) {
+            return `legacy:${encodeModelIdentityPart(legacyFileName)}:${sha256}`;
+        }
+        return String(legacyValue || "").trim();
+    }
+
+    function normalizeModelOption(item) {
+        if (typeof item === "string") {
+            return { value: item, text: item, fileName: item };
+        }
+        const value = String(item?.value || item?.Value || "").trim();
+        const text = String(item?.text || item?.Text || item?.fileName || item?.FileName || value).trim();
+        const fileName = String(item?.fileName || item?.FileName || text).trim();
+        return { value, text, fileName };
+    }
+
     function initModelList(files, notifyBackend = false) {
-        const models = Array.isArray(files) ? files : (files?.models || files?.Models || []);
+        const rawModels = Array.isArray(files) ? files : (files?.models || files?.Models || []);
+        const models = rawModels.map(normalizeModelOption).filter((model) => model.value);
         store.state.modelList = models;
         const select = byId("model-select");
         if (!select) return;
@@ -2893,28 +2942,39 @@
             return;
         }
 
-        models.forEach((fileName) => {
+        models.forEach((model) => {
             const option = document.createElement("option");
-            option.value = fileName;
-            option.text = fileName;
+            option.value = model.value;
+            option.text = model.text;
+            option.dataset.fileName = model.fileName;
             select.add(option);
         });
-        selectModelOption(select, settings.CurrentModelFileName, previousPrimary);
+        selectModelOption(
+            select,
+            modelSelectionValueFromReference(settings.CurrentModelReference, settings.CurrentModelFileName),
+            previousPrimary);
 
         ["auxiliary1-select", "auxiliary2-select"].forEach((id) => {
             const auxSelect = byId(id);
             if (!auxSelect) return;
             auxSelect.innerHTML = '<option value="">不使用</option>';
-            models.forEach((fileName) => {
+            models.forEach((model) => {
                 const option = document.createElement("option");
-                option.value = fileName;
-                option.text = fileName;
+                option.value = model.value;
+                option.text = model.text;
+                option.dataset.fileName = model.fileName;
                 auxSelect.add(option);
             });
         });
 
-        selectModelOption(byId("auxiliary1-select"), settings.Auxiliary1ModelPath, previousAux1);
-        selectModelOption(byId("auxiliary2-select"), settings.Auxiliary2ModelPath, previousAux2);
+        selectModelOption(
+            byId("auxiliary1-select"),
+            modelSelectionValueFromReference(settings.Auxiliary1ModelReference, settings.Auxiliary1ModelPath),
+            previousAux1);
+        selectModelOption(
+            byId("auxiliary2-select"),
+            modelSelectionValueFromReference(settings.Auxiliary2ModelReference, settings.Auxiliary2ModelPath),
+            previousAux2);
         if (notifyBackend) bridge.sendCommand("change_model", select.value);
         window.addLog?.(`成功加载 ${models.length} 个模型`, "info");
     }

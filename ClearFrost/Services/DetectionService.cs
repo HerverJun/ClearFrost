@@ -61,6 +61,39 @@ namespace ClearFrost.Services
         public IReadOnlyList<string> AvailableModels => _availableModels.AsReadOnly();
         public long LastInferenceMs { get; private set; }
         public DetectionRuntimeStatus RuntimeStatus => _runtimeStatus;
+        public DetectionRuntimeModelSnapshot RuntimeModelSnapshot
+        {
+            get
+            {
+                MultiModelManager? manager = _modelManager;
+                if (manager == null)
+                {
+                    return new DetectionRuntimeModelSnapshot();
+                }
+
+                return new DetectionRuntimeModelSnapshot
+                {
+                    Primary = new DetectionModelSlotSnapshot
+                    {
+                        Role = ModelRole.Primary,
+                        IsLoaded = manager.IsPrimaryLoaded,
+                        ModelPath = NormalizeRuntimePath(manager.PrimaryModelPath)
+                    },
+                    Auxiliary1 = new DetectionModelSlotSnapshot
+                    {
+                        Role = ModelRole.Auxiliary1,
+                        IsLoaded = manager.IsAuxiliary1Loaded,
+                        ModelPath = NormalizeRuntimePath(manager.Auxiliary1ModelPath)
+                    },
+                    Auxiliary2 = new DetectionModelSlotSnapshot
+                    {
+                        Role = ModelRole.Auxiliary2,
+                        IsLoaded = manager.IsAuxiliary2Loaded,
+                        ModelPath = NormalizeRuntimePath(manager.Auxiliary2ModelPath)
+                    }
+                };
+            }
+        }
 
         /// <summary>
         /// 获取当前主检测器实例（用于 Mat 直通渲染等优化路径）。
@@ -843,6 +876,23 @@ namespace ClearFrost.Services
                 ExecutionProvider = gpuActive ? "DmlExecutionProvider" : "CPUExecutionProvider",
                 GpuFailureReason = gpuFailureReason ?? string.Empty
             };
+        }
+
+        private static string NormalizeRuntimePath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return Path.GetFullPath(path);
+            }
+            catch
+            {
+                return path;
+            }
         }
 
         private static DetectionRuntimeStatus CreateRuntimeStatusFromDetector(

@@ -38,7 +38,7 @@ public class ModelAcceptanceServiceTests
     }
 
     [Fact]
-    public void ApprovePackage_通过验收后可启用并回滚上一模型()
+    public void ApprovePackage_通过验收后启用只做校验不写第二生产状态()
     {
         string tempDir = CreateTempDirectory();
         try
@@ -82,10 +82,7 @@ public class ModelAcceptanceServiceTests
             second.ApprovalStatus.Should().Be(ModelApprovalStatuses.Approved);
 
             service.EnableApprovedModel(second).Succeeded.Should().BeTrue();
-            ModelProductionState rolledBack = service.RollbackToPrevious();
-
-            rolledBack.CurrentModelId.Should().Be("pkg-a");
-            rolledBack.PreviousModelId.Should().Be("pkg-b");
+            File.Exists(Path.Combine(tempDir, "state.json")).Should().BeFalse();
         }
         finally
         {

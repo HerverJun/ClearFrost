@@ -18,6 +18,13 @@ namespace ClearFrost.Interfaces
         public int? TriggerSeq { get; set; }
         public int? PlcTriggerSeq { get; set; }
         public int? ResultSeq { get; set; }
+        public bool TerminalHandshakeAttempted { get; set; }
+        public bool TerminalHandshakeSucceeded { get; set; }
+        public string TerminalHandshakeErrorCode { get; set; } = "";
+        public string TerminalHandshakeSignalName { get; set; } = "";
+        public string TerminalHandshakeAddress { get; set; } = "";
+        public string TerminalHandshakeMessage { get; set; } = "";
+        public bool CycleSucceeded { get; set; }
         public string ProductBarcode { get; set; } = "";
         public string Barcode { get; set; } = "";
         public bool? BarcodeReadSucceeded { get; set; }

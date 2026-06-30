@@ -35,6 +35,13 @@ namespace ClearFrost.Core.Inspection
         public long HandshakeStartMs { get; set; }
         public long PlcResultWriteMs { get; set; }
         public long HandshakeCompleteMs { get; set; }
+        public bool TerminalHandshakeAttempted { get; set; }
+        public bool TerminalHandshakeSucceeded { get; set; }
+        public string TerminalHandshakeErrorCode { get; set; } = string.Empty;
+        public string TerminalHandshakeSignalName { get; set; } = string.Empty;
+        public string TerminalHandshakeAddress { get; set; } = string.Empty;
+        public string TerminalHandshakeMessage { get; set; } = string.Empty;
+        public bool CycleSucceeded { get; set; }
         public string? ProductBarcode { get; set; }
         public bool? BarcodeReadSucceeded { get; set; }
         public string? BarcodeError { get; set; }

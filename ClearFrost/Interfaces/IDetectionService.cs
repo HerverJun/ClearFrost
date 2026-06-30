@@ -115,6 +115,31 @@ namespace ClearFrost.Interfaces
         public string GpuFailureReason { get; init; } = string.Empty;
     }
 
+    public sealed class DetectionModelSlotSnapshot
+    {
+        public ModelRole Role { get; init; } = ModelRole.None;
+        public bool IsLoaded { get; init; }
+        public string ModelPath { get; init; } = string.Empty;
+    }
+
+    public sealed class DetectionRuntimeModelSnapshot
+    {
+        public DetectionModelSlotSnapshot Primary { get; init; } = new DetectionModelSlotSnapshot
+        {
+            Role = ModelRole.Primary
+        };
+
+        public DetectionModelSlotSnapshot Auxiliary1 { get; init; } = new DetectionModelSlotSnapshot
+        {
+            Role = ModelRole.Auxiliary1
+        };
+
+        public DetectionModelSlotSnapshot Auxiliary2 { get; init; } = new DetectionModelSlotSnapshot
+        {
+            Role = ModelRole.Auxiliary2
+        };
+    }
+
     /// <summary>
     /// 检测服务接口
     /// </summary>
@@ -165,6 +190,8 @@ namespace ClearFrost.Interfaces
         /// 当前检测推理后端状态。
         /// </summary>
         DetectionRuntimeStatus RuntimeStatus { get; }
+
+        DetectionRuntimeModelSnapshot RuntimeModelSnapshot { get; }
 
         #endregion
 

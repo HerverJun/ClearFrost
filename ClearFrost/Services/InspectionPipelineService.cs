@@ -109,8 +109,11 @@ namespace ClearFrost.Services
         public Mat? Frame { get; set; }
         public Mat? RenderedFrame { get; set; }
         public bool DetectionFailed { get; set; }
+        public bool ProductFlowSucceeded { get; set; }
         public object? DetectionMetrics { get; set; }
         public InspectionJudgeResult? JudgeResult { get; set; }
+        public DetectionPersistencePayload? PendingRecordPayload { get; set; }
+        public bool PendingRecordImageQueued { get; set; }
 
         public bool HasFrame => Frame != null && !Frame.Empty();
 
@@ -210,12 +213,24 @@ namespace ClearFrost.Services
             {
                 if (finalHandshakeWritten || !ShouldWriteTerminalHandshake(context))
                 {
+                    context.CycleSucceeded = pipelineResult.ProductFlowSucceeded;
                     return;
                 }
 
                 finalHandshakeWritten = true;
-                await WriteHandshakeDetectionCompletedAsync(context, isQualified).ConfigureAwait(false);
+                PlcHandshakeV1Result result = await WriteHandshakeDetectionCompletedAsync(context, isQualified).ConfigureAwait(false);
                 pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
+                ApplyTerminalHandshakeResult(pipelineResult, result);
+            }
+
+            async Task FinalizeTerminalAndRecordAsync()
+            {
+                await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
+                await CompleteTerminalHandshakeOnceAsync(pipelineResult.FinalQualified).ConfigureAwait(false);
+                pipelineResult.Timings.DbWriteMs = await EnqueuePendingDetectionRecordAsync(
+                    pipelineResult,
+                    progressAsync).ConfigureAwait(false);
+                await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
             }
 
             try
@@ -245,8 +260,7 @@ namespace ClearFrost.Services
                         progressAsync).ConfigureAwait(false);
                     if (shouldStop)
                     {
-                        await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
-                        await CompleteTerminalHandshakeOnceAsync(pipelineResult.FinalQualified).ConfigureAwait(false);
+                        await FinalizeTerminalAndRecordAsync().ConfigureAwait(false);
                         return pipelineResult;
                     }
                 }
@@ -258,8 +272,7 @@ namespace ClearFrost.Services
                     cancellationToken).ConfigureAwait(false);
                 if (frameToProcess == null)
                 {
-                    await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
-                    await CompleteTerminalHandshakeOnceAsync(pipelineResult.FinalQualified).ConfigureAwait(false);
+                    await FinalizeTerminalAndRecordAsync().ConfigureAwait(false);
                     return pipelineResult;
                 }
 
@@ -283,8 +296,7 @@ namespace ClearFrost.Services
                     }
                 }
 
-                await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
-                await CompleteTerminalHandshakeOnceAsync(pipelineResult.FinalQualified).ConfigureAwait(false);
+                await FinalizeTerminalAndRecordAsync().ConfigureAwait(false);
                 return pipelineResult;
             }
             catch (OperationCanceledException)
@@ -295,8 +307,19 @@ namespace ClearFrost.Services
                 pipelineResult.StatusMessage = "检测已取消";
                 pipelineResult.StatusLevel = "error";
                 pipelineResult.AddStage(context.CurrentStage, false, 0, "检测已取消", "OperationCanceled");
-                await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
-                await CompleteTerminalHandshakeOnceAsync(false).ConfigureAwait(false);
+                pipelineResult.PendingRecordPayload ??= BuildDetectionPersistencePayload(
+                    context,
+                    null,
+                    new List<YoloResult>(),
+                    0,
+                    false,
+                    JsonSerializer.Serialize(new
+                    {
+                        Error = "检测已取消",
+                        Stage = context.CurrentStage.ToString(),
+                        context.InspectionId
+                    }));
+                await FinalizeTerminalAndRecordAsync().ConfigureAwait(false);
                 throw;
             }
             catch (Exception ex)
@@ -315,8 +338,19 @@ namespace ClearFrost.Services
 
                 if (!finalHandshakeWritten)
                 {
-                    await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
-                    await CompleteTerminalHandshakeOnceAsync(false).ConfigureAwait(false);
+                    pipelineResult.PendingRecordPayload ??= BuildDetectionPersistencePayload(
+                        context,
+                        null,
+                        new List<YoloResult>(),
+                        0,
+                        false,
+                        JsonSerializer.Serialize(new
+                        {
+                            Error = ex.Message,
+                            Stage = failedStage.ToString(),
+                            context.InspectionId
+                        }));
+                    await FinalizeTerminalAndRecordAsync().ConfigureAwait(false);
                 }
 
                 await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
@@ -414,11 +448,7 @@ namespace ClearFrost.Services
                     context.InspectionId,
                     ProductBarcode = pipelineResult.ProductBarcode ?? string.Empty
                 }));
-            pipelineResult.Timings.DbWriteMs = await EnqueueDetectionRecordAsync(
-                context,
-                barcodeFailurePayload,
-                imageQueued: false,
-                progressAsync).ConfigureAwait(false);
+            SetPendingDetectionRecord(pipelineResult, barcodeFailurePayload, imageQueued: false);
             context.CurrentStage = InspectionStage.Failed;
             pipelineResult.FinalQualified = false;
             pipelineResult.FinalResultCount = 0;
@@ -545,11 +575,7 @@ namespace ClearFrost.Services
                     Stage = "Capture",
                     context.InspectionId
                 }));
-            pipelineResult.Timings.DbWriteMs = await EnqueueDetectionRecordAsync(
-                context,
-                captureFailurePayload,
-                imageQueued: false,
-                progressAsync).ConfigureAwait(false);
+            SetPendingDetectionRecord(pipelineResult, captureFailurePayload, imageQueued: false);
             context.CurrentStage = InspectionStage.Failed;
             pipelineResult.FinalQualified = false;
             pipelineResult.FinalResultCount = 0;
@@ -778,6 +804,7 @@ namespace ClearFrost.Services
                 }
 
                 pipelineResult.FinalQualified = isQualified;
+                pipelineResult.ProductFlowSucceeded = !detectionFailed;
                 context.ResultSeq = context.TriggerSeq;
 
                 await ExecutePlcResultWriteStageAsync(
@@ -870,11 +897,7 @@ namespace ClearFrost.Services
                         Stage = failedStage.ToString(),
                         context.InspectionId
                     }));
-                pipelineResult.Timings.DbWriteMs = await EnqueueDetectionRecordAsync(
-                    context,
-                    errorPayload,
-                    errorImageQueued,
-                    progressAsync).ConfigureAwait(false);
+                SetPendingDetectionRecord(pipelineResult, errorPayload, errorImageQueued);
                 context.CurrentStage = InspectionStage.Failed;
                 pipelineResult.FinalQualified = false;
                 pipelineResult.FinalResultCount = 0;
@@ -900,11 +923,7 @@ namespace ClearFrost.Services
             {
                 persistencePayload.TotalMs = context.TotalMs;
                 persistencePayload.SaveImageMs = context.SaveImageMs;
-                pipelineResult.Timings.DbWriteMs = await EnqueueDetectionRecordAsync(
-                    context,
-                    persistencePayload,
-                    imageQueuedForRecord,
-                    progressAsync).ConfigureAwait(false);
+                SetPendingDetectionRecord(pipelineResult, persistencePayload, imageQueuedForRecord);
             }
             else
             {
@@ -1120,6 +1139,44 @@ namespace ClearFrost.Services
             return (imageQueued, context.SaveImageMs);
         }
 
+        private static void SetPendingDetectionRecord(
+            InspectionPipelineResult pipelineResult,
+            DetectionPersistencePayload payload,
+            bool imageQueued)
+        {
+            InspectionContext context = pipelineResult.Context;
+            pipelineResult.PendingRecordPayload = payload;
+            pipelineResult.PendingRecordImageQueued = imageQueued;
+            context.TraceStatus = ResolveTraceStatus(imageQueued, recordQueued: false);
+            payload.TraceStatus = context.TraceStatus;
+            payload.QueueStatus = BuildQueueStatus(context, imageQueued, recordQueued: false);
+        }
+
+        private async Task<long> EnqueuePendingDetectionRecordAsync(
+            InspectionPipelineResult pipelineResult,
+            Func<InspectionPipelineProgress, Task>? progressAsync)
+        {
+            if (pipelineResult.PendingRecordPayload == null)
+            {
+                return 0;
+            }
+
+            DetectionPersistencePayload payload = pipelineResult.PendingRecordPayload;
+            InspectionContext context = pipelineResult.Context;
+            payload.TerminalHandshakeAttempted = context.TerminalHandshakeAttempted;
+            payload.TerminalHandshakeSucceeded = context.TerminalHandshakeSucceeded;
+            payload.TerminalHandshakeErrorCode = context.TerminalHandshakeErrorCode;
+            payload.TerminalHandshakeSignalName = context.TerminalHandshakeSignalName;
+            payload.TerminalHandshakeAddress = context.TerminalHandshakeAddress;
+            payload.TerminalHandshakeMessage = context.TerminalHandshakeMessage;
+            payload.CycleSucceeded = context.CycleSucceeded;
+            return await EnqueueDetectionRecordAsync(
+                context,
+                payload,
+                pipelineResult.PendingRecordImageQueued,
+                progressAsync).ConfigureAwait(false);
+        }
+
         private async Task<long> EnqueueDetectionRecordAsync(
             InspectionContext context,
             DetectionPersistencePayload payload,
@@ -1194,6 +1251,13 @@ namespace ClearFrost.Services
                 TriggerSeq = context.TriggerSeq,
                 PlcTriggerSeq = context.TriggerSeq,
                 ResultSeq = context.ResultSeq,
+                TerminalHandshakeAttempted = context.TerminalHandshakeAttempted,
+                TerminalHandshakeSucceeded = context.TerminalHandshakeSucceeded,
+                TerminalHandshakeErrorCode = context.TerminalHandshakeErrorCode,
+                TerminalHandshakeSignalName = context.TerminalHandshakeSignalName,
+                TerminalHandshakeAddress = context.TerminalHandshakeAddress,
+                TerminalHandshakeMessage = context.TerminalHandshakeMessage,
+                CycleSucceeded = context.CycleSucceeded,
                 ProductBarcode = context.ProductBarcode ?? string.Empty,
                 Barcode = context.ProductBarcode ?? string.Empty,
                 BarcodeReadSucceeded = context.BarcodeReadSucceeded,
@@ -1234,11 +1298,37 @@ namespace ClearFrost.Services
             };
         }
 
-        private async Task WriteHandshakeDetectionCompletedAsync(InspectionContext context, bool isQualified)
+        private void ApplyTerminalHandshakeResult(
+            InspectionPipelineResult pipelineResult,
+            PlcHandshakeV1Result result)
+        {
+            InspectionContext context = pipelineResult.Context;
+            context.TerminalHandshakeAttempted = true;
+            context.TerminalHandshakeSucceeded = result.Succeeded;
+            context.TerminalHandshakeErrorCode = result.ErrorCode ?? string.Empty;
+            context.TerminalHandshakeSignalName = result.SignalName ?? string.Empty;
+            context.TerminalHandshakeAddress = result.Address ?? string.Empty;
+            context.TerminalHandshakeMessage = result.Message ?? string.Empty;
+            context.CycleSucceeded = pipelineResult.ProductFlowSucceeded && result.Succeeded;
+
+            if (!result.Succeeded)
+            {
+                string productJudgement = pipelineResult.FinalQualified ? "OK" : "NG";
+                pipelineResult.StatusLevel = "error";
+                pipelineResult.StatusMessage =
+                    $"产品判定为 {productJudgement}，但 PLC 终态失败: [{result.ErrorCode}] {result.Message}";
+            }
+        }
+
+        private async Task<PlcHandshakeV1Result> WriteHandshakeDetectionCompletedAsync(InspectionContext context, bool isQualified)
         {
             if (!ShouldWriteTerminalHandshake(context))
             {
-                return;
+                return new PlcHandshakeV1Result
+                {
+                    Succeeded = true,
+                    Message = "HandshakeV1 skipped."
+                };
             }
 
             var coordinator = new PlcHandshakeV1Coordinator(_plcService, DiagLog);
@@ -1253,6 +1343,7 @@ namespace ClearFrost.Services
             }
 
             DiagLog($"HandshakeV1完成[{context.InspectionId}]: Result={(isQualified ? "OK" : "NG")}, ResultSeq={context.ResultSeq?.ToString() ?? "-"}, Ack={result.ResultAckReceived}");
+            return result;
         }
 
         private bool ShouldWriteTerminalHandshake(InspectionContext context)

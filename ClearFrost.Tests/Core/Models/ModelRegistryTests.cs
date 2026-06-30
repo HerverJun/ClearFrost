@@ -339,6 +339,184 @@ public class ModelRegistryTests
     }
 
     [Fact]
+    public void ResolveReference_批准模型选择重启后按同一身份解析()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-stable");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "stable.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 1, 2, 3, 4 });
+            WriteApprovedManifest(packageDir, "pkg-stable", modelPath, "stable.onnx");
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+            ProductionModelReference reference = ProductionModelReference.FromApprovedPackage(registry.Entries[0]);
+
+            var reloadedRegistry = new ModelRegistry();
+            reloadedRegistry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+            ProductionModelResolutionResult resolved = reloadedRegistry.ResolveReference(reference, requireProductionApproval: true);
+
+            resolved.Succeeded.Should().BeTrue();
+            resolved.Reference.IdentityEquals(reference).Should().BeTrue();
+            resolved.ModelPath.Should().Be(Path.GetFullPath(modelPath));
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void ResolveReference_重复批准身份会FailClosed()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageA = Path.Combine(packageRoot, "pkg-a");
+            string packageB = Path.Combine(packageRoot, "pkg-b");
+            Directory.CreateDirectory(packageA);
+            Directory.CreateDirectory(packageB);
+            string modelA = Path.Combine(packageA, "model.onnx");
+            string modelB = Path.Combine(packageB, "model.onnx");
+            byte[] bytes = new byte[] { 7, 7, 7 };
+            File.WriteAllBytes(modelA, bytes);
+            File.WriteAllBytes(modelB, bytes);
+            WriteApprovedManifest(packageA, "same-id", modelA);
+            WriteApprovedManifest(packageB, "same-id", modelB);
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+            ProductionModelReference reference = ProductionModelReference.FromApprovedPackage(registry.Entries[0]);
+
+            ProductionModelResolutionResult resolved = registry.ResolveReference(reference, requireProductionApproval: true);
+
+            resolved.Succeeded.Should().BeFalse();
+            resolved.ErrorCode.Should().Be("ApprovedModelIdentityDuplicate");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void ResolveReference_批准模型Hash变化会FailClosed()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-hash");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 1, 2, 3 });
+            WriteApprovedManifest(packageDir, "pkg-hash", modelPath);
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+            ProductionModelReference reference = ProductionModelReference.FromApprovedPackage(registry.Entries[0]);
+            File.WriteAllBytes(modelPath, new byte[] { 9, 9, 9 });
+
+            ProductionModelResolutionResult resolved = registry.ResolveReference(reference, requireProductionApproval: true);
+
+            resolved.Succeeded.Should().BeFalse();
+            resolved.ErrorCode.Should().Be("ApprovedModelHashMismatch");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void MigrateLegacyReference_准入开启时旧文件名匹配多个批准包会阻止生产()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageA = Path.Combine(packageRoot, "pkg-a");
+            string packageB = Path.Combine(packageRoot, "pkg-b");
+            Directory.CreateDirectory(packageA);
+            Directory.CreateDirectory(packageB);
+            string modelA = Path.Combine(packageA, "same.onnx");
+            string modelB = Path.Combine(packageB, "same.onnx");
+            File.WriteAllBytes(modelA, new byte[] { 1 });
+            File.WriteAllBytes(modelB, new byte[] { 2 });
+            WriteApprovedManifest(packageA, "pkg-a", modelA, "same.onnx");
+            WriteApprovedManifest(packageB, "pkg-b", modelB, "same.onnx");
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            ProductionModelResolutionResult migrated = registry.MigrateLegacyReference("same.onnx", requireProductionApproval: true);
+
+            migrated.Succeeded.Should().BeFalse();
+            migrated.ErrorCode.Should().Be("LegacyModelApprovedMappingAmbiguous");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void ResolveReference_准入关闭时LegacyOnnx兼容裸模型()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string onnxDir = Path.Combine(tempDir, "ONNX");
+            Directory.CreateDirectory(onnxDir);
+            string modelPath = Path.Combine(onnxDir, "legacy.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 5, 6, 7 });
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions { OnnxDirectory = onnxDir });
+            ProductionModelReference reference = ProductionModelReference.FromLegacyOnnx("legacy.onnx", ComputeSha256(modelPath));
+
+            ProductionModelResolutionResult resolved = registry.ResolveReference(reference, requireProductionApproval: false);
+
+            resolved.Succeeded.Should().BeTrue();
+            resolved.ModelPath.Should().Be(Path.GetFullPath(modelPath));
+            resolved.Reference.Type.Should().Be(ProductionModelReferenceType.LegacyOnnx);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void Scan_生产准入开启时类别输入尺寸任务类型缺失会阻断()
     {
         string tempDir = CreateTempDirectory();

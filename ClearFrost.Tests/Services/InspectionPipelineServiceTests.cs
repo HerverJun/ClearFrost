@@ -499,7 +499,76 @@ public class InspectionPipelineServiceTests
             plc.Writes.Should().ContainSingle(write => write.Address == config.PlcResultValidAddress && write.Value == 1);
             plc.Writes.Should().ContainSingle(write => write.Address == config.PlcInspectionDoneAddress && write.Value == 1);
             plc.Writes.Last(write => write.Address == config.PlcVisionReadyAddress).Value.Should().Be(1);
-            database.SavedRecords.Should().BeEmpty();
+            database.SavedRecords.Should().ContainSingle();
+            DetectionRecord record = database.SavedRecords[0];
+            record.ErrorCode.Should().Be("OperationCanceled");
+            record.TerminalHandshakeAttempted.Should().BeTrue();
+            record.TerminalHandshakeSucceeded.Should().BeTrue();
+            record.CycleSucceeded.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_HandshakeV1_产品Ok但Ack超时_CycleSucceeded为False并持久化终态错误()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            config.PlcProtocolMode = PlcProtocolMode.HandshakeV1;
+            config.PlcResultAckTimeoutMs = 1;
+            var camera = new FakeCameraService(new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService();
+            plc.ReadSequence.Enqueue((true, 0));
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
+                    UsedModelName = "primary.onnx",
+                    UsedModelLabels = new[] { "part" }
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue);
+            InspectionContext context = CreateContext("CF-HANDSHAKE-ACK-TIMEOUT", triggerSeq: 44, triggerSource: "PLC");
+            context.PlcTriggerAccepted = true;
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("PLC", context.InspectionId, context.TriggerSeq, context),
+                default);
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeTrue();
+            result.StatusLevel.Should().Be("error");
+            result.StatusMessage.Should().Contain("产品判定为 OK").And.Contain("PLC 终态失败");
+            context.TerminalHandshakeAttempted.Should().BeTrue();
+            context.TerminalHandshakeSucceeded.Should().BeFalse();
+            context.TerminalHandshakeErrorCode.Should().Be("HandshakeV1.AckTimeout");
+            context.CycleSucceeded.Should().BeFalse();
+            database.SavedRecords.Should().ContainSingle();
+            DetectionRecord record = database.SavedRecords[0];
+            record.IsQualified.Should().BeTrue();
+            record.TerminalHandshakeAttempted.Should().BeTrue();
+            record.TerminalHandshakeSucceeded.Should().BeFalse();
+            record.TerminalHandshakeErrorCode.Should().Be("HandshakeV1.AckTimeout");
+            record.CycleSucceeded.Should().BeFalse();
         }
         finally
         {
@@ -773,6 +842,7 @@ public class InspectionPipelineServiceTests
         public IReadOnlyList<string> AvailableModels => Array.Empty<string>();
         public long LastInferenceMs => 0;
         public DetectionRuntimeStatus RuntimeStatus { get; } = new DetectionRuntimeStatus();
+        public DetectionRuntimeModelSnapshot RuntimeModelSnapshot { get; } = new DetectionRuntimeModelSnapshot();
 
         public Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
         public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);

@@ -44,7 +44,7 @@ namespace ClearFrost
             AppConfig config,
             IEnumerable<object> cameras,
             string activeCameraId,
-            string[] models,
+            object models,
             StatisticsSnapshot stats,
             object health,
             string storagePath)

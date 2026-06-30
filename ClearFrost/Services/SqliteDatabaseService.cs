@@ -29,6 +29,13 @@ namespace ClearFrost.Services
             "TriggerSeq",
             "PlcTriggerSeq",
             "ResultSeq",
+            "TerminalHandshakeAttempted",
+            "TerminalHandshakeSucceeded",
+            "TerminalHandshakeErrorCode",
+            "TerminalHandshakeSignalName",
+            "TerminalHandshakeAddress",
+            "TerminalHandshakeMessage",
+            "CycleSucceeded",
             "ProductBarcode",
             "Barcode",
             "BarcodeReadSucceeded",
@@ -303,6 +310,13 @@ namespace ClearFrost.Services
                     TriggerSeq INTEGER,
                     PlcTriggerSeq INTEGER,
                     ResultSeq INTEGER,
+                    TerminalHandshakeAttempted INTEGER,
+                    TerminalHandshakeSucceeded INTEGER,
+                    TerminalHandshakeErrorCode TEXT,
+                    TerminalHandshakeSignalName TEXT,
+                    TerminalHandshakeAddress TEXT,
+                    TerminalHandshakeMessage TEXT,
+                    CycleSucceeded INTEGER,
                     ProductBarcode TEXT,
                     Barcode TEXT,
                     BarcodeReadSucceeded INTEGER,
@@ -355,6 +369,13 @@ namespace ClearFrost.Services
             AddColumnIfMissing(connection, existingColumns, "TriggerSeq", "INTEGER");
             AddColumnIfMissing(connection, existingColumns, "PlcTriggerSeq", "INTEGER");
             AddColumnIfMissing(connection, existingColumns, "ResultSeq", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "TerminalHandshakeAttempted", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "TerminalHandshakeSucceeded", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "TerminalHandshakeErrorCode", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "TerminalHandshakeSignalName", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "TerminalHandshakeAddress", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "TerminalHandshakeMessage", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "CycleSucceeded", "INTEGER");
             AddColumnIfMissing(connection, existingColumns, "ProductBarcode", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "Barcode", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "BarcodeReadSucceeded", "INTEGER");
@@ -521,6 +542,13 @@ namespace ClearFrost.Services
                         TriggerSeq,
                         PlcTriggerSeq,
                         ResultSeq,
+                        TerminalHandshakeAttempted,
+                        TerminalHandshakeSucceeded,
+                        TerminalHandshakeErrorCode,
+                        TerminalHandshakeSignalName,
+                        TerminalHandshakeAddress,
+                        TerminalHandshakeMessage,
+                        CycleSucceeded,
                         ProductBarcode,
                         Barcode,
                         BarcodeReadSucceeded,
@@ -566,6 +594,13 @@ namespace ClearFrost.Services
                         @TriggerSeq,
                         @PlcTriggerSeq,
                         @ResultSeq,
+                        @TerminalHandshakeAttempted,
+                        @TerminalHandshakeSucceeded,
+                        @TerminalHandshakeErrorCode,
+                        @TerminalHandshakeSignalName,
+                        @TerminalHandshakeAddress,
+                        @TerminalHandshakeMessage,
+                        @CycleSucceeded,
                         @ProductBarcode,
                         @Barcode,
                         @BarcodeReadSucceeded,
@@ -615,6 +650,13 @@ namespace ClearFrost.Services
                 command.Parameters.AddWithValue("@TriggerSeq", (object?)record.TriggerSeq ?? DBNull.Value);
                 command.Parameters.AddWithValue("@PlcTriggerSeq", plcTriggerSeq);
                 command.Parameters.AddWithValue("@ResultSeq", (object?)record.ResultSeq ?? DBNull.Value);
+                command.Parameters.AddWithValue("@TerminalHandshakeAttempted", record.TerminalHandshakeAttempted ? 1 : 0);
+                command.Parameters.AddWithValue("@TerminalHandshakeSucceeded", record.TerminalHandshakeSucceeded ? 1 : 0);
+                command.Parameters.AddWithValue("@TerminalHandshakeErrorCode", record.TerminalHandshakeErrorCode ?? "");
+                command.Parameters.AddWithValue("@TerminalHandshakeSignalName", record.TerminalHandshakeSignalName ?? "");
+                command.Parameters.AddWithValue("@TerminalHandshakeAddress", record.TerminalHandshakeAddress ?? "");
+                command.Parameters.AddWithValue("@TerminalHandshakeMessage", record.TerminalHandshakeMessage ?? "");
+                command.Parameters.AddWithValue("@CycleSucceeded", record.CycleSucceeded ? 1 : 0);
                 command.Parameters.AddWithValue("@ProductBarcode", record.ProductBarcode ?? "");
                 command.Parameters.AddWithValue("@Barcode", string.IsNullOrWhiteSpace(record.Barcode) ? record.ProductBarcode ?? "" : record.Barcode);
                 command.Parameters.AddWithValue(
@@ -713,6 +755,13 @@ namespace ClearFrost.Services
                         TriggerSeq = GetNullableInt32(reader, "TriggerSeq"),
                         PlcTriggerSeq = GetNullableInt32(reader, "PlcTriggerSeq") ?? GetNullableInt32(reader, "TriggerSeq"),
                         ResultSeq = GetNullableInt32(reader, "ResultSeq"),
+                        TerminalHandshakeAttempted = GetInt32OrDefault(reader, "TerminalHandshakeAttempted") == 1,
+                        TerminalHandshakeSucceeded = GetInt32OrDefault(reader, "TerminalHandshakeSucceeded") == 1,
+                        TerminalHandshakeErrorCode = GetStringOrDefault(reader, "TerminalHandshakeErrorCode"),
+                        TerminalHandshakeSignalName = GetStringOrDefault(reader, "TerminalHandshakeSignalName"),
+                        TerminalHandshakeAddress = GetStringOrDefault(reader, "TerminalHandshakeAddress"),
+                        TerminalHandshakeMessage = GetStringOrDefault(reader, "TerminalHandshakeMessage"),
+                        CycleSucceeded = GetInt32OrDefault(reader, "CycleSucceeded") == 1,
                         ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
                         Barcode = GetStringOrDefault(reader, "Barcode"),
                         BarcodeReadSucceeded = GetNullableBool(reader, "BarcodeReadSucceeded"),
@@ -830,6 +879,13 @@ namespace ClearFrost.Services
                         TriggerSeq = GetNullableInt32(reader, "TriggerSeq"),
                         PlcTriggerSeq = GetNullableInt32(reader, "PlcTriggerSeq") ?? GetNullableInt32(reader, "TriggerSeq"),
                         ResultSeq = GetNullableInt32(reader, "ResultSeq"),
+                        TerminalHandshakeAttempted = GetInt32OrDefault(reader, "TerminalHandshakeAttempted") == 1,
+                        TerminalHandshakeSucceeded = GetInt32OrDefault(reader, "TerminalHandshakeSucceeded") == 1,
+                        TerminalHandshakeErrorCode = GetStringOrDefault(reader, "TerminalHandshakeErrorCode"),
+                        TerminalHandshakeSignalName = GetStringOrDefault(reader, "TerminalHandshakeSignalName"),
+                        TerminalHandshakeAddress = GetStringOrDefault(reader, "TerminalHandshakeAddress"),
+                        TerminalHandshakeMessage = GetStringOrDefault(reader, "TerminalHandshakeMessage"),
+                        CycleSucceeded = GetInt32OrDefault(reader, "CycleSucceeded") == 1,
                         ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
                         Barcode = GetStringOrDefault(reader, "Barcode"),
                         BarcodeReadSucceeded = GetNullableBool(reader, "BarcodeReadSucceeded"),

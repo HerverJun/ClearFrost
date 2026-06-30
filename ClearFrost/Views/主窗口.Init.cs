@@ -16,6 +16,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using ClearFrost.Core.Models;
 using System.Threading.Tasks;
 using ClearFrost.Core.Recipes;
 using ClearFrost.Core.Rules;
@@ -734,7 +735,7 @@ namespace ClearFrost
                     }).ToList();
 
                     var currentStats = _statisticsService.Current;
-                    string[] modelNames = GetModelNames();
+                    object[] modelNames = GetModelListPayload();
                     await _uiController.SendBootstrapSnapshot(
                         _appConfig,
                         cameras,
@@ -808,56 +809,31 @@ namespace ClearFrost
                 try
                 {
                     if (!await EnsureRuntimeMutationAllowedAsync("辅助模型1更新")) return;
-                    if (string.IsNullOrEmpty(modelName))
+                    if (!string.IsNullOrEmpty(modelName))
                     {
-                        string previousModelName = _appConfig.Auxiliary1ModelPath;
-                        _detectionService.UnloadAuxiliary1Model();
-                        if (await CommitAuxiliaryModelConfigAsync(1, "", previousModelName, "辅助模型1更新"))
-                        {
-                            await _uiController.LogToFrontend("辅助模型1已卸载");
-                        }
-                    }
-                    else
-                    {
-                        if (IsSameModelFile(modelName, _appConfig.CurrentModelFileName))
+                        if (IsSameModelFile(modelName, _appConfig.CurrentModelReference?.ToSelectionValue() ?? _appConfig.CurrentModelFileName))
                         {
                             await _uiController.LogToFrontend("辅助模型1不能与主模型相同", "warning");
                             return;
                         }
-                        if (IsSameModelFile(modelName, _appConfig.Auxiliary2ModelPath))
+                        if (IsSameModelFile(modelName, _appConfig.Auxiliary2ModelReference?.ToSelectionValue() ?? _appConfig.Auxiliary2ModelPath))
                         {
                             await _uiController.LogToFrontend("辅助模型1不能与辅助模型2相同", "warning");
                             return;
                         }
-
-                        string modelPath = Path.Combine(模型路径, modelName);
-                        if (File.Exists(modelPath))
-                        {
-                            if (!IsModelApprovedForProduction(modelPath, out string approvalError))
-                            {
-                                await _uiController.LogToFrontend(approvalError, "error");
-                                return;
-                            }
-
-                            bool ok = await _detectionService.LoadAuxiliary1ModelAsync(modelPath);
-                            if (ok)
-                            {
-                                string previousModelName = _appConfig.Auxiliary1ModelPath;
-                                if (await CommitAuxiliaryModelConfigAsync(1, modelName, previousModelName, "辅助模型1更新"))
-                                {
-                                    await _uiController.LogToFrontend($"? 辅助模型1已加载: {modelName}");
-                                }
-                            }
-                            else
-                            {
-                                await _uiController.LogToFrontend($"辅助模型1加载失败，未保存配置: {modelName}", "error");
-                            }
-                        }
-                        else
-                        {
-                            await _uiController.LogToFrontend($"辅助模型1文件不存在: {modelName}", "error");
-                        }
                     }
+
+                    ProductionModelActivationResult result = await _modelActivationService.ActivateAuxiliaryAsync(
+                        1,
+                        modelName,
+                        "辅助模型1更新",
+                        _appConfig.EnableGpu,
+                        _appConfig.GpuIndex).ConfigureAwait(false);
+                    await _uiController.LogToFrontend(
+                        result.Succeeded
+                            ? (string.IsNullOrWhiteSpace(modelName) ? "辅助模型1已卸载" : $"辅助模型1已加载: {_appConfig.Auxiliary1ModelPath}")
+                            : $"辅助模型1更新失败: [{result.ErrorCode}] {result.Message}{FormatCompensationFailures(result)}",
+                        result.Succeeded ? "success" : "error");
                 }
                 catch (Exception ex)
                 {
@@ -870,56 +846,31 @@ namespace ClearFrost
                 try
                 {
                     if (!await EnsureRuntimeMutationAllowedAsync("辅助模型2更新")) return;
-                    if (string.IsNullOrEmpty(modelName))
+                    if (!string.IsNullOrEmpty(modelName))
                     {
-                        string previousModelName = _appConfig.Auxiliary2ModelPath;
-                        _detectionService.UnloadAuxiliary2Model();
-                        if (await CommitAuxiliaryModelConfigAsync(2, "", previousModelName, "辅助模型2更新"))
-                        {
-                            await _uiController.LogToFrontend("辅助模型2已卸载");
-                        }
-                    }
-                    else
-                    {
-                        if (IsSameModelFile(modelName, _appConfig.CurrentModelFileName))
+                        if (IsSameModelFile(modelName, _appConfig.CurrentModelReference?.ToSelectionValue() ?? _appConfig.CurrentModelFileName))
                         {
                             await _uiController.LogToFrontend("辅助模型2不能与主模型相同", "warning");
                             return;
                         }
-                        if (IsSameModelFile(modelName, _appConfig.Auxiliary1ModelPath))
+                        if (IsSameModelFile(modelName, _appConfig.Auxiliary1ModelReference?.ToSelectionValue() ?? _appConfig.Auxiliary1ModelPath))
                         {
                             await _uiController.LogToFrontend("辅助模型2不能与辅助模型1相同", "warning");
                             return;
                         }
-
-                        string modelPath = Path.Combine(模型路径, modelName);
-                        if (File.Exists(modelPath))
-                        {
-                            if (!IsModelApprovedForProduction(modelPath, out string approvalError))
-                            {
-                                await _uiController.LogToFrontend(approvalError, "error");
-                                return;
-                            }
-
-                            bool ok = await _detectionService.LoadAuxiliary2ModelAsync(modelPath);
-                            if (ok)
-                            {
-                                string previousModelName = _appConfig.Auxiliary2ModelPath;
-                                if (await CommitAuxiliaryModelConfigAsync(2, modelName, previousModelName, "辅助模型2更新"))
-                                {
-                                    await _uiController.LogToFrontend($"? 辅助模型2已加载: {modelName}");
-                                }
-                            }
-                            else
-                            {
-                                await _uiController.LogToFrontend($"辅助模型2加载失败，未保存配置: {modelName}", "error");
-                            }
-                        }
-                        else
-                        {
-                            await _uiController.LogToFrontend($"辅助模型2文件不存在: {modelName}", "error");
-                        }
                     }
+
+                    ProductionModelActivationResult result = await _modelActivationService.ActivateAuxiliaryAsync(
+                        2,
+                        modelName,
+                        "辅助模型2更新",
+                        _appConfig.EnableGpu,
+                        _appConfig.GpuIndex).ConfigureAwait(false);
+                    await _uiController.LogToFrontend(
+                        result.Succeeded
+                            ? (string.IsNullOrWhiteSpace(modelName) ? "辅助模型2已卸载" : $"辅助模型2已加载: {_appConfig.Auxiliary2ModelPath}")
+                            : $"辅助模型2更新失败: [{result.ErrorCode}] {result.Message}{FormatCompensationFailures(result)}",
+                        result.Succeeded ? "success" : "error");
                 }
                 catch (Exception ex)
                 {
@@ -1579,7 +1530,7 @@ namespace ClearFrost
 
                 await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
                 await _uiController.InitSettings(_appConfig);
-                await _uiController.SendModelList(GetModelNames());
+                await _uiController.SendModelList(GetModelListPayload());
             }
 
             await _uiController.SendProjectPresets(ProjectPresetStore.Load());
@@ -1589,27 +1540,33 @@ namespace ClearFrost
 
         private async Task WarnMissingImportedModelFilesAsync()
         {
-            if (!Directory.Exists(模型路径))
+            try
             {
-                await _uiController.LogToFrontend($"模型目录不存在: {模型路径}", "warning");
+                _appRuntime.RefreshModelRegistry();
+            }
+            catch (Exception ex)
+            {
+                await _uiController.LogToFrontend($"模型注册表刷新失败: {ex.Message}", "warning");
                 return;
             }
 
-            var modelNames = new[]
+            var slots = new[]
             {
-                _appConfig.CurrentModelFileName,
-                _appConfig.Auxiliary1ModelPath,
-                _appConfig.Auxiliary2ModelPath
-            }
-                .Select(name => name?.Trim() ?? string.Empty)
-                .Where(name => !string.IsNullOrWhiteSpace(name))
-                .Distinct(StringComparer.OrdinalIgnoreCase);
+                ("主模型", _appConfig.CurrentModelReference, _appConfig.CurrentModelFileName, false),
+                ("辅助模型1", _appConfig.Auxiliary1ModelReference, _appConfig.Auxiliary1ModelPath, true),
+                ("辅助模型2", _appConfig.Auxiliary2ModelReference, _appConfig.Auxiliary2ModelPath, true)
+            };
 
-            foreach (string modelName in modelNames)
+            foreach (var slot in slots)
             {
-                if (!File.Exists(Path.Combine(模型路径, modelName)))
+                ProductionModelResolutionResult resolution = slot.Item2 != null && !slot.Item2.IsEmpty
+                    ? _modelRegistry.ResolveReference(slot.Item2, _appConfig.RequireApprovedModelsForProduction)
+                    : _modelRegistry.MigrateLegacyReference(slot.Item3, _appConfig.RequireApprovedModelsForProduction);
+                if (!resolution.Succeeded && !(slot.Item4 && string.IsNullOrWhiteSpace(slot.Item3)))
                 {
-                    await _uiController.LogToFrontend($"导入配置引用的模型文件不存在: {modelName}", "warning");
+                    await _uiController.LogToFrontend(
+                        $"导入配置引用的{slot.Item1}不可用: [{resolution.ErrorCode}] {resolution.Message}",
+                        "warning");
                 }
             }
         }
@@ -1658,6 +1615,17 @@ namespace ClearFrost
             try
             {
                 await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
+                ProductionModelReadinessResult modelReadiness = _modelActivationService.EnsureReadyForProduction();
+                if (!modelReadiness.Succeeded)
+                {
+                    string message = $"启动系统已停止: 生产模型未就绪 [{modelReadiness.ErrorCode}] {modelReadiness.Message}";
+                    RecordHealthError("ProductionModel", message);
+                    await _uiController.LogToFrontend(message, "error");
+                    await SendHealthSnapshotToFrontendAsync();
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
                 if (!await EnsureStartupReadyForProductionAsync("启动系统"))
                 {
                     await SendHealthSnapshotToFrontendAsync();
@@ -1988,6 +1956,14 @@ namespace ClearFrost
                 return false;
             }
 
+            if (ProductionModelReference.TryParseSelectionValue(a, out ProductionModelReference left) &&
+                ProductionModelReference.TryParseSelectionValue(b, out ProductionModelReference right) &&
+                !left.IsEmpty &&
+                !right.IsEmpty)
+            {
+                return left.IdentityEquals(right);
+            }
+
             string nameA = Path.GetFileNameWithoutExtension(a.Trim());
             string nameB = Path.GetFileNameWithoutExtension(b.Trim());
             return string.Equals(nameA, nameB, StringComparison.OrdinalIgnoreCase);
@@ -1997,24 +1973,16 @@ namespace ClearFrost
         {
             await _uiController.LogToFrontend("开始加载模型列表...");
 
-            if (!Directory.Exists(模型路径))
-            {
-                await _uiController.LogToFrontend($"模型目录不存在: {模型路径}", "warning");
-                await _uiController.SendModelList(Array.Empty<string>());
-                RefreshStartupDiagnostics();
-                return;
-            }
-
             await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
-            var names = GetModelNames();
-            await _uiController.LogToFrontend($"找到 {names.Length} 个ONNX模型文件");
+            object[] names = GetModelListPayload();
+            await _uiController.LogToFrontend($"找到 {names.Length} 个可选模型");
 
             await _uiController.LogToFrontend($"? 已通过 SendModelList 推送 {names.Length} 个模型");
         }
 
         private async Task RefreshRuntimeModelStateAsync(bool loadDefaultModelIfMissing, bool pushModelList)
         {
-            string[] names = GetModelNames();
+            object[] names = GetModelListPayload();
             if (pushModelList)
             {
                 await _uiController.SendModelList(names);
@@ -2024,30 +1992,36 @@ namespace ClearFrost
                 !_detectionService.IsModelLoaded &&
                 names.Length > 0)
             {
-                string? preferredModel = ResolvePreferredModelFileName();
-                if (!string.IsNullOrWhiteSpace(preferredModel))
-                {
-                    await _uiController.LogToFrontend($"检测到可用模型，正在加载: {preferredModel}", "info");
-                    await InitYoloAsync();
-                }
+                await _uiController.LogToFrontend("检测到可用模型配置，正在按 AppConfig 引用加载", "info");
+                await InitYoloAsync();
             }
 
             RefreshStartupDiagnostics();
         }
 
-        private string[] GetModelNames()
+        private object[] GetModelListPayload()
         {
-            if (!Directory.Exists(模型路径))
+            try
             {
-                return Array.Empty<string>();
+                return _modelActivationService.GetSelectionOptions()
+                    .Select(option => new
+                    {
+                        value = option.Value,
+                        text = option.Text,
+                        modelId = option.ModelId,
+                        version = option.Version,
+                        sha256 = option.Sha256,
+                        fileName = option.FileName,
+                        isApprovedPackage = option.IsApprovedPackage
+                    })
+                    .Cast<object>()
+                    .ToArray();
             }
-
-            return Directory.GetFiles(模型路径, "*.onnx")
-                .Select(Path.GetFileName)
-                .Where(n => !string.IsNullOrEmpty(n))
-                .Cast<string>()
-                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ModelList] 获取模型列表失败: {ex.Message}");
+                return Array.Empty<object>();
+            }
         }
 
         private void InitDirectories()

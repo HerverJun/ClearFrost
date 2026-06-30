@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Config;
@@ -65,6 +67,7 @@ namespace ClearFrost.Services
         public string ErrorCode { get; init; } = string.Empty;
         public string SignalName { get; init; } = string.Empty;
         public string Address { get; init; } = string.Empty;
+        public IReadOnlyList<PlcHandshakeV1Failure> CompensationFailures { get; init; } = Array.Empty<PlcHandshakeV1Failure>();
     }
 
     internal sealed class PlcHandshakeV1Failure
@@ -96,26 +99,40 @@ namespace ClearFrost.Services
                 ? addresses.TriggerAddress
                 : triggerContext.TriggerAddress;
 
-            PlcHandshakeV1Failure? failure =
-                await TryWriteWordAsync(addresses.VisionOnlineAddress, 1, "VisionOnline", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.VisionReadyAddress, 0, "VisionReady", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.VisionBusyAddress, 1, "VisionBusy", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.InspectionDoneAddress, 0, "InspectionDone", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.ResultValidAddress, 0, "ResultValid", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.TraceSavedAddress, 0, "TraceSaved", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.ErrorCodeAddress, 0, "ErrorCode", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(
+            PlcHandshakeV1Failure? failure = null;
+            bool triggerAckPublished = false;
+
+            failure ??= await TryWriteWordAsync(addresses.VisionOnlineAddress, 1, "VisionOnline", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.VisionReadyAddress, 0, "VisionReady", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.VisionBusyAddress, 1, "VisionBusy", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.InspectionDoneAddress, 0, "InspectionDone", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.ResultValidAddress, 0, "ResultValid", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.TraceSavedAddress, 0, "TraceSaved", cancellationToken).ConfigureAwait(false);
+            if (failure == null)
+            {
+                failure = await TryWriteWordAsync(
                     addresses.TriggerAckAddress,
                     triggerContext.TriggerSeq.HasValue ? ClampIntToShort(triggerContext.TriggerSeq.Value) : (short)1,
                     "TriggerAck",
-                    cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(triggerAddress, 0, "Trigger.Clear", cancellationToken).ConfigureAwait(false);
+                    cancellationToken).ConfigureAwait(false);
+                triggerAckPublished = failure == null;
+            }
+
+            if (failure == null)
+            {
+                failure = await TryWriteWordAsync(triggerAddress, 0, "Trigger.Clear", cancellationToken).ConfigureAwait(false);
+            }
 
             if (failure != null)
             {
-                await ResetAcceptedAsync(addresses, cancellationToken).ConfigureAwait(false);
+                bool triggerAckMayBeSet = triggerAckPublished ||
+                    string.Equals(failure.SignalName, "TriggerAck", StringComparison.OrdinalIgnoreCase);
+                IReadOnlyList<PlcHandshakeV1Failure> compensationFailures =
+                    await EnterSafeStateAsync(addresses, triggerAckMayBeSet, triggerContext.TriggerSeq, triggerContext.TriggerAddress, "Accept", cancellationToken)
+                        .ConfigureAwait(false);
                 sw.Stop();
-                return Fail(failure, sw.ElapsedMilliseconds);
+                LogFailureWithCompensation(triggerContext.TriggerSeq, failure, compensationFailures);
+                return Fail(failure, sw.ElapsedMilliseconds, compensationFailures: compensationFailures);
             }
 
             sw.Stop();
@@ -130,16 +147,16 @@ namespace ClearFrost.Services
             CancellationToken cancellationToken = default)
         {
             var sw = Stopwatch.StartNew();
-            PlcHandshakeV1Failure? failure =
-                await TryWriteWordAsync(addresses.VisionOnlineAddress, 1, "VisionOnline", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.VisionReadyAddress, 0, "VisionReady", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.VisionBusyAddress, 0, "VisionBusy", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.TriggerAckAddress, 0, "TriggerAck.Reset", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.ErrorCodeAddress, errorCode, "ErrorCode", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.ResultValidAddress, 0, "ResultValid", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.InspectionDoneAddress, 0, "InspectionDone", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.TraceSavedAddress, 0, "TraceSaved", cancellationToken).ConfigureAwait(false) ??
-                await TryWriteWordAsync(addresses.HeartbeatAddress, 1, "Heartbeat", cancellationToken).ConfigureAwait(false);
+            PlcHandshakeV1Failure? failure = null;
+            failure ??= await TryWriteWordAsync(addresses.VisionOnlineAddress, 1, "VisionOnline", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.VisionReadyAddress, 0, "VisionReady", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.VisionBusyAddress, 0, "VisionBusy", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.TriggerAckAddress, 0, "TriggerAck.Reset", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.ErrorCodeAddress, errorCode, "ErrorCode", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.ResultValidAddress, 0, "ResultValid", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.InspectionDoneAddress, 0, "InspectionDone", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.TraceSavedAddress, 0, "TraceSaved", cancellationToken).ConfigureAwait(false);
+            failure ??= await TryWriteWordAsync(addresses.HeartbeatAddress, 1, "Heartbeat", cancellationToken).ConfigureAwait(false);
 
             if (failure == null && clearTrigger)
             {
@@ -151,8 +168,12 @@ namespace ClearFrost.Services
 
             if (failure != null)
             {
+                IReadOnlyList<PlcHandshakeV1Failure> compensationFailures =
+                    await EnterSafeStateAsync(addresses, accepted: false, triggerContext.TriggerSeq, triggerContext.TriggerAddress, "Reject", cancellationToken)
+                        .ConfigureAwait(false);
                 sw.Stop();
-                return Fail(failure, sw.ElapsedMilliseconds);
+                LogFailureWithCompensation(triggerContext.TriggerSeq, failure, compensationFailures);
+                return Fail(failure, sw.ElapsedMilliseconds, compensationFailures: compensationFailures);
             }
 
             sw.Stop();
@@ -178,8 +199,12 @@ namespace ClearFrost.Services
             PlcHandshakeV1Failure? ackPreconditionFailure = await EnsureResultAckIsZeroAsync(addresses, cancellationToken).ConfigureAwait(false);
             if (ackPreconditionFailure != null)
             {
+                IReadOnlyList<PlcHandshakeV1Failure> compensationFailures =
+                    await EnterSafeStateAsync(addresses, context.PlcTriggerAccepted, context.TriggerSeq, null, context.InspectionId, cancellationToken)
+                        .ConfigureAwait(false);
                 sw.Stop();
-                return Fail(ackPreconditionFailure, sw.ElapsedMilliseconds);
+                LogFailureWithCompensation(context.InspectionId, ackPreconditionFailure, compensationFailures);
+                return Fail(ackPreconditionFailure, sw.ElapsedMilliseconds, compensationFailures: compensationFailures);
             }
 
             PlcHandshakeV1Failure? failure =
@@ -197,15 +222,23 @@ namespace ClearFrost.Services
             failure ??= await TryWriteWordAsync(addresses.HeartbeatAddress, 1, "Heartbeat", cancellationToken).ConfigureAwait(false);
             if (failure != null)
             {
+                IReadOnlyList<PlcHandshakeV1Failure> compensationFailures =
+                    await EnterSafeStateAsync(addresses, context.PlcTriggerAccepted, context.TriggerSeq, null, context.InspectionId, cancellationToken)
+                        .ConfigureAwait(false);
                 sw.Stop();
-                return Fail(failure, sw.ElapsedMilliseconds);
+                LogFailureWithCompensation(context.InspectionId, failure, compensationFailures);
+                return Fail(failure, sw.ElapsedMilliseconds, compensationFailures: compensationFailures);
             }
 
             PlcHandshakeV1Failure? ackFailure = await WaitForResultAckAsync(addresses, cancellationToken).ConfigureAwait(false);
             if (ackFailure != null)
             {
+                IReadOnlyList<PlcHandshakeV1Failure> compensationFailures =
+                    await EnterSafeStateAsync(addresses, context.PlcTriggerAccepted, context.TriggerSeq, null, context.InspectionId, cancellationToken)
+                        .ConfigureAwait(false);
                 sw.Stop();
-                return Fail(ackFailure, sw.ElapsedMilliseconds);
+                LogFailureWithCompensation(context.InspectionId, ackFailure, compensationFailures);
+                return Fail(ackFailure, sw.ElapsedMilliseconds, compensationFailures: compensationFailures);
             }
 
             failure =
@@ -219,8 +252,12 @@ namespace ClearFrost.Services
             failure ??= await TryWriteWordAsync(addresses.VisionReadyAddress, 1, "VisionReady", cancellationToken).ConfigureAwait(false);
             if (failure != null)
             {
+                IReadOnlyList<PlcHandshakeV1Failure> compensationFailures =
+                    await EnterSafeStateAsync(addresses, context.PlcTriggerAccepted, context.TriggerSeq, null, context.InspectionId, cancellationToken)
+                        .ConfigureAwait(false);
                 sw.Stop();
-                return Fail(failure, sw.ElapsedMilliseconds, resultAckReceived: true);
+                LogFailureWithCompensation(context.InspectionId, failure, compensationFailures);
+                return Fail(failure, sw.ElapsedMilliseconds, resultAckReceived: true, compensationFailures: compensationFailures);
             }
 
             sw.Stop();
@@ -233,12 +270,63 @@ namespace ClearFrost.Services
             };
         }
 
-        public async Task ResetAcceptedAsync(
+        public async Task<IReadOnlyList<PlcHandshakeV1Failure>> ResetAcceptedAsync(
             PlcHandshakeV1Addresses addresses,
             CancellationToken cancellationToken = default)
         {
-            await TryWriteWordAsync(addresses.VisionBusyAddress, 0, "VisionBusy.Reset", cancellationToken).ConfigureAwait(false);
-            await TryWriteWordAsync(addresses.TriggerAckAddress, 0, "TriggerAck.Reset", cancellationToken).ConfigureAwait(false);
+            return await EnterSafeStateAsync(
+                addresses,
+                accepted: true,
+                triggerSeq: null,
+                triggerAddress: null,
+                inspectionId: "ResetAccepted",
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task<IReadOnlyList<PlcHandshakeV1Failure>> EnterSafeStateAsync(
+            PlcHandshakeV1Addresses addresses,
+            bool accepted,
+            int? triggerSeq,
+            string? triggerAddress,
+            string inspectionId,
+            CancellationToken cancellationToken)
+        {
+            var failures = new List<PlcHandshakeV1Failure>();
+
+            async Task WriteSafeAsync(string address, short value, string signalName)
+            {
+                PlcHandshakeV1Failure? failure = await TryWriteWordAsync(address, value, signalName, cancellationToken)
+                    .ConfigureAwait(false);
+                if (failure != null)
+                {
+                    failures.Add(failure);
+                }
+            }
+
+            await WriteSafeAsync(addresses.VisionReadyAddress, 0, "Safety.VisionReady").ConfigureAwait(false);
+            await WriteSafeAsync(addresses.VisionBusyAddress, 0, "Safety.VisionBusy").ConfigureAwait(false);
+            await WriteSafeAsync(addresses.ResultValidAddress, 0, "Safety.ResultValid").ConfigureAwait(false);
+            await WriteSafeAsync(addresses.InspectionDoneAddress, 0, "Safety.InspectionDone").ConfigureAwait(false);
+            await WriteSafeAsync(addresses.TraceSavedAddress, 0, "Safety.TraceSaved").ConfigureAwait(false);
+            if (accepted)
+            {
+                await WriteSafeAsync(addresses.TriggerAckAddress, 0, "Safety.TriggerAck").ConfigureAwait(false);
+            }
+
+            string id = string.IsNullOrWhiteSpace(inspectionId)
+                ? triggerSeq?.ToString() ?? "-"
+                : inspectionId;
+            if (failures.Count > 0)
+            {
+                _log?.Invoke(
+                    $"HandshakeV1安全态补偿失败[{id}]: {string.Join("; ", failures.Select(f => $"{f.SignalName}@{f.Address}:{f.ErrorCode}"))}");
+            }
+            else
+            {
+                _log?.Invoke($"HandshakeV1已进入安全态[{id}]");
+            }
+
+            return failures;
         }
 
         private async Task<PlcHandshakeV1Failure?> EnsureResultAckIsZeroAsync(
@@ -425,7 +513,8 @@ namespace ClearFrost.Services
         private static PlcHandshakeV1Result Fail(
             PlcHandshakeV1Failure failure,
             long elapsedMs,
-            bool resultAckReceived = false)
+            bool resultAckReceived = false,
+            IReadOnlyList<PlcHandshakeV1Failure>? compensationFailures = null)
         {
             return new PlcHandshakeV1Result
             {
@@ -435,8 +524,22 @@ namespace ClearFrost.Services
                 ResultAckReceived = resultAckReceived,
                 ErrorCode = failure.ErrorCode,
                 SignalName = failure.SignalName,
-                Address = failure.Address
+                Address = failure.Address,
+                CompensationFailures = compensationFailures ?? Array.Empty<PlcHandshakeV1Failure>()
             };
+        }
+
+        private void LogFailureWithCompensation(
+            object? inspectionId,
+            PlcHandshakeV1Failure primaryFailure,
+            IReadOnlyList<PlcHandshakeV1Failure> compensationFailures)
+        {
+            string id = inspectionId?.ToString() ?? "-";
+            string compensation = compensationFailures.Count == 0
+                ? "none"
+                : string.Join("; ", compensationFailures.Select(f => $"{f.SignalName}@{f.Address}:{f.ErrorCode}"));
+            _log?.Invoke(
+                $"HandshakeV1失败[{id}]: Primary={primaryFailure.ErrorCode} {primaryFailure.SignalName}@{primaryFailure.Address}; CompensationFailures={compensation}");
         }
 
         private static short MapHandshakeErrorCode(InspectionContext context)

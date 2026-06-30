@@ -43,6 +43,7 @@ namespace ClearFrost
         private readonly InspectionPipelineService _inspectionPipelineService;
         private readonly RecipeManager _recipeManager;
         private readonly ModelRegistry _modelRegistry;
+        private readonly ProductionModelActivationService _modelActivationService;
         private readonly HealthMonitor _healthMonitor;
         private readonly StartupDiagnostics _startupDiagnostics;
         private readonly ISerialPhotoelectricTriggerService _serialTriggerService;

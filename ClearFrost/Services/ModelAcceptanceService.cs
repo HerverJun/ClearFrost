@@ -127,48 +127,16 @@ namespace ClearFrost.Services
                 return validation;
             }
 
-            ModelProductionState state = LoadState();
-            if (!string.Equals(state.CurrentModelPath, entry.ModelPath, StringComparison.OrdinalIgnoreCase))
-            {
-                state.PreviousModelId = state.CurrentModelId;
-                state.PreviousVersion = state.CurrentVersion;
-                state.PreviousModelPath = state.CurrentModelPath;
-            }
-
-            state.CurrentModelId = entry.ModelId;
-            state.CurrentVersion = entry.Version;
-            state.CurrentModelPath = entry.ModelPath;
-            state.UpdatedAt = DateTimeOffset.Now;
-            SaveState(state);
-
             return new ModelAcceptanceResult
             {
                 Succeeded = true,
-                Message = "模型生产状态已记录；运行时加载由统一激活入口完成。"
+                Message = "模型已通过生产启用校验；生产选择以 AppConfig 模型引用为唯一权威。"
             };
         }
 
         public ModelProductionState RollbackToPrevious()
         {
-            ModelProductionState state = LoadState();
-            if (string.IsNullOrWhiteSpace(state.PreviousModelPath))
-            {
-                throw new InvalidOperationException("没有可回滚的上一批准模型。");
-            }
-
-            string currentId = state.CurrentModelId;
-            string currentVersion = state.CurrentVersion;
-            string currentPath = state.CurrentModelPath;
-
-            state.CurrentModelId = state.PreviousModelId;
-            state.CurrentVersion = state.PreviousVersion;
-            state.CurrentModelPath = state.PreviousModelPath;
-            state.PreviousModelId = currentId;
-            state.PreviousVersion = currentVersion;
-            state.PreviousModelPath = currentPath;
-            state.UpdatedAt = DateTimeOffset.Now;
-            SaveState(state);
-            return state;
+            throw new InvalidOperationException("模型生产选择以 AppConfig 为唯一权威，ModelAcceptanceService 不再执行生产回滚。");
         }
 
         public ModelProductionState LoadState()

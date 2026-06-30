@@ -262,6 +262,7 @@ public class HealthMonitorTests
         public IReadOnlyList<string> AvailableModels => Array.Empty<string>();
         public long LastInferenceMs => 0;
         public DetectionRuntimeStatus RuntimeStatus { get; } = new DetectionRuntimeStatus();
+        public DetectionRuntimeModelSnapshot RuntimeModelSnapshot { get; } = new DetectionRuntimeModelSnapshot();
 
         public Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
         public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);

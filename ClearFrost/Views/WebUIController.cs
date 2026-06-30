@@ -456,7 +456,7 @@ namespace ClearFrost
         /// <summary>
         /// Sends the model list to the frontend (Requirement from Step 177/147).
         /// </summary>
-        public Task SendModelList(string[] models)
+        public Task SendModelList(object models)
         {
             PostMessage("modelList", new { models = models });
             return Task.CompletedTask;

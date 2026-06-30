@@ -65,7 +65,6 @@ public class PlcHandshakeV1CoordinatorTests
             template.InspectionDoneAddress,
             template.ResultValidAddress,
             template.TraceSavedAddress,
-            template.ErrorCodeAddress,
             template.TriggerAckAddress
         };
 
@@ -208,6 +207,37 @@ public class PlcHandshakeV1CoordinatorTests
         result.Succeeded.Should().BeFalse();
         plc.Writes.Should().NotContain(write => write.Address == addresses.VisionReadyAddress && write.Value == 1);
         plc.LastValue(addresses.VisionBusyAddress).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CompleteInspectionAsync_Ack超时后进入安全态且补偿失败不覆盖主错误()
+    {
+        var plc = new SimulatedPlcService();
+        PlcHandshakeV1Addresses addresses = CreateAddresses(resultAckTimeoutMs: 1);
+        plc.ReadValues[addresses.ResultAckAddress] = 0;
+        plc.FailWriteOnAttempt[addresses.TraceSavedAddress] = 2;
+        var coordinator = new PlcHandshakeV1Coordinator(plc);
+
+        PlcHandshakeV1Result result = await coordinator.CompleteInspectionAsync(
+            addresses,
+            new InspectionContext
+            {
+                InspectionId = "CF-HS-SAFE",
+                PlcTriggerAccepted = true,
+                TriggerSeq = 9,
+                TraceStatus = TraceStatus.Partial
+            },
+            isQualified: true);
+
+        result.Succeeded.Should().BeFalse();
+        result.ErrorCode.Should().Be("HandshakeV1.AckTimeout");
+        result.CompensationFailures.Should().ContainSingle(f => f.SignalName == "Safety.TraceSaved");
+        plc.Writes.Should().NotContain(write => write.Address == addresses.VisionReadyAddress && write.Value == 1);
+        plc.LastValue(addresses.VisionReadyAddress).Should().Be(0);
+        plc.LastValue(addresses.VisionBusyAddress).Should().Be(0);
+        plc.LastValue(addresses.ResultValidAddress).Should().Be(0);
+        plc.LastValue(addresses.InspectionDoneAddress).Should().Be(0);
+        plc.LastValue(addresses.TriggerAckAddress).Should().Be(0);
     }
 
     [Fact]
