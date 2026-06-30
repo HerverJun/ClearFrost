@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Config;
@@ -197,126 +198,20 @@ namespace ClearFrost.Services
             int gpuIndex,
             CancellationToken cancellationToken = default)
         {
-            ClearFault();
             _refreshRegistry();
-            AppConfig previousConfig = CaptureConfig();
-            DetectionRuntimeModelSnapshot previousRuntime = _detectionService.RuntimeModelSnapshot;
-
-            List<string> compensationFailures = new List<string>();
-            bool changedConfig = false;
-
-            ProductionModelResolutionResult primary = ResolveConfiguredOrLegacy(
-                _config.CurrentModelReference,
-                _config.CurrentModelFileName,
-                allowEmpty: false,
-                out bool primaryMigrated);
-            if (!primary.Succeeded)
+            if (!TryResolveConfiguredCandidates(out IReadOnlyList<SlotCandidate> candidates, out ProductionModelActivationResult failure))
             {
-                return ProductionModelActivationResult.Fail(primary.ErrorCode, primary.Message, primary.Reference);
+                return failure;
             }
 
-            changedConfig |= primaryMigrated || !ReferenceEqualsByIdentity(_config.CurrentModelReference, primary.Reference);
-            ApplyReferenceToConfig(ModelRole.Primary, primary);
-
-            ProductionModelResolutionResult aux1 = ResolveConfiguredOrLegacy(
-                _config.Auxiliary1ModelReference,
-                _config.Auxiliary1ModelPath,
-                allowEmpty: true,
-                out bool aux1Migrated);
-            if (!aux1.Succeeded)
-            {
-                return ProductionModelActivationResult.Fail(aux1.ErrorCode, aux1.Message, aux1.Reference);
-            }
-
-            changedConfig |= aux1Migrated || !ReferenceEqualsByIdentity(_config.Auxiliary1ModelReference, aux1.Reference);
-            ApplyReferenceToConfig(ModelRole.Auxiliary1, aux1);
-
-            ProductionModelResolutionResult aux2 = ResolveConfiguredOrLegacy(
-                _config.Auxiliary2ModelReference,
-                _config.Auxiliary2ModelPath,
-                allowEmpty: true,
-                out bool aux2Migrated);
-            if (!aux2.Succeeded)
-            {
-                return ProductionModelActivationResult.Fail(aux2.ErrorCode, aux2.Message, aux2.Reference);
-            }
-
-            changedConfig |= aux2Migrated || !ReferenceEqualsByIdentity(_config.Auxiliary2ModelReference, aux2.Reference);
-            ApplyReferenceToConfig(ModelRole.Auxiliary2, aux2);
-
-            try
-            {
-                if (!await LoadResolvedSlotAsync(ModelRole.Primary, primary.ModelPath, useGpu, gpuIndex, cancellationToken).ConfigureAwait(false))
-                {
-                    RestoreConfigOnly(previousConfig);
-                    return ProductionModelActivationResult.Fail(
-                        "RuntimeModelLoadFailed",
-                        $"模型加载失败: {Path.GetFileName(primary.ModelPath)}",
-                        primary.Reference);
-                }
-
-                if (!aux1.Reference.IsEmpty &&
-                    !await LoadResolvedSlotAsync(ModelRole.Auxiliary1, aux1.ModelPath, useGpu, gpuIndex, cancellationToken).ConfigureAwait(false))
-                {
-                    RestoreConfigOnly(previousConfig);
-                    return ProductionModelActivationResult.Fail(
-                        "RuntimeAuxiliary1LoadFailed",
-                        $"辅助模型1加载失败: {Path.GetFileName(aux1.ModelPath)}",
-                        aux1.Reference);
-                }
-
-                if (aux1.Reference.IsEmpty)
-                {
-                    _detectionService.UnloadAuxiliary1Model();
-                }
-
-                if (!aux2.Reference.IsEmpty &&
-                    !await LoadResolvedSlotAsync(ModelRole.Auxiliary2, aux2.ModelPath, useGpu, gpuIndex, cancellationToken).ConfigureAwait(false))
-                {
-                    RestoreConfigOnly(previousConfig);
-                    return ProductionModelActivationResult.Fail(
-                        "RuntimeAuxiliary2LoadFailed",
-                        $"辅助模型2加载失败: {Path.GetFileName(aux2.ModelPath)}",
-                        aux2.Reference);
-                }
-
-                if (aux2.Reference.IsEmpty)
-                {
-                    _detectionService.UnloadAuxiliary2Model();
-                }
-
-                if (changedConfig || RecipeModelReferencesDiffer(_recipeManager.CurrentRecipe))
-                {
-                    CommitConfigAndRecipe(operation);
-                }
-
-                ProductionModelReadinessResult readiness = EnsureReadyForProduction();
-                if (!readiness.Succeeded)
-                {
-                    throw new InvalidOperationException($"{readiness.ErrorCode}: {readiness.Message}");
-                }
-
-                return ProductionModelActivationResult.Ok($"{operation}完成", primary.Reference, primary.ModelPath);
-            }
-            catch (Exception ex)
-            {
-                await CompensateAsync(previousConfig, previousRuntime, useGpu, gpuIndex, compensationFailures).ConfigureAwait(false);
-                if (compensationFailures.Count > 0)
-                {
-                    MarkFaulted(ex.Message, compensationFailures);
-                    return ProductionModelActivationResult.Fail(
-                        "ModelActivationFaulted",
-                        $"模型激活提交失败且补偿失败: {ex.Message}",
-                        primary.Reference,
-                        isFaulted: true,
-                        compensationFailures);
-                }
-
-                return ProductionModelActivationResult.Fail(
-                    "ModelActivationCommitFailed",
-                    $"模型激活提交失败，已恢复激活前状态: {ex.Message}",
-                    primary.Reference);
-            }
+            SlotCandidate primary = candidates.First(candidate => candidate.Role == ModelRole.Primary);
+            return await ExecuteActivationTransactionAsync(
+                candidates,
+                primary,
+                operation,
+                useGpu,
+                gpuIndex,
+                cancellationToken).ConfigureAwait(false);
         }
 
         public ProductionModelReadinessResult EnsureReadyForProduction()
@@ -326,8 +221,456 @@ namespace ClearFrost.Services
                 return ProductionModelReadinessResult.Fail("ModelActivationFaulted", FaultMessage);
             }
 
+            return EnsureActualConsistency();
+        }
+
+        private async Task<ProductionModelActivationResult> ActivateSlotAsync(
+            ModelRole role,
+            string selectionValue,
+            string operation,
+            bool useGpu,
+            int gpuIndex,
+            bool allowEmpty,
+            CancellationToken cancellationToken)
+        {
             _refreshRegistry();
 
+            ProductionModelResolutionResult selected = ResolveSelectionValue(selectionValue, allowEmpty);
+            if (!selected.Succeeded)
+            {
+                return FailPreservingFault(selected.ErrorCode, selected.Message, selected.Reference);
+            }
+
+            if (!TryBuildSlotActivationCandidates(role, selected, out IReadOnlyList<SlotCandidate> candidates, out ProductionModelActivationResult failure))
+            {
+                return failure;
+            }
+
+            SlotCandidate target = candidates.First(candidate => candidate.Role == role);
+            return await ExecuteActivationTransactionAsync(
+                candidates,
+                target,
+                operation,
+                useGpu,
+                gpuIndex,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task<ProductionModelActivationResult> ExecuteActivationTransactionAsync(
+            IReadOnlyList<SlotCandidate> candidates,
+            SlotCandidate resultSlot,
+            string operation,
+            bool useGpu,
+            int gpuIndex,
+            CancellationToken cancellationToken)
+        {
+            bool wasFaulted = IsFaulted;
+            AppConfig previousConfig = CaptureConfig();
+            Recipe previousRecipe = _recipeManager.CaptureCurrentSnapshot();
+            DetectionRuntimeModelSnapshot previousRuntime = _detectionService.RuntimeModelSnapshot;
+            var transitionState = new RuntimeTransitionState();
+            var compensationFailures = new List<string>();
+            bool configTouched = false;
+
+            try
+            {
+                await TransitionRuntimeAsync(candidates, useGpu, gpuIndex, transitionState, cancellationToken)
+                    .ConfigureAwait(false);
+
+                ProductionModelReadinessResult preCommit = ValidateCandidatesBeforeCommit(candidates);
+                if (!preCommit.Succeeded)
+                {
+                    throw ActivationTransactionException.FromReadiness(preCommit, resultSlot.Reference);
+                }
+
+                AppConfig candidateConfig = CaptureConfig();
+                foreach (SlotCandidate candidate in candidates)
+                {
+                    ApplyReferenceToConfig(candidateConfig, candidate);
+                }
+
+                _config.CopyFrom(candidateConfig);
+                configTouched = true;
+                if (!_saveConfig())
+                {
+                    throw new ActivationTransactionException(
+                        "AppConfigCommitFailed",
+                        _config.LastError ?? "AppConfig save failed.",
+                        resultSlot.Reference);
+                }
+
+                _recipeManager.SaveNewVersion(
+                    _config,
+                    _roiSnapshotProvider(),
+                    _operatorIdProvider(),
+                    _operatorRoleProvider(),
+                    operation);
+
+                ProductionModelReadinessResult consistency = EnsureActualConsistency();
+                if (!consistency.Succeeded)
+                {
+                    throw ActivationTransactionException.FromReadiness(consistency, resultSlot.Reference);
+                }
+
+                ClearFault();
+                return ProductionModelActivationResult.Ok(
+                    $"{operation} completed.",
+                    resultSlot.Reference,
+                    resultSlot.ModelPath);
+            }
+            catch (Exception ex)
+            {
+                ActivationTransactionException failure = ActivationTransactionException.Wrap(ex, resultSlot.Reference);
+                if (transitionState.RuntimeChanged || configTouched)
+                {
+                    await CompensateAsync(
+                        previousConfig,
+                        previousRecipe,
+                        previousRuntime,
+                        configTouched,
+                        useGpu,
+                        gpuIndex,
+                        compensationFailures).ConfigureAwait(false);
+                }
+
+                if (compensationFailures.Count > 0)
+                {
+                    MarkFaulted(failure.Message, compensationFailures);
+                    return ProductionModelActivationResult.Fail(
+                        "ModelActivationFaulted",
+                        $"Model activation failed and compensation failed: {failure.Message}",
+                        failure.Reference,
+                        isFaulted: true,
+                        compensationFailures);
+                }
+
+                if (wasFaulted)
+                {
+                    AppendFaultedFailure(failure.Message);
+                    return ProductionModelActivationResult.Fail(
+                        failure.ErrorCode,
+                        $"Model recovery attempt failed; existing fault remains latched: {failure.Message}",
+                        failure.Reference,
+                        isFaulted: true);
+                }
+
+                return ProductionModelActivationResult.Fail(
+                    failure.ErrorCode,
+                    transitionState.RuntimeChanged || configTouched
+                        ? $"Model activation failed; previous state restored: {failure.Message}"
+                        : failure.Message,
+                    failure.Reference);
+            }
+        }
+
+        private bool TryResolveConfiguredCandidates(
+            out IReadOnlyList<SlotCandidate> candidates,
+            out ProductionModelActivationResult failure)
+        {
+            var resolved = new List<SlotCandidate>();
+
+            if (!TryResolveConfiguredSlot(
+                    ModelRole.Primary,
+                    _config.CurrentModelReference,
+                    _config.CurrentModelFileName,
+                    allowEmpty: false,
+                    resolved,
+                    out failure))
+            {
+                candidates = Array.Empty<SlotCandidate>();
+                return false;
+            }
+
+            if (!TryResolveConfiguredSlot(
+                    ModelRole.Auxiliary1,
+                    _config.Auxiliary1ModelReference,
+                    _config.Auxiliary1ModelPath,
+                    allowEmpty: true,
+                    resolved,
+                    out failure))
+            {
+                candidates = Array.Empty<SlotCandidate>();
+                return false;
+            }
+
+            if (!TryResolveConfiguredSlot(
+                    ModelRole.Auxiliary2,
+                    _config.Auxiliary2ModelReference,
+                    _config.Auxiliary2ModelPath,
+                    allowEmpty: true,
+                    resolved,
+                    out failure))
+            {
+                candidates = Array.Empty<SlotCandidate>();
+                return false;
+            }
+
+            candidates = resolved;
+            failure = ProductionModelActivationResult.Ok(string.Empty, ProductionModelReference.Empty(), string.Empty);
+            return true;
+        }
+
+        private bool TryBuildSlotActivationCandidates(
+            ModelRole targetRole,
+            ProductionModelResolutionResult selected,
+            out IReadOnlyList<SlotCandidate> candidates,
+            out ProductionModelActivationResult failure)
+        {
+            var resolved = new List<SlotCandidate>();
+            foreach (ModelRole role in new[] { ModelRole.Primary, ModelRole.Auxiliary1, ModelRole.Auxiliary2 })
+            {
+                if (role == targetRole)
+                {
+                    resolved.Add(new SlotCandidate(role, selected));
+                    continue;
+                }
+
+                ProductionModelReference? reference = role switch
+                {
+                    ModelRole.Primary => _config.CurrentModelReference,
+                    ModelRole.Auxiliary1 => _config.Auxiliary1ModelReference,
+                    ModelRole.Auxiliary2 => _config.Auxiliary2ModelReference,
+                    _ => ProductionModelReference.Empty()
+                };
+                string legacyValue = role switch
+                {
+                    ModelRole.Primary => _config.CurrentModelFileName,
+                    ModelRole.Auxiliary1 => _config.Auxiliary1ModelPath,
+                    ModelRole.Auxiliary2 => _config.Auxiliary2ModelPath,
+                    _ => string.Empty
+                };
+
+                if (!TryResolveConfiguredSlot(
+                        role,
+                        reference,
+                        legacyValue,
+                        allowEmpty: role != ModelRole.Primary,
+                        resolved,
+                        out failure))
+                {
+                    candidates = Array.Empty<SlotCandidate>();
+                    return false;
+                }
+            }
+
+            candidates = resolved;
+            failure = ProductionModelActivationResult.Ok(string.Empty, ProductionModelReference.Empty(), string.Empty);
+            return true;
+        }
+
+        private bool TryResolveConfiguredSlot(
+            ModelRole role,
+            ProductionModelReference? reference,
+            string legacyValue,
+            bool allowEmpty,
+            List<SlotCandidate> candidates,
+            out ProductionModelActivationResult failure)
+        {
+            ProductionModelResolutionResult resolved = ResolveConfiguredOrLegacy(reference, legacyValue, allowEmpty);
+            if (!resolved.Succeeded)
+            {
+                failure = FailPreservingFault(resolved.ErrorCode, resolved.Message, resolved.Reference);
+                return false;
+            }
+
+            candidates.Add(new SlotCandidate(role, resolved));
+            failure = ProductionModelActivationResult.Ok(string.Empty, ProductionModelReference.Empty(), string.Empty);
+            return true;
+        }
+
+        private ProductionModelResolutionResult ResolveSelectionValue(string selectionValue, bool allowEmpty)
+        {
+            if (!ProductionModelReference.TryParseSelectionValue(selectionValue, out ProductionModelReference reference))
+            {
+                ProductionModelResolutionResult migrated = _registry.MigrateLegacyReference(
+                    selectionValue,
+                    _config.RequireApprovedModelsForProduction);
+                if (!migrated.Succeeded)
+                {
+                    return migrated;
+                }
+
+                reference = migrated.Reference;
+            }
+
+            if (reference.IsEmpty)
+            {
+                if (!allowEmpty)
+                {
+                    return ProductionModelResolutionResult.Fail(
+                        reference,
+                        "PrimaryModelReferenceEmpty",
+                        "Primary model reference cannot be empty.");
+                }
+
+                return ProductionModelResolutionResult.Ok(reference, new ModelRegistryEntry(), string.Empty);
+            }
+
+            return _registry.ResolveReference(reference, _config.RequireApprovedModelsForProduction);
+        }
+
+        private ProductionModelResolutionResult ResolveConfiguredOrLegacy(
+            ProductionModelReference? reference,
+            string legacyValue,
+            bool allowEmpty)
+        {
+            ProductionModelReference current = reference?.Clone() ?? ProductionModelReference.Empty();
+            if (!current.IsEmpty)
+            {
+                return _registry.ResolveReference(current, _config.RequireApprovedModelsForProduction);
+            }
+
+            if (string.IsNullOrWhiteSpace(legacyValue))
+            {
+                if (allowEmpty)
+                {
+                    return ProductionModelResolutionResult.Ok(current, new ModelRegistryEntry(), string.Empty);
+                }
+
+                return ProductionModelResolutionResult.Fail(
+                    current,
+                    "PrimaryModelReferenceEmpty",
+                    "Primary model reference cannot be empty.");
+            }
+
+            return _registry.MigrateLegacyReference(legacyValue, _config.RequireApprovedModelsForProduction);
+        }
+
+        private async Task TransitionRuntimeAsync(
+            IReadOnlyList<SlotCandidate> candidates,
+            bool useGpu,
+            int gpuIndex,
+            RuntimeTransitionState transitionState,
+            CancellationToken cancellationToken)
+        {
+            foreach (SlotCandidate candidate in candidates.OrderBy(candidate => candidate.Role == ModelRole.Primary ? 0 : candidate.Role == ModelRole.Auxiliary1 ? 1 : 2))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                DetectionModelSlotSnapshot current = GetRuntimeSlot(candidate.Role);
+                if (candidate.Reference.IsEmpty)
+                {
+                    if (current.IsLoaded)
+                    {
+                        UnloadSlot(candidate.Role);
+                        transitionState.RuntimeChanged = true;
+                    }
+
+                    ProductionModelReadinessResult emptyCheck = CheckRuntimeSlotEmpty(candidate.Role);
+                    if (!emptyCheck.Succeeded)
+                    {
+                        throw ActivationTransactionException.FromReadiness(emptyCheck, candidate.Reference);
+                    }
+
+                    continue;
+                }
+
+                if (current.IsLoaded &&
+                    string.Equals(NormalizePath(current.ModelPath), NormalizePath(candidate.ModelPath), StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                bool loaded = await LoadResolvedSlotAsync(candidate.Role, candidate.ModelPath, useGpu, gpuIndex, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!loaded)
+                {
+                    throw new ActivationTransactionException(
+                        $"Runtime{candidate.Role}LoadFailed",
+                        $"{candidate.Role} runtime model load failed: {candidate.ModelPath}",
+                        candidate.Reference);
+                }
+
+                transitionState.RuntimeChanged = true;
+            }
+        }
+
+        private ProductionModelReadinessResult ValidateCandidatesBeforeCommit(IReadOnlyList<SlotCandidate> candidates)
+        {
+            _refreshRegistry();
+            foreach (SlotCandidate candidate in candidates)
+            {
+                if (candidate.Role == ModelRole.Primary && candidate.Reference.IsEmpty)
+                {
+                    return ProductionModelReadinessResult.Fail(
+                        "PrimaryModelReferenceEmpty",
+                        "Primary model reference cannot be empty.");
+                }
+
+                if (candidate.Reference.IsEmpty)
+                {
+                    ProductionModelReadinessResult emptyCheck = CheckRuntimeSlotEmpty(candidate.Role);
+                    if (!emptyCheck.Succeeded)
+                    {
+                        return emptyCheck;
+                    }
+
+                    continue;
+                }
+
+                ProductionModelResolutionResult resolved = _registry.ResolveReference(
+                    candidate.Reference,
+                    _config.RequireApprovedModelsForProduction);
+                if (!resolved.Succeeded)
+                {
+                    return ProductionModelReadinessResult.Fail(resolved.ErrorCode, resolved.Message);
+                }
+
+                if (!ReferenceEqualsByIdentity(resolved.Reference, candidate.Reference) ||
+                    !string.Equals(NormalizePath(resolved.ModelPath), NormalizePath(candidate.ModelPath), StringComparison.OrdinalIgnoreCase))
+                {
+                    return ProductionModelReadinessResult.Fail(
+                        "CandidateModelReferenceChanged",
+                        $"{candidate.Role} candidate no longer resolves to the same registry identity/path.");
+                }
+
+                ProductionModelReadinessResult runtimeCheck = CheckRuntimeSlot(candidate.Role, resolved);
+                if (!runtimeCheck.Succeeded)
+                {
+                    return runtimeCheck;
+                }
+            }
+
+            return ProductionModelReadinessResult.Ok();
+        }
+
+        private ProductionModelReadinessResult EnsureActualConsistency()
+        {
+            _refreshRegistry();
+
+            ProductionModelReadinessResult configRuntime = ValidateConfigAndRuntime();
+            if (!configRuntime.Succeeded)
+            {
+                return configRuntime;
+            }
+
+            Recipe recipe = _recipeManager.CurrentRecipe ?? new Recipe();
+            if (!RecipeReferencesMatch(recipe, _config))
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "RecipeModelReferenceMismatch",
+                    "CurrentRecipe model references do not match AppConfig.");
+            }
+
+            Recipe? persistedRecipe = TryReadPersistedRecipe(out string persistedError);
+            if (persistedRecipe == null)
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "RecipePersistenceUnavailable",
+                    persistedError);
+            }
+
+            if (!RecipeReferencesMatch(persistedRecipe, _config))
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "PersistedRecipeModelReferenceMismatch",
+                    "Persisted recipe model references do not match AppConfig.");
+            }
+
+            return ProductionModelReadinessResult.Ok();
+        }
+
+        private ProductionModelReadinessResult ValidateConfigAndRuntime()
+        {
             ProductionModelResolutionResult primary = _registry.ResolveReference(
                 _config.CurrentModelReference,
                 _config.RequireApprovedModelsForProduction);
@@ -338,7 +681,7 @@ namespace ClearFrost.Services
 
             if (primary.Reference.IsEmpty)
             {
-                return ProductionModelReadinessResult.Fail("PrimaryModelReferenceEmpty", "主模型引用为空。");
+                return ProductionModelReadinessResult.Fail("PrimaryModelReferenceEmpty", "Primary model reference cannot be empty.");
             }
 
             ProductionModelReadinessResult runtimeCheck = CheckRuntimeSlot(ModelRole.Primary, primary);
@@ -355,12 +698,10 @@ namespace ClearFrost.Services
             {
                 if (slot.Reference == null || slot.Reference.IsEmpty)
                 {
-                    DetectionModelSlotSnapshot runtimeSlot = GetRuntimeSlot(slot.Role);
-                    if (runtimeSlot.IsLoaded)
+                    runtimeCheck = CheckRuntimeSlotEmpty(slot.Role);
+                    if (!runtimeCheck.Succeeded)
                     {
-                        return ProductionModelReadinessResult.Fail(
-                            "RuntimeAuxiliaryNotConfigured",
-                            $"{slot.Role} 已加载但 AppConfig 未配置引用。");
+                        return runtimeCheck;
                     }
 
                     continue;
@@ -381,134 +722,7 @@ namespace ClearFrost.Services
                 }
             }
 
-            Recipe recipe = _recipeManager.CurrentRecipe ?? new Recipe();
-            if (!ReferenceEqualsByIdentity(recipe.CurrentModelReference, _config.CurrentModelReference) ||
-                !ReferenceEqualsByIdentity(recipe.Auxiliary1ModelReference, _config.Auxiliary1ModelReference) ||
-                !ReferenceEqualsByIdentity(recipe.Auxiliary2ModelReference, _config.Auxiliary2ModelReference))
-            {
-                return ProductionModelReadinessResult.Fail(
-                    "RecipeModelReferenceMismatch",
-                    "Recipe 模型引用快照与 AppConfig 不一致。");
-            }
-
             return ProductionModelReadinessResult.Ok();
-        }
-
-        private async Task<ProductionModelActivationResult> ActivateSlotAsync(
-            ModelRole role,
-            string selectionValue,
-            string operation,
-            bool useGpu,
-            int gpuIndex,
-            bool allowEmpty,
-            CancellationToken cancellationToken)
-        {
-            ClearFault();
-            _refreshRegistry();
-            AppConfig previousConfig = CaptureConfig();
-            DetectionRuntimeModelSnapshot previousRuntime = _detectionService.RuntimeModelSnapshot;
-            List<string> compensationFailures = new List<string>();
-
-            if (!ProductionModelReference.TryParseSelectionValue(selectionValue, out ProductionModelReference reference))
-            {
-                ProductionModelResolutionResult migrated = _registry.MigrateLegacyReference(
-                    selectionValue,
-                    _config.RequireApprovedModelsForProduction);
-                if (!migrated.Succeeded)
-                {
-                    return ProductionModelActivationResult.Fail(migrated.ErrorCode, migrated.Message, migrated.Reference);
-                }
-
-                reference = migrated.Reference;
-            }
-
-            if (reference.IsEmpty && !allowEmpty)
-            {
-                return ProductionModelActivationResult.Fail("PrimaryModelReferenceEmpty", "主模型不能为空。", reference);
-            }
-
-            ProductionModelResolutionResult resolved = reference.IsEmpty
-                ? ProductionModelResolutionResult.Ok(reference, new ModelRegistryEntry(), string.Empty)
-                : _registry.ResolveReference(reference, _config.RequireApprovedModelsForProduction);
-            if (!resolved.Succeeded)
-            {
-                return ProductionModelActivationResult.Fail(resolved.ErrorCode, resolved.Message, reference);
-            }
-
-            try
-            {
-                if (reference.IsEmpty)
-                {
-                    UnloadSlot(role);
-                }
-                else if (!await LoadResolvedSlotAsync(role, resolved.ModelPath, useGpu, gpuIndex, cancellationToken).ConfigureAwait(false))
-                {
-                    return ProductionModelActivationResult.Fail(
-                        "RuntimeModelLoadFailed",
-                        $"模型加载失败: {Path.GetFileName(resolved.ModelPath)}",
-                        resolved.Reference);
-                }
-
-                ApplyReferenceToConfig(role, resolved);
-                CommitConfigAndRecipe(operation);
-
-                ProductionModelReadinessResult readiness = EnsureReadyForProduction();
-                if (!readiness.Succeeded)
-                {
-                    throw new InvalidOperationException($"{readiness.ErrorCode}: {readiness.Message}");
-                }
-
-                return ProductionModelActivationResult.Ok($"{operation}完成", resolved.Reference, resolved.ModelPath);
-            }
-            catch (Exception ex)
-            {
-                await CompensateAsync(previousConfig, previousRuntime, useGpu, gpuIndex, compensationFailures).ConfigureAwait(false);
-                if (compensationFailures.Count > 0)
-                {
-                    MarkFaulted(ex.Message, compensationFailures);
-                    return ProductionModelActivationResult.Fail(
-                        "ModelActivationFaulted",
-                        $"模型激活提交失败且补偿失败: {ex.Message}",
-                        resolved.Reference,
-                        isFaulted: true,
-                        compensationFailures);
-                }
-
-                return ProductionModelActivationResult.Fail(
-                    "ModelActivationCommitFailed",
-                    $"模型激活提交失败，已恢复激活前状态: {ex.Message}",
-                    resolved.Reference);
-            }
-        }
-
-        private ProductionModelResolutionResult ResolveConfiguredOrLegacy(
-            ProductionModelReference? reference,
-            string legacyValue,
-            bool allowEmpty,
-            out bool migrated)
-        {
-            migrated = false;
-            ProductionModelReference current = reference?.Clone() ?? ProductionModelReference.Empty();
-            if (!current.IsEmpty)
-            {
-                return _registry.ResolveReference(current, _config.RequireApprovedModelsForProduction);
-            }
-
-            if (string.IsNullOrWhiteSpace(legacyValue))
-            {
-                if (allowEmpty)
-                {
-                    return ProductionModelResolutionResult.Ok(current, new ModelRegistryEntry(), string.Empty);
-                }
-
-                return ProductionModelResolutionResult.Fail(
-                    current,
-                    "PrimaryModelReferenceEmpty",
-                    "主模型引用为空。");
-            }
-
-            migrated = true;
-            return _registry.MigrateLegacyReference(legacyValue, _config.RequireApprovedModelsForProduction);
         }
 
         private async Task<bool> LoadResolvedSlotAsync(
@@ -530,78 +744,78 @@ namespace ClearFrost.Services
 
         private void UnloadSlot(ModelRole role)
         {
-            if (role == ModelRole.Auxiliary1)
-            {
-                _detectionService.UnloadAuxiliary1Model();
-            }
-            else if (role == ModelRole.Auxiliary2)
-            {
-                _detectionService.UnloadAuxiliary2Model();
-            }
-        }
-
-        private void ApplyReferenceToConfig(ModelRole role, ProductionModelResolutionResult resolved)
-        {
-            ProductionModelReference reference = resolved.Reference.Clone();
-            string fileName = string.IsNullOrWhiteSpace(resolved.Entry?.UsedModelName)
-                ? Path.GetFileName(resolved.ModelPath)
-                : resolved.Entry!.UsedModelName;
-
             switch (role)
             {
                 case ModelRole.Primary:
-                    _config.CurrentModelReference = reference;
-                    _config.CurrentModelFileName = reference.IsEmpty ? string.Empty : fileName;
+                    _detectionService.UnloadPrimaryModel();
                     break;
                 case ModelRole.Auxiliary1:
-                    _config.Auxiliary1ModelReference = reference;
-                    _config.Auxiliary1ModelPath = reference.IsEmpty ? string.Empty : fileName;
+                    _detectionService.UnloadAuxiliary1Model();
                     break;
                 case ModelRole.Auxiliary2:
-                    _config.Auxiliary2ModelReference = reference;
-                    _config.Auxiliary2ModelPath = reference.IsEmpty ? string.Empty : fileName;
+                    _detectionService.UnloadAuxiliary2Model();
                     break;
             }
         }
 
-        private void CommitConfigAndRecipe(string operation)
+        private void ApplyReferenceToConfig(AppConfig config, SlotCandidate candidate)
         {
-            if (!_saveConfig())
-            {
-                throw new InvalidOperationException(_config.LastError ?? "配置保存失败");
-            }
+            ProductionModelReference reference = candidate.Reference.Clone();
+            string fileName = candidate.DisplayFileName;
 
-            _recipeManager.SaveNewVersion(
-                _config,
-                _roiSnapshotProvider(),
-                _operatorIdProvider(),
-                _operatorRoleProvider(),
-                operation);
+            switch (candidate.Role)
+            {
+                case ModelRole.Primary:
+                    config.CurrentModelReference = reference;
+                    config.CurrentModelFileName = reference.IsEmpty ? string.Empty : fileName;
+                    break;
+                case ModelRole.Auxiliary1:
+                    config.Auxiliary1ModelReference = reference;
+                    config.Auxiliary1ModelPath = reference.IsEmpty ? string.Empty : fileName;
+                    break;
+                case ModelRole.Auxiliary2:
+                    config.Auxiliary2ModelReference = reference;
+                    config.Auxiliary2ModelPath = reference.IsEmpty ? string.Empty : fileName;
+                    break;
+            }
         }
 
         private async Task CompensateAsync(
             AppConfig previousConfig,
+            Recipe previousRecipe,
             DetectionRuntimeModelSnapshot previousRuntime,
+            bool configTouched,
             bool useGpu,
             int gpuIndex,
             List<string> failures)
         {
+            await RestoreRuntimeSlotAsync(previousRuntime.Primary, useGpu, gpuIndex, failures).ConfigureAwait(false);
+            await RestoreRuntimeSlotAsync(previousRuntime.Auxiliary1, useGpu, gpuIndex, failures).ConfigureAwait(false);
+            await RestoreRuntimeSlotAsync(previousRuntime.Auxiliary2, useGpu, gpuIndex, failures).ConfigureAwait(false);
+
             try
             {
                 _config.CopyFrom(previousConfig);
-                if (!_saveConfig())
+                if (configTouched && !_saveConfig())
                 {
-                    failures.Add(_config.LastError ?? "恢复旧 AppConfig 保存失败");
+                    failures.Add($"Config restore save failed: {_config.LastError ?? "unknown error"}");
                 }
             }
             catch (Exception ex)
             {
-                failures.Add($"恢复旧 AppConfig 失败: {ex.Message}");
+                failures.Add($"Config restore failed: {ex.Message}");
             }
 
-            await RestoreRuntimeSlotAsync(previousRuntime.Primary, useGpu, gpuIndex, failures).ConfigureAwait(false);
-            await RestoreRuntimeSlotAsync(previousRuntime.Auxiliary1, useGpu, gpuIndex, failures).ConfigureAwait(false);
-            await RestoreRuntimeSlotAsync(previousRuntime.Auxiliary2, useGpu, gpuIndex, failures).ConfigureAwait(false);
+            try
+            {
+                _recipeManager.RestoreSnapshot(previousRecipe);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"Recipe restore failed: {ex.Message}");
+            }
+
+            VerifyCompensation(previousConfig, previousRecipe, previousRuntime, failures);
         }
 
         private async Task RestoreRuntimeSlotAsync(
@@ -612,30 +826,15 @@ namespace ClearFrost.Services
         {
             try
             {
-                if (slot.Role == ModelRole.Primary)
-                {
-                    if (!slot.IsLoaded || string.IsNullOrWhiteSpace(slot.ModelPath))
-                    {
-                        if (_detectionService.RuntimeModelSnapshot.Primary.IsLoaded)
-                        {
-                            failures.Add("无法卸载已加载的主模型以恢复为空运行时。");
-                        }
-
-                        return;
-                    }
-
-                    bool restored = await _detectionService.LoadModelAsync(slot.ModelPath, useGpu, gpuIndex).ConfigureAwait(false);
-                    if (!restored)
-                    {
-                        failures.Add($"恢复旧主模型失败: {slot.ModelPath}");
-                    }
-
-                    return;
-                }
-
                 if (!slot.IsLoaded || string.IsNullOrWhiteSpace(slot.ModelPath))
                 {
                     UnloadSlot(slot.Role);
+                    ProductionModelReadinessResult emptyCheck = CheckRuntimeSlotEmpty(slot.Role);
+                    if (!emptyCheck.Succeeded)
+                    {
+                        failures.Add($"{slot.Role} runtime restore-to-empty failed: {emptyCheck.Message}");
+                    }
+
                     return;
                 }
 
@@ -643,12 +842,73 @@ namespace ClearFrost.Services
                     .ConfigureAwait(false);
                 if (!ok)
                 {
-                    failures.Add($"恢复旧{slot.Role}失败: {slot.ModelPath}");
+                    failures.Add($"{slot.Role} runtime restore load failed: {slot.ModelPath}");
+                    return;
+                }
+
+                DetectionModelSlotSnapshot restored = GetRuntimeSlot(slot.Role);
+                if (!restored.IsLoaded ||
+                    !string.Equals(NormalizePath(restored.ModelPath), NormalizePath(slot.ModelPath), StringComparison.OrdinalIgnoreCase))
+                {
+                    failures.Add(
+                        $"{slot.Role} runtime restore path mismatch. Expected={NormalizePath(slot.ModelPath)}; Actual={NormalizePath(restored.ModelPath)}");
                 }
             }
             catch (Exception ex)
             {
-                failures.Add($"恢复旧{slot.Role}异常: {ex.Message}");
+                failures.Add($"{slot.Role} runtime restore exception: {ex.Message}");
+            }
+        }
+
+        private void VerifyCompensation(
+            AppConfig previousConfig,
+            Recipe previousRecipe,
+            DetectionRuntimeModelSnapshot previousRuntime,
+            List<string> failures)
+        {
+            if (!ReferenceEqualsByIdentity(_config.CurrentModelReference, previousConfig.CurrentModelReference) ||
+                !ReferenceEqualsByIdentity(_config.Auxiliary1ModelReference, previousConfig.Auxiliary1ModelReference) ||
+                !ReferenceEqualsByIdentity(_config.Auxiliary2ModelReference, previousConfig.Auxiliary2ModelReference))
+            {
+                failures.Add("Config model references do not match activation snapshot after compensation.");
+            }
+
+            VerifyRuntimeSnapshot(previousRuntime, failures);
+            VerifyRecipeSnapshot(previousRecipe, failures);
+        }
+
+        private void VerifyRuntimeSnapshot(DetectionRuntimeModelSnapshot expected, List<string> failures)
+        {
+            foreach (DetectionModelSlotSnapshot slot in new[] { expected.Primary, expected.Auxiliary1, expected.Auxiliary2 })
+            {
+                DetectionModelSlotSnapshot actual = GetRuntimeSlot(slot.Role);
+                if (slot.IsLoaded != actual.IsLoaded ||
+                    !string.Equals(NormalizePath(slot.ModelPath), NormalizePath(actual.ModelPath), StringComparison.OrdinalIgnoreCase))
+                {
+                    failures.Add(
+                        $"{slot.Role} runtime snapshot mismatch after compensation. ExpectedLoaded={slot.IsLoaded}, ExpectedPath={NormalizePath(slot.ModelPath)}; ActualLoaded={actual.IsLoaded}, ActualPath={NormalizePath(actual.ModelPath)}");
+                }
+            }
+        }
+
+        private void VerifyRecipeSnapshot(Recipe expected, List<string> failures)
+        {
+            Recipe current = _recipeManager.CurrentRecipe ?? new Recipe();
+            if (!RecipeReferencesMatch(current, expected))
+            {
+                failures.Add("CurrentRecipe model references do not match activation snapshot after compensation.");
+            }
+
+            Recipe? persisted = TryReadPersistedRecipe(out string persistedError);
+            if (persisted == null)
+            {
+                failures.Add($"Persisted recipe unavailable after compensation: {persistedError}");
+                return;
+            }
+
+            if (!RecipeReferencesMatch(persisted, expected))
+            {
+                failures.Add("Persisted recipe model references do not match activation snapshot after compensation.");
             }
         }
 
@@ -661,7 +921,7 @@ namespace ClearFrost.Services
             {
                 return ProductionModelReadinessResult.Fail(
                     "RuntimeModelNotLoaded",
-                    $"{role} 运行时模型未加载。");
+                    $"{role} runtime model is not loaded.");
             }
 
             string expectedPath = NormalizePath(resolved.ModelPath);
@@ -670,7 +930,20 @@ namespace ClearFrost.Services
             {
                 return ProductionModelReadinessResult.Fail(
                     "RuntimeModelPathMismatch",
-                    $"{role} 运行时路径与 AppConfig 引用解析路径不一致。Expected={expectedPath}; Actual={actualPath}");
+                    $"{role} runtime path does not match resolved AppConfig reference. Expected={expectedPath}; Actual={actualPath}");
+            }
+
+            return ProductionModelReadinessResult.Ok();
+        }
+
+        private ProductionModelReadinessResult CheckRuntimeSlotEmpty(ModelRole role)
+        {
+            DetectionModelSlotSnapshot slot = GetRuntimeSlot(role);
+            if (slot.IsLoaded || !string.IsNullOrWhiteSpace(slot.ModelPath))
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "RuntimeModelUnexpectedlyLoaded",
+                    $"{role} runtime slot must be empty. Actual={NormalizePath(slot.ModelPath)}");
             }
 
             return ProductionModelReadinessResult.Ok();
@@ -688,33 +961,43 @@ namespace ClearFrost.Services
             };
         }
 
-        private bool RecipeModelReferencesDiffer(Recipe? recipe)
+        private ProductionModelActivationResult FailPreservingFault(
+            string errorCode,
+            string message,
+            ProductionModelReference? reference)
         {
-            if (recipe == null)
-            {
-                return true;
-            }
-
-            return !ReferenceEqualsByIdentity(recipe.CurrentModelReference, _config.CurrentModelReference) ||
-                   !ReferenceEqualsByIdentity(recipe.Auxiliary1ModelReference, _config.Auxiliary1ModelReference) ||
-                   !ReferenceEqualsByIdentity(recipe.Auxiliary2ModelReference, _config.Auxiliary2ModelReference);
+            bool faulted = IsFaulted;
+            return ProductionModelActivationResult.Fail(
+                errorCode,
+                faulted ? $"{message}; existing fault remains latched: {FaultMessage}" : message,
+                reference,
+                isFaulted: faulted);
         }
 
-        private static bool ReferenceEqualsByIdentity(
-            ProductionModelReference? left,
-            ProductionModelReference? right)
+        private Recipe? TryReadPersistedRecipe(out string error)
         {
-            return (left ?? ProductionModelReference.Empty()).IdentityEquals(right ?? ProductionModelReference.Empty());
+            error = string.Empty;
+            try
+            {
+                if (!File.Exists(_recipeManager.RecipePath))
+                {
+                    error = $"Recipe file not found: {_recipeManager.RecipePath}";
+                    return null;
+                }
+
+                string json = File.ReadAllText(_recipeManager.RecipePath);
+                return JsonSerializer.Deserialize<Recipe>(json);
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return null;
+            }
         }
 
         private AppConfig CaptureConfig()
         {
             return AppConfig.FromJson(_config.ToPortableJson());
-        }
-
-        private void RestoreConfigOnly(AppConfig previousConfig)
-        {
-            _config.CopyFrom(previousConfig);
         }
 
         private void ClearFault()
@@ -730,9 +1013,48 @@ namespace ClearFrost.Services
         {
             lock (_faultLock)
             {
+                string message = $"Original failure: {originalFailure}; compensation failures: {string.Join("; ", compensationFailures)}";
+                _faultMessage = _faulted && !string.IsNullOrWhiteSpace(_faultMessage)
+                    ? $"{_faultMessage}; {message}"
+                    : message;
                 _faulted = true;
-                _faultMessage = $"原始失败: {originalFailure}; 补偿失败: {string.Join("; ", compensationFailures)}";
             }
+        }
+
+        private void AppendFaultedFailure(string failure)
+        {
+            lock (_faultLock)
+            {
+                if (!_faulted)
+                {
+                    return;
+                }
+
+                _faultMessage = string.IsNullOrWhiteSpace(_faultMessage)
+                    ? $"Recovery attempt failed: {failure}"
+                    : $"{_faultMessage}; recovery attempt failed: {failure}";
+            }
+        }
+
+        private static bool RecipeReferencesMatch(Recipe recipe, AppConfig config)
+        {
+            return ReferenceEqualsByIdentity(recipe.CurrentModelReference, config.CurrentModelReference) &&
+                   ReferenceEqualsByIdentity(recipe.Auxiliary1ModelReference, config.Auxiliary1ModelReference) &&
+                   ReferenceEqualsByIdentity(recipe.Auxiliary2ModelReference, config.Auxiliary2ModelReference);
+        }
+
+        private static bool RecipeReferencesMatch(Recipe left, Recipe right)
+        {
+            return ReferenceEqualsByIdentity(left.CurrentModelReference, right.CurrentModelReference) &&
+                   ReferenceEqualsByIdentity(left.Auxiliary1ModelReference, right.Auxiliary1ModelReference) &&
+                   ReferenceEqualsByIdentity(left.Auxiliary2ModelReference, right.Auxiliary2ModelReference);
+        }
+
+        private static bool ReferenceEqualsByIdentity(
+            ProductionModelReference? left,
+            ProductionModelReference? right)
+        {
+            return (left ?? ProductionModelReference.Empty()).IdentityEquals(right ?? ProductionModelReference.Empty());
         }
 
         private static string NormalizePath(string? path)
@@ -749,6 +1071,74 @@ namespace ClearFrost.Services
             catch
             {
                 return path;
+            }
+        }
+
+        private sealed class SlotCandidate
+        {
+            public SlotCandidate(ModelRole role, ProductionModelResolutionResult resolution)
+            {
+                Role = role;
+                Resolution = resolution ?? throw new ArgumentNullException(nameof(resolution));
+            }
+
+            public ModelRole Role { get; }
+            public ProductionModelResolutionResult Resolution { get; }
+            public ProductionModelReference Reference => Resolution.Reference;
+            public string ModelPath => Resolution.ModelPath ?? string.Empty;
+            public string DisplayFileName
+            {
+                get
+                {
+                    if (Reference.IsEmpty)
+                    {
+                        return string.Empty;
+                    }
+
+                    return string.IsNullOrWhiteSpace(Resolution.Entry?.UsedModelName)
+                        ? Path.GetFileName(ModelPath)
+                        : Resolution.Entry!.UsedModelName;
+                }
+            }
+        }
+
+        private sealed class RuntimeTransitionState
+        {
+            public bool RuntimeChanged { get; set; }
+        }
+
+        private sealed class ActivationTransactionException : Exception
+        {
+            public ActivationTransactionException(
+                string errorCode,
+                string message,
+                ProductionModelReference? reference)
+                : base(message)
+            {
+                ErrorCode = errorCode ?? string.Empty;
+                Reference = reference?.Clone() ?? ProductionModelReference.Empty();
+            }
+
+            public string ErrorCode { get; }
+            public ProductionModelReference Reference { get; }
+
+            public static ActivationTransactionException FromReadiness(
+                ProductionModelReadinessResult result,
+                ProductionModelReference? reference)
+            {
+                return new ActivationTransactionException(
+                    result.ErrorCode,
+                    result.Message,
+                    reference);
+            }
+
+            public static ActivationTransactionException Wrap(Exception exception, ProductionModelReference? reference)
+            {
+                return exception as ActivationTransactionException ??
+                    new ActivationTransactionException(
+                        "ModelActivationFailed",
+                        exception.Message,
+                        reference);
             }
         }
     }

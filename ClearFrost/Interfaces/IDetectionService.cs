@@ -206,6 +206,11 @@ namespace ClearFrost.Interfaces
         Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0);
 
         /// <summary>
+        /// 卸载主模型并清理检测运行时缓存。
+        /// </summary>
+        void UnloadPrimaryModel();
+
+        /// <summary>
         /// 扫描并加载默认模型
         /// </summary>
         /// <param name="modelsDirectory">模型目录</param>

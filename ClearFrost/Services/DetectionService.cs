@@ -290,6 +290,29 @@ namespace ClearFrost.Services
             }
         }
 
+        public void UnloadPrimaryModel()
+        {
+            if (!TryEnterLifecycleLock())
+            {
+                return;
+            }
+
+            try
+            {
+                _modelManager?.UnloadPrimaryModel();
+                _yolo?.Dispose();
+                _yolo = null;
+                _currentModelName = "未加载";
+                _cachedLabels = Array.Empty<string>();
+                _cachedLastMetrics = null;
+                _runtimeStatus = CreateRuntimeStatus(_useGpu, false, _gpuDeviceId, string.Empty);
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
+        }
+
         /// <summary>
         /// 扫描指定目录下的所有 ONNX 模型并加载第一个找到的模型
         /// </summary>

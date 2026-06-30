@@ -100,14 +100,16 @@
         const data = source?.inspection || source || {};
         const mapped = getMappedAdvice(
             cleanText(pickValue(data, "errorCode", "ErrorCode")) ||
-            cleanText(pickValue(data, "barcodeError", "BarcodeError")),
+            cleanText(pickValue(data, "barcodeError", "BarcodeError")) ||
+            cleanText(pickValue(data, "terminalHandshakeErrorCode", "TerminalHandshakeErrorCode")),
         );
         const errorStage = cleanText(pickValue(data, "errorStage", "ErrorStage"));
         const stageAdvice = StageFallbackAdviceMap[errorStage.toLowerCase()] || "";
         return {
             code: mapped.code,
             stage: errorStage,
-            message: cleanText(pickValue(data, "errorMessage", "ErrorMessage", "message", "Message")),
+            message: cleanText(pickValue(data, "errorMessage", "ErrorMessage", "message", "Message")) ||
+                cleanText(pickValue(data, "terminalHandshakeMessage", "TerminalHandshakeMessage")),
             advice: mapped.advice || stageAdvice,
         };
     }
@@ -151,6 +153,13 @@
             handshakeStartMs: pickValue(data, "handshakeStartMs", "HandshakeStartMs"),
             plcResultWriteMs: pickValue(data, "plcResultWriteMs", "PlcResultWriteMs"),
             handshakeCompleteMs: pickValue(data, "handshakeCompleteMs", "HandshakeCompleteMs"),
+            terminalHandshakeAttempted: pickValue(data, "terminalHandshakeAttempted", "TerminalHandshakeAttempted"),
+            terminalHandshakeSucceeded: pickValue(data, "terminalHandshakeSucceeded", "TerminalHandshakeSucceeded"),
+            terminalHandshakeErrorCode: pickValue(data, "terminalHandshakeErrorCode", "TerminalHandshakeErrorCode"),
+            terminalHandshakeSignalName: pickValue(data, "terminalHandshakeSignalName", "TerminalHandshakeSignalName"),
+            terminalHandshakeAddress: pickValue(data, "terminalHandshakeAddress", "TerminalHandshakeAddress"),
+            terminalHandshakeMessage: pickValue(data, "terminalHandshakeMessage", "TerminalHandshakeMessage"),
+            cycleSucceeded: pickValue(data, "cycleSucceeded", "CycleSucceeded"),
             usedModelName: pickValue(data, "usedModelName", "UsedModelName"),
             wasFallback: pickValue(data, "wasFallback", "WasFallback"),
             fallbackAttemptCount: pickValue(data, "fallbackAttemptCount", "FallbackAttemptCount"),

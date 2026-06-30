@@ -201,14 +201,16 @@
         const data = source?.inspection || source || {};
         const mapped = getMappedAdvice(
             cleanText(pickValue(data, "errorCode", "ErrorCode")) ||
-            cleanText(pickValue(data, "barcodeError", "BarcodeError")),
+            cleanText(pickValue(data, "barcodeError", "BarcodeError")) ||
+            cleanText(pickValue(data, "terminalHandshakeErrorCode", "TerminalHandshakeErrorCode")),
         );
         const errorStage = cleanText(pickValue(data, "errorStage", "ErrorStage"));
         const stageAdvice = StageFallbackAdviceMap[errorStage.toLowerCase()] || "";
         return {
             code: mapped.code,
             stage: errorStage,
-            message: cleanText(pickValue(data, "errorMessage", "ErrorMessage", "message", "Message")),
+            message: cleanText(pickValue(data, "errorMessage", "ErrorMessage", "message", "Message")) ||
+                cleanText(pickValue(data, "terminalHandshakeMessage", "TerminalHandshakeMessage")),
             advice: mapped.advice || stageAdvice,
         };
     }
@@ -252,6 +254,13 @@
             handshakeStartMs: pickValue(data, "handshakeStartMs", "HandshakeStartMs"),
             plcResultWriteMs: pickValue(data, "plcResultWriteMs", "PlcResultWriteMs"),
             handshakeCompleteMs: pickValue(data, "handshakeCompleteMs", "HandshakeCompleteMs"),
+            terminalHandshakeAttempted: pickValue(data, "terminalHandshakeAttempted", "TerminalHandshakeAttempted"),
+            terminalHandshakeSucceeded: pickValue(data, "terminalHandshakeSucceeded", "TerminalHandshakeSucceeded"),
+            terminalHandshakeErrorCode: pickValue(data, "terminalHandshakeErrorCode", "TerminalHandshakeErrorCode"),
+            terminalHandshakeSignalName: pickValue(data, "terminalHandshakeSignalName", "TerminalHandshakeSignalName"),
+            terminalHandshakeAddress: pickValue(data, "terminalHandshakeAddress", "TerminalHandshakeAddress"),
+            terminalHandshakeMessage: pickValue(data, "terminalHandshakeMessage", "TerminalHandshakeMessage"),
+            cycleSucceeded: pickValue(data, "cycleSucceeded", "CycleSucceeded"),
             usedModelName: pickValue(data, "usedModelName", "UsedModelName"),
             wasFallback: pickValue(data, "wasFallback", "WasFallback"),
             fallbackAttemptCount: pickValue(data, "fallbackAttemptCount", "FallbackAttemptCount"),
@@ -503,8 +512,27 @@
         return "条码: -";
     }
 
+    function hasTerminalHandshakeFailure(item) {
+        return item?.terminalHandshakeAttempted === true && item?.terminalHandshakeSucceeded === false;
+    }
+
+    function getProductJudgementText(item) {
+        if (item?.isOk === true) return "OK";
+        if (item?.isOk === false) return "NG";
+        return "UNKNOWN";
+    }
+
+    function getTerminalFailureMessage(item) {
+        if (!hasTerminalHandshakeFailure(item)) return "";
+        const code = item?.terminalHandshakeErrorCode || "-";
+        const signal = item?.terminalHandshakeSignalName || "-";
+        const address = item?.terminalHandshakeAddress || "-";
+        const detail = item?.terminalHandshakeMessage ? `: ${item.terminalHandshakeMessage}` : "";
+        return `产品判定 ${getProductJudgementText(item)}，PLC 终态失败 [${code}] ${signal}@${address}${detail}`;
+    }
+
     function isFailedInspection(item) {
-        return item?.isOk === false || item?.currentStage === "Failed";
+        return hasTerminalHandshakeFailure(item) || item?.isOk === false || item?.currentStage === "Failed";
     }
 
     function getInspectionAdvice(item, prefix = "处理建议", includeCode = false) {
@@ -514,7 +542,7 @@
 
     function logCriticalInspectionAdvice(item) {
         const resolved = errorAdvice?.resolve?.(item);
-        const hasErrorCode = Boolean(item?.errorCode);
+        const hasErrorCode = Boolean(item?.errorCode || (hasTerminalHandshakeFailure(item) && item?.terminalHandshakeErrorCode));
         if (!resolved?.advice || (!isFailedInspection(item) && !hasErrorCode)) return;
 
         const key = [
@@ -636,6 +664,9 @@
     }
 
     function getDetectionSummary(item) {
+        const terminalMessage = getTerminalFailureMessage(item);
+        if (terminalMessage) return terminalMessage;
+
         const advice = getInspectionAdvice(item, "建议");
         if (advice) return advice;
 
@@ -653,22 +684,25 @@
     function renderCameraResult(state) {
         const inspection = state.inspection || {};
         const isOk = inspection.isOk;
+        const terminalFailed = hasTerminalHandshakeFailure(inspection);
         const pill = el("camera-result-pill");
         if (pill) {
-            const className = isOk === true ? "result-ok" : isOk === false ? "result-ng" : "result-idle";
-            const text = isOk === true ? "OK" : isOk === false ? "NG" : "WAIT";
+            const className = terminalFailed ? "result-cycle-failed" : isOk === true ? "result-ok" : isOk === false ? "result-ng" : "result-idle";
+            const text = terminalFailed ? "周期失败" : isOk === true ? "OK" : isOk === false ? "NG" : "WAIT";
             if (pill.dataset.cfResult !== className) {
                 pill.dataset.cfResult = className;
-                pill.classList.remove("result-idle", "result-ok", "result-ng");
+                pill.classList.remove("result-idle", "result-ok", "result-ng", "result-cycle-failed");
                 pill.classList.add(className);
             }
             if (pill.textContent !== text) pill.textContent = text;
         }
 
+        const terminalMessage = getTerminalFailureMessage(inspection);
         const adviceMessage = getInspectionAdvice(inspection);
         const ruleReason = isOk === false ? inspection.rulePrimaryReason : "";
         const message = adviceMessage || ruleReason || inspection.message || (isOk === true ? "检测通过" : isOk === false ? "检测未通过" : "等待检测结果");
         setText("camera-result-text", message, "等待检测结果");
+        setText("camera-result-text", terminalMessage || message, "等待检测结果");
         setText("camera-total-ms", `${inspection.totalMs || 0}ms`, "0ms");
         setText("camera-target-count", inspection.actualCount ?? 0, "0");
         setText("camera-model", inspection.usedModelName, "-");
@@ -704,8 +738,9 @@
         const usedNodes = new Set();
         list.forEach((item, index) => {
             const isOk = item.isOk === true;
-            const statusClass = isOk ? "ok" : item.isOk === false ? "ng" : "run";
-            const statusText = isOk ? "OK" : item.isOk === false ? "NG" : "RUN";
+            const terminalFailed = hasTerminalHandshakeFailure(item);
+            const statusClass = terminalFailed ? "cycle-failed" : isOk ? "ok" : item.isOk === false ? "ng" : "run";
+            const statusText = terminalFailed ? "周期失败" : isOk ? "OK" : item.isOk === false ? "NG" : "RUN";
             const identity = getTraceIdentityLabel(item);
             const title = item.productBarcode || item.sourceLabel || item.inspectionId || item.barcodeError || "-";
             const detectionSummary = getDetectionSummary(item);
@@ -1311,6 +1346,13 @@
             handshakeStartMs: data.inspection?.handshakeStartMs ?? data.handshakeStartMs,
             plcResultWriteMs: data.inspection?.plcResultWriteMs ?? data.plcResultWriteMs,
             handshakeCompleteMs: data.inspection?.handshakeCompleteMs ?? data.handshakeCompleteMs,
+            terminalHandshakeAttempted: data.inspection?.terminalHandshakeAttempted ?? data.terminalHandshakeAttempted,
+            terminalHandshakeSucceeded: data.inspection?.terminalHandshakeSucceeded ?? data.terminalHandshakeSucceeded,
+            terminalHandshakeErrorCode: data.inspection?.terminalHandshakeErrorCode ?? data.terminalHandshakeErrorCode,
+            terminalHandshakeSignalName: data.inspection?.terminalHandshakeSignalName ?? data.terminalHandshakeSignalName,
+            terminalHandshakeAddress: data.inspection?.terminalHandshakeAddress ?? data.terminalHandshakeAddress,
+            terminalHandshakeMessage: data.inspection?.terminalHandshakeMessage ?? data.terminalHandshakeMessage,
+            cycleSucceeded: data.inspection?.cycleSucceeded ?? data.cycleSucceeded,
             ruleSummary: data.inspection?.ruleSummary ?? data.ruleSummary,
             rulePrimaryReason: data.inspection?.rulePrimaryReason ?? data.rulePrimaryReason,
             ruleDetails: data.inspection?.ruleDetails ?? data.ruleDetails,

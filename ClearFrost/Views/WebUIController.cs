@@ -1058,6 +1058,23 @@ namespace ClearFrost
 
             await UpdateImage(image);
 
+            object? inspectionPayload = inspection == null
+                ? null
+                : BuildInspectionPayload(
+                    inspection,
+                    isOk,
+                    logMessage,
+                    actualCount,
+                    usedModelName,
+                    wasFallback,
+                    barcodeEnabled,
+                    productBarcode,
+                    barcodeReadSucceeded,
+                    barcodeError,
+                    ruleSummary,
+                    rulePrimaryReason,
+                    ruleDetails);
+
             PostMessage("detectionFrame", new
             {
                 isOk = isOk,
@@ -1089,22 +1106,7 @@ namespace ClearFrost
                 rulePrimaryReason = rulePrimaryReason,
                 ruleDetails = ruleDetails,
                 sourceLabel = sourceLabel,
-                inspection = inspection == null
-                    ? null
-                    : BuildInspectionPayload(
-                        inspection,
-                        isOk,
-                        logMessage,
-                        actualCount,
-                        usedModelName,
-                        wasFallback,
-                        barcodeEnabled,
-                        productBarcode,
-                        barcodeReadSucceeded,
-                        barcodeError,
-                        ruleSummary,
-                        rulePrimaryReason,
-                        ruleDetails)
+                inspection = inspectionPayload
             });
         }
 
@@ -1202,6 +1204,13 @@ namespace ClearFrost
                 handshakeStartMs = context.HandshakeStartMs,
                 plcResultWriteMs = context.PlcResultWriteMs,
                 handshakeCompleteMs = context.HandshakeCompleteMs,
+                terminalHandshakeAttempted = context.TerminalHandshakeAttempted,
+                terminalHandshakeSucceeded = context.TerminalHandshakeSucceeded,
+                terminalHandshakeErrorCode = context.TerminalHandshakeErrorCode,
+                terminalHandshakeSignalName = context.TerminalHandshakeSignalName,
+                terminalHandshakeAddress = context.TerminalHandshakeAddress,
+                terminalHandshakeMessage = context.TerminalHandshakeMessage,
+                cycleSucceeded = context.CycleSucceeded,
                 fallbackAttemptCount = context.FallbackAttemptCount,
                 fallbackSkippedReason = context.FallbackSkippedReason,
                 imageQueuePending = context.ImageQueuePending,

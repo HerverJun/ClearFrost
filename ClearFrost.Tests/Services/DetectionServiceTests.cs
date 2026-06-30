@@ -174,6 +174,33 @@ public class DetectionServiceTests
     }
 
     [Fact]
+    public async Task UnloadPrimaryModel_清理主运行时和兼容缓存()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string modelPath = CopyModel(GetSampleOnnxPath(), tempDir, "primary.onnx");
+            using var service = new DetectionService(useGpu: false);
+
+            (await service.LoadModelAsync(modelPath, useGpu: false)).Should().BeTrue();
+            service.RuntimeModelSnapshot.Primary.IsLoaded.Should().BeTrue();
+
+            service.UnloadPrimaryModel();
+
+            service.IsModelLoaded.Should().BeFalse();
+            service.CurrentModelName.Should().Be("未加载");
+            service.RuntimeModelSnapshot.Primary.IsLoaded.Should().BeFalse();
+            service.RuntimeModelSnapshot.Primary.ModelPath.Should().BeEmpty();
+            service.GetLabels().Should().BeEmpty();
+            service.GetLastMetrics().Should().BeNull();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task SetEnableFallback_返回前同步更新多模型管理器()
     {
         string tempDir = CreateTempDirectory();

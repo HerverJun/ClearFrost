@@ -349,6 +349,7 @@ public class OfflineReplayServiceTests
         public void SetEnableFallback(bool enabled) { }
         public Task<bool> LoadAuxiliary1ModelAsync(string modelPath) => Task.FromResult(true);
         public Task<bool> LoadAuxiliary2ModelAsync(string modelPath) => Task.FromResult(true);
+        public void UnloadPrimaryModel() { }
         public void UnloadAuxiliary1Model() { }
         public void UnloadAuxiliary2Model() { }
         public string[] GetLabels() => new[] { "part" };

@@ -120,6 +120,24 @@ namespace ClearFrost.Core.Recipes
             }
         }
 
+        internal Recipe CaptureCurrentSnapshot()
+        {
+            lock (_saveLock)
+            {
+                return CloneRecipe(CurrentRecipe);
+            }
+        }
+
+        internal void RestoreSnapshot(Recipe snapshot)
+        {
+            if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+
+            lock (_saveLock)
+            {
+                SaveInternal(CloneRecipe(snapshot), ensureUniqueVersion: false);
+            }
+        }
+
         public void Save(Recipe recipe)
         {
             if (recipe == null) throw new ArgumentNullException(nameof(recipe));
@@ -386,6 +404,14 @@ namespace ClearFrost.Core.Recipes
             recipe.OperatorId ??= string.Empty;
             recipe.OperatorRole ??= string.Empty;
             recipe.ChangeSummary ??= string.Empty;
+        }
+
+        private static Recipe CloneRecipe(Recipe recipe)
+        {
+            string json = JsonSerializer.Serialize(recipe ?? new Recipe(), JsonOptions);
+            Recipe clone = JsonSerializer.Deserialize<Recipe>(json, JsonOptions) ?? new Recipe();
+            NormalizeRecipeMetadata(clone);
+            return clone;
         }
 
         private static string SanitizeFileName(string value)

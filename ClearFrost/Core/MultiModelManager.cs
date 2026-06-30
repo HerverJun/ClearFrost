@@ -343,6 +343,30 @@ namespace ClearFrost.Yolo
         }
 
         /// <summary>
+        /// 卸载主模型。
+        /// </summary>
+        public void UnloadPrimaryModel()
+        {
+            YoloDetector? oldModel;
+
+            _modelLock.EnterWriteLock();
+            try
+            {
+                ThrowIfDisposed();
+                oldModel = _primaryModel;
+                _primaryModel = null;
+                _primaryModelPath = "";
+                LastUsedModel = ModelRole.None;
+            }
+            finally
+            {
+                _modelLock.ExitWriteLock();
+            }
+
+            oldModel?.Dispose();
+        }
+
+        /// <summary>
         /// 加载或替换辅助模型 1。
         /// </summary>
         public void LoadAuxiliary1Model(string modelPath)
