@@ -209,6 +209,14 @@ namespace ClearFrost
             _uiController.OnCreateReplayDataset += (s, args) => SafeFireAndForget(CreateReplayDatasetAsync(args), "Replay Dataset冻结");
             _uiController.OnRunReplayComparison += (s, args) => SafeFireAndForget(RunReplayComparisonAsync(args), "模型回放验收");
             _uiController.OnApproveReplayCandidate += (s, args) => SafeFireAndForget(ApproveReplayCandidateAsync(args), "Replay Evidence批准");
+            _uiController.OnPreviewReplayDataset += (s, args) => SafeFireAndForget(PreviewReplayDatasetAsync(args), "Replay Dataset预览");
+            _uiController.OnQueryReplayDatasets += (s, args) => SafeFireAndForget(QueryReplayDatasetsAsync(args), "Replay Dataset查询");
+            _uiController.OnArchiveReplayDataset += (s, args) => SafeFireAndForget(ArchiveReplayDatasetAsync(args), "Replay Dataset归档");
+            _uiController.OnCancelReplayRun += (s, args) => SafeFireAndForget(CancelReplayRunAsync(args), "Replay取消");
+            _uiController.OnQueryReplayRuns += (s, args) => SafeFireAndForget(QueryReplayRunsAsync(args), "Replay Run查询");
+            _uiController.OnQueryReplayReport += (s, args) => SafeFireAndForget(QueryReplayReportAsync(args), "Replay报告查询");
+            _uiController.OnQueryModelApprovalEvidence += (s, args) => SafeFireAndForget(QueryModelApprovalEvidenceAsync(args), "Replay Evidence查询");
+            _uiController.OnRunReplayIntegrityScan += (s, args) => SafeFireAndForget(RunReplayIntegrityScanAsync(args), "Replay完整性扫描");
             _uiController.OnGetModelList += (s, e) => SafeFireAndForget(InitModelList(), "刷新模型列表");
             _uiController.OnChangeModel += (s, modelName) => InvokeOnUIThread(() => ChangeModel_Logic(modelName));
             _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC手动连接");
@@ -1605,15 +1613,15 @@ namespace ClearFrost
                 return;
             }
 
-            if (Interlocked.CompareExchange(ref _productionRunningState, 1, 0) != 0)
+            if (!await _appRuntime.ReplayCoordinator.TryBeginProductionAsync(_appShutdownCts.Token).ConfigureAwait(false))
             {
                 await _uiController.SendUiCommand("toast", new
                 {
-                    message = "系统已在检测中",
+                    message = _appRuntime.ReplayCoordinator.IsReplayRunning ? "Replay 运行中，已拒绝启动检测" : "系统已在检测中",
                     type = "warning",
                     durationMs = 1200
                 });
-                await SendSystemRunningStateAsync(true);
+                await SendSystemRunningStateAsync(IsProductionRunning);
                 return;
             }
 
@@ -1723,7 +1731,7 @@ namespace ClearFrost
                 return;
             }
 
-            if (Interlocked.Exchange(ref _productionRunningState, 0) == 0)
+            if (!IsProductionRunning)
             {
                 await _uiController.SendUiCommand("toast", new
                 {
@@ -1786,13 +1794,14 @@ namespace ClearFrost
             }
             finally
             {
+                _appRuntime.ReplayCoordinator.EndProduction();
                 await SendSystemRunningStateAsync(false);
             }
         }
 
         private Task MarkSystemStoppedAsync()
         {
-            Interlocked.Exchange(ref _productionRunningState, 0);
+            _appRuntime.ReplayCoordinator.EndProduction();
             return SendSystemRunningStateAsync(false);
         }
 
@@ -2585,6 +2594,130 @@ namespace ClearFrost
 
         #region Replay闭环WebUI
 
+        private async Task PreviewReplayDatasetAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
+                string datasetId = GetString(document.RootElement, "datasetId", "DatasetId") ?? _lastReplayDatasetId;
+                ReplayDatasetSnapshot snapshot = await _appRuntime.ReplayDatasetStore
+                    .LoadSnapshotAsync(datasetId, _appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                await _uiController.SendReplayDatasetPreview(snapshot, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await SendReplayDatasetFailureAsync(args.RequestId, "ReplayDatasetPreviewFailed", ex.Message).ConfigureAwait(false);
+            }
+        }
+
+        private async Task QueryReplayDatasetsAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                IReadOnlyList<ReplayDatasetSummary> datasets = await _appRuntime.ReplayDatasetStore
+                    .ListSnapshotsAsync(_appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                await _uiController.SendReplayDatasets(datasets, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await _uiController.SendReplayDatasets(Array.Empty<ReplayDatasetSummary>(), args.RequestId).ConfigureAwait(false);
+                await _uiController.LogToFrontend($"Replay Dataset查询失败: {ex.Message}", "error").ConfigureAwait(false);
+            }
+        }
+
+        private async Task ArchiveReplayDatasetAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
+                string datasetId = GetString(document.RootElement, "datasetId", "DatasetId") ?? _lastReplayDatasetId;
+                if (string.IsNullOrWhiteSpace(datasetId))
+                {
+                    await SendReplayDatasetFailureAsync(args.RequestId, "ReplayDatasetMissing", "Replay dataset id is required.").ConfigureAwait(false);
+                    return;
+                }
+
+                if (_appRuntime.ModelApprovalEvidenceStore.ListEvidence()
+                    .Any(evidence => string.Equals(evidence.DatasetId, datasetId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    await SendReplayDatasetFailureAsync(args.RequestId, "ReplayDatasetEvidenceReferenced", "Replay dataset is referenced by approval evidence.").ConfigureAwait(false);
+                    return;
+                }
+
+                ReplayDatasetArchiveResult result = await _appRuntime.ReplayDatasetStore
+                    .ArchiveSnapshotAsync(datasetId, _appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                await _uiController.SendDatasetCreateStatus(result, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await SendReplayDatasetFailureAsync(args.RequestId, "ReplayDatasetArchiveFailed", ex.Message).ConfigureAwait(false);
+            }
+        }
+
+        private async Task CancelReplayRunAsync(WebUiCommandEventArgs args)
+        {
+            _appRuntime.ReplayCoordinator.Cancel();
+            await _uiController.SendReplayRunStatus(new ReplayRunProgress
+            {
+                RunId = _appRuntime.ReplayCoordinator.CurrentRun?.RunId ?? _lastReplayRunId,
+                Status = ReplayRunStatuses.Canceled,
+                Phase = "cancel",
+                Message = "Replay cancel requested."
+            }, args.RequestId).ConfigureAwait(false);
+        }
+
+        private async Task QueryReplayRunsAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
+                int limit = GetInt32(document.RootElement, "limit", "Limit") ?? 100;
+                IReadOnlyList<ReplayRunRecord> runs = await _appRuntime.ReplayRunStore
+                    .ListRunRecordsAsync(limit, _appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                await _uiController.SendReplayRuns(runs, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await _uiController.SendReplayRuns(Array.Empty<ReplayRunRecord>(), args.RequestId).ConfigureAwait(false);
+                await _uiController.LogToFrontend($"Replay Run查询失败: {ex.Message}", "error").ConfigureAwait(false);
+            }
+        }
+
+        private async Task QueryReplayReportAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
+                string runId = GetString(document.RootElement, "runId", "RunId") ?? _lastReplayRunId;
+                ReplayRunReport report = await _appRuntime.ReplayRunStore
+                    .LoadReportAsync(runId, _appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                await _uiController.SendReplayReport(report, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await SendReplayRunFailureAsync(args.RequestId, "ReplayReportQueryFailed", ex.Message).ConfigureAwait(false);
+            }
+        }
+
+        private Task QueryModelApprovalEvidenceAsync(WebUiCommandEventArgs args)
+        {
+            IReadOnlyList<ModelApprovalEvidence> evidence = _appRuntime.ModelApprovalEvidenceStore.ListEvidence();
+            return _uiController.SendModelApprovalEvidence(evidence, args.RequestId);
+        }
+
+        private async Task RunReplayIntegrityScanAsync(WebUiCommandEventArgs args)
+        {
+            ReplayIntegrityScanResult result = await _appRuntime.ReplayIntegrityScanner
+                .ScanApprovedModelsAsync(_appShutdownCts.Token)
+                .ConfigureAwait(false);
+            await _uiController.SendReplayIntegrityScan(result, args.RequestId).ConfigureAwait(false);
+        }
+
         private async Task QueryManualReviewRecordsAsync(WebUiCommandEventArgs args)
         {
             try
@@ -2674,6 +2807,9 @@ namespace ClearFrost
                 Dictionary<string, ReplayManualReviewRecord> reviews = reviewItems
                     .Where(item => item.Review != null && !string.IsNullOrWhiteSpace(item.InspectionId))
                     .ToDictionary(item => item.InspectionId, item => item.Review!, StringComparer.OrdinalIgnoreCase);
+                Dictionary<long, ReplayManualReviewRecord> reviewsByRecordId = reviewItems
+                    .Where(item => item.Review != null && item.DetectionRecordId > 0)
+                    .ToDictionary(item => item.DetectionRecordId, item => item.Review!);
 
                 ReplayDatasetSnapshot snapshot = await _appRuntime.ReplayDatasetStore.CreateSnapshotAsync(
                     new ReplayDatasetCreateRequest
@@ -2683,6 +2819,7 @@ namespace ClearFrost
                         Recipe = CreateReplayRecipeSnapshot(recipe),
                         BaselineModel = ReplayModelIdentity.FromRegistryEntry(baselineEntry),
                         CandidateModel = ReplayModelIdentity.FromRegistryEntry(candidateEntry),
+                        ManualReviewsByDetectionRecordId = reviewsByRecordId,
                         ManualReviewsByInspectionId = reviews
                     },
                     _appShutdownCts.Token).ConfigureAwait(false);
@@ -2714,20 +2851,6 @@ namespace ClearFrost
 
         private async Task RunReplayComparisonAsync(WebUiCommandEventArgs args)
         {
-            if (IsProductionRunning)
-            {
-                await SendReplayRunFailureAsync(args.RequestId, "ReplayProductionBusy", "生产检测运行中，Replay 后端已拒绝。")
-                    .ConfigureAwait(false);
-                return;
-            }
-
-            if (!await _replayOperationLock.WaitAsync(0, _appShutdownCts.Token).ConfigureAwait(false))
-            {
-                await SendReplayRunFailureAsync(args.RequestId, "ReplayAlreadyRunning", "当前工位已有 Replay 运行。")
-                    .ConfigureAwait(false);
-                return;
-            }
-
             try
             {
                 using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
@@ -2755,7 +2878,7 @@ namespace ClearFrost
                 var progress = new Progress<ReplayRunProgress>(item =>
                     SafeFireAndForget(_uiController.SendReplayRunStatus(item, args.RequestId), "Replay进度推送"));
 
-                ReplayRunReport report = await _appRuntime.ReplayApplicationService.RunComparisonAsync(
+                ReplayRunReport report = await _appRuntime.ReplayCoordinator.StartAsync(
                     new ReplayComparisonRequest
                     {
                         RunId = runId,
@@ -2778,11 +2901,12 @@ namespace ClearFrost
             }
             catch (Exception ex)
             {
-                await SendReplayRunFailureAsync(args.RequestId, "ReplayRunFailed", ex.Message).ConfigureAwait(false);
-            }
-            finally
-            {
-                _replayOperationLock.Release();
+                string errorCode = string.Equals(ex.Message, "ReplayProductionBusy", StringComparison.Ordinal)
+                    ? "ReplayProductionBusy"
+                    : string.Equals(ex.Message, "ReplayAlreadyRunning", StringComparison.Ordinal)
+                        ? "ReplayAlreadyRunning"
+                        : "ReplayRunFailed";
+                await SendReplayRunFailureAsync(args.RequestId, errorCode, ex.Message).ConfigureAwait(false);
             }
         }
 
@@ -2801,30 +2925,12 @@ namespace ClearFrost
                     return;
                 }
 
-                ReplayRunReport report = await _appRuntime.ReplayRunStore
-                    .LoadReportAsync(runId, _appShutdownCts.Token)
-                    .ConfigureAwait(false);
-                ReplayDatasetSnapshot dataset = await _appRuntime.ReplayDatasetStore
-                    .LoadSnapshotAsync(report.DatasetId, _appShutdownCts.Token)
-                    .ConfigureAwait(false);
-
-                ModelRegistryEntry? candidateEntry = ResolveEntryForIdentity(report.CandidateModel);
-                if (candidateEntry == null)
-                {
-                    await _uiController.SendReplayApprovalResponse(
-                        ReplayApprovalResult.Fail("ReplayApprovalCandidateNotFound", "Candidate package is not present in the model registry."),
-                        args.RequestId).ConfigureAwait(false);
-                    return;
-                }
-
                 ReplayApprovalResult result = await _appRuntime.ReplayApprovalApplicationService.ApproveCandidateAsync(
                     new ReplayApprovalRequest
                     {
-                        Report = report,
-                        CandidateEntry = candidateEntry,
+                        RunId = runId,
                         ApprovedBy = ResolveCurrentOperatorId(),
-                        ApprovedByRole = _appConfig.CurrentOperatorRole.ToString(),
-                        DatasetPath = dataset.RootDirectory
+                        ApprovedByRole = _appConfig.CurrentOperatorRole.ToString()
                     },
                     _appShutdownCts.Token).ConfigureAwait(false);
 
@@ -2866,13 +2972,37 @@ namespace ClearFrost
 
             if (remembered != null)
             {
-                return remembered;
+                ModelRegistryEntry? rememberedEntry = ResolveEntryForIdentity(remembered);
+                if (rememberedEntry != null)
+                {
+                    return ReplayModelIdentity.FromRegistryEntry(rememberedEntry);
+                }
+
+                if (!string.IsNullOrWhiteSpace(remembered.ModelPath))
+                {
+                    return remembered;
+                }
             }
 
             ReplayDatasetSnapshot snapshot = await _appRuntime.ReplayDatasetStore
                 .LoadSnapshotAsync(datasetId, _appShutdownCts.Token)
                 .ConfigureAwait(false);
-            return baseline ? snapshot.BaselineModel : snapshot.CandidateModel;
+            ReplayModelIdentity datasetIdentity = baseline ? snapshot.BaselineModel : snapshot.CandidateModel;
+            ModelRegistryEntry? datasetEntry = ResolveEntryForIdentity(datasetIdentity);
+            if (datasetEntry != null)
+            {
+                return ReplayModelIdentity.FromRegistryEntry(datasetEntry);
+            }
+
+            if (!string.IsNullOrWhiteSpace(datasetIdentity.ModelPath))
+            {
+                return datasetIdentity;
+            }
+
+            throw new InvalidOperationException(
+                baseline
+                    ? "Replay baseline package could not be resolved from dataset identity."
+                    : "Replay candidate package could not be resolved from dataset identity.");
         }
 
         private ManualReviewQuery ParseManualReviewQuery(string payloadJson)
@@ -2890,16 +3020,15 @@ namespace ClearFrost
         {
             using JsonDocument document = JsonDocument.Parse(payloadJson);
             JsonElement root = document.RootElement;
-            string reviewerId = GetString(root, "reviewerId", "ReviewerId") ?? ResolveCurrentOperatorId();
-            string reviewerRole = GetString(root, "reviewerRole", "ReviewerRole") ?? _appConfig.CurrentOperatorRole.ToString();
             return new ManualReviewSaveRequest
             {
+                DetectionRecordId = GetInt64(root, "detectionRecordId", "DetectionRecordId") ?? 0,
                 InspectionId = GetString(root, "inspectionId", "InspectionId") ?? string.Empty,
                 SampleId = GetString(root, "sampleId", "SampleId") ?? string.Empty,
                 GroundTruth = GetString(root, "groundTruth", "GroundTruth") ?? ReplayDecisions.OK,
                 Disposition = GetString(root, "disposition", "Disposition") ?? ReplayReviewDispositions.Pending,
-                ReviewerId = reviewerId,
-                ReviewerRole = reviewerRole,
+                ReviewerId = ResolveCurrentOperatorId(),
+                ReviewerRole = _appConfig.CurrentOperatorRole.ToString(),
                 ExpectedRevision = GetInt64(root, "expectedRevision", "ExpectedRevision"),
                 Notes = GetString(root, "notes", "Notes") ?? string.Empty
             };

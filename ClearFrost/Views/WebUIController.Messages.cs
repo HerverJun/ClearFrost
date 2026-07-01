@@ -7,6 +7,7 @@ using ClearFrost.Config;
 using ClearFrost.Interfaces;
 using ClearFrost.Services.Replay;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace ClearFrost
@@ -121,6 +122,67 @@ namespace ClearFrost
                 reportHash = result.Evidence?.ReplayReportHash ?? string.Empty,
                 compensationFailures = result.CompensationFailures ?? System.Array.Empty<string>()
             }, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendReplayDatasets(IEnumerable<ReplayDatasetSummary> datasets, string? requestId = null)
+        {
+            PostMessage("replayDatasets", new
+            {
+                datasets = datasets ?? System.Array.Empty<ReplayDatasetSummary>()
+            }, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendReplayDatasetPreview(ReplayDatasetSnapshot snapshot, string? requestId = null)
+        {
+            PostMessage("replayDatasetPreview", new
+            {
+                datasetId = snapshot.DatasetId,
+                datasetHash = snapshot.DatasetHash,
+                sampleCount = snapshot.Samples.Count,
+                recipeId = snapshot.Recipe.RecipeId,
+                recipeVersion = snapshot.Recipe.RecipeVersion,
+                samples = snapshot.Samples.Take(20).Select(sample => new
+                {
+                    sample.SampleId,
+                    sample.DetectionRecordId,
+                    sample.InspectionId,
+                    sample.GroundTruth,
+                    sample.SystemDecision,
+                    sample.ImageHash
+                }).ToArray()
+            }, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendReplayRuns(IEnumerable<ReplayRunRecord> runs, string? requestId = null)
+        {
+            PostMessage("replayRuns", new
+            {
+                runs = runs ?? System.Array.Empty<ReplayRunRecord>()
+            }, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendReplayReport(ReplayRunReport report, string? requestId = null)
+        {
+            PostMessage("replayReport", report, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendModelApprovalEvidence(IEnumerable<ModelApprovalEvidence> evidence, string? requestId = null)
+        {
+            PostMessage("modelApprovalEvidence", new
+            {
+                evidence = evidence ?? System.Array.Empty<ModelApprovalEvidence>()
+            }, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendReplayIntegrityScan(ReplayIntegrityScanResult result, string? requestId = null)
+        {
+            PostMessage("replayIntegrityScan", result, requestId);
             return Task.CompletedTask;
         }
 

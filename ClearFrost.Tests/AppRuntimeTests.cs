@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading.Tasks;
 using ClearFrost.Config;
 using ClearFrost.Core.Models;
@@ -170,9 +172,74 @@ namespace ClearFrost.Tests
                 runtime.ReplayRunStore.Should().NotBeNull();
                 runtime.ModelApprovalEvidenceStore.Should().NotBeNull();
                 runtime.ReplayProductionGate.Should().NotBeNull();
+                runtime.ReplayCoordinator.Should().NotBeNull();
                 runtime.ReplayIntegrityScanner.Should().NotBeNull();
                 runtime.ReplayApplicationService.Should().NotBeNull();
                 runtime.ReplayApprovalApplicationService.Should().NotBeNull();
+                runtime.StartupDiagnostics.CurrentReport.Items.Should().Contain(item =>
+                    item.Name == "Replay evidence gate" &&
+                    item.Status == StartupDiagnosticStatus.Pass &&
+                    item.IsBlocking);
+
+                await runtime.DisposeAsync();
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Fact]
+        public async Task Constructor_为当前Primary批准包执行一次性Legacy迁移()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                string packageRoot = Path.Combine(tempDir, "models");
+                string modelPath = CreateApprovedPackage(packageRoot, "legacy-current", "1");
+                string modelHash = ComputeSha256(modelPath);
+                var reference = new ProductionModelReference
+                {
+                    Type = ProductionModelReferenceType.ApprovedPackage,
+                    ModelId = "legacy-current",
+                    Version = "1",
+                    Sha256 = modelHash
+                };
+                var order = new List<string>();
+                var appConfig = new AppConfig
+                {
+                    StoragePath = tempDir,
+                    ModelPackageDirectory = packageRoot,
+                    RequireApprovedModelsForProduction = true,
+                    CurrentModelReference = reference,
+                    CurrentModelFileName = Path.GetFileName(modelPath)
+                };
+                using var cameraManager = new CameraManager(true);
+                var databaseService = new FakeDatabaseService(order);
+                var runtime = new AppRuntime(
+                    appConfig,
+                    cameraManager,
+                    new FakeCameraService(order),
+                    new FakePlcService(order),
+                    new FakeDetectionService(order),
+                    new FakeStorageService(tempDir, order),
+                    new FakeStatisticsService(order),
+                    databaseService,
+                    new ImageSaveQueue(),
+                    new DetectionRecordQueue(databaseService),
+                    new WebUIController());
+
+                ModelRegistryEntry entry = runtime.ModelRegistry.Resolve(modelPath)!;
+                entry.Manifest!.Approval.LegacyMigration.Should().NotBeNull();
+                entry.Manifest.Approval.LegacyMigration!.ModelRole.Should().Be("Primary");
+                entry.Manifest.Approval.LegacyMigration.ConfigReference.Should().Be(reference.ToSelectionValue());
+                entry.Manifest.Approval.LegacyMigration.ModelHash.Should().Be(modelHash);
+                entry.Manifest.Approval.ReplayEvidenceId.Should().BeEmpty();
                 runtime.StartupDiagnostics.CurrentReport.Items.Should().Contain(item =>
                     item.Name == "Replay evidence gate" &&
                     item.Status == StartupDiagnosticStatus.Pass &&
@@ -280,6 +347,42 @@ namespace ClearFrost.Tests
                     Directory.Delete(tempDir, true);
                 }
             }
+        }
+
+        private static string CreateApprovedPackage(string packageRoot, string modelId, string version)
+        {
+            string packageDir = Path.Combine(packageRoot, modelId);
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 3, 1, 4, (byte)modelId.Length, (byte)version.Length });
+            string hash = ComputeSha256(modelPath);
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = modelId,
+                    Version = version,
+                    ModelFileName = "model.onnx",
+                    ModelHash = hash,
+                    Labels = new List<string> { "part" },
+                    TaskType = "Detect",
+                    InputWidth = 640,
+                    InputHeight = 640,
+                    Approval = new ModelApprovalMetadata
+                    {
+                        Status = ModelApprovalStatuses.Approved,
+                        ApprovedBy = "qa",
+                        ApprovedAt = DateTimeOffset.UtcNow
+                    }
+                }));
+            return modelPath;
+        }
+
+        private static string ComputeSha256(string path)
+        {
+            using var stream = File.OpenRead(path);
+            using var sha256 = SHA256.Create();
+            return Convert.ToHexString(sha256.ComputeHash(stream)).ToLowerInvariant();
         }
 
         private sealed class FakeCameraService : ICameraService
@@ -472,6 +575,9 @@ namespace ClearFrost.Tests
 
             public Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100)
                 => Task.FromResult(new List<DetectionRecord>());
+
+            public Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
+                => Task.FromResult<DetectionRecord?>(null);
 
             public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
                 => Task.FromResult(new List<DetectionTraceRecord>());

@@ -1,6 +1,7 @@
 ﻿using ClearFrost.Interfaces;
 using ClearFrost.Services;
 using ClearFrost.Services.Replay;
+using ClearFrost.Core.Security;
 using FluentAssertions;
 
 namespace ClearFrost.Tests.Services;
@@ -27,6 +28,7 @@ public class ManualReviewStoreTests
 
             ManualReviewSaveResult saved = await store.SaveReviewAsync(new ManualReviewSaveRequest
             {
+                DetectionRecordId = 3,
                 InspectionId = "INS-NG-1",
                 SampleId = "S-NG-1",
                 GroundTruth = ReplayDecisions.NG,
@@ -65,6 +67,7 @@ public class ManualReviewStoreTests
 
             ManualReviewSaveResult first = await store.SaveReviewAsync(new ManualReviewSaveRequest
             {
+                DetectionRecordId = 1,
                 InspectionId = "INS-OK-1",
                 SampleId = "S-OK-1",
                 GroundTruth = ReplayDecisions.OK,
@@ -75,6 +78,7 @@ public class ManualReviewStoreTests
             });
             ManualReviewSaveResult conflict = await store.SaveReviewAsync(new ManualReviewSaveRequest
             {
+                DetectionRecordId = 1,
                 InspectionId = "INS-OK-1",
                 SampleId = "S-OK-1",
                 GroundTruth = ReplayDecisions.NG,
@@ -85,6 +89,7 @@ public class ManualReviewStoreTests
             });
             ManualReviewSaveResult update = await store.SaveReviewAsync(new ManualReviewSaveRequest
             {
+                DetectionRecordId = 1,
                 InspectionId = "INS-OK-1",
                 SampleId = "S-OK-1",
                 GroundTruth = ReplayDecisions.NG,
@@ -110,6 +115,76 @@ public class ManualReviewStoreTests
             auditResult.Records.Should().HaveCount(3);
             auditResult.Records.Should().Contain(record => record.Status == OperationAuditStatus.Denied);
             auditResult.Records.Should().Contain(record => record.Status == OperationAuditStatus.Succeeded);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task SaveReviewAsync_以检测记录为权威并拒绝身份和绑定篡改()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var records = CreateRecords();
+            records.Add(new DetectionRecord { Id = 5, InspectionId = "INS-DUP", Timestamp = DateTime.UtcNow, IsQualified = true });
+            records.Add(new DetectionRecord { Id = 6, InspectionId = "INS-DUP", Timestamp = DateTime.UtcNow.AddSeconds(1), IsQualified = true });
+            var store = new SqliteManualReviewStore(
+                new FakeDatabaseService(records),
+                Path.Combine(tempDir, "review.db"),
+                operatorIdProvider: () => "trusted-operator",
+                operatorRoleProvider: () => ProductionRole.Operator);
+
+            ManualReviewSaveResult mismatch = await store.SaveReviewAsync(new ManualReviewSaveRequest
+            {
+                DetectionRecordId = 1,
+                InspectionId = "INS-NG-1",
+                GroundTruth = ReplayDecisions.OK,
+                Disposition = ReplayReviewDispositions.Confirmed,
+                ExpectedRevision = 0
+            });
+            ManualReviewSaveResult saved = await store.SaveReviewAsync(new ManualReviewSaveRequest
+            {
+                DetectionRecordId = 5,
+                InspectionId = "INS-DUP",
+                SampleId = "client-sample",
+                GroundTruth = ReplayDecisions.OK,
+                Disposition = ReplayReviewDispositions.Confirmed,
+                ReviewerId = "spoofed",
+                ReviewerRole = "Administrator",
+                ExpectedRevision = 0
+            });
+            ManualReviewSaveResult invalidSample = await store.SaveReviewAsync(new ManualReviewSaveRequest
+            {
+                DetectionRecordId = 6,
+                InspectionId = "INS-DUP",
+                GroundTruth = ReplayDecisions.OK,
+                Disposition = ReplayReviewDispositions.InvalidSample,
+                ReviewerId = "spoofed",
+                ReviewerRole = "Administrator",
+                ExpectedRevision = 0
+            });
+
+            mismatch.Succeeded.Should().BeFalse();
+            mismatch.ErrorCode.Should().Be("ManualReviewRecordBindingMismatch");
+            saved.Succeeded.Should().BeTrue();
+            saved.Record!.ReviewerId.Should().Be("trusted-operator");
+            saved.Record.ReviewerRole.Should().Be(ProductionRole.Operator.ToString());
+            invalidSample.Succeeded.Should().BeTrue();
+            invalidSample.Record!.Disposition.Should().Be(ReplayReviewDispositions.InvalidSample);
+
+            IReadOnlyList<ManualReviewTraceItem> items = await store.QueryAsync(new ManualReviewQuery());
+            items.Where(item => item.InspectionId == "INS-DUP").Should().HaveCount(2);
+            items.Should().ContainSingle(item =>
+                item.DetectionRecordId == 5 &&
+                item.ReviewStatus == ManualReviewStatuses.Reviewed &&
+                item.Review!.SampleId == "client-sample");
+            items.Should().ContainSingle(item =>
+                item.DetectionRecordId == 6 &&
+                item.ReviewStatus == ManualReviewStatuses.Reviewed &&
+                item.Review!.Disposition == ReplayReviewDispositions.InvalidSample);
         }
         finally
         {
@@ -157,6 +232,8 @@ public class ManualReviewStoreTests
         public Task SaveDetectionRecordAsync(DetectionRecord record) => Task.CompletedTask;
         public Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100)
             => Task.FromResult(_records.ToList());
+        public Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
+            => Task.FromResult(_records.FirstOrDefault(record => record.Id == id));
         public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
             => Task.FromResult(new List<DetectionTraceRecord>());
         public Task<DetectionTracePage> GetTraceRecordPageAsync(DetectionTraceQuery query)

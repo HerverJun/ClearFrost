@@ -30,6 +30,9 @@
             dataset: {},
             runs: {},
             approval: {},
+            datasets: [],
+            evidence: [],
+            integrity: {},
         },
         manualReview: {
             records: [],
@@ -48,6 +51,9 @@
     state.replay.dataset = state.replay.dataset || {};
     state.replay.runs = state.replay.runs || {};
     state.replay.approval = state.replay.approval || {};
+    state.replay.datasets = state.replay.datasets || [];
+    state.replay.evidence = state.replay.evidence || [];
+    state.replay.integrity = state.replay.integrity || {};
     state.manualReview = state.manualReview || { records: [], lastResponse: {} };
     state.manualReview.records = state.manualReview.records || [];
     state.manualReview.lastResponse = state.manualReview.lastResponse || {};
@@ -216,6 +222,11 @@
             ruleSetHash: pickValue(data, "ruleSetHash", "RuleSetHash"),
             evidenceId: pickValue(data, "evidenceId", "EvidenceId"),
             evidenceHash: pickValue(data, "evidenceHash", "EvidenceHash"),
+            datasets: pickValue(data, "datasets", "Datasets"),
+            runs: pickValue(data, "runs", "Runs"),
+            evidence: pickValue(data, "evidence", "Evidence"),
+            integrityStatus: pickValue(data, "status", "Status"),
+            findings: pickValue(data, "findings", "Findings"),
             metrics: {
                 sampleCount: pickValue(metrics, "sampleCount", "SampleCount"),
                 candidateNewMissedDetectionCount: pickValue(metrics, "candidateNewMissedDetectionCount", "CandidateNewMissedDetectionCount"),
@@ -238,6 +249,7 @@
             succeeded: pickValue(data, "succeeded", "Succeeded"),
             errorCode: pickValue(data, "errorCode", "ErrorCode"),
             message: pickValue(data, "message", "Message"),
+            detectionRecordId: pickValue(data, "detectionRecordId", "DetectionRecordId") || pickValue(record, "detectionRecordId", "DetectionRecordId"),
             inspectionId: pickValue(data, "inspectionId", "InspectionId") || pickValue(record, "inspectionId", "InspectionId"),
             reviewStatus: pickValue(data, "reviewStatus", "ReviewStatus"),
             groundTruth: pickValue(data, "groundTruth", "GroundTruth") || pickValue(record, "groundTruth", "GroundTruth"),
@@ -317,6 +329,33 @@
 
         if (cleanReplay.datasetId || cleanReplay.datasetHash) {
             state.replay.dataset = { ...state.replay.dataset, ...cleanReplay };
+        }
+
+        if (Array.isArray(cleanReplay.datasets)) {
+            state.replay.datasets = cleanReplay.datasets;
+        }
+
+        if (Array.isArray(cleanReplay.runs)) {
+            cleanReplay.runs.forEach((run) => {
+                const runId = pickValue(run, "runId", "RunId");
+                if (runId) {
+                    state.replay.runs[runId] = {
+                        ...(state.replay.runs[runId] || {}),
+                        ...normalizeReplayMessage(run),
+                    };
+                }
+            });
+        }
+
+        if (Array.isArray(cleanReplay.evidence)) {
+            state.replay.evidence = cleanReplay.evidence;
+        }
+
+        if (cleanReplay.integrityStatus || cleanReplay.findings) {
+            state.replay.integrity = {
+                status: cleanReplay.integrityStatus || state.replay.integrity.status || "",
+                findings: cleanReplay.findings || state.replay.integrity.findings || [],
+            };
         }
 
         if (cleanReplay.runId) {

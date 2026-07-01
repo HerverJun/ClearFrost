@@ -48,7 +48,15 @@ public class WebUIReplayContractTests
         historyJs.Should().Contain("query_manual_review_records");
         historyJs.Should().Contain("save_manual_review");
         historyJs.Should().Contain("create_replay_dataset");
+        historyJs.Should().Contain("preview_replay_dataset");
+        historyJs.Should().Contain("query_replay_datasets");
+        historyJs.Should().Contain("archive_replay_dataset");
         historyJs.Should().Contain("run_replay_comparison");
+        historyJs.Should().Contain("cancel_replay_run");
+        historyJs.Should().Contain("query_replay_runs");
+        historyJs.Should().Contain("query_replay_report");
+        historyJs.Should().Contain("query_model_approval_evidence");
+        historyJs.Should().Contain("run_replay_integrity_scan");
         historyJs.Should().Contain("approve_replay_candidate");
         historyJs.Should().Contain("requestId");
         indexHtml.Should().Contain("replay-acceptance-panel");
@@ -59,7 +67,15 @@ public class WebUIReplayContractTests
         controllerEvents.Should().Contain("OnQueryManualReviewRecords");
         controllerEvents.Should().Contain("OnSaveManualReview");
         controllerEvents.Should().Contain("OnCreateReplayDataset");
+        controllerEvents.Should().Contain("OnPreviewReplayDataset");
+        controllerEvents.Should().Contain("OnQueryReplayDatasets");
+        controllerEvents.Should().Contain("OnArchiveReplayDataset");
         controllerEvents.Should().Contain("OnRunReplayComparison");
+        controllerEvents.Should().Contain("OnCancelReplayRun");
+        controllerEvents.Should().Contain("OnQueryReplayRuns");
+        controllerEvents.Should().Contain("OnQueryReplayReport");
+        controllerEvents.Should().Contain("OnQueryModelApprovalEvidence");
+        controllerEvents.Should().Contain("OnRunReplayIntegrityScan");
         controllerEvents.Should().Contain("OnApproveReplayCandidate");
         controller.Should().Contain("SendReplayRunStatus");
         controller.Should().Contain("SendReplayRunCompleted");
@@ -98,6 +114,14 @@ public class WebUIReplayContractTests
         bundle.Should().Contain("modelApprovalAvailability");
         bundle.Should().Contain("replayApprovalResponse");
         bundle.Should().Contain("create_replay_dataset");
+        bundle.Should().Contain("preview_replay_dataset");
+        bundle.Should().Contain("query_replay_datasets");
+        bundle.Should().Contain("archive_replay_dataset");
+        bundle.Should().Contain("cancel_replay_run");
+        bundle.Should().Contain("query_replay_runs");
+        bundle.Should().Contain("query_replay_report");
+        bundle.Should().Contain("query_model_approval_evidence");
+        bundle.Should().Contain("run_replay_integrity_scan");
         bundle.Should().Contain("approve_replay_candidate");
     }
 

@@ -27,6 +27,8 @@ namespace ClearFrost.Services.Replay
                 : rootDirectory;
         }
 
+        internal string RootDirectory => Path.GetFullPath(_rootDirectory);
+
         public async Task<ReplayDatasetSnapshot> CreateSnapshotAsync(
             ReplayDatasetCreateRequest request,
             CancellationToken cancellationToken = default)
@@ -69,9 +71,13 @@ namespace ClearFrost.Services.Replay
                         throw new FileNotFoundException($"Replay source image missing for {record.InspectionId}.", sourcePath);
                     }
 
-                    request.ManualReviewsByInspectionId.TryGetValue(
-                        record.InspectionId ?? string.Empty,
-                        out ReplayManualReviewRecord? review);
+                    request.ManualReviewsByDetectionRecordId.TryGetValue(record.Id, out ReplayManualReviewRecord? review);
+                    if (review == null)
+                    {
+                        request.ManualReviewsByInspectionId.TryGetValue(
+                            record.InspectionId ?? string.Empty,
+                            out review);
+                    }
                     if (review == null)
                     {
                         throw new InvalidOperationException($"Manual review is required before freezing replay dataset: {record.InspectionId}.");
@@ -96,21 +102,24 @@ namespace ClearFrost.Services.Replay
                     string frozenPath = Path.Combine(imageDirectory, frozenFileName);
                     File.Copy(sourcePath, frozenPath, overwrite: false);
 
+                    string imageHash = ComputeSha256(frozenPath);
+                    string relativeImagePath = NormalizeRelativePath(Path.Combine("images", frozenFileName));
                     samples.Add(new ReplayDatasetSample
                     {
                         SampleId = sampleId,
                         DetectionRecordId = record.Id,
                         InspectionId = record.InspectionId ?? string.Empty,
-                        SourceImagePath = Path.GetFullPath(sourcePath),
-                        ImagePath = Path.GetFullPath(frozenPath),
-                        ImageHash = ComputeSha256(frozenPath),
+                        SourceImagePath = $"record:{record.Id.ToString(CultureInfo.InvariantCulture)}",
+                        SourceRecordHash = ComputeSourceRecordHash(record, imageHash),
+                        ImagePath = relativeImagePath,
+                        ImageHash = imageHash,
                         GroundTruth = groundTruth,
                         SystemDecision = systemDecision,
                         RecipeId = request.Recipe.RecipeId,
                         RecipeVersion = request.Recipe.RecipeVersion,
                         ReviewRevision = review.Revision,
                         ManualReview = review,
-                        Record = record
+                        Record = SanitizeRecordForManifest(record)
                     });
                     ordinal++;
                 }
@@ -128,21 +137,18 @@ namespace ClearFrost.Services.Replay
                 snapshot.DatasetHash = ComputeDatasetHash(snapshot, useStoredImageHash: false);
 
                 string manifestPath = Path.Combine(stagingDirectory, "manifest.json");
-                AtomicFileWriter.WriteAllText(manifestPath, JsonSerializer.Serialize(snapshot, ReplayJson.Options));
+                AtomicFileWriter.WriteAllText(manifestPath, JsonSerializer.Serialize(CreateManifestSnapshot(snapshot), ReplayJson.Options));
+                ReplayDatasetSnapshot stagedReload = LoadSnapshotFromManifest(manifestPath);
+                ValidateSnapshotIntegrity(stagedReload);
+                string stagedHash = ComputeDatasetHash(stagedReload, useStoredImageHash: false);
+                if (!string.Equals(stagedHash, snapshot.DatasetHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Replay dataset staging integrity verification failed.");
+                }
 
                 Directory.CreateDirectory(_rootDirectory);
                 Directory.Move(stagingDirectory, finalDirectory);
-
-                snapshot.RootDirectory = Path.GetFullPath(finalDirectory);
-                foreach (ReplayDatasetSample sample in snapshot.Samples)
-                {
-                    sample.ImagePath = Path.GetFullPath(Path.Combine(finalDirectory, "images", Path.GetFileName(sample.ImagePath)));
-                }
-
-                AtomicFileWriter.WriteAllText(
-                    Path.Combine(finalDirectory, "manifest.json"),
-                    JsonSerializer.Serialize(snapshot, ReplayJson.Options));
-                return snapshot;
+                return ResolveSnapshotPaths(snapshot, finalDirectory);
             }
             catch
             {
@@ -165,11 +171,8 @@ namespace ClearFrost.Services.Replay
                 throw new FileNotFoundException($"Replay dataset manifest not found: {manifestPath}", manifestPath);
             }
 
-            ReplayDatasetSnapshot snapshot = JsonSerializer.Deserialize<ReplayDatasetSnapshot>(
-                File.ReadAllText(manifestPath),
-                ReplayJson.Options) ?? throw new InvalidOperationException("Replay dataset manifest is invalid.");
-
-            snapshot.RootDirectory = Path.GetFullPath(Path.GetDirectoryName(manifestPath) ?? _rootDirectory);
+            ReplayDatasetSnapshot snapshot = LoadSnapshotFromManifest(manifestPath);
+            ValidateSnapshotIntegrity(snapshot);
             return Task.FromResult(snapshot);
         }
 
@@ -179,6 +182,76 @@ namespace ClearFrost.Services.Replay
         {
             ReplayDatasetSnapshot snapshot = await LoadSnapshotAsync(datasetId, cancellationToken).ConfigureAwait(false);
             return ComputeDatasetHash(snapshot, useStoredImageHash: false);
+        }
+
+        public Task<IReadOnlyList<ReplayDatasetSummary>> ListSnapshotsAsync(
+            CancellationToken cancellationToken = default)
+        {
+            var summaries = new List<ReplayDatasetSummary>();
+            if (!Directory.Exists(_rootDirectory))
+            {
+                return Task.FromResult<IReadOnlyList<ReplayDatasetSummary>>(summaries);
+            }
+
+            foreach (string directory in Directory.EnumerateDirectories(_rootDirectory)
+                         .Where(path => !Path.GetFileName(path).StartsWith(".", StringComparison.Ordinal) &&
+                                        !string.Equals(Path.GetFileName(path), "_archive", StringComparison.OrdinalIgnoreCase)))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string manifestPath = Path.Combine(directory, "manifest.json");
+                if (!File.Exists(manifestPath))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    ReplayDatasetSnapshot snapshot = LoadSnapshotFromManifest(manifestPath);
+                    summaries.Add(new ReplayDatasetSummary
+                    {
+                        DatasetId = snapshot.DatasetId,
+                        DatasetHash = snapshot.DatasetHash,
+                        CreatedAt = snapshot.CreatedAt,
+                        SampleCount = snapshot.Samples.Count,
+                        RootDirectory = snapshot.RootDirectory,
+                        Status = "Frozen"
+                    });
+                }
+                catch
+                {
+                    summaries.Add(new ReplayDatasetSummary
+                    {
+                        DatasetId = Path.GetFileName(directory),
+                        RootDirectory = Path.GetFullPath(directory),
+                        Status = "Invalid"
+                    });
+                }
+            }
+
+            return Task.FromResult<IReadOnlyList<ReplayDatasetSummary>>(
+                summaries.OrderByDescending(item => item.CreatedAt).ToList());
+        }
+
+        public Task<ReplayDatasetArchiveResult> ArchiveSnapshotAsync(
+            string datasetId,
+            CancellationToken cancellationToken = default)
+        {
+            string manifestPath = ResolveManifestPath(datasetId);
+            string? datasetDirectory = Path.GetDirectoryName(manifestPath);
+            if (string.IsNullOrWhiteSpace(datasetDirectory) || !Directory.Exists(datasetDirectory))
+            {
+                return Task.FromResult(ReplayDatasetArchiveResult.Fail(
+                    "ReplayDatasetMissing",
+                    $"Replay dataset not found: {datasetId}"));
+            }
+
+            string archiveRoot = Path.Combine(_rootDirectory, "_archive");
+            Directory.CreateDirectory(archiveRoot);
+            string archiveName = $"{Path.GetFileName(datasetDirectory)}-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}";
+            string archivePath = Path.Combine(archiveRoot, archiveName);
+            cancellationToken.ThrowIfCancellationRequested();
+            Directory.Move(datasetDirectory, archivePath);
+            return Task.FromResult(ReplayDatasetArchiveResult.Ok(Path.GetFullPath(archivePath)));
         }
 
         internal static string ComputeDatasetHash(ReplayDatasetSnapshot snapshot, bool useStoredImageHash)
@@ -202,7 +275,9 @@ namespace ClearFrost.Services.Replay
                     .Select(sample => new
                     {
                         sample.SampleId,
+                        sample.DetectionRecordId,
                         sample.InspectionId,
+                        sample.SourceRecordHash,
                         sample.GroundTruth,
                         sample.SystemDecision,
                         sample.RecipeId,
@@ -218,12 +293,139 @@ namespace ClearFrost.Services.Replay
                             sample.Record.ModelHash,
                             sample.Record.ModelName
                         },
-                        ImageHash = useStoredImageHash ? sample.ImageHash : ComputeSha256(sample.ImagePath)
+                        ImageHash = useStoredImageHash ? sample.ImageHash : ComputeSha256(ResolveSnapshotFilePath(snapshot, sample.ImagePath))
                     })
                     .ToList()
             };
 
             return ComputeSha256(JsonSerializer.SerializeToUtf8Bytes(canonical, ReplayJson.Options));
+        }
+
+        private static ReplayDatasetSnapshot LoadSnapshotFromManifest(string manifestPath)
+        {
+            ReplayDatasetSnapshot manifest = JsonSerializer.Deserialize<ReplayDatasetSnapshot>(
+                File.ReadAllText(manifestPath),
+                ReplayJson.Options) ?? throw new InvalidOperationException("Replay dataset manifest is invalid.");
+
+            string rootDirectory = Path.GetFullPath(Path.GetDirectoryName(manifestPath) ?? string.Empty);
+            return ResolveSnapshotPaths(manifest, rootDirectory);
+        }
+
+        private static ReplayDatasetSnapshot CreateManifestSnapshot(ReplayDatasetSnapshot snapshot)
+        {
+            return new ReplayDatasetSnapshot
+            {
+                DatasetId = snapshot.DatasetId,
+                DatasetHash = snapshot.DatasetHash,
+                CreatedAt = snapshot.CreatedAt,
+                RootDirectory = string.Empty,
+                Recipe = snapshot.Recipe,
+                BaselineModel = SanitizeModelForManifest(snapshot.BaselineModel),
+                CandidateModel = SanitizeModelForManifest(snapshot.CandidateModel),
+                Samples = snapshot.Samples.Select(sample => new ReplayDatasetSample
+                {
+                    SampleId = sample.SampleId,
+                    DetectionRecordId = sample.DetectionRecordId,
+                    InspectionId = sample.InspectionId,
+                    SourceImagePath = sample.SourceImagePath,
+                    SourceRecordHash = sample.SourceRecordHash,
+                    ImagePath = NormalizeRelativePath(sample.ImagePath),
+                    ImageHash = sample.ImageHash,
+                    GroundTruth = sample.GroundTruth,
+                    SystemDecision = sample.SystemDecision,
+                    RecipeId = sample.RecipeId,
+                    RecipeVersion = sample.RecipeVersion,
+                    ReviewRevision = sample.ReviewRevision,
+                    ManualReview = sample.ManualReview,
+                    Record = SanitizeRecordForManifest(sample.Record)
+                }).ToList()
+            };
+        }
+
+        private static ReplayModelIdentity SanitizeModelForManifest(ReplayModelIdentity model)
+        {
+            model ??= new ReplayModelIdentity();
+            return new ReplayModelIdentity
+            {
+                ModelId = model.ModelId,
+                Version = model.Version,
+                Sha256 = model.Sha256,
+                Labels = model.Labels,
+                TaskType = model.TaskType,
+                InputWidth = model.InputWidth,
+                InputHeight = model.InputHeight,
+                ApprovalStatus = model.ApprovalStatus,
+                IsPackage = model.IsPackage
+            };
+        }
+
+        private static ReplayDatasetSnapshot ResolveSnapshotPaths(ReplayDatasetSnapshot snapshot, string rootDirectory)
+        {
+            string fullRoot = Path.GetFullPath(rootDirectory);
+            foreach (ReplayDatasetSample sample in snapshot.Samples)
+            {
+                sample.ImagePath = ResolvePathForLoad(fullRoot, sample.ImagePath);
+                if (!string.IsNullOrWhiteSpace(sample.SourceImagePath) &&
+                    !sample.SourceImagePath.StartsWith("record:", StringComparison.OrdinalIgnoreCase))
+                {
+                    sample.SourceImagePath = ResolvePathForLoad(fullRoot, sample.SourceImagePath);
+                }
+            }
+
+            snapshot.RootDirectory = fullRoot;
+            return snapshot;
+        }
+
+        private static string ResolvePathForLoad(string rootDirectory, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            string normalized = value.Replace('/', Path.DirectorySeparatorChar);
+            return Path.IsPathRooted(normalized)
+                ? Path.GetFullPath(normalized)
+                : Path.GetFullPath(Path.Combine(rootDirectory, normalized));
+        }
+
+        private static string ResolveSnapshotFilePath(ReplayDatasetSnapshot snapshot, string path)
+        {
+            if (Path.IsPathRooted(path))
+            {
+                return Path.GetFullPath(path);
+            }
+
+            return Path.GetFullPath(Path.Combine(snapshot.RootDirectory, path.Replace('/', Path.DirectorySeparatorChar)));
+        }
+
+        private static void ValidateSnapshotIntegrity(ReplayDatasetSnapshot snapshot)
+        {
+            foreach (ReplayDatasetSample sample in snapshot.Samples)
+            {
+                string imagePath = ResolveSnapshotFilePath(snapshot, sample.ImagePath);
+                if (!File.Exists(imagePath))
+                {
+                    throw new FileNotFoundException($"Replay dataset image missing: {imagePath}", imagePath);
+                }
+
+                string actualHash = ComputeSha256(imagePath);
+                if (!string.Equals(actualHash, sample.ImageHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"Replay dataset image hash mismatch: {sample.SampleId}");
+                }
+            }
+        }
+
+        private static string NormalizeRelativePath(string value)
+        {
+            string normalized = value.Replace('\\', '/');
+            if (Path.IsPathRooted(normalized))
+            {
+                return Path.GetFileName(normalized);
+            }
+
+            return normalized.TrimStart('/');
         }
 
         internal static string ComputeRecipeHash(ReplayRecipeSnapshot recipe)
@@ -312,11 +514,21 @@ namespace ClearFrost.Services.Replay
 
             if (string.Equals(disposition, ReplayReviewDispositions.FalseReject, StringComparison.OrdinalIgnoreCase))
             {
+                if (!string.Equals(systemDecision, ReplayDecisions.NG, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("FalseReject requires system NG.");
+                }
+
                 return ReplayDecisions.OK;
             }
 
             if (string.Equals(disposition, ReplayReviewDispositions.MissedDetection, StringComparison.OrdinalIgnoreCase))
             {
+                if (!string.Equals(systemDecision, ReplayDecisions.OK, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("MissedDetection requires system OK.");
+                }
+
                 return ReplayDecisions.NG;
             }
 
@@ -355,6 +567,80 @@ namespace ClearFrost.Services.Replay
             }
 
             return record.RenderedImagePath ?? string.Empty;
+        }
+
+        private static string ComputeSourceRecordHash(DetectionRecord record, string imageHash)
+        {
+            var canonical = new
+            {
+                record.Id,
+                record.InspectionId,
+                record.Timestamp,
+                record.IsQualified,
+                record.RecipeId,
+                record.RecipeVersion,
+                record.ModelId,
+                record.ModelVersion,
+                record.ModelHash,
+                record.ModelName,
+                record.RuleSetJson,
+                ImageHash = imageHash ?? string.Empty
+            };
+            return ComputeSha256(JsonSerializer.SerializeToUtf8Bytes(canonical, ReplayJson.Options));
+        }
+
+        private static DetectionRecord SanitizeRecordForManifest(DetectionRecord record)
+        {
+            return new DetectionRecord
+            {
+                Id = record.Id,
+                Timestamp = record.Timestamp,
+                IsQualified = record.IsQualified,
+                InspectionId = record.InspectionId ?? string.Empty,
+                TriggerSource = record.TriggerSource ?? string.Empty,
+                TriggerSeq = record.TriggerSeq,
+                PlcTriggerSeq = record.PlcTriggerSeq,
+                ResultSeq = record.ResultSeq,
+                TerminalHandshakeAttempted = record.TerminalHandshakeAttempted,
+                TerminalHandshakeSucceeded = record.TerminalHandshakeSucceeded,
+                TerminalHandshakeErrorCode = record.TerminalHandshakeErrorCode ?? string.Empty,
+                TerminalHandshakeSignalName = record.TerminalHandshakeSignalName ?? string.Empty,
+                TerminalHandshakeAddress = record.TerminalHandshakeAddress ?? string.Empty,
+                TerminalHandshakeMessage = record.TerminalHandshakeMessage ?? string.Empty,
+                CycleSucceeded = record.CycleSucceeded,
+                ProductBarcode = record.ProductBarcode ?? string.Empty,
+                Barcode = record.Barcode ?? string.Empty,
+                BarcodeReadSucceeded = record.BarcodeReadSucceeded,
+                BarcodeError = record.BarcodeError ?? string.Empty,
+                TraceStatus = record.TraceStatus,
+                QueueStatus = record.QueueStatus ?? string.Empty,
+                ErrorStage = record.ErrorStage ?? string.Empty,
+                ErrorCode = record.ErrorCode ?? string.Empty,
+                ErrorMessage = record.ErrorMessage ?? string.Empty,
+                TotalMs = record.TotalMs,
+                CaptureMs = record.CaptureMs,
+                RoiMs = record.RoiMs,
+                PlcWriteMs = record.PlcWriteMs,
+                SaveImageMs = record.SaveImageMs,
+                SaveRecordMs = record.SaveRecordMs,
+                RecipeId = record.RecipeId ?? string.Empty,
+                RecipeVersion = record.RecipeVersion ?? string.Empty,
+                ModelId = record.ModelId ?? string.Empty,
+                ModelVersion = record.ModelVersion ?? string.Empty,
+                ModelHash = record.ModelHash ?? string.Empty,
+                WasFallback = record.WasFallback,
+                UsedModelName = record.UsedModelName ?? string.Empty,
+                TargetLabel = record.TargetLabel ?? string.Empty,
+                ExpectedCount = record.ExpectedCount,
+                ActualCount = record.ActualCount,
+                InferenceMs = record.InferenceMs,
+                ModelName = record.ModelName ?? string.Empty,
+                CameraId = record.CameraId ?? string.Empty,
+                RuleSummary = record.RuleSummary ?? string.Empty,
+                RuleResultJson = record.RuleResultJson ?? string.Empty,
+                RuleSetJson = record.RuleSetJson ?? string.Empty,
+                ResultJson = record.ResultJson ?? string.Empty
+            };
         }
 
         private static string SanitizeName(string value)
@@ -516,6 +802,56 @@ namespace ClearFrost.Services.Replay
             }
 
             return report;
+        }
+
+        public async Task<ReplayRunRecord?> LoadRunRecordAsync(
+            string runId,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(runId))
+            {
+                throw new ArgumentException("Replay run id is required.", nameof(runId));
+            }
+
+            await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
+            await using SqliteConnection connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT RunId, DatasetId, DatasetHash, BaselineModelId, CandidateModelId, Status, StartedAt, CompletedAt, Message, ReportJsonPath, ReportCsvPath
+                FROM ReplayRuns
+                WHERE RunId = $runId
+                LIMIT 1;
+            ";
+            command.Parameters.AddWithValue("$runId", runId.Trim());
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+                ? ReadRunRecord(reader)
+                : null;
+        }
+
+        public async Task<IReadOnlyList<ReplayRunRecord>> ListRunRecordsAsync(
+            int limit = 100,
+            CancellationToken cancellationToken = default)
+        {
+            await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
+            int safeLimit = Math.Clamp(limit <= 0 ? 100 : limit, 1, 1000);
+            var records = new List<ReplayRunRecord>(safeLimit);
+            await using SqliteConnection connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT RunId, DatasetId, DatasetHash, BaselineModelId, CandidateModelId, Status, StartedAt, CompletedAt, Message, ReportJsonPath, ReportCsvPath
+                FROM ReplayRuns
+                ORDER BY StartedAt DESC
+                LIMIT $limit;
+            ";
+            command.Parameters.AddWithValue("$limit", safeLimit);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                records.Add(ReadRunRecord(reader));
+            }
+
+            return records;
         }
 
         public Task RecordRunFailedAsync(
@@ -683,13 +1019,60 @@ namespace ClearFrost.Services.Replay
                 ReportJsonPath = string.Empty,
                 ReportCsvPath = string.Empty,
                 ReportHash = string.Empty,
+                PolicyVersion = report.PolicyVersion,
                 RecipeHash = report.RecipeHash,
                 RuleSetHash = report.RuleSetHash,
                 PolicyHash = report.PolicyHash,
+                PolicySnapshot = report.PolicySnapshot,
                 BaselineModelHash = report.BaselineModelHash,
                 CandidateModelHash = report.CandidateModelHash
             };
             return FileReplayDatasetStore.ComputeSha256(JsonSerializer.SerializeToUtf8Bytes(canonical, ReplayJson.Options));
+        }
+
+        private static ReplayRunRecord ReadRunRecord(SqliteDataReader reader)
+        {
+            static string ReadString(SqliteDataReader reader, int index)
+            {
+                return reader.IsDBNull(index) ? string.Empty : reader.GetString(index);
+            }
+
+            static DateTimeOffset ReadDateTimeOffset(SqliteDataReader reader, int index)
+            {
+                return DateTimeOffset.TryParse(
+                    ReadString(reader, index),
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind,
+                    out DateTimeOffset value)
+                    ? value
+                    : DateTimeOffset.MinValue;
+            }
+
+            DateTimeOffset? completedAt = null;
+            string completedText = ReadString(reader, 7);
+            if (DateTimeOffset.TryParse(
+                    completedText,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind,
+                    out DateTimeOffset parsedCompleted))
+            {
+                completedAt = parsedCompleted;
+            }
+
+            return new ReplayRunRecord
+            {
+                RunId = ReadString(reader, 0),
+                DatasetId = ReadString(reader, 1),
+                DatasetHash = ReadString(reader, 2),
+                BaselineModelId = ReadString(reader, 3),
+                CandidateModelId = ReadString(reader, 4),
+                Status = ReadString(reader, 5),
+                StartedAt = ReadDateTimeOffset(reader, 6),
+                CompletedAt = completedAt,
+                Message = ReadString(reader, 8),
+                ReportJsonPath = ReadString(reader, 9),
+                ReportCsvPath = ReadString(reader, 10)
+            };
         }
 
         private static string Csv(string value)
@@ -714,6 +1097,8 @@ namespace ClearFrost.Services.Replay
             _policy = policy ?? new ReplayAcceptancePolicy();
         }
 
+        internal string RootDirectory => Path.GetFullPath(_rootDirectory);
+
         public ModelApprovalEvidence SaveEvidence(
             ReplayRunReport report,
             string approvedBy,
@@ -721,7 +1106,7 @@ namespace ClearFrost.Services.Replay
             string policyHash)
         {
             if (report == null) throw new ArgumentNullException(nameof(report));
-            ReplayApprovalDecision decision = _policy.Evaluate(report);
+            ReplayApprovalDecision decision = _policy.Evaluate(report, report.PolicySnapshot);
             if (!decision.Approved)
             {
                 throw new InvalidOperationException(string.Join("; ", decision.Reasons));
@@ -747,7 +1132,9 @@ namespace ClearFrost.Services.Replay
                 Metrics = report.Metrics,
                 PolicyReasons = decision.Reasons,
                 ReplayReportPath = report.ReportJsonPath,
-                PolicyHash = string.IsNullOrWhiteSpace(policyHash) ? _policy.PolicyHash : policyHash,
+                PolicyVersion = report.PolicyVersion == 0 ? _policy.Options.Version : report.PolicyVersion,
+                PolicyHash = string.IsNullOrWhiteSpace(policyHash) ? report.PolicyHash : policyHash,
+                PolicySnapshot = (report.PolicySnapshot ?? _policy.Options).Clone(),
                 RecipeHash = report.RecipeHash,
                 RuleSetHash = report.RuleSetHash,
                 BaselineModelHash = report.BaselineModelHash,
@@ -765,32 +1152,31 @@ namespace ClearFrost.Services.Replay
             ReplayModelIdentity candidate,
             string evidenceId,
             string expectedEvidenceHash,
-            IReplayDatasetStore datasetStore)
+            IReplayDatasetStore datasetStore,
+            IReplayRunStore runStore)
         {
             if (candidate == null) throw new ArgumentNullException(nameof(candidate));
             if (datasetStore == null) throw new ArgumentNullException(nameof(datasetStore));
+            if (runStore == null) throw new ArgumentNullException(nameof(runStore));
 
             if (string.IsNullOrWhiteSpace(evidenceId))
             {
                 return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceMissing", "Replay approval evidence id is missing.");
             }
 
-            string path = ResolvePath(evidenceId);
-            if (!File.Exists(path))
-            {
-                return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceFileMissing", $"Replay approval evidence file is missing: {path}");
-            }
-
-            ModelApprovalEvidence evidence;
+            ModelApprovalEvidence? evidence;
             try
             {
-                evidence = JsonSerializer.Deserialize<ModelApprovalEvidence>(
-                    File.ReadAllText(path),
-                    ReplayJson.Options) ?? new ModelApprovalEvidence();
+                evidence = LoadEvidence(evidenceId);
             }
             catch (Exception ex)
             {
                 return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceParseFailed", ex.Message);
+            }
+
+            if (evidence == null)
+            {
+                return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceFileMissing", $"Replay approval evidence file is missing: {ResolvePath(evidenceId)}");
             }
 
             string actualEvidenceHash = ComputeEvidenceHash(evidence);
@@ -808,9 +1194,9 @@ namespace ClearFrost.Services.Replay
                 return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceModelMismatch", "Replay approval evidence is bound to a different model identity.");
             }
 
-            if (!string.Equals(evidence.PolicyHash, _policy.PolicyHash, StringComparison.OrdinalIgnoreCase))
+            if (!ReplayAcceptancePolicyOptions.IsSupportedVersion(evidence.PolicyVersion))
             {
-                return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidencePolicyHashMismatch", "Replay approval evidence policy hash does not match current policy.");
+                return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidencePolicyVersionUnsupported", "Replay approval evidence policy version is not supported.");
             }
 
             if (!string.IsNullOrWhiteSpace(candidate.ModelPath))
@@ -836,6 +1222,11 @@ namespace ClearFrost.Services.Replay
             }
             catch (Exception ex)
             {
+                if (IsDatasetIntegrityFailure(ex))
+                {
+                    return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceDatasetHashMismatch", ex.Message);
+                }
+
                 return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceDatasetUnavailable", ex.Message);
             }
 
@@ -847,6 +1238,31 @@ namespace ClearFrost.Services.Replay
             if (string.IsNullOrWhiteSpace(evidence.ReplayReportPath) || !File.Exists(evidence.ReplayReportPath))
             {
                 return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceReportMissing", "Replay report referenced by evidence is missing.");
+            }
+
+            ReplayRunRecord? runRecord;
+            try
+            {
+                runRecord = runStore.LoadRunRecordAsync(evidence.ReplayRunId).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                return ModelApprovalEvidenceValidationResult.Fail("ReplayRunDbUnavailable", ex.Message);
+            }
+
+            if (runRecord == null)
+            {
+                return ModelApprovalEvidenceValidationResult.Fail("ReplayRunDbMissing", "Replay run referenced by evidence is missing from DB.");
+            }
+
+            if (!string.Equals(runRecord.Status, ReplayRunStatuses.Completed, StringComparison.Ordinal))
+            {
+                return ModelApprovalEvidenceValidationResult.Fail("ReplayRunDbNotCompleted", $"Replay run DB status is {runRecord.Status}.");
+            }
+
+            if (!SamePath(runRecord.ReportJsonPath, evidence.ReplayReportPath))
+            {
+                return ModelApprovalEvidenceValidationResult.Fail("ReplayRunDbReportPathMismatch", "Replay run DB report path does not match evidence.");
             }
 
             ReplayRunReport report;
@@ -878,13 +1294,67 @@ namespace ClearFrost.Services.Replay
                 return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceReportBindingMismatch", "Replay report bindings do not match approval evidence.");
             }
 
-            ReplayApprovalDecision policy = _policy.Evaluate(report);
+            if (!SamePath(report.ReportJsonPath, runRecord.ReportJsonPath))
+            {
+                return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceReportPathMismatch", "Replay report JSON path does not match DB.");
+            }
+
+            if (!string.Equals(report.PolicyHash, evidence.PolicyHash, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(report.BaselineModelHash, evidence.BaselineModelHash, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(report.CandidateModelHash, evidence.CandidateModelHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceAuthorityHashMismatch", "Replay report authority hashes do not match approval evidence.");
+            }
+
+            ReplayApprovalDecision policy = _policy.Evaluate(report, evidence.PolicySnapshot);
             if (!policy.Approved)
             {
                 return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidencePolicyRejected", string.Join("; ", policy.Reasons));
             }
 
             return ModelApprovalEvidenceValidationResult.Ok();
+        }
+
+        public ModelApprovalEvidence? LoadEvidence(string evidenceId)
+        {
+            string path = ResolvePath(evidenceId);
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            return JsonSerializer.Deserialize<ModelApprovalEvidence>(
+                File.ReadAllText(path),
+                ReplayJson.Options);
+        }
+
+        public IReadOnlyList<ModelApprovalEvidence> ListEvidence()
+        {
+            if (!Directory.Exists(_rootDirectory))
+            {
+                return Array.Empty<ModelApprovalEvidence>();
+            }
+
+            var evidence = new List<ModelApprovalEvidence>();
+            foreach (string path in Directory.EnumerateFiles(_rootDirectory, "*.json"))
+            {
+                try
+                {
+                    ModelApprovalEvidence? item = JsonSerializer.Deserialize<ModelApprovalEvidence>(
+                        File.ReadAllText(path),
+                        ReplayJson.Options);
+                    if (item != null)
+                    {
+                        evidence.Add(item);
+                    }
+                }
+                catch
+                {
+                    // Integrity scanner reports malformed files through validation paths.
+                }
+            }
+
+            return evidence;
         }
 
         internal string ResolvePath(string evidenceId)
@@ -933,13 +1403,43 @@ namespace ClearFrost.Services.Replay
                 Metrics = evidence.Metrics,
                 PolicyReasons = evidence.PolicyReasons,
                 ReplayReportPath = evidence.ReplayReportPath,
+                PolicyVersion = evidence.PolicyVersion,
                 PolicyHash = evidence.PolicyHash,
+                PolicySnapshot = evidence.PolicySnapshot,
                 RecipeHash = evidence.RecipeHash,
                 RuleSetHash = evidence.RuleSetHash,
                 BaselineModelHash = evidence.BaselineModelHash,
                 CandidateModelHash = evidence.CandidateModelHash
             };
             return FileReplayDatasetStore.ComputeSha256(JsonSerializer.SerializeToUtf8Bytes(canonical, ReplayJson.Options));
+        }
+
+        private static bool SamePath(string left, string right)
+        {
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            {
+                return false;
+            }
+
+            return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsDatasetIntegrityFailure(Exception ex)
+        {
+            if (ex is InvalidOperationException &&
+                ex.Message.Contains("Replay dataset image hash mismatch", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (ex is FileNotFoundException fileNotFound)
+            {
+                string? fileName = fileNotFound.FileName;
+                return string.IsNullOrWhiteSpace(fileName) ||
+                    !string.Equals(Path.GetFileName(fileName), "manifest.json", StringComparison.OrdinalIgnoreCase);
+            }
+
+            return false;
         }
     }
 }

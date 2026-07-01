@@ -71,6 +71,48 @@ public class ReplayClosureTests
     }
 
     [Fact]
+    public async Task ReplayDataset_Manifest不写绝对路径并可移动后校验()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            string manifestPath = Path.Combine(fixture.Dataset.RootDirectory, "manifest.json");
+            ReplayDatasetSnapshot manifest = JsonSerializer.Deserialize<ReplayDatasetSnapshot>(
+                await File.ReadAllTextAsync(manifestPath),
+                ReplayJson.Options) ?? throw new InvalidOperationException("Manifest parse failed.");
+
+            manifest.RootDirectory.Should().BeEmpty();
+            manifest.BaselineModel.ModelPath.Should().BeEmpty();
+            manifest.CandidateModel.ModelPath.Should().BeEmpty();
+            manifest.Samples.Should().OnlyContain(sample =>
+                !Path.IsPathRooted(sample.ImagePath) &&
+                sample.SourceImagePath.StartsWith("record:", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(sample.Record.ImagePath) &&
+                string.IsNullOrWhiteSpace(sample.Record.TraceImagePath) &&
+                string.IsNullOrWhiteSpace(sample.Record.RenderedImagePath));
+
+            string movedRoot = Path.Combine(tempDir, "moved");
+            Directory.CreateDirectory(movedRoot);
+            string movedDirectory = Path.Combine(movedRoot, fixture.Dataset.DatasetId);
+            Directory.Move(fixture.Dataset.RootDirectory, movedDirectory);
+
+            var movedStore = new FileReplayDatasetStore(
+                new FakeDatabaseService(new List<DetectionRecord>()),
+                Path.Combine(tempDir, "unused-datasets"));
+            ReplayDatasetSnapshot moved = await movedStore.LoadSnapshotAsync(movedDirectory);
+
+            moved.DatasetHash.Should().Be(fixture.Dataset.DatasetHash);
+            moved.RootDirectory.Should().Be(Path.GetFullPath(movedDirectory));
+            moved.Samples.Should().OnlyContain(sample => Path.IsPathRooted(sample.ImagePath) && File.Exists(sample.ImagePath));
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task ReplayEvidence_批准后生产激活接受_篡改Dataset后拒绝()
     {
         string tempDir = CreateTempDirectory();
@@ -101,15 +143,18 @@ public class ReplayClosureTests
             var registry = new ModelRegistry();
             registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: false));
             ModelRegistryEntry candidateBeforeApproval = registry.Resolve(fixture.CandidateModel.ModelPath)!;
-            var evidenceGate = new ReplayApprovalEvidenceProductionGate(evidenceStore, fixture.DatasetStore);
+            var evidenceGate = new ReplayApprovalEvidenceProductionGate(evidenceStore, fixture.DatasetStore, fixture.RunStore);
             var approval = new ReplayApprovalApplicationService(
                 registry,
                 () => registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true)),
+                fixture.RunStore,
+                fixture.DatasetStore,
                 evidenceStore,
                 evidenceGate,
                 replayPolicy);
             ReplayApprovalResult approvalResult = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
             {
+                RunId = report.RunId,
                 Report = report,
                 CandidateEntry = candidateBeforeApproval,
                 ApprovedBy = "qa01",
@@ -155,6 +200,16 @@ public class ReplayClosureTests
             activationResult.Succeeded.Should().BeTrue();
             activation.EnsureReadyForProduction().Succeeded.Should().BeTrue();
 
+            var stricterEvidenceStore = new FileModelApprovalEvidenceStore(
+                Path.Combine(tempDir, "evidence"),
+                new ReplayAcceptancePolicy(new ReplayAcceptancePolicyOptions
+                {
+                    MinimumValidSamples = 999,
+                    MaximumNewMissedDetections = 0
+                }));
+            var stricterGate = new ReplayApprovalEvidenceProductionGate(stricterEvidenceStore, fixture.DatasetStore, fixture.RunStore);
+            stricterGate.Validate(approvedCandidate).Succeeded.Should().BeTrue();
+
             byte[] originalReport = await File.ReadAllBytesAsync(report.ReportJsonPath);
             WriteValidReportTamper(report.ReportJsonPath);
             ProductionModelReadinessResult readinessAfterReportTamper = activation.EnsureReadyForProduction();
@@ -168,6 +223,18 @@ public class ReplayClosureTests
             ProductionModelReadinessResult readinessAfterTamper = activation.EnsureReadyForProduction();
             readinessAfterTamper.Succeeded.Should().BeFalse();
             readinessAfterTamper.ErrorCode.Should().Be("ReplayEvidenceDatasetHashMismatch");
+
+            var scanner = new ReplayIntegrityScanner(
+                registry,
+                evidenceGate,
+                fixture.DatasetStore,
+                fixture.RunStore,
+                evidenceStore);
+            ReplayIntegrityScanResult scan = await scanner.ScanApprovedModelsAsync();
+            scan.Status.Should().Be("Blocking");
+            scan.Findings.Should().Contain(finding =>
+                finding.ErrorCode == "ReplayDatasetIntegrityFailed" ||
+                finding.ErrorCode == "ReplayEvidenceDatasetHashMismatch");
         }
         finally
         {
@@ -206,16 +273,20 @@ public class ReplayClosureTests
             var evidenceStore = new FileModelApprovalEvidenceStore(evidenceRoot, policy);
             var rejectingGate = new ReplayApprovalEvidenceProductionGate(
                 evidenceStore,
-                new HashMismatchDatasetStore());
+                new HashMismatchDatasetStore(),
+                fixture.RunStore);
             var approval = new ReplayApprovalApplicationService(
                 registry,
                 () => registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true)),
+                fixture.RunStore,
+                fixture.DatasetStore,
                 evidenceStore,
                 rejectingGate,
                 policy);
 
             ReplayApprovalResult result = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
             {
+                RunId = report.RunId,
                 Report = report,
                 CandidateEntry = candidate,
                 ApprovedBy = "qa01",
@@ -228,6 +299,53 @@ public class ReplayClosureTests
             (await File.ReadAllBytesAsync(candidate.ManifestPath)).Should().Equal(originalManifest);
             Directory.Exists(evidenceRoot).Should().BeTrue();
             Directory.EnumerateFiles(evidenceRoot, "*.json").Should().BeEmpty();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayApproval_拒绝没有DB运行记录的客户端Report()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            var policy = new ReplayAcceptancePolicy();
+            var evidenceStore = new FileModelApprovalEvidenceStore(Path.Combine(tempDir, "evidence-fabricated"), policy);
+            var registry = new ModelRegistry();
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: false));
+            var gate = new ReplayApprovalEvidenceProductionGate(evidenceStore, fixture.DatasetStore, fixture.RunStore);
+            var approval = new ReplayApprovalApplicationService(
+                registry,
+                () => registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true)),
+                fixture.RunStore,
+                fixture.DatasetStore,
+                evidenceStore,
+                gate,
+                policy);
+
+            ReplayApprovalResult result = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
+            {
+                Report = new ReplayRunReport
+                {
+                    RunId = "fabricated-client-run",
+                    Status = ReplayRunStatuses.Completed,
+                    DatasetId = fixture.Dataset.DatasetId,
+                    DatasetHash = fixture.Dataset.DatasetHash,
+                    CandidateModel = fixture.CandidateModel,
+                    BaselineModel = fixture.BaselineModel
+                },
+                CandidateEntry = registry.Resolve(fixture.CandidateModel.ModelPath)!,
+                ApprovedBy = "qa01",
+                ApprovedByRole = "Engineer"
+            });
+
+            result.Succeeded.Should().BeFalse();
+            result.ErrorCode.Should().Be("ReplayApprovalRunMissing");
+            Directory.Exists(Path.Combine(tempDir, "evidence-fabricated")).Should().BeFalse();
         }
         finally
         {
@@ -303,15 +421,18 @@ public class ReplayClosureTests
             var registry = new ModelRegistry();
             registry.Scan(ScanOptions(cleanFixture.PackageRoot, requireProductionApproval: false));
             var evidenceStore = new FileModelApprovalEvidenceStore(Path.Combine(cleanRoot, "evidence"), replayPolicy);
-            var evidenceGate = new ReplayApprovalEvidenceProductionGate(evidenceStore, cleanFixture.DatasetStore);
+            var evidenceGate = new ReplayApprovalEvidenceProductionGate(evidenceStore, cleanFixture.DatasetStore, cleanFixture.RunStore);
             var approval = new ReplayApprovalApplicationService(
                 registry,
                 () => registry.Scan(ScanOptions(cleanFixture.PackageRoot, requireProductionApproval: true)),
+                cleanFixture.RunStore,
+                cleanFixture.DatasetStore,
                 evidenceStore,
                 evidenceGate,
                 replayPolicy);
             ReplayApprovalResult approvalResult = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
             {
+                RunId = report.RunId,
                 Report = report,
                 CandidateEntry = registry.Resolve(cleanFixture.CandidateModel.ModelPath)!,
                 ApprovedBy = "qa01",
@@ -456,6 +577,226 @@ public class ReplayClosureTests
             resumed.Status.Should().Be(ReplayRunStatuses.Completed);
             resumeRunner.CallCount(fixture.BaselineModel.ModelId).Should().Be(8);
             resumeRunner.CallCount(fixture.CandidateModel.ModelId).Should().Be(8);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayRunCoordinator_生产与Replay互斥并可取消()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            var runner = new DeterministicReplayRunner(fixture.Decisions)
+            {
+                DelayMs = 25
+            };
+            var service = new ReplayApplicationService(
+                fixture.DatasetStore,
+                runner,
+                new PassingReplayModelValidator(),
+                fixture.RunStore);
+            using var coordinator = new ReplayRunCoordinator(service);
+
+            (await coordinator.TryBeginProductionAsync()).Should().BeTrue();
+            Func<Task> blockedByProduction = async () => await coordinator.StartAsync(new ReplayComparisonRequest
+            {
+                RunId = "run-production-busy",
+                DatasetId = fixture.Dataset.DatasetId,
+                BaselineModel = fixture.BaselineModel,
+                CandidateModel = fixture.CandidateModel
+            });
+            await blockedByProduction.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("ReplayProductionBusy");
+            coordinator.EndProduction();
+
+            Task<ReplayRunReport> runTask = coordinator.StartAsync(new ReplayComparisonRequest
+            {
+                RunId = "run-coordinator-cancel",
+                DatasetId = fixture.Dataset.DatasetId,
+                BaselineModel = fixture.BaselineModel,
+                CandidateModel = fixture.CandidateModel
+            });
+            for (int i = 0; i < 20 && !coordinator.IsReplayRunning; i++)
+            {
+                await Task.Delay(10);
+            }
+
+            coordinator.IsReplayRunning.Should().BeTrue();
+            (await coordinator.TryBeginProductionAsync()).Should().BeFalse();
+            coordinator.Cancel();
+
+            Func<Task> canceled = async () => await runTask;
+            await canceled.Should().ThrowAsync<OperationCanceledException>();
+            coordinator.IsReplayRunning.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayIntegrityScanner_报告Staging未发布Evidence和Run残留()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            var runner = new DeterministicReplayRunner(fixture.Decisions);
+            var service = new ReplayApplicationService(
+                fixture.DatasetStore,
+                runner,
+                new PassingReplayModelValidator(),
+                fixture.RunStore);
+            ReplayRunReport report = await service.RunComparisonAsync(new ReplayComparisonRequest
+            {
+                RunId = "run-for-orphan-evidence",
+                DatasetId = fixture.Dataset.DatasetId,
+                BaselineModel = fixture.BaselineModel,
+                CandidateModel = fixture.CandidateModel
+            });
+
+            string stagingDirectory = Path.Combine(fixture.DatasetStore.RootDirectory, ".fixture-dataset.staging-leftover");
+            Directory.CreateDirectory(stagingDirectory);
+
+            await fixture.RunStore.RecordRunStartedAsync(new ReplayRunReport
+            {
+                RunId = "run-interrupted-residue",
+                DatasetId = fixture.Dataset.DatasetId,
+                DatasetHash = fixture.Dataset.DatasetHash,
+                BaselineModel = fixture.BaselineModel,
+                CandidateModel = fixture.CandidateModel,
+                Status = ReplayRunStatuses.Running,
+                StartedAt = DateTimeOffset.UtcNow
+            });
+            await fixture.RunStore.MarkNonTerminalRunsInterruptedAsync("default");
+            await fixture.RunStore.RecordRunStartedAsync(new ReplayRunReport
+            {
+                RunId = "run-non-terminal-residue",
+                DatasetId = fixture.Dataset.DatasetId,
+                DatasetHash = fixture.Dataset.DatasetHash,
+                BaselineModel = fixture.BaselineModel,
+                CandidateModel = fixture.CandidateModel,
+                Status = ReplayRunStatuses.Running,
+                StartedAt = DateTimeOffset.UtcNow
+            });
+
+            var policy = new ReplayAcceptancePolicy();
+            var evidenceStore = new FileModelApprovalEvidenceStore(Path.Combine(tempDir, "evidence-orphan"), policy);
+            evidenceStore.SaveEvidence(report, "qa01", fixture.Dataset.RootDirectory, report.PolicyHash);
+            await File.WriteAllTextAsync(Path.Combine(evidenceStore.RootDirectory, "broken.json"), "{");
+
+            var registry = new ModelRegistry();
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
+            var gate = new ReplayApprovalEvidenceProductionGate(evidenceStore, fixture.DatasetStore, fixture.RunStore);
+            var scanner = new ReplayIntegrityScanner(
+                registry,
+                gate,
+                fixture.DatasetStore,
+                fixture.RunStore,
+                evidenceStore);
+
+            ReplayIntegrityScanResult scan = await scanner.ScanApprovedModelsAsync();
+
+            scan.Status.Should().Be("Blocking");
+            scan.Findings.Should().Contain(finding =>
+                finding.ErrorCode == "ReplayDatasetStagingOrphan" &&
+                finding.Severity == "Warning");
+            scan.Findings.Should().Contain(finding =>
+                finding.ErrorCode == "ReplayEvidenceUnpublished" &&
+                finding.Severity == "Warning");
+            scan.Findings.Should().Contain(finding =>
+                finding.ErrorCode == "ReplayEvidenceParseFailed" &&
+                finding.Scope == "EvidenceStorage");
+            scan.Findings.Should().Contain(finding =>
+                finding.ErrorCode == "ReplayRunInterruptedResidue" &&
+                finding.Severity == "Warning");
+            scan.Findings.Should().Contain(finding =>
+                finding.ErrorCode == "ReplayRunNonTerminalResidue" &&
+                finding.Severity == "Blocking");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayLegacyApproval_仅允许当前Primary原槽且Hash变化后拒绝()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            var registry = new ModelRegistry();
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
+            ModelRegistryEntry legacyEntry = registry.Resolve(fixture.BaselineModel.ModelPath)!;
+            ProductionModelReference originalReference = ProductionModelReference.FromApprovedPackage(legacyEntry);
+
+            ModelPackageManifest manifest = JsonSerializer.Deserialize<ModelPackageManifest>(
+                File.ReadAllText(legacyEntry.ManifestPath),
+                ReplayJson.Options) ?? throw new InvalidOperationException("Manifest parse failed.");
+            manifest.Approval.LegacyMigration = new ModelApprovalLegacyMigration
+            {
+                MigrationId = "legacy-test",
+                ModelRole = "Primary",
+                ModelId = legacyEntry.ModelId,
+                Version = legacyEntry.Version,
+                ModelHash = legacyEntry.ModelHash,
+                ManifestHash = manifest.EffectiveHash,
+                ConfigReference = originalReference.ToSelectionValue(),
+                MigratedAt = DateTimeOffset.UtcNow
+            };
+            File.WriteAllText(legacyEntry.ManifestPath, JsonSerializer.Serialize(manifest, ReplayJson.Options));
+
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
+            legacyEntry = registry.Resolve(fixture.BaselineModel.ModelPath)!;
+            var evidenceStore = new FileModelApprovalEvidenceStore(Path.Combine(tempDir, "legacy-evidence"));
+            var originalSlotGate = new ReplayApprovalEvidenceProductionGate(
+                evidenceStore,
+                fixture.DatasetStore,
+                fixture.RunStore,
+                () => originalReference);
+
+            originalSlotGate.Validate(legacyEntry).Succeeded.Should().BeTrue();
+
+            var scanner = new ReplayIntegrityScanner(
+                registry,
+                originalSlotGate,
+                fixture.DatasetStore,
+                fixture.RunStore,
+                evidenceStore);
+            ReplayIntegrityScanResult scan = await scanner.ScanApprovedModelsAsync();
+            scan.Status.Should().Be("Warning");
+            scan.Findings.Should().Contain(finding =>
+                finding.ErrorCode == "ReplayLegacyApprovalActive" &&
+                finding.Severity == "Warning");
+
+            var wrongSlotGate = new ReplayApprovalEvidenceProductionGate(
+                evidenceStore,
+                fixture.DatasetStore,
+                fixture.RunStore,
+                () => ProductionModelReference.Empty());
+            ProductionModelReadinessResult wrongSlot = wrongSlotGate.Validate(legacyEntry);
+            wrongSlot.Succeeded.Should().BeFalse();
+            wrongSlot.ErrorCode.Should().Be("ReplayLegacyConfigReferenceMismatch");
+
+            await using (FileStream tamperStream = new FileStream(
+                legacyEntry.ModelPath,
+                FileMode.Append,
+                FileAccess.Write,
+                FileShare.Read))
+            {
+                await tamperStream.WriteAsync(new byte[] { 9 });
+            }
+            ProductionModelReadinessResult tampered = originalSlotGate.Validate(legacyEntry);
+            tampered.Succeeded.Should().BeFalse();
+            tampered.ErrorCode.Should().Be("ReplayLegacyHashMismatch");
         }
         finally
         {
@@ -730,6 +1071,7 @@ public class ReplayClosureTests
         public CancellationTokenSource? CancellationSource { get; init; }
         public string CancelAfterModelId { get; init; } = string.Empty;
         public int CancelAfterCallCount { get; init; }
+        public int DelayMs { get; init; }
 
         public int CallCount(string modelId)
         {
@@ -757,11 +1099,16 @@ public class ReplayClosureTests
 
             public ReplayModelIdentity Model { get; }
 
-            public Task<ReplayInferenceOutput> RunAsync(
+            public async Task<ReplayInferenceOutput> RunAsync(
                 ReplayDatasetSample sample,
                 CancellationToken cancellationToken = default)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (_owner.DelayMs > 0)
+                {
+                    await Task.Delay(_owner.DelayMs, cancellationToken);
+                }
+
                 _owner._callCounts[Model.ModelId] = _owner.CallCount(Model.ModelId) + 1;
                 _owner.Events.Add($"run:{Model.ModelId}:{sample.SampleId}");
                 if (_owner.CancellationSource != null &&
@@ -779,7 +1126,7 @@ public class ReplayClosureTests
                 }
 
                 string decision = _owner._decisions[Model.ModelId][sample.SampleId];
-                return Task.FromResult(new ReplayInferenceOutput
+                return new ReplayInferenceOutput
                 {
                     SampleId = sample.SampleId,
                     InspectionId = sample.InspectionId,
@@ -790,7 +1137,7 @@ public class ReplayClosureTests
                     ModelVersion = Model.Version,
                     ModelHash = Model.Sha256,
                     RuleSummary = $"fixture {decision}"
-                });
+                };
             }
 
             public ValueTask DisposeAsync()
@@ -814,6 +1161,8 @@ public class ReplayClosureTests
         public Task SaveDetectionRecordAsync(DetectionRecord record) => Task.CompletedTask;
         public Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100)
             => Task.FromResult(_records.Take(limit).ToList());
+        public Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
+            => Task.FromResult(_records.FirstOrDefault(record => record.Id == id));
         public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
             => Task.FromResult(new List<DetectionTraceRecord>());
         public Task<DetectionTracePage> GetTraceRecordPageAsync(DetectionTraceQuery query)
@@ -906,6 +1255,24 @@ public class ReplayClosureTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult("mismatched-dataset-hash");
+        }
+
+        public Task<IReadOnlyList<ReplayDatasetSummary>> ListSnapshotsAsync(
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<ReplayDatasetSummary>>(Array.Empty<ReplayDatasetSummary>());
+        }
+
+        public Task<ReplayDatasetArchiveResult> ArchiveSnapshotAsync(
+            string datasetId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ReplayDatasetArchiveResult
+            {
+                Succeeded = false,
+                ErrorCode = "NotSupported",
+                Message = "Hash mismatch fixture does not support archive."
+            });
         }
     }
 }

@@ -119,6 +119,14 @@ namespace ClearFrost
         public event EventHandler<WebUiCommandEventArgs>? OnCreateReplayDataset;
         public event EventHandler<WebUiCommandEventArgs>? OnRunReplayComparison;
         public event EventHandler<WebUiCommandEventArgs>? OnApproveReplayCandidate;
+        public event EventHandler<WebUiCommandEventArgs>? OnPreviewReplayDataset;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryReplayDatasets;
+        public event EventHandler<WebUiCommandEventArgs>? OnArchiveReplayDataset;
+        public event EventHandler<WebUiCommandEventArgs>? OnCancelReplayRun;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryReplayRuns;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryReplayReport;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryModelApprovalEvidence;
+        public event EventHandler<WebUiCommandEventArgs>? OnRunReplayIntegrityScan;
 
         // ================== 多相机事件 ==================
         public event EventHandler? OnGetCameraList;
@@ -917,6 +925,30 @@ namespace ClearFrost
                                 break;
                             case "approve_replay_candidate":
                                 OnApproveReplayCandidate?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "preview_replay_dataset":
+                                OnPreviewReplayDataset?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "query_replay_datasets":
+                                OnQueryReplayDatasets?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "archive_replay_dataset":
+                                OnArchiveReplayDataset?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "cancel_replay_run":
+                                OnCancelReplayRun?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "query_replay_runs":
+                                OnQueryReplayRuns?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "query_replay_report":
+                                OnQueryReplayReport?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "query_model_approval_evidence":
+                                OnQueryModelApprovalEvidence?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "run_replay_integrity_scan":
+                                OnRunReplayIntegrityScan?.Invoke(this, CreateCommandEventArgs(root, requestId));
                                 break;
 
                             // ================== 多相机命令 ==================
@@ -1964,6 +1996,14 @@ namespace ClearFrost
                 OnCreateReplayDataset = null;
                 OnRunReplayComparison = null;
                 OnApproveReplayCandidate = null;
+                OnPreviewReplayDataset = null;
+                OnQueryReplayDatasets = null;
+                OnArchiveReplayDataset = null;
+                OnCancelReplayRun = null;
+                OnQueryReplayRuns = null;
+                OnQueryReplayReport = null;
+                OnQueryModelApprovalEvidence = null;
+                OnRunReplayIntegrityScan = null;
                 OnGetCameraList = null;
                 OnSwitchCamera = null;
                 OnAddCamera = null;

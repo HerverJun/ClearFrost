@@ -52,9 +52,11 @@ namespace ClearFrost.Services.Replay
                 BaselineModel = request.BaselineModel,
                 CandidateModel = request.CandidateModel,
                 StartedAt = DateTimeOffset.UtcNow,
+                PolicyVersion = _policy.Options.Version,
                 RecipeHash = FileReplayDatasetStore.ComputeRecipeHash(dataset.Recipe),
                 RuleSetHash = FileReplayDatasetStore.ComputeRuleSetHash(dataset.Recipe.RuleSetJson),
                 PolicyHash = _policy.PolicyHash,
+                PolicySnapshot = _policy.Options.Clone(),
                 BaselineModelHash = request.BaselineModel.Sha256,
                 CandidateModelHash = request.CandidateModel.Sha256
             };
@@ -239,6 +241,219 @@ namespace ClearFrost.Services.Replay
         }
     }
 
+    public sealed class ReplayRunCoordinator : IDisposable
+    {
+        private readonly ReplayApplicationService _replayService;
+        private readonly SemaphoreSlim _lifecycleGate = new SemaphoreSlim(1, 1);
+        private readonly object _sync = new object();
+        private CancellationTokenSource? _replayCts;
+        private Task<ReplayRunReport>? _currentTask;
+        private ReplayRunProgress? _currentRun;
+        private bool _productionRunning;
+        private bool _disposed;
+
+        public ReplayRunCoordinator(ReplayApplicationService replayService)
+        {
+            _replayService = replayService ?? throw new ArgumentNullException(nameof(replayService));
+        }
+
+        public ReplayRunProgress? CurrentRun
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _currentRun;
+                }
+            }
+        }
+
+        public bool IsProductionRunning
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _productionRunning;
+                }
+            }
+        }
+
+        public bool IsReplayRunning
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _currentTask != null && !_currentTask.IsCompleted;
+                }
+            }
+        }
+
+        public async Task<bool> TryBeginProductionAsync(CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+            if (!await _lifecycleGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            lock (_sync)
+            {
+                _productionRunning = true;
+            }
+
+            return true;
+        }
+
+        public void EndProduction()
+        {
+            bool release;
+            lock (_sync)
+            {
+                release = _productionRunning;
+                _productionRunning = false;
+            }
+
+            if (release)
+            {
+                _lifecycleGate.Release();
+            }
+        }
+
+        public async Task<ReplayRunReport> StartAsync(
+            ReplayComparisonRequest request,
+            IProgress<ReplayRunProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+            if (!await _lifecycleGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException(IsProductionRunning
+                    ? "ReplayProductionBusy"
+                    : "ReplayAlreadyRunning");
+            }
+
+            CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var coordinatorProgress = new Progress<ReplayRunProgress>(item =>
+            {
+                lock (_sync)
+                {
+                    _currentRun = item;
+                }
+
+                progress?.Report(item);
+            });
+
+            Task<ReplayRunReport> task;
+            lock (_sync)
+            {
+                _replayCts = linkedCts;
+                _currentRun = new ReplayRunProgress
+                {
+                    RunId = request.RunId,
+                    Status = ReplayRunStatuses.Preparing,
+                    Phase = "queued",
+                    Message = "Replay queued."
+                };
+                task = RunWithLifecycleGateAsync(request, coordinatorProgress, linkedCts);
+                _currentTask = task;
+            }
+
+            return await task.ConfigureAwait(false);
+        }
+
+        public void Cancel()
+        {
+            lock (_sync)
+            {
+                _replayCts?.Cancel();
+            }
+        }
+
+        public async Task CancelAndWaitAsync(CancellationToken cancellationToken = default)
+        {
+            Task<ReplayRunReport>? task;
+            lock (_sync)
+            {
+                _replayCts?.Cancel();
+                task = _currentTask;
+            }
+
+            if (task == null)
+            {
+                return;
+            }
+
+            using CancellationTokenRegistration registration = cancellationToken.Register(() => Cancel());
+            try
+            {
+                Task completed = await Task.WhenAny(
+                    task,
+                    Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)).ConfigureAwait(false);
+                if (!ReferenceEquals(completed, task))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+
+                await task.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            Cancel();
+            _replayCts?.Dispose();
+            _lifecycleGate.Dispose();
+        }
+
+        private async Task<ReplayRunReport> RunWithLifecycleGateAsync(
+            ReplayComparisonRequest request,
+            IProgress<ReplayRunProgress> progress,
+            CancellationTokenSource linkedCts)
+        {
+            try
+            {
+                using (await ClearFrost.Services.DetectionRuntimeConcurrencyGate.EnterAsync(linkedCts.Token).ConfigureAwait(false))
+                {
+                    return await _replayService.RunComparisonAsync(request, progress, linkedCts.Token).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                lock (_sync)
+                {
+                    if (ReferenceEquals(_replayCts, linkedCts))
+                    {
+                        _replayCts = null;
+                    }
+
+                    _currentTask = null;
+                }
+
+                linkedCts.Dispose();
+                _lifecycleGate.Release();
+            }
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(ReplayRunCoordinator));
+            }
+        }
+    }
+
     public sealed class ReplayAcceptancePolicy
     {
         private readonly ReplayAcceptancePolicyOptions _options;
@@ -254,35 +469,98 @@ namespace ClearFrost.Services.Replay
 
         public ReplayApprovalDecision Evaluate(ReplayRunReport report)
         {
+            return Evaluate(report, _options);
+        }
+
+        public ReplayApprovalDecision Evaluate(ReplayRunReport report, ReplayAcceptancePolicyOptions options)
+        {
             if (report == null) throw new ArgumentNullException(nameof(report));
+            options ??= ReplayAcceptancePolicyOptions.ProductionDefault();
 
             var reasons = new List<string>();
+            if (!ReplayAcceptancePolicyOptions.IsSupportedVersion(options.Version))
+            {
+                reasons.Add($"Replay policy version is not supported: {options.Version}.");
+            }
+
             if (!string.Equals(report.Status, ReplayRunStatuses.Completed, StringComparison.Ordinal))
             {
                 reasons.Add($"Replay status is {report.Status}.");
             }
 
-            if (report.Metrics.CandidateNewMissedDetectionCount > _options.MaximumNewMissedDetections)
+            ReplayComparisonMetrics metrics = report.Metrics ?? new ReplayComparisonMetrics();
+            if (metrics.SampleCount <= 0)
             {
-                reasons.Add($"Candidate introduced missed detections: {report.Metrics.CandidateNewMissedDetectionCount}.");
+                reasons.Add("Replay has zero valid samples.");
             }
 
-            if (_options.MaximumNewFalseRejects.HasValue &&
-                report.Metrics.CandidateNewFalseRejectCount > _options.MaximumNewFalseRejects.Value)
+            if (metrics.SampleCount < options.MinimumValidSamples)
             {
-                reasons.Add($"Candidate introduced false rejects: {report.Metrics.CandidateNewFalseRejectCount}.");
+                reasons.Add($"Replay valid samples {metrics.SampleCount} below policy {options.MinimumValidSamples}.");
             }
 
-            if (_options.MinimumCandidateAccuracy.HasValue &&
-                report.Metrics.CandidateAccuracy < _options.MinimumCandidateAccuracy.Value)
+            if (metrics.InvalidSampleCount > options.MaximumInvalidSampleCount)
             {
-                reasons.Add($"Candidate accuracy {report.Metrics.CandidateAccuracy:P2} is below policy {_options.MinimumCandidateAccuracy.Value:P2}.");
+                reasons.Add($"Replay invalid samples {metrics.InvalidSampleCount} exceed policy {options.MaximumInvalidSampleCount}.");
             }
 
-            if (_options.MaximumCandidateP95ElapsedMs.HasValue &&
-                report.Metrics.CandidateP95ElapsedMs > _options.MaximumCandidateP95ElapsedMs.Value)
+            if (options.MaximumInvalidSampleRate.HasValue &&
+                Rate(metrics.InvalidSampleCount, Math.Max(1, metrics.SampleCount + metrics.InvalidSampleCount)) > options.MaximumInvalidSampleRate.Value)
             {
-                reasons.Add($"Candidate P95 latency {report.Metrics.CandidateP95ElapsedMs}ms exceeds policy {_options.MaximumCandidateP95ElapsedMs.Value}ms.");
+                reasons.Add("Replay invalid sample rate exceeds policy.");
+            }
+
+            if (metrics.CandidateNewMissedDetectionCount > options.MaximumNewMissedDetections)
+            {
+                reasons.Add($"Candidate introduced missed detections: {metrics.CandidateNewMissedDetectionCount}.");
+            }
+
+            if (options.MaximumCandidateMissedDetectionRate.HasValue &&
+                Rate(metrics.CandidateNewMissedDetectionCount, CountGroundTruth(report, ReplayDecisions.NG)) > options.MaximumCandidateMissedDetectionRate.Value)
+            {
+                reasons.Add("Candidate missed detection rate exceeds policy.");
+            }
+
+            if (options.MaximumNewFalseRejects.HasValue &&
+                metrics.CandidateNewFalseRejectCount > options.MaximumNewFalseRejects.Value)
+            {
+                reasons.Add($"Candidate introduced false rejects: {metrics.CandidateNewFalseRejectCount}.");
+            }
+
+            if (options.MaximumFalseRejectRateIncrease.HasValue &&
+                Rate(metrics.CandidateNewFalseRejectCount, CountGroundTruth(report, ReplayDecisions.OK)) > options.MaximumFalseRejectRateIncrease.Value)
+            {
+                reasons.Add("Candidate false reject rate increase exceeds policy.");
+            }
+
+            if (options.MinimumCandidateAccuracy.HasValue &&
+                metrics.CandidateAccuracy < options.MinimumCandidateAccuracy.Value)
+            {
+                reasons.Add($"Candidate accuracy {metrics.CandidateAccuracy:P2} is below policy {options.MinimumCandidateAccuracy.Value:P2}.");
+            }
+
+            if (options.MaximumCandidateP95ElapsedMs.HasValue &&
+                metrics.CandidateP95ElapsedMs > options.MaximumCandidateP95ElapsedMs.Value)
+            {
+                reasons.Add($"Candidate P95 latency {metrics.CandidateP95ElapsedMs}ms exceeds policy {options.MaximumCandidateP95ElapsedMs.Value}ms.");
+            }
+
+            if (options.MaximumP95InferenceIncreaseRatio.HasValue)
+            {
+                if (metrics.BaselineP95ElapsedMs <= 0 && metrics.CandidateP95ElapsedMs > 0)
+                {
+                    reasons.Add("Candidate P95 latency ratio is undefined because baseline P95 is zero.");
+                }
+                else if (metrics.BaselineP95ElapsedMs > 0 &&
+                         metrics.CandidateP95ElapsedMs / (double)metrics.BaselineP95ElapsedMs > options.MaximumP95InferenceIncreaseRatio.Value)
+                {
+                    reasons.Add("Candidate P95 latency increase ratio exceeds policy.");
+                }
+            }
+
+            if (!AreFinite(metrics, options))
+            {
+                reasons.Add("Replay policy or metrics contain NaN/Infinity.");
             }
 
             if (report.Errors.Count > 0)
@@ -297,6 +575,30 @@ namespace ClearFrost.Services.Replay
             };
         }
 
+        private static int CountGroundTruth(ReplayRunReport report, string decision)
+        {
+            return report.Samples.Count(sample =>
+                string.Equals(sample.GroundTruth, decision, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static double Rate(int numerator, int denominator)
+        {
+            return denominator <= 0 ? 0 : numerator / (double)denominator;
+        }
+
+        private static bool AreFinite(ReplayComparisonMetrics metrics, ReplayAcceptancePolicyOptions options)
+        {
+            static bool Finite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
+            static bool NullableFinite(double? value) => !value.HasValue || Finite(value.Value);
+            return Finite(metrics.BaselineAccuracy) &&
+                   Finite(metrics.CandidateAccuracy) &&
+                   NullableFinite(options.MinimumCandidateAccuracy) &&
+                   NullableFinite(options.MaximumInvalidSampleRate) &&
+                   NullableFinite(options.MaximumCandidateMissedDetectionRate) &&
+                   NullableFinite(options.MaximumFalseRejectRateIncrease) &&
+                   NullableFinite(options.MaximumP95InferenceIncreaseRatio);
+        }
+
         public static string ComputePolicyHash(ReplayAcceptancePolicyOptions options)
         {
             return FileReplayDatasetStore.ComputeSha256(JsonSerializer.SerializeToUtf8Bytes(
@@ -308,16 +610,46 @@ namespace ClearFrost.Services.Replay
     public sealed class ReplayAcceptancePolicyOptions
     {
         public int Version { get; set; } = 1;
+        public int MinimumValidSamples { get; set; } = 1;
+        public int MaximumInvalidSampleCount { get; set; } = int.MaxValue;
+        public double? MaximumInvalidSampleRate { get; set; }
         public int MaximumNewMissedDetections { get; set; }
+        public double? MaximumCandidateMissedDetectionRate { get; set; }
         public int? MaximumNewFalseRejects { get; set; }
+        public double? MaximumFalseRejectRateIncrease { get; set; }
         public double? MinimumCandidateAccuracy { get; set; }
         public long? MaximumCandidateP95ElapsedMs { get; set; }
+        public double? MaximumP95InferenceIncreaseRatio { get; set; }
+
+        public ReplayAcceptancePolicyOptions Clone()
+        {
+            return new ReplayAcceptancePolicyOptions
+            {
+                Version = Version,
+                MinimumValidSamples = MinimumValidSamples,
+                MaximumInvalidSampleCount = MaximumInvalidSampleCount,
+                MaximumInvalidSampleRate = MaximumInvalidSampleRate,
+                MaximumNewMissedDetections = MaximumNewMissedDetections,
+                MaximumCandidateMissedDetectionRate = MaximumCandidateMissedDetectionRate,
+                MaximumNewFalseRejects = MaximumNewFalseRejects,
+                MaximumFalseRejectRateIncrease = MaximumFalseRejectRateIncrease,
+                MinimumCandidateAccuracy = MinimumCandidateAccuracy,
+                MaximumCandidateP95ElapsedMs = MaximumCandidateP95ElapsedMs,
+                MaximumP95InferenceIncreaseRatio = MaximumP95InferenceIncreaseRatio
+            };
+        }
+
+        public static bool IsSupportedVersion(int version)
+        {
+            return version == 1;
+        }
 
         public static ReplayAcceptancePolicyOptions ProductionDefault()
         {
             return new ReplayAcceptancePolicyOptions
             {
                 Version = 1,
+                MinimumValidSamples = 1,
                 MaximumNewMissedDetections = 0
             };
         }

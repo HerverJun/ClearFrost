@@ -808,6 +808,33 @@ namespace ClearFrost.Services
             return records;
         }
 
+        public async Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
+        {
+            if (id <= 0)
+            {
+                return null;
+            }
+
+            if (!_initialized) await InitializeAsync();
+
+            try
+            {
+                using var connection = await OpenConnectionAsync();
+                using var command = connection.CreateCommand();
+                command.CommandText = "SELECT * FROM DetectionRecords WHERE Id = @Id LIMIT 1;";
+                command.Parameters.AddWithValue("@Id", id);
+                using var reader = await command.ExecuteReaderAsync();
+                return await reader.ReadAsync()
+                    ? ReadDetectionRecord(reader)
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SqliteDatabaseService] Exact record query error: {ex.Message}");
+                return null;
+            }
+        }
+
         public async Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
         {
             DetectionTracePage page = await GetTraceRecordPageAsync(query);
@@ -1186,6 +1213,63 @@ namespace ClearFrost.Services
                 out DateTime parsed)
                     ? parsed
                     : DateTime.MinValue;
+        }
+
+        private static DetectionRecord ReadDetectionRecord(SqliteDataReader reader)
+        {
+            return new DetectionRecord
+            {
+                Id = GetInt64OrDefault(reader, "Id"),
+                Timestamp = ParseTimestamp(GetStringOrDefault(reader, "Timestamp")),
+                IsQualified = GetInt32OrDefault(reader, "IsQualified") == 1,
+                InspectionId = GetStringOrDefault(reader, "InspectionId"),
+                TriggerSource = GetStringOrDefault(reader, "TriggerSource"),
+                TriggerSeq = GetNullableInt32(reader, "TriggerSeq"),
+                PlcTriggerSeq = GetNullableInt32(reader, "PlcTriggerSeq") ?? GetNullableInt32(reader, "TriggerSeq"),
+                ResultSeq = GetNullableInt32(reader, "ResultSeq"),
+                TerminalHandshakeAttempted = GetInt32OrDefault(reader, "TerminalHandshakeAttempted") == 1,
+                TerminalHandshakeSucceeded = GetInt32OrDefault(reader, "TerminalHandshakeSucceeded") == 1,
+                TerminalHandshakeErrorCode = GetStringOrDefault(reader, "TerminalHandshakeErrorCode"),
+                TerminalHandshakeSignalName = GetStringOrDefault(reader, "TerminalHandshakeSignalName"),
+                TerminalHandshakeAddress = GetStringOrDefault(reader, "TerminalHandshakeAddress"),
+                TerminalHandshakeMessage = GetStringOrDefault(reader, "TerminalHandshakeMessage"),
+                CycleSucceeded = GetInt32OrDefault(reader, "CycleSucceeded") == 1,
+                ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
+                Barcode = GetStringOrDefault(reader, "Barcode"),
+                BarcodeReadSucceeded = GetNullableBool(reader, "BarcodeReadSucceeded"),
+                BarcodeError = GetStringOrDefault(reader, "BarcodeError"),
+                TraceStatus = ParseTraceStatus(GetStringOrDefault(reader, "TraceStatus")),
+                QueueStatus = GetStringOrDefault(reader, "QueueStatus"),
+                ImagePath = GetStringOrDefault(reader, "ImagePath"),
+                RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
+                TraceImagePath = GetStringOrDefault(reader, "TraceImagePath"),
+                ErrorStage = GetStringOrDefault(reader, "ErrorStage"),
+                ErrorCode = GetStringOrDefault(reader, "ErrorCode"),
+                ErrorMessage = GetStringOrDefault(reader, "ErrorMessage"),
+                TotalMs = GetInt64OrDefault(reader, "TotalMs"),
+                CaptureMs = GetInt64OrDefault(reader, "CaptureMs"),
+                RoiMs = GetInt64OrDefault(reader, "RoiMs"),
+                PlcWriteMs = GetInt64OrDefault(reader, "PlcWriteMs"),
+                SaveImageMs = GetInt64OrDefault(reader, "SaveImageMs"),
+                SaveRecordMs = GetInt64OrDefault(reader, "SaveRecordMs"),
+                RecipeId = GetStringOrDefault(reader, "RecipeId"),
+                RecipeVersion = GetStringOrDefault(reader, "RecipeVersion"),
+                ModelId = GetStringOrDefault(reader, "ModelId"),
+                ModelVersion = GetStringOrDefault(reader, "ModelVersion"),
+                ModelHash = GetStringOrDefault(reader, "ModelHash"),
+                WasFallback = GetInt32OrDefault(reader, "WasFallback") == 1,
+                UsedModelName = GetStringOrDefault(reader, "UsedModelName"),
+                TargetLabel = GetStringOrDefault(reader, "TargetLabel"),
+                ExpectedCount = GetInt32OrDefault(reader, "ExpectedCount"),
+                ActualCount = GetInt32OrDefault(reader, "ActualCount"),
+                InferenceMs = GetInt32OrDefault(reader, "InferenceMs"),
+                ModelName = GetStringOrDefault(reader, "ModelName"),
+                CameraId = GetStringOrDefault(reader, "CameraId"),
+                RuleSummary = GetStringOrDefault(reader, "RuleSummary"),
+                RuleResultJson = GetStringOrDefault(reader, "RuleResultJson"),
+                RuleSetJson = GetStringOrDefault(reader, "RuleSetJson"),
+                ResultJson = GetStringOrDefault(reader, "ResultJson")
+            };
         }
 
         private static string GetStringOrDefault(SqliteDataReader reader, string columnName)

@@ -37,6 +37,19 @@ namespace ClearFrost.Core.Models
         public string ReplayEvidenceHash { get; set; } = string.Empty;
         public string ReplayDatasetHash { get; set; } = string.Empty;
         public string ReplayRunId { get; set; } = string.Empty;
+        public ModelApprovalLegacyMigration? LegacyMigration { get; set; }
+    }
+
+    public sealed class ModelApprovalLegacyMigration
+    {
+        public string MigrationId { get; set; } = string.Empty;
+        public string ModelRole { get; set; } = string.Empty;
+        public string ModelId { get; set; } = string.Empty;
+        public string Version { get; set; } = string.Empty;
+        public string ModelHash { get; set; } = string.Empty;
+        public string ManifestHash { get; set; } = string.Empty;
+        public string ConfigReference { get; set; } = string.Empty;
+        public DateTimeOffset MigratedAt { get; set; }
     }
 
     public static class ModelApprovalStatuses

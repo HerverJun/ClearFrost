@@ -17,13 +17,19 @@ namespace ClearFrost.Services.Replay
     {
         private readonly IModelApprovalEvidenceStore _evidenceStore;
         private readonly IReplayDatasetStore _datasetStore;
+        private readonly IReplayRunStore _runStore;
+        private readonly Func<ProductionModelReference?>? _currentPrimaryReferenceProvider;
 
         public ReplayApprovalEvidenceProductionGate(
             IModelApprovalEvidenceStore evidenceStore,
-            IReplayDatasetStore datasetStore)
+            IReplayDatasetStore datasetStore,
+            IReplayRunStore runStore,
+            Func<ProductionModelReference?>? currentPrimaryReferenceProvider = null)
         {
             _evidenceStore = evidenceStore ?? throw new ArgumentNullException(nameof(evidenceStore));
             _datasetStore = datasetStore ?? throw new ArgumentNullException(nameof(datasetStore));
+            _runStore = runStore ?? throw new ArgumentNullException(nameof(runStore));
+            _currentPrimaryReferenceProvider = currentPrimaryReferenceProvider;
         }
 
         public ProductionModelReadinessResult Validate(ModelRegistryEntry entry)
@@ -36,15 +42,111 @@ namespace ClearFrost.Services.Replay
                     "Model manifest approval metadata is missing.");
             }
 
+            if (string.IsNullOrWhiteSpace(entry.Manifest.Approval.ReplayEvidenceId))
+            {
+                return ValidateLegacyApproval(entry, entry.Manifest.Approval);
+            }
+
             ModelApprovalEvidenceValidationResult result = _evidenceStore.ValidateEvidence(
                 ReplayModelIdentity.FromRegistryEntry(entry),
                 entry.Manifest.Approval.ReplayEvidenceId,
                 entry.Manifest.Approval.ReplayEvidenceHash,
-                _datasetStore);
+                _datasetStore,
+                _runStore);
 
             return result.Succeeded
                 ? ProductionModelReadinessResult.Ok()
                 : ProductionModelReadinessResult.Fail(result.ErrorCode, result.Message);
+        }
+
+        private ProductionModelReadinessResult ValidateLegacyApproval(
+            ModelRegistryEntry entry,
+            ModelApprovalMetadata approval)
+        {
+            ModelApprovalLegacyMigration? legacy = approval.LegacyMigration;
+            if (legacy == null)
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayEvidenceMissing",
+                    "Replay approval evidence id is missing.");
+            }
+
+            if (!string.Equals(approval.Status, ModelApprovalStatuses.Approved, StringComparison.OrdinalIgnoreCase))
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayLegacyApprovalStatusInvalid",
+                    "Legacy migration can only authorize an already approved manifest.");
+            }
+
+            if (!string.Equals(legacy.ModelRole, "Primary", StringComparison.OrdinalIgnoreCase))
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayLegacyRoleMismatch",
+                    "Legacy migration is only valid for the original primary model slot.");
+            }
+
+            ProductionModelReference expectedReference = ProductionModelReference.FromApprovedPackage(entry);
+            string expectedConfigReference = expectedReference.ToSelectionValue();
+            ProductionModelReference currentReference = _currentPrimaryReferenceProvider?.Invoke()?.Clone()
+                ?? ProductionModelReference.Empty();
+            if (currentReference.IsEmpty ||
+                !currentReference.IdentityEquals(expectedReference) ||
+                !string.Equals(currentReference.ToSelectionValue(), legacy.ConfigReference, StringComparison.Ordinal))
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayLegacyConfigReferenceMismatch",
+                    "Legacy migration is not bound to the current primary AppConfig model reference.");
+            }
+
+            if (!string.Equals(legacy.ConfigReference, expectedConfigReference, StringComparison.Ordinal) ||
+                !string.Equals(legacy.ModelId, entry.ModelId, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(legacy.Version, entry.Version, StringComparison.OrdinalIgnoreCase))
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayLegacyIdentityMismatch",
+                    "Legacy migration identity does not match the registry entry.");
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.ModelPath) || !File.Exists(entry.ModelPath))
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayLegacyModelFileMissing",
+                    "Legacy-approved model file is missing.");
+            }
+
+            string actualHash;
+            try
+            {
+                actualHash = FileReplayDatasetStore.ComputeSha256(entry.ModelPath);
+            }
+            catch (Exception ex)
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayLegacyModelHashUnavailable",
+                    ex.Message);
+            }
+
+            string manifestHash = entry.Manifest!.EffectiveHash;
+            if (string.IsNullOrWhiteSpace(legacy.ModelHash) ||
+                string.IsNullOrWhiteSpace(legacy.ManifestHash) ||
+                !string.Equals(actualHash, legacy.ModelHash, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(actualHash, entry.ModelHash, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(actualHash, manifestHash, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(legacy.ManifestHash, manifestHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayLegacyHashMismatch",
+                    "Legacy migration hash no longer matches the model file or manifest.");
+            }
+
+            if (legacy.MigratedAt == default)
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayLegacyMigrationTimestampMissing",
+                    "Legacy migration timestamp is missing.");
+            }
+
+            return ProductionModelReadinessResult.Ok();
         }
     }
 

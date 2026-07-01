@@ -975,6 +975,9 @@ public class InspectionPipelineServiceTests
         public Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100)
             => Task.FromResult(new List<DetectionRecord>());
 
+        public Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
+            => Task.FromResult<DetectionRecord?>(null);
+
         public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
             => Task.FromResult(new List<DetectionTraceRecord>());
 

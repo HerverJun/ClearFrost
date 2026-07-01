@@ -109,16 +109,14 @@ namespace ClearFrost
         private readonly TimeSpan _shutdownTimeout = TimeSpan.FromSeconds(15);
         private Task? _shutdownTask;
         private int _shutdownState = 0;
-        private int _productionRunningState = 0;
         private int _manualReleaseInProgress = 0;
-        private readonly SemaphoreSlim _replayOperationLock = new SemaphoreSlim(1, 1);
         private string _lastReplayDatasetId = string.Empty;
         private string _lastReplayRunId = string.Empty;
         private ReplayModelIdentity? _lastReplayBaselineModel;
         private ReplayModelIdentity? _lastReplayCandidateModel;
 
         private bool IsShutdownInProgress => Volatile.Read(ref _shutdownState) != 0;
-        private bool IsProductionRunning => Volatile.Read(ref _productionRunningState) != 0;
+        private bool IsProductionRunning => _appRuntime.ReplayCoordinator.IsProductionRunning;
 
         // YOLO (由 _detectionService 管理)
         // 多模型管理器 (由 _detectionService 管理)

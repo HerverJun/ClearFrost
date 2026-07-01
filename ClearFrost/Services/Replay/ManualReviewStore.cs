@@ -35,6 +35,7 @@ namespace ClearFrost.Services.Replay
 
     public sealed class ManualReviewSaveRequest
     {
+        public long DetectionRecordId { get; init; }
         public string InspectionId { get; init; } = string.Empty;
         public string SampleId { get; init; } = string.Empty;
         public string GroundTruth { get; init; } = ReplayDecisions.OK;
@@ -95,17 +96,23 @@ namespace ClearFrost.Services.Replay
         private readonly IDatabaseService _databaseService;
         private readonly string _dbPath;
         private readonly OperationAuditService? _auditService;
+        private readonly Func<string>? _operatorIdProvider;
+        private readonly Func<ProductionRole>? _operatorRoleProvider;
 
         public SqliteManualReviewStore(
             IDatabaseService databaseService,
             string dbPath,
-            OperationAuditService? auditService = null)
+            OperationAuditService? auditService = null,
+            Func<string>? operatorIdProvider = null,
+            Func<ProductionRole>? operatorRoleProvider = null)
         {
             _databaseService = databaseService ?? throw new ArgumentNullException(nameof(databaseService));
             _dbPath = string.IsNullOrWhiteSpace(dbPath)
                 ? throw new ArgumentException("Manual review database path is required.", nameof(dbPath))
                 : dbPath;
             _auditService = auditService;
+            _operatorIdProvider = operatorIdProvider;
+            _operatorRoleProvider = operatorRoleProvider;
         }
 
         public async Task<IReadOnlyList<ManualReviewTraceItem>> QueryAsync(
@@ -117,13 +124,13 @@ namespace ClearFrost.Services.Replay
 
             List<DetectionRecord> records = await _databaseService.GetReplayRecordsAsync(query.ReplayQuery)
                 .ConfigureAwait(false);
-            Dictionary<string, ReplayManualReviewRecord> reviews = await LoadReviewsAsync(
-                records.Select(record => record.InspectionId),
+            Dictionary<long, ReplayManualReviewRecord> reviews = await LoadReviewsAsync(
+                records.Select(record => record.Id),
                 cancellationToken).ConfigureAwait(false);
 
             IEnumerable<ManualReviewTraceItem> items = records.Select(record =>
             {
-                reviews.TryGetValue(record.InspectionId ?? string.Empty, out ReplayManualReviewRecord? review);
+                reviews.TryGetValue(record.Id, out ReplayManualReviewRecord? review);
                 return new ManualReviewTraceItem
                 {
                     DetectionRecordId = record.Id,
@@ -148,18 +155,30 @@ namespace ClearFrost.Services.Replay
             CancellationToken cancellationToken = default)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
+            if (request.DetectionRecordId <= 0)
+            {
+                return ManualReviewSaveResult.Fail("ManualReviewDetectionRecordIdMissing", "DetectionRecordId is required.");
+            }
+
             if (string.IsNullOrWhiteSpace(request.InspectionId))
             {
                 return ManualReviewSaveResult.Fail("ManualReviewInspectionIdMissing", "InspectionId is required.");
             }
 
-            DetectionRecord? detectionRecord = await FindDetectionRecordAsync(request.InspectionId, cancellationToken)
+            DetectionRecord? detectionRecord = await _databaseService.GetDetectionRecordByIdAsync(request.DetectionRecordId)
                 .ConfigureAwait(false);
             if (detectionRecord == null)
             {
                 return ManualReviewSaveResult.Fail(
                     "ManualReviewDetectionRecordMissing",
-                    $"Detection record is required for manual review: {request.InspectionId}.");
+                    $"Detection record is required for manual review: {request.DetectionRecordId}.");
+            }
+
+            if (!string.Equals(detectionRecord.InspectionId, request.InspectionId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return ManualReviewSaveResult.Fail(
+                    "ManualReviewRecordBindingMismatch",
+                    $"DetectionRecordId/InspectionId mismatch. Id={request.DetectionRecordId}; InspectionId={request.InspectionId}.");
             }
 
             string systemDecision = detectionRecord.IsQualified ? ReplayDecisions.OK : ReplayDecisions.NG;
@@ -182,7 +201,7 @@ namespace ClearFrost.Services.Replay
                 ReplayManualReviewRecord? existing = await LoadReviewAsync(
                     connection,
                     transaction,
-                    request.InspectionId,
+                    request.DetectionRecordId,
                     cancellationToken).ConfigureAwait(false);
                 long existingRevision = existing?.Revision ?? 0;
                 if (request.ExpectedRevision.HasValue && request.ExpectedRevision.Value != existingRevision)
@@ -196,6 +215,8 @@ namespace ClearFrost.Services.Replay
                         existing);
                 }
 
+                string reviewerId = ResolveReviewerId(request);
+                ProductionRole reviewerRole = ResolveReviewerRole(request);
                 var record = new ReplayManualReviewRecord
                 {
                     SampleId = string.IsNullOrWhiteSpace(request.SampleId)
@@ -205,10 +226,8 @@ namespace ClearFrost.Services.Replay
                     GroundTruth = groundTruth,
                     SystemDecision = systemDecision,
                     Disposition = disposition,
-                    ReviewerId = request.ReviewerId?.Trim() ?? string.Empty,
-                    ReviewerRole = string.IsNullOrWhiteSpace(request.ReviewerRole)
-                        ? ProductionRole.Engineer.ToString()
-                        : request.ReviewerRole.Trim(),
+                    ReviewerId = reviewerId,
+                    ReviewerRole = reviewerRole.ToString(),
                     Revision = existingRevision + 1,
                     ReviewedAt = DateTimeOffset.UtcNow,
                     Notes = request.Notes ?? string.Empty
@@ -218,11 +237,12 @@ namespace ClearFrost.Services.Replay
                 command.Transaction = transaction;
                 command.CommandText = @"
                     INSERT INTO ManualReviewRecords
-                        (InspectionId, SampleId, GroundTruth, SystemDecision, Disposition, ReviewerId, ReviewerRole, Revision, ReviewedAt, Notes)
+                        (DetectionRecordId, InspectionId, SampleId, GroundTruth, SystemDecision, Disposition, ReviewerId, ReviewerRole, Revision, ReviewedAt, Notes)
                     VALUES
-                        ($inspectionId, $sampleId, $groundTruth, $systemDecision, $disposition, $reviewerId, $reviewerRole, $revision, $reviewedAt, $notes)
-                    ON CONFLICT(InspectionId) DO UPDATE SET
+                        ($detectionRecordId, $inspectionId, $sampleId, $groundTruth, $systemDecision, $disposition, $reviewerId, $reviewerRole, $revision, $reviewedAt, $notes)
+                    ON CONFLICT(DetectionRecordId) DO UPDATE SET
                         SampleId = excluded.SampleId,
+                        InspectionId = excluded.InspectionId,
                         GroundTruth = excluded.GroundTruth,
                         SystemDecision = excluded.SystemDecision,
                         Disposition = excluded.Disposition,
@@ -232,6 +252,7 @@ namespace ClearFrost.Services.Replay
                         ReviewedAt = excluded.ReviewedAt,
                         Notes = excluded.Notes;
                 ";
+                command.Parameters.AddWithValue("$detectionRecordId", request.DetectionRecordId);
                 command.Parameters.AddWithValue("$inspectionId", record.InspectionId);
                 command.Parameters.AddWithValue("$sampleId", record.SampleId);
                 command.Parameters.AddWithValue("$groundTruth", record.GroundTruth);
@@ -258,22 +279,22 @@ namespace ClearFrost.Services.Replay
             }
         }
 
-        private async Task<Dictionary<string, ReplayManualReviewRecord>> LoadReviewsAsync(
-            IEnumerable<string> inspectionIds,
+        private async Task<Dictionary<long, ReplayManualReviewRecord>> LoadReviewsAsync(
+            IEnumerable<long> detectionRecordIds,
             CancellationToken cancellationToken)
         {
-            var ids = inspectionIds
-                .Where(id => !string.IsNullOrWhiteSpace(id))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+            var ids = detectionRecordIds
+                .Where(id => id > 0)
+                .Distinct()
                 .ToList();
-            var result = new Dictionary<string, ReplayManualReviewRecord>(StringComparer.OrdinalIgnoreCase);
+            var result = new Dictionary<long, ReplayManualReviewRecord>();
             if (ids.Count == 0)
             {
                 return result;
             }
 
             await using SqliteConnection connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            foreach (string id in ids)
+            foreach (long id in ids)
             {
                 ReplayManualReviewRecord? record = await LoadReviewAsync(connection, null, id, cancellationToken)
                     .ConfigureAwait(false);
@@ -289,7 +310,7 @@ namespace ClearFrost.Services.Replay
         private static async Task<ReplayManualReviewRecord?> LoadReviewAsync(
             SqliteConnection connection,
             SqliteTransaction? transaction,
-            string inspectionId,
+            long detectionRecordId,
             CancellationToken cancellationToken)
         {
             await using SqliteCommand command = connection.CreateCommand();
@@ -298,10 +319,10 @@ namespace ClearFrost.Services.Replay
                 SELECT InspectionId, SampleId, GroundTruth, ReviewerId, Revision, ReviewedAt, Notes
                 , SystemDecision, Disposition, ReviewerRole
                 FROM ManualReviewRecords
-                WHERE InspectionId = $inspectionId
+                WHERE DetectionRecordId = $detectionRecordId
                 LIMIT 1;
             ";
-            command.Parameters.AddWithValue("$inspectionId", inspectionId);
+            command.Parameters.AddWithValue("$detectionRecordId", detectionRecordId);
             await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
@@ -343,7 +364,8 @@ namespace ClearFrost.Services.Replay
             await using SqliteCommand command = connection.CreateCommand();
             command.CommandText = @"
                 CREATE TABLE IF NOT EXISTS ManualReviewRecords (
-                    InspectionId TEXT PRIMARY KEY,
+                    DetectionRecordId INTEGER PRIMARY KEY,
+                    InspectionId TEXT NOT NULL,
                     SampleId TEXT NOT NULL,
                     GroundTruth TEXT NOT NULL,
                     SystemDecision TEXT NOT NULL DEFAULT '',
@@ -354,6 +376,7 @@ namespace ClearFrost.Services.Replay
                     ReviewedAt TEXT NOT NULL,
                     Notes TEXT
                 );
+                CREATE INDEX IF NOT EXISTS idx_manual_review_inspection ON ManualReviewRecords(InspectionId);
                 CREATE INDEX IF NOT EXISTS idx_manual_review_status ON ManualReviewRecords(GroundTruth, ReviewedAt);
             ";
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -363,25 +386,9 @@ namespace ClearFrost.Services.Replay
                 .ConfigureAwait(false);
             await EnsureColumnAsync(connection, "ManualReviewRecords", "ReviewerRole", "TEXT NOT NULL DEFAULT ''", cancellationToken)
                 .ConfigureAwait(false);
-        }
-
-        private async Task<DetectionRecord?> FindDetectionRecordAsync(
-            string inspectionId,
-            CancellationToken cancellationToken)
-        {
-            string normalized = inspectionId.Trim();
-            List<DetectionRecord> replayRecords = await _databaseService.GetReplayRecordsAsync(new DetectionReplayQuery { Limit = 10000 })
+            await EnsureColumnAsync(connection, "ManualReviewRecords", "DetectionRecordId", "INTEGER NOT NULL DEFAULT 0", cancellationToken)
                 .ConfigureAwait(false);
-            DetectionRecord? match = replayRecords.FirstOrDefault(record =>
-                string.Equals(record.InspectionId, normalized, StringComparison.OrdinalIgnoreCase));
-            if (match != null)
-            {
-                return match;
-            }
-
-            List<DetectionRecord> records = await _databaseService.GetRecordsAsync(limit: 10000).ConfigureAwait(false);
-            return records.FirstOrDefault(record =>
-                string.Equals(record.InspectionId, normalized, StringComparison.OrdinalIgnoreCase));
+            await EnsureManualReviewPrimaryKeyAsync(connection, cancellationToken).ConfigureAwait(false);
         }
 
         private static bool TryNormalizeReview(
@@ -394,9 +401,9 @@ namespace ClearFrost.Services.Replay
             disposition = request.Disposition?.Trim() ?? string.Empty;
             groundTruth = string.Empty;
             error = string.Empty;
-            if (!ReplayReviewDispositions.IsDatasetEligible(disposition))
+            if (!IsKnownDisposition(disposition))
             {
-                error = $"Disposition must be Confirmed, FalseReject, or MissedDetection. Actual={disposition}.";
+                error = $"Disposition is unknown. Actual={disposition}.";
                 return false;
             }
 
@@ -406,19 +413,169 @@ namespace ClearFrost.Services.Replay
                 return false;
             }
 
-            string expected = string.Equals(disposition, ReplayReviewDispositions.Confirmed, StringComparison.OrdinalIgnoreCase)
-                ? systemDecision
-                : string.Equals(disposition, ReplayReviewDispositions.FalseReject, StringComparison.OrdinalIgnoreCase)
-                    ? ReplayDecisions.OK
-                    : ReplayDecisions.NG;
-            if (!string.Equals(expected, normalizedTruth, StringComparison.Ordinal))
+            if (string.Equals(disposition, ReplayReviewDispositions.Confirmed, StringComparison.OrdinalIgnoreCase))
             {
-                error = $"Disposition {disposition} is inconsistent with system decision {systemDecision} and ground truth {normalizedTruth}.";
-                return false;
+                if (!string.Equals(systemDecision, normalizedTruth, StringComparison.Ordinal))
+                {
+                    error = $"Confirmed disposition requires ground truth {systemDecision}. Actual={normalizedTruth}.";
+                    return false;
+                }
+            }
+            else if (string.Equals(disposition, ReplayReviewDispositions.FalseReject, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.Equals(systemDecision, ReplayDecisions.NG, StringComparison.Ordinal) ||
+                    !string.Equals(normalizedTruth, ReplayDecisions.OK, StringComparison.Ordinal))
+                {
+                    error = $"FalseReject requires system NG and ground truth OK. System={systemDecision}; Truth={normalizedTruth}.";
+                    return false;
+                }
+            }
+            else if (string.Equals(disposition, ReplayReviewDispositions.MissedDetection, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.Equals(systemDecision, ReplayDecisions.OK, StringComparison.Ordinal) ||
+                    !string.Equals(normalizedTruth, ReplayDecisions.NG, StringComparison.Ordinal))
+                {
+                    error = $"MissedDetection requires system OK and ground truth NG. System={systemDecision}; Truth={normalizedTruth}.";
+                    return false;
+                }
             }
 
             groundTruth = normalizedTruth;
             return true;
+        }
+
+        private static bool IsKnownDisposition(string disposition)
+        {
+            return string.Equals(disposition, ReplayReviewDispositions.Pending, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(disposition, ReplayReviewDispositions.Confirmed, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(disposition, ReplayReviewDispositions.FalseReject, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(disposition, ReplayReviewDispositions.MissedDetection, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(disposition, ReplayReviewDispositions.InvalidSample, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string ResolveReviewerId(ManualReviewSaveRequest request)
+        {
+            string providerValue = _operatorIdProvider?.Invoke() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(providerValue))
+            {
+                return providerValue.Trim();
+            }
+
+            return request.ReviewerId?.Trim() ?? string.Empty;
+        }
+
+        private ProductionRole ResolveReviewerRole(ManualReviewSaveRequest request)
+        {
+            if (_operatorRoleProvider != null)
+            {
+                return _operatorRoleProvider();
+            }
+
+            return Enum.TryParse(request.ReviewerRole, ignoreCase: true, out ProductionRole role)
+                ? role
+                : ProductionRole.Engineer;
+        }
+
+        private static async Task EnsureManualReviewPrimaryKeyAsync(
+            SqliteConnection connection,
+            CancellationToken cancellationToken)
+        {
+            bool hasDetectionRecordId = false;
+            bool detectionRecordIsPrimaryKey = false;
+            await using (SqliteCommand info = connection.CreateCommand())
+            {
+                info.CommandText = "PRAGMA table_info(ManualReviewRecords);";
+                await using SqliteDataReader reader = await info.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    string columnName = reader.GetString(1);
+                    if (string.Equals(columnName, "DetectionRecordId", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasDetectionRecordId = true;
+                        detectionRecordIsPrimaryKey = reader.GetInt32(5) > 0;
+                    }
+                }
+            }
+
+            if (hasDetectionRecordId && detectionRecordIsPrimaryKey)
+            {
+                return;
+            }
+
+            string legacyTable = $"ManualReviewRecords_legacy_{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}";
+            await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await using (SqliteCommand rename = connection.CreateCommand())
+                {
+                    rename.Transaction = transaction;
+                    rename.CommandText = $"ALTER TABLE ManualReviewRecords RENAME TO {legacyTable};";
+                    await rename.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                await using (SqliteCommand create = connection.CreateCommand())
+                {
+                    create.Transaction = transaction;
+                    create.CommandText = @"
+                        CREATE TABLE ManualReviewRecords (
+                            DetectionRecordId INTEGER PRIMARY KEY,
+                            InspectionId TEXT NOT NULL,
+                            SampleId TEXT NOT NULL,
+                            GroundTruth TEXT NOT NULL,
+                            SystemDecision TEXT NOT NULL DEFAULT '',
+                            Disposition TEXT NOT NULL DEFAULT 'InvalidSample',
+                            ReviewerId TEXT NOT NULL,
+                            ReviewerRole TEXT NOT NULL DEFAULT '',
+                            Revision INTEGER NOT NULL,
+                            ReviewedAt TEXT NOT NULL,
+                            Notes TEXT
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_manual_review_inspection ON ManualReviewRecords(InspectionId);
+                        CREATE INDEX IF NOT EXISTS idx_manual_review_status ON ManualReviewRecords(GroundTruth, ReviewedAt);
+                    ";
+                    await create.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                string idExpression = hasDetectionRecordId
+                    ? "CASE WHEN DetectionRecordId > 0 THEN DetectionRecordId ELSE rowid END"
+                    : "rowid";
+                await using (SqliteCommand copy = connection.CreateCommand())
+                {
+                    copy.Transaction = transaction;
+                    copy.CommandText = $@"
+                        INSERT OR IGNORE INTO ManualReviewRecords
+                            (DetectionRecordId, InspectionId, SampleId, GroundTruth, SystemDecision, Disposition, ReviewerId, ReviewerRole, Revision, ReviewedAt, Notes)
+                        SELECT
+                            {idExpression},
+                            InspectionId,
+                            SampleId,
+                            GroundTruth,
+                            SystemDecision,
+                            CASE WHEN Disposition = 'Invalid' THEN 'InvalidSample' ELSE Disposition END,
+                            ReviewerId,
+                            ReviewerRole,
+                            Revision,
+                            ReviewedAt,
+                            Notes
+                        FROM {legacyTable};
+                    ";
+                    await copy.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                await using (SqliteCommand drop = connection.CreateCommand())
+                {
+                    drop.Transaction = transaction;
+                    drop.CommandText = $"DROP TABLE {legacyTable};";
+                    await drop.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
         }
 
         private static async Task EnsureColumnAsync(
@@ -470,10 +627,8 @@ namespace ClearFrost.Services.Replay
                 {
                     Operation = "ManualReview",
                     Status = status,
-                    OperatorId = request.ReviewerId,
-                    Role = Enum.TryParse(request.ReviewerRole, ignoreCase: true, out ProductionRole role)
-                        ? role
-                        : ProductionRole.Engineer,
+                    OperatorId = ResolveReviewerId(request),
+                    Role = ResolveReviewerRole(request),
                     InspectionId = request.InspectionId,
                     Details = details
                 }, cancellationToken);

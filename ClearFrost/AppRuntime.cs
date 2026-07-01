@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Config;
@@ -78,7 +79,9 @@ namespace ClearFrost
             ManualReviewStore = new SqliteManualReviewStore(
                 DatabaseService,
                 Path.Combine(StorageService.SystemPath, "manual-review.db"),
-                OperationAuditService);
+                OperationAuditService,
+                () => AppConfig.CurrentOperatorId,
+                () => AppConfig.CurrentOperatorRole);
             ReplayDatasetStore = new FileReplayDatasetStore(
                 DatabaseService,
                 Path.Combine(StorageService.SystemPath, "ReplayDatasets"));
@@ -89,12 +92,18 @@ namespace ClearFrost
             ModelApprovalEvidenceStore = new FileModelApprovalEvidenceStore(
                 Path.Combine(StorageService.SystemPath, "ReplayEvidence"),
                 ReplayPolicy);
+            TryMigrateLegacyReplayApproval();
             ReplayProductionGate = new ReplayApprovalEvidenceProductionGate(
                 ModelApprovalEvidenceStore,
-                ReplayDatasetStore);
+                ReplayDatasetStore,
+                ReplayRunStore,
+                () => AppConfig.CurrentModelReference?.Clone() ?? ProductionModelReference.Empty());
             ReplayIntegrityScanner = new ReplayIntegrityScanner(
                 ModelRegistry,
                 ReplayProductionGate,
+                ReplayDatasetStore,
+                ReplayRunStore,
+                ModelApprovalEvidenceStore,
                 OperationAuditService);
             ReplayModelValidator = new ReplayModelValidator();
             ReplayInferenceRunner = new ProductionReplayInferenceRunner(
@@ -108,9 +117,12 @@ namespace ClearFrost
                 ReplayModelValidator,
                 ReplayRunStore,
                 ReplayPolicy);
+            ReplayCoordinator = new ReplayRunCoordinator(ReplayApplicationService);
             ReplayApprovalApplicationService = new ReplayApprovalApplicationService(
                 ModelRegistry,
                 () => RefreshModelRegistry(),
+                ReplayRunStore,
+                ReplayDatasetStore,
                 ModelApprovalEvidenceStore,
                 ReplayProductionGate,
                 ReplayPolicy,
@@ -169,6 +181,8 @@ namespace ClearFrost
         public IReplayModelValidator ReplayModelValidator { get; }
 
         public ReplayApplicationService ReplayApplicationService { get; }
+
+        public ReplayRunCoordinator ReplayCoordinator { get; }
 
         public IModelApprovalEvidenceStore ModelApprovalEvidenceStore { get; }
 
@@ -230,6 +244,17 @@ namespace ClearFrost
             }
 
             _stopRequested = true;
+
+            try
+            {
+                using var replayStopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                replayStopCts.CancelAfter(QueueFlushTimeout);
+                await ReplayCoordinator.CancelAndWaitAsync(replayStopCts.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AppRuntime] 取消 Replay 失败: {ex.Message}");
+            }
 
             try
             {
@@ -339,6 +364,15 @@ namespace ClearFrost
             catch (Exception ex)
             {
                 Debug.WriteLine($"[AppRuntime] StopAsync during dispose failed: {ex.Message}");
+            }
+
+            try
+            {
+                ReplayCoordinator.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AppRuntime] 释放 ReplayCoordinator 失败: {ex.Message}");
             }
 
             try
@@ -462,6 +496,110 @@ namespace ClearFrost
             var manager = new CameraManager(appConfig.IsDebugMode);
             manager.LoadFromConfig(appConfig);
             return manager;
+        }
+
+        private void TryMigrateLegacyReplayApproval()
+        {
+            if (!AppConfig.RequireApprovedModelsForProduction)
+            {
+                return;
+            }
+
+            ProductionModelReference currentReference = AppConfig.CurrentModelReference?.Clone()
+                ?? ProductionModelReference.Empty();
+            if (currentReference.IsEmpty || currentReference.Type != ProductionModelReferenceType.ApprovedPackage)
+            {
+                return;
+            }
+
+            ProductionModelResolutionResult resolved = ModelRegistry.ResolveReference(
+                currentReference,
+                requireProductionApproval: true);
+            if (!resolved.Succeeded ||
+                resolved.Entry == null ||
+                resolved.Entry.Manifest == null ||
+                string.IsNullOrWhiteSpace(resolved.Entry.ManifestPath))
+            {
+                return;
+            }
+
+            ModelRegistryEntry entry = resolved.Entry;
+            ModelApprovalMetadata? approval = entry.Manifest.Approval;
+            if (approval == null ||
+                !string.Equals(approval.Status, ModelApprovalStatuses.Approved, StringComparison.OrdinalIgnoreCase) ||
+                !string.IsNullOrWhiteSpace(approval.ReplayEvidenceId) ||
+                approval.LegacyMigration != null)
+            {
+                return;
+            }
+
+            if (!File.Exists(entry.ManifestPath) || string.IsNullOrWhiteSpace(entry.ModelPath) || !File.Exists(entry.ModelPath))
+            {
+                return;
+            }
+
+            string actualHash;
+            try
+            {
+                actualHash = FileReplayDatasetStore.ComputeSha256(entry.ModelPath);
+            }
+            catch
+            {
+                return;
+            }
+
+            string manifestHash = entry.Manifest.EffectiveHash;
+            if (string.IsNullOrWhiteSpace(actualHash) ||
+                string.IsNullOrWhiteSpace(manifestHash) ||
+                !string.Equals(actualHash, currentReference.Sha256, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(actualHash, entry.ModelHash, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(actualHash, manifestHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            ModelPackageManifest manifest;
+            try
+            {
+                manifest = JsonSerializer.Deserialize<ModelPackageManifest>(
+                    File.ReadAllText(entry.ManifestPath),
+                    ReplayJson.Options) ?? new ModelPackageManifest();
+            }
+            catch
+            {
+                return;
+            }
+
+            if (manifest.Approval == null ||
+                !string.Equals(manifest.Approval.Status, ModelApprovalStatuses.Approved, StringComparison.OrdinalIgnoreCase) ||
+                !string.IsNullOrWhiteSpace(manifest.Approval.ReplayEvidenceId) ||
+                manifest.Approval.LegacyMigration != null)
+            {
+                return;
+            }
+
+            string configReference = currentReference.ToSelectionValue();
+            manifest.Approval.LegacyMigration = new ModelApprovalLegacyMigration
+            {
+                MigrationId = $"legacy-{entry.ModelId}-{entry.Version}-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}",
+                ModelRole = "Primary",
+                ModelId = entry.ModelId,
+                Version = entry.Version,
+                ModelHash = actualHash,
+                ManifestHash = manifest.EffectiveHash,
+                ConfigReference = configReference,
+                MigratedAt = DateTimeOffset.UtcNow
+            };
+
+            try
+            {
+                AtomicFileWriter.WriteAllText(entry.ManifestPath, JsonSerializer.Serialize(manifest, ReplayJson.Options));
+                RefreshModelRegistry();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AppRuntime] Legacy Replay approval migration skipped: {ex.Message}");
+            }
         }
 
         private static ModelRegistryScanOptions CreateModelRegistryScanOptions(AppConfig appConfig)

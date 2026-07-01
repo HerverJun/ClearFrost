@@ -515,6 +515,7 @@
 
         setText("replay-dataset-id", dataset.datasetId || run?.datasetId || "");
         setText("replay-dataset-hash", dataset.datasetHash || run?.datasetHash || "");
+        setText("replay-dataset-count", Array.isArray(replay.datasets) ? replay.datasets.length : "");
         setText("replay-run-status", run?.status || dataset.status || "");
         setText("replay-run-progress", run ? `${run.completedSamples ?? 0}/${run.totalSamples ?? 0}` : "");
         setText("replay-changed-count", metrics.changedDecisionCount ?? "");
@@ -522,6 +523,8 @@
         setText("replay-fixed-missed-count", metrics.candidateFixedMissedDetectionCount ?? "");
         setText("replay-new-false-reject-count", metrics.candidateNewFalseRejectCount ?? "");
         setText("replay-fixed-false-reject-count", metrics.candidateFixedFalseRejectCount ?? "");
+        setText("replay-run-count", replay.runs ? Object.keys(replay.runs).length : "");
+        setText("replay-integrity-status", replay.integrity?.status || "");
         setText("replay-approval-status",
             approval.succeeded === true
                 ? "Approved"

@@ -573,6 +573,7 @@
             : Boolean(renderedImageUrl) && !toBoolean(missingRenderedImageValue);
         return {
             inspectionId: pickTraceValue(record, "inspectionId", "InspectionId") || "-",
+            detectionRecordId: toNullableNumber(pickTraceValue(record, "detectionRecordId", "DetectionRecordId", "id", "Id")),
             productBarcode: pickTraceValue(record, "productBarcode", "ProductBarcode") || "-",
             timestamp: pickTraceValue(record, "timestamp", "Timestamp") || "-",
             isQualified: toBoolean(pickTraceValue(record, "isQualified", "IsQualified")),
@@ -823,6 +824,7 @@
 
         const revisionRaw = String(byId("manual-review-expected-revision")?.value || "").trim();
         const requestId = bridge.sendCommand("save_manual_review", {
+            detectionRecordId: activeTraceRecord?.detectionRecordId || 0,
             inspectionId,
             sampleId: inspectionId,
             groundTruth: byId("manual-review-ground-truth-input")?.value || "OK",
@@ -839,10 +841,51 @@
         setReplayPanelStatus("replay-run-status", `Freeze ${requestId}`);
     }
 
+    function previewReplayDataset() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("preview_replay_dataset", payload);
+        setReplayPanelStatus("replay-run-status", `Preview ${requestId}`);
+    }
+
+    function queryReplayDatasets() {
+        const requestId = bridge.sendCommand("query_replay_datasets", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `Datasets ${requestId}`);
+    }
+
+    function archiveReplayDataset() {
+        const requestId = bridge.sendCommand("archive_replay_dataset", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `Archive ${requestId}`);
+    }
+
     function runReplayComparison() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("run_replay_comparison", payload);
         setReplayPanelStatus("replay-run-status", `Run ${requestId}`);
+    }
+
+    function cancelReplayRun() {
+        const requestId = bridge.sendCommand("cancel_replay_run", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `Cancel ${requestId}`);
+    }
+
+    function queryReplayRuns() {
+        const requestId = bridge.sendCommand("query_replay_runs", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `Runs ${requestId}`);
+    }
+
+    function queryReplayReport() {
+        const requestId = bridge.sendCommand("query_replay_report", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `Report ${requestId}`);
+    }
+
+    function queryModelApprovalEvidence() {
+        const requestId = bridge.sendCommand("query_model_approval_evidence", getReplayPanelPayload());
+        setReplayPanelStatus("replay-approval-status", `Evidence ${requestId}`);
+    }
+
+    function runReplayIntegrityScan() {
+        const requestId = bridge.sendCommand("run_replay_integrity_scan", getReplayPanelPayload());
+        setReplayPanelStatus("replay-approval-status", `Scan ${requestId}`);
     }
 
     function approveReplayCandidate() {
@@ -871,7 +914,15 @@
         queryManualReviewRecords,
         saveManualReview,
         createReplayDataset,
+        previewReplayDataset,
+        queryReplayDatasets,
+        archiveReplayDataset,
         runReplayComparison,
+        cancelReplayRun,
+        queryReplayRuns,
+        queryReplayReport,
+        queryModelApprovalEvidence,
+        runReplayIntegrityScan,
         approveReplayCandidate,
         searchTraceImages,
         selectTraceHour,

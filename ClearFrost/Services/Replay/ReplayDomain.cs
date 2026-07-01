@@ -36,7 +36,8 @@ namespace ClearFrost.Services.Replay
         public const string FalseReject = "FalseReject";
         public const string MissedDetection = "MissedDetection";
         public const string Pending = "Pending";
-        public const string Invalid = "Invalid";
+        public const string InvalidSample = "InvalidSample";
+        public const string Invalid = InvalidSample;
 
         public static bool IsDatasetEligible(string value)
         {
@@ -129,6 +130,7 @@ namespace ClearFrost.Services.Replay
         public long DetectionRecordId { get; set; }
         public string InspectionId { get; set; } = string.Empty;
         public string SourceImagePath { get; set; } = string.Empty;
+        public string SourceRecordHash { get; set; } = string.Empty;
         public string ImagePath { get; set; } = string.Empty;
         public string ImageHash { get; set; } = string.Empty;
         public string GroundTruth { get; set; } = ReplayDecisions.OK;
@@ -159,6 +161,8 @@ namespace ClearFrost.Services.Replay
         public ReplayRecipeSnapshot Recipe { get; init; } = new ReplayRecipeSnapshot();
         public ReplayModelIdentity BaselineModel { get; init; } = new ReplayModelIdentity();
         public ReplayModelIdentity CandidateModel { get; init; } = new ReplayModelIdentity();
+        public IReadOnlyDictionary<long, ReplayManualReviewRecord> ManualReviewsByDetectionRecordId { get; init; } =
+            new Dictionary<long, ReplayManualReviewRecord>();
         public IReadOnlyDictionary<string, ReplayManualReviewRecord> ManualReviewsByInspectionId { get; init; } =
             new Dictionary<string, ReplayManualReviewRecord>(StringComparer.OrdinalIgnoreCase);
     }
@@ -200,6 +204,7 @@ namespace ClearFrost.Services.Replay
         public int CandidateNewFalseRejectCount { get; set; }
         public int CandidateFixedFalseRejectCount { get; set; }
         public int ChangedDecisionCount { get; set; }
+        public int InvalidSampleCount { get; set; }
         public int BaselineCorrectCount { get; set; }
         public int CandidateCorrectCount { get; set; }
         public double BaselineAccuracy { get; set; }
@@ -224,9 +229,11 @@ namespace ClearFrost.Services.Replay
         public string ReportJsonPath { get; set; } = string.Empty;
         public string ReportCsvPath { get; set; } = string.Empty;
         public string ReportHash { get; set; } = string.Empty;
+        public int PolicyVersion { get; set; }
         public string RecipeHash { get; set; } = string.Empty;
         public string RuleSetHash { get; set; } = string.Empty;
         public string PolicyHash { get; set; } = string.Empty;
+        public ReplayAcceptancePolicyOptions PolicySnapshot { get; set; } = ReplayAcceptancePolicyOptions.ProductionDefault();
         public string BaselineModelHash { get; set; } = string.Empty;
         public string CandidateModelHash { get; set; } = string.Empty;
     }
@@ -299,7 +306,9 @@ namespace ClearFrost.Services.Replay
         public ReplayComparisonMetrics Metrics { get; set; } = new ReplayComparisonMetrics();
         public IReadOnlyList<string> PolicyReasons { get; set; } = Array.Empty<string>();
         public string ReplayReportPath { get; set; } = string.Empty;
+        public int PolicyVersion { get; set; }
         public string PolicyHash { get; set; } = string.Empty;
+        public ReplayAcceptancePolicyOptions PolicySnapshot { get; set; } = ReplayAcceptancePolicyOptions.ProductionDefault();
         public string RecipeHash { get; set; } = string.Empty;
         public string RuleSetHash { get; set; } = string.Empty;
         public string BaselineModelHash { get; set; } = string.Empty;
@@ -366,6 +375,13 @@ namespace ClearFrost.Services.Replay
         Task<string> ComputeSnapshotHashAsync(
             string datasetId,
             CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<ReplayDatasetSummary>> ListSnapshotsAsync(
+            CancellationToken cancellationToken = default);
+
+        Task<ReplayDatasetArchiveResult> ArchiveSnapshotAsync(
+            string datasetId,
+            CancellationToken cancellationToken = default);
     }
 
     public interface IReplayRunStore
@@ -384,6 +400,14 @@ namespace ClearFrost.Services.Replay
 
         Task<ReplayRunReport> LoadReportAsync(
             string runId,
+            CancellationToken cancellationToken = default);
+
+        Task<ReplayRunRecord?> LoadRunRecordAsync(
+            string runId,
+            CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<ReplayRunRecord>> ListRunRecordsAsync(
+            int limit = 100,
             CancellationToken cancellationToken = default);
 
         Task RecordRunFailedAsync(
@@ -412,11 +436,20 @@ namespace ClearFrost.Services.Replay
             ReplayModelIdentity candidate,
             string evidenceId,
             string expectedEvidenceHash,
-            IReplayDatasetStore datasetStore);
+            IReplayDatasetStore datasetStore,
+            IReplayRunStore runStore);
+
+        ModelApprovalEvidence? LoadEvidence(string evidenceId);
+
+        IReadOnlyList<ModelApprovalEvidence> ListEvidence();
     }
 
     public sealed class ReplayApprovalRequest
     {
+        public string RunId { get; init; } = string.Empty;
+        public string CandidateModelId { get; init; } = string.Empty;
+        public string CandidateVersion { get; init; } = string.Empty;
+        public string CandidateSha256 { get; init; } = string.Empty;
         public ReplayRunReport Report { get; init; } = new ReplayRunReport();
         public ModelRegistryEntry CandidateEntry { get; init; } = new ModelRegistryEntry();
         public string ApprovedBy { get; init; } = string.Empty;
@@ -472,6 +505,7 @@ namespace ClearFrost.Services.Replay
                 CandidateNewFalseRejectCount = samples.Count(sample => IsNewFalseReject(sample)),
                 CandidateFixedFalseRejectCount = samples.Count(sample => IsFixedFalseReject(sample)),
                 ChangedDecisionCount = samples.Count(sample => sample.DecisionChanged),
+                InvalidSampleCount = 0,
                 BaselineCorrectCount = samples.Count(sample => IsCorrect(sample.GroundTruth, sample.BaselineDecision)),
                 CandidateCorrectCount = samples.Count(sample => IsCorrect(sample.GroundTruth, sample.CandidateDecision)),
                 BaselineAccuracy = samples.Count == 0 ? 0 : samples.Count(sample => IsCorrect(sample.GroundTruth, sample.BaselineDecision)) / (double)samples.Count,
@@ -571,6 +605,59 @@ namespace ClearFrost.Services.Replay
             index = Math.Clamp(index, 0, ordered.Count - 1);
             return ordered[index];
         }
+    }
+
+    public sealed class ReplayDatasetSummary
+    {
+        public string DatasetId { get; init; } = string.Empty;
+        public string DatasetHash { get; init; } = string.Empty;
+        public DateTimeOffset CreatedAt { get; init; }
+        public int SampleCount { get; init; }
+        public string RootDirectory { get; init; } = string.Empty;
+        public string Status { get; init; } = string.Empty;
+    }
+
+    public sealed class ReplayDatasetArchiveResult
+    {
+        public bool Succeeded { get; init; }
+        public string ErrorCode { get; init; } = string.Empty;
+        public string Message { get; init; } = string.Empty;
+        public string ArchivePath { get; init; } = string.Empty;
+
+        public static ReplayDatasetArchiveResult Ok(string archivePath)
+        {
+            return new ReplayDatasetArchiveResult
+            {
+                Succeeded = true,
+                Message = "Replay dataset archived.",
+                ArchivePath = archivePath ?? string.Empty
+            };
+        }
+
+        public static ReplayDatasetArchiveResult Fail(string errorCode, string message)
+        {
+            return new ReplayDatasetArchiveResult
+            {
+                Succeeded = false,
+                ErrorCode = errorCode ?? string.Empty,
+                Message = message ?? string.Empty
+            };
+        }
+    }
+
+    public sealed class ReplayRunRecord
+    {
+        public string RunId { get; init; } = string.Empty;
+        public string DatasetId { get; init; } = string.Empty;
+        public string DatasetHash { get; init; } = string.Empty;
+        public string BaselineModelId { get; init; } = string.Empty;
+        public string CandidateModelId { get; init; } = string.Empty;
+        public string Status { get; init; } = string.Empty;
+        public DateTimeOffset StartedAt { get; init; }
+        public DateTimeOffset? CompletedAt { get; init; }
+        public string Message { get; init; } = string.Empty;
+        public string ReportJsonPath { get; init; } = string.Empty;
+        public string ReportCsvPath { get; init; } = string.Empty;
     }
 
     internal static class ReplayJson

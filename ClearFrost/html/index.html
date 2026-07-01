@@ -1116,7 +1116,8 @@
                                 <option value="Confirmed">Confirmed</option>
                                 <option value="FalseReject">FalseReject</option>
                                 <option value="MissedDetection">MissedDetection</option>
-                                <option value="Invalid">Invalid</option>
+                                <option value="Pending">Pending</option>
+                                <option value="InvalidSample">InvalidSample</option>
                             </select>
                             <input id="manual-review-expected-revision" type="number" min="0" placeholder="Revision"
                                 class="border border-slate-200 rounded px-2 py-1">
@@ -1154,10 +1155,16 @@
                         <div class="flex gap-2">
                             <button type="button" data-action="createReplayDataset"
                                 class="px-3 py-1 rounded border border-slate-200">Freeze</button>
+                            <button type="button" data-action="previewReplayDataset"
+                                class="px-3 py-1 rounded border border-slate-200">Preview</button>
+                            <button type="button" data-action="queryReplayDatasets"
+                                class="px-3 py-1 rounded border border-slate-200">Datasets</button>
+                            <button type="button" data-action="archiveReplayDataset"
+                                class="px-3 py-1 rounded border border-slate-200">Archive</button>
                             <button type="button" data-action="runReplayComparison"
                                 class="px-3 py-1 rounded bg-celadon-600 text-white">Run Replay</button>
                         </div>
-                        <div class="truncate text-[10px] text-slate-500">Hash <b id="replay-dataset-hash"></b></div>
+                        <div class="truncate text-[10px] text-slate-500">Hash <b id="replay-dataset-hash"></b> · Datasets <b id="replay-dataset-count"></b></div>
                     </div>
 
                     <div class="space-y-2">
@@ -1171,6 +1178,18 @@
                             <button type="button" data-action="approveReplayCandidate"
                                 class="px-3 py-1 rounded bg-rouge-600 text-white">Approve</button>
                         </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" data-action="cancelReplayRun"
+                                class="px-3 py-1 rounded border border-slate-200">Cancel</button>
+                            <button type="button" data-action="queryReplayRuns"
+                                class="px-3 py-1 rounded border border-slate-200">Runs</button>
+                            <button type="button" data-action="queryReplayReport"
+                                class="px-3 py-1 rounded border border-slate-200">Report</button>
+                            <button type="button" data-action="queryModelApprovalEvidence"
+                                class="px-3 py-1 rounded border border-slate-200">Evidence</button>
+                            <button type="button" data-action="runReplayIntegrityScan"
+                                class="px-3 py-1 rounded border border-slate-200">Scan</button>
+                        </div>
                         <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-slate-500">
                             <span>Status <b id="replay-run-status"></b></span>
                             <span>Progress <b id="replay-run-progress"></b></span>
@@ -1179,6 +1198,8 @@
                             <span>Fixed Miss <b id="replay-fixed-missed-count"></b></span>
                             <span>New FR <b id="replay-new-false-reject-count"></b></span>
                             <span>Fixed FR <b id="replay-fixed-false-reject-count"></b></span>
+                            <span>Runs <b id="replay-run-count"></b></span>
+                            <span>Integrity <b id="replay-integrity-status"></b></span>
                         </div>
                         <div id="replay-rejection-reasons" class="min-h-4 text-[10px] text-rouge-600"></div>
                     </div>

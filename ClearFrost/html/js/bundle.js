@@ -131,6 +131,9 @@
             dataset: {},
             runs: {},
             approval: {},
+            datasets: [],
+            evidence: [],
+            integrity: {},
         },
         manualReview: {
             records: [],
@@ -149,6 +152,9 @@
     state.replay.dataset = state.replay.dataset || {};
     state.replay.runs = state.replay.runs || {};
     state.replay.approval = state.replay.approval || {};
+    state.replay.datasets = state.replay.datasets || [];
+    state.replay.evidence = state.replay.evidence || [];
+    state.replay.integrity = state.replay.integrity || {};
     state.manualReview = state.manualReview || { records: [], lastResponse: {} };
     state.manualReview.records = state.manualReview.records || [];
     state.manualReview.lastResponse = state.manualReview.lastResponse || {};
@@ -317,6 +323,11 @@
             ruleSetHash: pickValue(data, "ruleSetHash", "RuleSetHash"),
             evidenceId: pickValue(data, "evidenceId", "EvidenceId"),
             evidenceHash: pickValue(data, "evidenceHash", "EvidenceHash"),
+            datasets: pickValue(data, "datasets", "Datasets"),
+            runs: pickValue(data, "runs", "Runs"),
+            evidence: pickValue(data, "evidence", "Evidence"),
+            integrityStatus: pickValue(data, "status", "Status"),
+            findings: pickValue(data, "findings", "Findings"),
             metrics: {
                 sampleCount: pickValue(metrics, "sampleCount", "SampleCount"),
                 candidateNewMissedDetectionCount: pickValue(metrics, "candidateNewMissedDetectionCount", "CandidateNewMissedDetectionCount"),
@@ -339,6 +350,7 @@
             succeeded: pickValue(data, "succeeded", "Succeeded"),
             errorCode: pickValue(data, "errorCode", "ErrorCode"),
             message: pickValue(data, "message", "Message"),
+            detectionRecordId: pickValue(data, "detectionRecordId", "DetectionRecordId") || pickValue(record, "detectionRecordId", "DetectionRecordId"),
             inspectionId: pickValue(data, "inspectionId", "InspectionId") || pickValue(record, "inspectionId", "InspectionId"),
             reviewStatus: pickValue(data, "reviewStatus", "ReviewStatus"),
             groundTruth: pickValue(data, "groundTruth", "GroundTruth") || pickValue(record, "groundTruth", "GroundTruth"),
@@ -418,6 +430,33 @@
 
         if (cleanReplay.datasetId || cleanReplay.datasetHash) {
             state.replay.dataset = { ...state.replay.dataset, ...cleanReplay };
+        }
+
+        if (Array.isArray(cleanReplay.datasets)) {
+            state.replay.datasets = cleanReplay.datasets;
+        }
+
+        if (Array.isArray(cleanReplay.runs)) {
+            cleanReplay.runs.forEach((run) => {
+                const runId = pickValue(run, "runId", "RunId");
+                if (runId) {
+                    state.replay.runs[runId] = {
+                        ...(state.replay.runs[runId] || {}),
+                        ...normalizeReplayMessage(run),
+                    };
+                }
+            });
+        }
+
+        if (Array.isArray(cleanReplay.evidence)) {
+            state.replay.evidence = cleanReplay.evidence;
+        }
+
+        if (cleanReplay.integrityStatus || cleanReplay.findings) {
+            state.replay.integrity = {
+                status: cleanReplay.integrityStatus || state.replay.integrity.status || "",
+                findings: cleanReplay.findings || state.replay.integrity.findings || [],
+            };
         }
 
         if (cleanReplay.runId) {
@@ -1038,6 +1077,7 @@
 
         setText("replay-dataset-id", dataset.datasetId || run?.datasetId || "");
         setText("replay-dataset-hash", dataset.datasetHash || run?.datasetHash || "");
+        setText("replay-dataset-count", Array.isArray(replay.datasets) ? replay.datasets.length : "");
         setText("replay-run-status", run?.status || dataset.status || "");
         setText("replay-run-progress", run ? `${run.completedSamples ?? 0}/${run.totalSamples ?? 0}` : "");
         setText("replay-changed-count", metrics.changedDecisionCount ?? "");
@@ -1045,6 +1085,8 @@
         setText("replay-fixed-missed-count", metrics.candidateFixedMissedDetectionCount ?? "");
         setText("replay-new-false-reject-count", metrics.candidateNewFalseRejectCount ?? "");
         setText("replay-fixed-false-reject-count", metrics.candidateFixedFalseRejectCount ?? "");
+        setText("replay-run-count", replay.runs ? Object.keys(replay.runs).length : "");
+        setText("replay-integrity-status", replay.integrity?.status || "");
         setText("replay-approval-status",
             approval.succeeded === true
                 ? "Approved"
@@ -4372,6 +4414,7 @@
             : Boolean(renderedImageUrl) && !toBoolean(missingRenderedImageValue);
         return {
             inspectionId: pickTraceValue(record, "inspectionId", "InspectionId") || "-",
+            detectionRecordId: toNullableNumber(pickTraceValue(record, "detectionRecordId", "DetectionRecordId", "id", "Id")),
             productBarcode: pickTraceValue(record, "productBarcode", "ProductBarcode") || "-",
             timestamp: pickTraceValue(record, "timestamp", "Timestamp") || "-",
             isQualified: toBoolean(pickTraceValue(record, "isQualified", "IsQualified")),
@@ -4622,6 +4665,7 @@
 
         const revisionRaw = String(byId("manual-review-expected-revision")?.value || "").trim();
         const requestId = bridge.sendCommand("save_manual_review", {
+            detectionRecordId: activeTraceRecord?.detectionRecordId || 0,
             inspectionId,
             sampleId: inspectionId,
             groundTruth: byId("manual-review-ground-truth-input")?.value || "OK",
@@ -4638,10 +4682,51 @@
         setReplayPanelStatus("replay-run-status", `Freeze ${requestId}`);
     }
 
+    function previewReplayDataset() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("preview_replay_dataset", payload);
+        setReplayPanelStatus("replay-run-status", `Preview ${requestId}`);
+    }
+
+    function queryReplayDatasets() {
+        const requestId = bridge.sendCommand("query_replay_datasets", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `Datasets ${requestId}`);
+    }
+
+    function archiveReplayDataset() {
+        const requestId = bridge.sendCommand("archive_replay_dataset", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `Archive ${requestId}`);
+    }
+
     function runReplayComparison() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("run_replay_comparison", payload);
         setReplayPanelStatus("replay-run-status", `Run ${requestId}`);
+    }
+
+    function cancelReplayRun() {
+        const requestId = bridge.sendCommand("cancel_replay_run", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `Cancel ${requestId}`);
+    }
+
+    function queryReplayRuns() {
+        const requestId = bridge.sendCommand("query_replay_runs", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `Runs ${requestId}`);
+    }
+
+    function queryReplayReport() {
+        const requestId = bridge.sendCommand("query_replay_report", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `Report ${requestId}`);
+    }
+
+    function queryModelApprovalEvidence() {
+        const requestId = bridge.sendCommand("query_model_approval_evidence", getReplayPanelPayload());
+        setReplayPanelStatus("replay-approval-status", `Evidence ${requestId}`);
+    }
+
+    function runReplayIntegrityScan() {
+        const requestId = bridge.sendCommand("run_replay_integrity_scan", getReplayPanelPayload());
+        setReplayPanelStatus("replay-approval-status", `Scan ${requestId}`);
     }
 
     function approveReplayCandidate() {
@@ -4670,7 +4755,15 @@
         queryManualReviewRecords,
         saveManualReview,
         createReplayDataset,
+        previewReplayDataset,
+        queryReplayDatasets,
+        archiveReplayDataset,
         runReplayComparison,
+        cancelReplayRun,
+        queryReplayRuns,
+        queryReplayReport,
+        queryModelApprovalEvidence,
+        runReplayIntegrityScan,
         approveReplayCandidate,
         searchTraceImages,
         selectTraceHour,
