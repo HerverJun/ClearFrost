@@ -160,8 +160,29 @@ namespace ClearFrost.Services.Replay
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ReplayDatasetSample sample = dataset.Samples[i];
-                ReplayInferenceOutput output = await session.RunAsync(sample, cancellationToken).ConfigureAwait(false);
-                outputs[sample.SampleId] = output;
+                try
+                {
+                    ReplayInferenceOutput output = await session.RunAsync(sample, cancellationToken).ConfigureAwait(false);
+                    outputs[sample.SampleId] = output;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    outputs[sample.SampleId] = new ReplayInferenceOutput
+                    {
+                        SampleId = sample.SampleId,
+                        InspectionId = sample.InspectionId,
+                        Decision = string.Empty,
+                        ElapsedMs = -1,
+                        ModelId = model.ModelId,
+                        ModelVersion = model.Version,
+                        ModelHash = model.Sha256,
+                        ErrorMessage = $"{phase}: {ex.Message}"
+                    };
+                }
 
                 var replayProgress = new ReplayRunProgress
                 {
@@ -187,37 +208,83 @@ namespace ClearFrost.Services.Replay
             var comparisons = new List<ReplaySampleComparison>(dataset.Samples.Count);
             foreach (ReplayDatasetSample sample in dataset.Samples.OrderBy(item => item.SampleId, StringComparer.OrdinalIgnoreCase))
             {
-                if (!baselineOutputs.TryGetValue(sample.SampleId, out ReplayInferenceOutput? baseline))
-                {
-                    throw new InvalidOperationException($"Baseline output missing for sample {sample.SampleId}.");
-                }
-
-                if (!candidateOutputs.TryGetValue(sample.SampleId, out ReplayInferenceOutput? candidate))
-                {
-                    throw new InvalidOperationException($"Candidate output missing for sample {sample.SampleId}.");
-                }
+                baselineOutputs.TryGetValue(sample.SampleId, out ReplayInferenceOutput? baseline);
+                candidateOutputs.TryGetValue(sample.SampleId, out ReplayInferenceOutput? candidate);
+                var invalidReasons = new List<string>();
+                string groundTruth = NormalizeOrMarkInvalid(
+                    sample.GroundTruth,
+                    $"Ground truth invalid: {sample.GroundTruth}",
+                    invalidReasons);
+                string baselineDecision = NormalizeOutputDecisionOrMarkInvalid(
+                    baseline,
+                    "Baseline",
+                    sample.SampleId,
+                    invalidReasons);
+                string candidateDecision = NormalizeOutputDecisionOrMarkInvalid(
+                    candidate,
+                    "Candidate",
+                    sample.SampleId,
+                    invalidReasons);
 
                 var comparison = new ReplaySampleComparison
                 {
                     SampleId = sample.SampleId,
                     InspectionId = sample.InspectionId,
-                    GroundTruth = ReplayMetrics.Normalize(sample.GroundTruth),
-                    BaselineDecision = ReplayMetrics.Normalize(baseline.Decision),
-                    CandidateDecision = ReplayMetrics.Normalize(candidate.Decision),
-                    DecisionChanged = !string.Equals(
-                        ReplayMetrics.Normalize(baseline.Decision),
-                        ReplayMetrics.Normalize(candidate.Decision),
-                        StringComparison.Ordinal),
-                    BaselineElapsedMs = baseline.ElapsedMs,
-                    CandidateElapsedMs = candidate.ElapsedMs,
-                    BaselineRuleSummary = baseline.RuleSummary,
-                    CandidateRuleSummary = candidate.RuleSummary
+                    GroundTruth = groundTruth,
+                    BaselineDecision = baselineDecision,
+                    CandidateDecision = candidateDecision,
+                    DecisionChanged = invalidReasons.Count == 0 &&
+                        !string.Equals(baselineDecision, candidateDecision, StringComparison.Ordinal),
+                    BaselineElapsedMs = baseline?.ElapsedMs ?? -1,
+                    CandidateElapsedMs = candidate?.ElapsedMs ?? -1,
+                    BaselineRuleSummary = baseline?.RuleSummary ?? string.Empty,
+                    CandidateRuleSummary = candidate?.RuleSummary ?? string.Empty,
+                    IsValid = invalidReasons.Count == 0,
+                    InvalidReason = string.Join("; ", invalidReasons)
                 };
                 comparison.Classification = ReplayMetrics.Classify(comparison);
                 comparisons.Add(comparison);
             }
 
             return comparisons;
+        }
+
+        private static string NormalizeOutputDecisionOrMarkInvalid(
+            ReplayInferenceOutput? output,
+            string label,
+            string sampleId,
+            ICollection<string> invalidReasons)
+        {
+            if (output == null)
+            {
+                invalidReasons.Add($"{label} output missing for sample {sampleId}.");
+                return string.Empty;
+            }
+
+            if (!string.IsNullOrWhiteSpace(output.ErrorMessage))
+            {
+                invalidReasons.Add($"{label} inference failed: {output.ErrorMessage}");
+                return string.Empty;
+            }
+
+            return NormalizeOrMarkInvalid(
+                output.Decision,
+                $"{label} decision invalid: {output.Decision}",
+                invalidReasons);
+        }
+
+        private static string NormalizeOrMarkInvalid(
+            string value,
+            string reason,
+            ICollection<string> invalidReasons)
+        {
+            if (ReplayMetrics.TryNormalizeDecision(value, out string normalized))
+            {
+                return normalized;
+            }
+
+            invalidReasons.Add(reason);
+            return string.Empty;
         }
 
         private static void Publish(
@@ -481,6 +548,11 @@ namespace ClearFrost.Services.Replay
             if (!ReplayAcceptancePolicyOptions.IsSupportedVersion(options.Version))
             {
                 reasons.Add($"Replay policy version is not supported: {options.Version}.");
+                return new ReplayApprovalDecision
+                {
+                    Approved = false,
+                    Reasons = reasons
+                };
             }
 
             if (!string.Equals(report.Status, ReplayRunStatuses.Completed, StringComparison.Ordinal))
@@ -489,14 +561,16 @@ namespace ClearFrost.Services.Replay
             }
 
             ReplayComparisonMetrics metrics = report.Metrics ?? new ReplayComparisonMetrics();
-            if (metrics.SampleCount <= 0)
+            int validSampleCount = GetValidSampleCount(metrics, options.Version);
+            int totalSampleCount = GetTotalSampleCount(metrics, validSampleCount);
+            if (validSampleCount <= 0)
             {
                 reasons.Add("Replay has zero valid samples.");
             }
 
-            if (metrics.SampleCount < options.MinimumValidSamples)
+            if (validSampleCount < options.MinimumValidSamples)
             {
-                reasons.Add($"Replay valid samples {metrics.SampleCount} below policy {options.MinimumValidSamples}.");
+                reasons.Add($"Replay valid samples {validSampleCount} below policy {options.MinimumValidSamples}.");
             }
 
             if (metrics.InvalidSampleCount > options.MaximumInvalidSampleCount)
@@ -505,7 +579,7 @@ namespace ClearFrost.Services.Replay
             }
 
             if (options.MaximumInvalidSampleRate.HasValue &&
-                Rate(metrics.InvalidSampleCount, Math.Max(1, metrics.SampleCount + metrics.InvalidSampleCount)) > options.MaximumInvalidSampleRate.Value)
+                Rate(metrics.InvalidSampleCount, totalSampleCount) > options.MaximumInvalidSampleRate.Value)
             {
                 reasons.Add("Replay invalid sample rate exceeds policy.");
             }
@@ -516,7 +590,7 @@ namespace ClearFrost.Services.Replay
             }
 
             if (options.MaximumCandidateMissedDetectionRate.HasValue &&
-                Rate(metrics.CandidateNewMissedDetectionCount, CountGroundTruth(report, ReplayDecisions.NG)) > options.MaximumCandidateMissedDetectionRate.Value)
+                GetCandidateMissedDetectionRate(report, metrics, options.Version) > options.MaximumCandidateMissedDetectionRate.Value)
             {
                 reasons.Add("Candidate missed detection rate exceeds policy.");
             }
@@ -528,7 +602,7 @@ namespace ClearFrost.Services.Replay
             }
 
             if (options.MaximumFalseRejectRateIncrease.HasValue &&
-                Rate(metrics.CandidateNewFalseRejectCount, CountGroundTruth(report, ReplayDecisions.OK)) > options.MaximumFalseRejectRateIncrease.Value)
+                GetFalseRejectRateIncrease(report, metrics, options.Version) > options.MaximumFalseRejectRateIncrease.Value)
             {
                 reasons.Add("Candidate false reject rate increase exceeds policy.");
             }
@@ -575,9 +649,55 @@ namespace ClearFrost.Services.Replay
             };
         }
 
-        private static int CountGroundTruth(ReplayRunReport report, string decision)
+        private static int GetValidSampleCount(ReplayComparisonMetrics metrics, int policyVersion)
+        {
+            if (policyVersion >= 2)
+            {
+                return metrics.ValidSampleCount > 0 || metrics.TotalSampleCount > 0
+                    ? metrics.ValidSampleCount
+                    : metrics.SampleCount;
+            }
+
+            return metrics.SampleCount;
+        }
+
+        private static int GetTotalSampleCount(ReplayComparisonMetrics metrics, int validSampleCount)
+        {
+            return metrics.TotalSampleCount > 0
+                ? metrics.TotalSampleCount
+                : Math.Max(1, validSampleCount + metrics.InvalidSampleCount);
+        }
+
+        private static double GetCandidateMissedDetectionRate(
+            ReplayRunReport report,
+            ReplayComparisonMetrics metrics,
+            int policyVersion)
+        {
+            if (policyVersion >= 2)
+            {
+                return metrics.CandidateMissedDetectionRate;
+            }
+
+            return Rate(metrics.CandidateNewMissedDetectionCount, CountGroundTruth(report, ReplayDecisions.NG, validOnly: false));
+        }
+
+        private static double GetFalseRejectRateIncrease(
+            ReplayRunReport report,
+            ReplayComparisonMetrics metrics,
+            int policyVersion)
+        {
+            if (policyVersion >= 2)
+            {
+                return metrics.FalseRejectRateIncrease;
+            }
+
+            return Rate(metrics.CandidateNewFalseRejectCount, CountGroundTruth(report, ReplayDecisions.OK, validOnly: false));
+        }
+
+        private static int CountGroundTruth(ReplayRunReport report, string decision, bool validOnly)
         {
             return report.Samples.Count(sample =>
+                (!validOnly || sample.IsValid) &&
                 string.Equals(sample.GroundTruth, decision, StringComparison.OrdinalIgnoreCase));
         }
 
@@ -592,6 +712,11 @@ namespace ClearFrost.Services.Replay
             static bool NullableFinite(double? value) => !value.HasValue || Finite(value.Value);
             return Finite(metrics.BaselineAccuracy) &&
                    Finite(metrics.CandidateAccuracy) &&
+                   Finite(metrics.BaselineMissedDetectionRate) &&
+                   Finite(metrics.CandidateMissedDetectionRate) &&
+                   Finite(metrics.BaselineFalseRejectRate) &&
+                   Finite(metrics.CandidateFalseRejectRate) &&
+                   Finite(metrics.FalseRejectRateIncrease) &&
                    NullableFinite(options.MinimumCandidateAccuracy) &&
                    NullableFinite(options.MaximumInvalidSampleRate) &&
                    NullableFinite(options.MaximumCandidateMissedDetectionRate) &&
@@ -609,7 +734,7 @@ namespace ClearFrost.Services.Replay
 
     public sealed class ReplayAcceptancePolicyOptions
     {
-        public int Version { get; set; } = 1;
+        public int Version { get; set; } = 2;
         public int MinimumValidSamples { get; set; } = 1;
         public int MaximumInvalidSampleCount { get; set; } = int.MaxValue;
         public double? MaximumInvalidSampleRate { get; set; }
@@ -641,14 +766,14 @@ namespace ClearFrost.Services.Replay
 
         public static bool IsSupportedVersion(int version)
         {
-            return version == 1;
+            return version == 1 || version == 2;
         }
 
         public static ReplayAcceptancePolicyOptions ProductionDefault()
         {
             return new ReplayAcceptancePolicyOptions
             {
-                Version = 1,
+                Version = 2,
                 MinimumValidSamples = 1,
                 MaximumNewMissedDetections = 0
             };

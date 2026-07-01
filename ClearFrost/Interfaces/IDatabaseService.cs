@@ -159,6 +159,11 @@ namespace ClearFrost.Interfaces
         Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id);
 
         /// <summary>
+        /// 按 InspectionId 精确读取全部检测记录。
+        /// </summary>
+        Task<List<DetectionRecord>> GetDetectionRecordsByInspectionIdAsync(string inspectionId);
+
+        /// <summary>
         /// 查询追溯页轻量记录。
         /// </summary>
         Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query);

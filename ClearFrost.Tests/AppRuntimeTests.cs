@@ -579,6 +579,9 @@ namespace ClearFrost.Tests
             public Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
                 => Task.FromResult<DetectionRecord?>(null);
 
+            public Task<List<DetectionRecord>> GetDetectionRecordsByInspectionIdAsync(string inspectionId)
+                => Task.FromResult(new List<DetectionRecord>());
+
             public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
                 => Task.FromResult(new List<DetectionTraceRecord>());
 

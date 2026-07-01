@@ -17,7 +17,9 @@ public class ManualReviewStoreTests
             var records = CreateRecords();
             var store = new SqliteManualReviewStore(
                 new FakeDatabaseService(records),
-                Path.Combine(tempDir, "review.db"));
+                Path.Combine(tempDir, "review.db"),
+                operatorIdProvider: () => "qa01",
+                operatorRoleProvider: () => ProductionRole.Engineer);
 
             (await store.QueryAsync(new ManualReviewQuery()))
                 .Should().HaveCount(4).And.OnlyContain(item => item.ReviewStatus == ManualReviewStatuses.Pending);
@@ -63,7 +65,9 @@ public class ManualReviewStoreTests
             var store = new SqliteManualReviewStore(
                 new FakeDatabaseService(CreateRecords()),
                 Path.Combine(tempDir, "review.db"),
-                audit);
+                audit,
+                operatorIdProvider: () => "qa01",
+                operatorRoleProvider: () => ProductionRole.Engineer);
 
             ManualReviewSaveResult first = await store.SaveReviewAsync(new ManualReviewSaveRequest
             {
@@ -135,7 +139,7 @@ public class ManualReviewStoreTests
                 new FakeDatabaseService(records),
                 Path.Combine(tempDir, "review.db"),
                 operatorIdProvider: () => "trusted-operator",
-                operatorRoleProvider: () => ProductionRole.Operator);
+                operatorRoleProvider: () => ProductionRole.Engineer);
 
             ManualReviewSaveResult mismatch = await store.SaveReviewAsync(new ManualReviewSaveRequest
             {
@@ -171,7 +175,7 @@ public class ManualReviewStoreTests
             mismatch.ErrorCode.Should().Be("ManualReviewRecordBindingMismatch");
             saved.Succeeded.Should().BeTrue();
             saved.Record!.ReviewerId.Should().Be("trusted-operator");
-            saved.Record.ReviewerRole.Should().Be(ProductionRole.Operator.ToString());
+            saved.Record.ReviewerRole.Should().Be(ProductionRole.Engineer.ToString());
             invalidSample.Succeeded.Should().BeTrue();
             invalidSample.Record!.Disposition.Should().Be(ReplayReviewDispositions.InvalidSample);
 
@@ -185,6 +189,137 @@ public class ManualReviewStoreTests
                 item.DetectionRecordId == 6 &&
                 item.ReviewStatus == ManualReviewStatuses.Reviewed &&
                 item.Review!.Disposition == ReplayReviewDispositions.InvalidSample);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task SaveReviewAsync_Operator被拒绝且不产生复核记录()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var store = new SqliteManualReviewStore(
+                new FakeDatabaseService(CreateRecords()),
+                Path.Combine(tempDir, "review.db"),
+                operatorIdProvider: () => "operator01",
+                operatorRoleProvider: () => ProductionRole.Operator);
+
+            ManualReviewSaveResult result = await store.SaveReviewAsync(new ManualReviewSaveRequest
+            {
+                DetectionRecordId = 1,
+                InspectionId = "INS-OK-1",
+                GroundTruth = ReplayDecisions.OK,
+                Disposition = ReplayReviewDispositions.Confirmed,
+                ExpectedRevision = 0
+            });
+
+            result.Succeeded.Should().BeFalse();
+            result.ErrorCode.Should().Be("ManualReviewUnauthorized");
+            IReadOnlyList<ManualReviewTraceItem> reviewed = await store.QueryAsync(new ManualReviewQuery
+            {
+                ReviewStatus = ManualReviewStatuses.Reviewed
+            });
+            reviewed.Should().BeEmpty();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task LegacyMigration_唯一Inspection匹配真实DetectionRecordId且幂等()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "legacy-review.db");
+            await CreateLegacyManualReviewRowAsync(
+                dbPath,
+                "LEG-UNIQUE",
+                "S-LEG-1",
+                ReplayDecisions.OK,
+                ReplayDecisions.OK,
+                ReplayReviewDispositions.Confirmed);
+
+            var records = new List<DetectionRecord>
+            {
+                new DetectionRecord { Id = 42, InspectionId = "LEG-UNIQUE", Timestamp = DateTime.UtcNow, IsQualified = true }
+            };
+            var store = new SqliteManualReviewStore(
+                new FakeDatabaseService(records),
+                dbPath,
+                operatorIdProvider: () => "qa01",
+                operatorRoleProvider: () => ProductionRole.Engineer);
+
+            IReadOnlyList<ManualReviewTraceItem> first = await store.QueryAsync(new ManualReviewQuery());
+            IReadOnlyList<ManualReviewTraceItem> second = await store.QueryAsync(new ManualReviewQuery());
+
+            first.Should().ContainSingle(item =>
+                item.DetectionRecordId == 42 &&
+                item.ReviewStatus == ManualReviewStatuses.Reviewed &&
+                item.Review!.SampleId == "S-LEG-1");
+            second.Should().ContainSingle(item =>
+                item.DetectionRecordId == 42 &&
+                item.ReviewStatus == ManualReviewStatuses.Reviewed);
+            (await CountRowsAsync(dbPath, "ManualReviewRecords")).Should().Be(1);
+            (await CountRowsAsync(dbPath, "ManualReviewMigrationQuarantine")).Should().Be(0);
+            (await TableExistsAsync(dbPath, "ManualReviewRecords_legacy")).Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task LegacyMigration_零匹配和多匹配进入Quarantine且重复执行不重复()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "legacy-review.db");
+            await CreateLegacyManualReviewRowAsync(
+                dbPath,
+                "LEG-MISSING",
+                "S-MISSING",
+                ReplayDecisions.OK,
+                ReplayDecisions.OK,
+                ReplayReviewDispositions.Confirmed);
+            await InsertLegacyManualReviewRowAsync(
+                dbPath,
+                "LEG-DUP",
+                "S-DUP",
+                ReplayDecisions.OK,
+                ReplayDecisions.OK,
+                ReplayReviewDispositions.Confirmed);
+
+            var records = new List<DetectionRecord>
+            {
+                new DetectionRecord { Id = 10, InspectionId = "LEG-DUP", Timestamp = DateTime.UtcNow, IsQualified = true },
+                new DetectionRecord { Id = 11, InspectionId = "LEG-DUP", Timestamp = DateTime.UtcNow.AddSeconds(1), IsQualified = true }
+            };
+            var store = new SqliteManualReviewStore(
+                new FakeDatabaseService(records),
+                dbPath,
+                operatorIdProvider: () => "qa01",
+                operatorRoleProvider: () => ProductionRole.Engineer);
+
+            await store.QueryAsync(new ManualReviewQuery());
+            await store.QueryAsync(new ManualReviewQuery());
+
+            (await CountRowsAsync(dbPath, "ManualReviewRecords")).Should().Be(0);
+            IReadOnlyList<string> reasons = await ReadQuarantineReasonsAsync(dbPath);
+            reasons.Should().BeEquivalentTo(
+                new[]
+                {
+                    "ManualReviewLegacyInspectionMissing",
+                    "ManualReviewLegacyInspectionAmbiguous"
+                });
         }
         finally
         {
@@ -219,6 +354,103 @@ public class ManualReviewStoreTests
         }
     }
 
+    private static async Task CreateLegacyManualReviewRowAsync(
+        string dbPath,
+        string inspectionId,
+        string sampleId,
+        string groundTruth,
+        string systemDecision,
+        string disposition)
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        await connection.OpenAsync();
+        await using (Microsoft.Data.Sqlite.SqliteCommand create = connection.CreateCommand())
+        {
+            create.CommandText = @"
+                CREATE TABLE ManualReviewRecords (
+                    InspectionId TEXT PRIMARY KEY,
+                    SampleId TEXT NOT NULL,
+                    GroundTruth TEXT NOT NULL,
+                    SystemDecision TEXT NOT NULL DEFAULT '',
+                    Disposition TEXT NOT NULL DEFAULT 'InvalidSample',
+                    ReviewerId TEXT NOT NULL,
+                    ReviewerRole TEXT NOT NULL DEFAULT '',
+                    Revision INTEGER NOT NULL,
+                    ReviewedAt TEXT NOT NULL,
+                    Notes TEXT
+                );";
+            await create.ExecuteNonQueryAsync();
+        }
+
+        await InsertLegacyManualReviewRowAsync(
+            dbPath,
+            inspectionId,
+            sampleId,
+            groundTruth,
+            systemDecision,
+            disposition);
+    }
+
+    private static async Task InsertLegacyManualReviewRowAsync(
+        string dbPath,
+        string inspectionId,
+        string sampleId,
+        string groundTruth,
+        string systemDecision,
+        string disposition)
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        await connection.OpenAsync();
+        await using Microsoft.Data.Sqlite.SqliteCommand insert = connection.CreateCommand();
+        insert.CommandText = @"
+            INSERT INTO ManualReviewRecords
+                (InspectionId, SampleId, GroundTruth, SystemDecision, Disposition, ReviewerId, ReviewerRole, Revision, ReviewedAt, Notes)
+            VALUES
+                ($inspectionId, $sampleId, $groundTruth, $systemDecision, $disposition, 'legacy-reviewer', 'Engineer', 7, $reviewedAt, 'legacy note');";
+        insert.Parameters.AddWithValue("$inspectionId", inspectionId);
+        insert.Parameters.AddWithValue("$sampleId", sampleId);
+        insert.Parameters.AddWithValue("$groundTruth", groundTruth);
+        insert.Parameters.AddWithValue("$systemDecision", systemDecision);
+        insert.Parameters.AddWithValue("$disposition", disposition);
+        insert.Parameters.AddWithValue("$reviewedAt", DateTimeOffset.UtcNow.ToString("O"));
+        await insert.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<int> CountRowsAsync(string dbPath, string tableName)
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        await connection.OpenAsync();
+        await using Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM {tableName};";
+        return Convert.ToInt32(await command.ExecuteScalarAsync());
+    }
+
+    private static async Task<bool> TableExistsAsync(string dbPath, string tableNamePrefix)
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        await connection.OpenAsync();
+        await using Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE $name;";
+        command.Parameters.AddWithValue("$name", $"{tableNamePrefix}%");
+        return Convert.ToInt32(await command.ExecuteScalarAsync()) > 0;
+    }
+
+    private static async Task<IReadOnlyList<string>> ReadQuarantineReasonsAsync(string dbPath)
+    {
+        var reasons = new List<string>();
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        await connection.OpenAsync();
+        await using Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT Reason FROM ManualReviewMigrationQuarantine ORDER BY Id ASC;";
+        await using Microsoft.Data.Sqlite.SqliteDataReader reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            reasons.Add(reader.GetString(0));
+        }
+
+        return reasons;
+    }
+
     private sealed class FakeDatabaseService : IDatabaseService
     {
         private readonly List<DetectionRecord> _records;
@@ -234,6 +466,10 @@ public class ManualReviewStoreTests
             => Task.FromResult(_records.ToList());
         public Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
             => Task.FromResult(_records.FirstOrDefault(record => record.Id == id));
+        public Task<List<DetectionRecord>> GetDetectionRecordsByInspectionIdAsync(string inspectionId)
+            => Task.FromResult(_records
+                .Where(record => string.Equals(record.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase))
+                .ToList());
         public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
             => Task.FromResult(new List<DetectionTraceRecord>());
         public Task<DetectionTracePage> GetTraceRecordPageAsync(DetectionTraceQuery query)

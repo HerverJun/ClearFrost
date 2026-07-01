@@ -298,6 +298,10 @@ public class OfflineReplayServiceTests
             => Task.FromResult(new List<DetectionRecord>());
         public Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
             => Task.FromResult(_records.FirstOrDefault(record => record.Id == id));
+        public Task<List<DetectionRecord>> GetDetectionRecordsByInspectionIdAsync(string inspectionId)
+            => Task.FromResult(_records
+                .Where(record => string.Equals(record.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase))
+                .ToList());
         public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
             => Task.FromResult(new List<DetectionTraceRecord>());
         public Task<DetectionTracePage> GetTraceRecordPageAsync(DetectionTraceQuery query)

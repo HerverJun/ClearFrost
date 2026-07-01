@@ -25,6 +25,8 @@ namespace ClearFrost.Services.Replay
         private readonly ReplayApprovalEvidenceProductionGate _productionGate;
         private readonly ReplayAcceptancePolicy _policy;
         private readonly OperationAuditService? _auditService;
+        private readonly Func<string>? _approverIdProvider;
+        private readonly Func<ProductionRole>? _approverRoleProvider;
         private readonly SemaphoreSlim _approvalLock = new SemaphoreSlim(1, 1);
 
         public ReplayApprovalApplicationService(
@@ -35,7 +37,9 @@ namespace ClearFrost.Services.Replay
             IModelApprovalEvidenceStore evidenceStore,
             ReplayApprovalEvidenceProductionGate productionGate,
             ReplayAcceptancePolicy policy,
-            OperationAuditService? auditService = null)
+            OperationAuditService? auditService = null,
+            Func<string>? approverIdProvider = null,
+            Func<ProductionRole>? approverRoleProvider = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _refreshRegistry = refreshRegistry ?? throw new ArgumentNullException(nameof(refreshRegistry));
@@ -45,6 +49,8 @@ namespace ClearFrost.Services.Replay
             _productionGate = productionGate ?? throw new ArgumentNullException(nameof(productionGate));
             _policy = policy ?? throw new ArgumentNullException(nameof(policy));
             _auditService = auditService;
+            _approverIdProvider = approverIdProvider;
+            _approverRoleProvider = approverRoleProvider;
         }
 
         public async Task<ReplayApprovalResult> ApproveCandidateAsync(
@@ -52,16 +58,41 @@ namespace ClearFrost.Services.Replay
             CancellationToken cancellationToken = default)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
+            if (!TryResolveAuthorizedApprover(
+                    out string approverId,
+                    out ProductionRole approverRole,
+                    out string authorizationErrorCode,
+                    out string authorizationMessage))
+            {
+                await AppendAuditAsync(
+                    OperationAuditStatus.Denied,
+                    authorizationMessage,
+                    approverId,
+                    approverRole,
+                    cancellationToken).ConfigureAwait(false);
+                return ReplayApprovalResult.Fail(authorizationErrorCode, authorizationMessage);
+            }
+
             await _approvalLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                await AppendAuditAsync(request, OperationAuditStatus.Requested, "Replay approval requested", cancellationToken)
+                await AppendAuditAsync(
+                    OperationAuditStatus.Requested,
+                    "Replay approval requested",
+                    approverId,
+                    approverRole,
+                    cancellationToken)
                     .ConfigureAwait(false);
 
                 ReplayApprovalContext context = await BuildApprovalContextAsync(request, cancellationToken).ConfigureAwait(false);
                 if (!context.Result.Succeeded)
                 {
-                    await AppendAuditAsync(request, OperationAuditStatus.Denied, context.Result.Message, cancellationToken)
+                    await AppendAuditAsync(
+                        OperationAuditStatus.Denied,
+                        context.Result.Message,
+                        approverId,
+                        approverRole,
+                        cancellationToken)
                         .ConfigureAwait(false);
                     return context.Result;
                 }
@@ -75,7 +106,7 @@ namespace ClearFrost.Services.Replay
                 {
                     evidence = _evidenceStore.SaveEvidence(
                         context.Report,
-                        request.ApprovedBy,
+                        approverId,
                         context.Dataset.RootDirectory,
                         context.Report.PolicyHash);
 
@@ -84,17 +115,26 @@ namespace ClearFrost.Services.Replay
                         ReplayJson.Options) ?? new ModelPackageManifest();
 
                     manifest.AcceptanceDataset = evidence.DatasetPath;
-                    manifest.AcceptanceMetrics["totalSamples"] = evidence.Metrics.SampleCount;
+                    manifest.AcceptanceMetrics["totalSamples"] = evidence.Metrics.TotalSampleCount > 0
+                        ? evidence.Metrics.TotalSampleCount
+                        : evidence.Metrics.SampleCount;
+                    manifest.AcceptanceMetrics["validSamples"] = evidence.Metrics.ValidSampleCount > 0
+                        ? evidence.Metrics.ValidSampleCount
+                        : evidence.Metrics.SampleCount;
+                    manifest.AcceptanceMetrics["invalidSamples"] = evidence.Metrics.InvalidSampleCount;
                     manifest.AcceptanceMetrics["candidateCorrectSamples"] = evidence.Metrics.CandidateCorrectCount;
                     manifest.AcceptanceMetrics["candidateNewMissedDetectionCount"] = evidence.Metrics.CandidateNewMissedDetectionCount;
+                    manifest.AcceptanceMetrics["candidateMissedDetectionCount"] = evidence.Metrics.CandidateMissedDetectionCount;
+                    manifest.AcceptanceMetrics["candidateMissedDetectionRate"] = evidence.Metrics.CandidateMissedDetectionRate;
                     manifest.AcceptanceMetrics["candidateNewFalseRejectCount"] = evidence.Metrics.CandidateNewFalseRejectCount;
+                    manifest.AcceptanceMetrics["falseRejectRateIncrease"] = evidence.Metrics.FalseRejectRateIncrease;
                     manifest.AcceptanceMetrics["candidateAccuracy"] = evidence.Metrics.CandidateAccuracy;
                     manifest.AcceptanceMetrics["candidateP95ElapsedMs"] = evidence.Metrics.CandidateP95ElapsedMs;
                     manifest.Approval = new ModelApprovalMetadata
                     {
                         Status = ModelApprovalStatuses.Approved,
                         ApprovedAt = evidence.CreatedAt,
-                        ApprovedBy = request.ApprovedBy?.Trim() ?? string.Empty,
+                        ApprovedBy = approverId,
                         Summary = $"Replay evidence {evidence.EvidenceId}",
                         GoldenDatasetPath = evidence.DatasetPath,
                         ActualPassRate = evidence.Metrics.CandidateAccuracy,
@@ -119,7 +159,12 @@ namespace ClearFrost.Services.Replay
                         throw new InvalidOperationException($"{gate.ErrorCode}: {gate.Message}");
                     }
 
-                    await AppendAuditAsync(request, OperationAuditStatus.Succeeded, evidence.EvidenceId, cancellationToken)
+                    await AppendAuditAsync(
+                        OperationAuditStatus.Succeeded,
+                        evidence.EvidenceId,
+                        approverId,
+                        approverRole,
+                        cancellationToken)
                         .ConfigureAwait(false);
                     return ReplayApprovalResult.Ok(evidence, "Replay approval evidence bound to candidate model.");
                 }
@@ -151,9 +196,10 @@ namespace ClearFrost.Services.Replay
                     }
 
                     await AppendAuditAsync(
-                        request,
                         compensationFailures.Count == 0 ? OperationAuditStatus.Denied : OperationAuditStatus.Failed,
                         ex.Message,
+                        approverId,
+                        approverRole,
                         CancellationToken.None).ConfigureAwait(false);
 
                     return ReplayApprovalResult.Fail(
@@ -181,11 +227,6 @@ namespace ClearFrost.Services.Replay
             if (string.IsNullOrWhiteSpace(runId))
             {
                 return ReplayApprovalContext.Fail("ReplayApprovalRunIdMissing", "Replay run id is required.");
-            }
-
-            if (string.IsNullOrWhiteSpace(request.ApprovedBy))
-            {
-                return ReplayApprovalContext.Fail("ReplayApprovalUserMissing", "Approver id is required.");
             }
 
             ReplayRunRecord? runRecord = await _runStore.LoadRunRecordAsync(runId, cancellationToken).ConfigureAwait(false);
@@ -323,10 +364,78 @@ namespace ClearFrost.Services.Replay
             return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
         }
 
+        private bool TryResolveAuthorizedApprover(
+            out string approverId,
+            out ProductionRole approverRole,
+            out string errorCode,
+            out string message)
+        {
+            approverId = string.Empty;
+            approverRole = ProductionRole.Operator;
+            errorCode = string.Empty;
+            message = string.Empty;
+
+            if (_approverIdProvider == null)
+            {
+                errorCode = "ReplayApprovalAuthorizationProviderMissing";
+                message = "Replay approval operator provider is required.";
+                return false;
+            }
+
+            try
+            {
+                approverId = (_approverIdProvider.Invoke() ?? string.Empty).Trim();
+            }
+            catch (Exception ex)
+            {
+                errorCode = "ReplayApprovalAuthorizationProviderFailed";
+                message = $"Replay approval operator provider failed: {ex.Message}";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(approverId))
+            {
+                errorCode = "ReplayApprovalOperatorMissing";
+                message = "Replay approval operator id is required.";
+                return false;
+            }
+
+            if (_approverRoleProvider == null)
+            {
+                errorCode = "ReplayApprovalAuthorizationProviderMissing";
+                message = "Replay approval role provider is required.";
+                return false;
+            }
+
+            try
+            {
+                approverRole = _approverRoleProvider.Invoke();
+            }
+            catch (Exception ex)
+            {
+                errorCode = "ReplayApprovalAuthorizationProviderFailed";
+                message = $"Replay approval role provider failed: {ex.Message}";
+                return false;
+            }
+
+            if (!ProductionAuthorizationService.Authorize(
+                    approverRole,
+                    ProductionOperation.EngineeringChange,
+                    out string denialReason))
+            {
+                errorCode = "ReplayApprovalUnauthorized";
+                message = denialReason;
+                return false;
+            }
+
+            return true;
+        }
+
         private Task AppendAuditAsync(
-            ReplayApprovalRequest request,
             OperationAuditStatus status,
             string details,
+            string operatorId,
+            ProductionRole role,
             CancellationToken cancellationToken)
         {
             return _auditService == null
@@ -335,10 +444,8 @@ namespace ClearFrost.Services.Replay
                 {
                     Operation = "ReplayApproval",
                     Status = status,
-                    OperatorId = request.ApprovedBy,
-                    Role = Enum.TryParse(request.ApprovedByRole, ignoreCase: true, out ProductionRole role)
-                        ? role
-                        : ProductionRole.Engineer,
+                    OperatorId = operatorId,
+                    Role = role,
                     Details = details ?? string.Empty,
                     FailureBlocker = status == OperationAuditStatus.Failed || status == OperationAuditStatus.Denied
                         ? details ?? string.Empty

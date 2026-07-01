@@ -8,6 +8,7 @@ public class ProductionAuthorizationServiceTests
     [Theory]
     [InlineData(ProductionRole.Operator, ProductionOperation.RunInspection, true)]
     [InlineData(ProductionRole.Operator, ProductionOperation.ManualRelease, false)]
+    [InlineData(ProductionRole.Operator, ProductionOperation.EngineeringChange, false)]
     [InlineData(ProductionRole.ShiftLead, ProductionOperation.ManualRelease, true)]
     [InlineData(ProductionRole.ShiftLead, ProductionOperation.EngineeringChange, false)]
     [InlineData(ProductionRole.Engineer, ProductionOperation.EngineeringChange, true)]

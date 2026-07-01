@@ -4,6 +4,7 @@ using ClearFrost.Config;
 using ClearFrost.Core.Models;
 using ClearFrost.Core.Recipes;
 using ClearFrost.Core.Rules;
+using ClearFrost.Core.Security;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
 using ClearFrost.Services.Replay;
@@ -71,6 +72,174 @@ public class ReplayClosureTests
     }
 
     [Fact]
+    public void ReplayMetrics_V2使用候选总漏检率而不是新增漏检数()
+    {
+        var samples = new List<ReplaySampleComparison>
+        {
+            new ReplaySampleComparison
+            {
+                SampleId = "S1",
+                GroundTruth = ReplayDecisions.NG,
+                BaselineDecision = ReplayDecisions.OK,
+                CandidateDecision = ReplayDecisions.OK
+            }
+        };
+        ReplayComparisonMetrics metrics = ReplayMetrics.Compute(samples);
+        var report = new ReplayRunReport
+        {
+            Status = ReplayRunStatuses.Completed,
+            Metrics = metrics,
+            Samples = samples
+        };
+
+        metrics.CandidateNewMissedDetectionCount.Should().Be(0);
+        metrics.CandidateMissedDetectionCount.Should().Be(1);
+        metrics.CandidateMissedDetectionRate.Should().Be(1d);
+
+        ReplayApprovalDecision decision = new ReplayAcceptancePolicy(new ReplayAcceptancePolicyOptions
+        {
+            Version = 2,
+            MaximumCandidateMissedDetectionRate = 0
+        }).Evaluate(report);
+        decision.Approved.Should().BeFalse();
+        decision.Reasons.Should().Contain(reason => reason.Contains("missed detection rate", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ReplayMetrics_V2误拒率增幅按两个总率之差计算()
+    {
+        var samples = new List<ReplaySampleComparison>
+        {
+            new ReplaySampleComparison
+            {
+                SampleId = "S1",
+                GroundTruth = ReplayDecisions.OK,
+                BaselineDecision = ReplayDecisions.OK,
+                CandidateDecision = ReplayDecisions.NG
+            },
+            new ReplaySampleComparison
+            {
+                SampleId = "S2",
+                GroundTruth = ReplayDecisions.OK,
+                BaselineDecision = ReplayDecisions.NG,
+                CandidateDecision = ReplayDecisions.OK
+            }
+        };
+        ReplayComparisonMetrics metrics = ReplayMetrics.Compute(samples);
+        var report = new ReplayRunReport
+        {
+            Status = ReplayRunStatuses.Completed,
+            Metrics = metrics,
+            Samples = samples
+        };
+
+        metrics.CandidateNewFalseRejectCount.Should().Be(1);
+        metrics.CandidateFixedFalseRejectCount.Should().Be(1);
+        metrics.BaselineFalseRejectRate.Should().Be(0.5d);
+        metrics.CandidateFalseRejectRate.Should().Be(0.5d);
+        metrics.FalseRejectRateIncrease.Should().Be(0d);
+
+        ReplayApprovalDecision decision = new ReplayAcceptancePolicy(new ReplayAcceptancePolicyOptions
+        {
+            Version = 2,
+            MaximumFalseRejectRateIncrease = 0
+        }).Evaluate(report);
+        decision.Approved.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ReplayMetrics_InvalidSample进入InvalidSampleCount并受Policy限制()
+    {
+        var samples = new List<ReplaySampleComparison>
+        {
+            new ReplaySampleComparison
+            {
+                SampleId = "S1",
+                GroundTruth = ReplayDecisions.OK,
+                BaselineDecision = ReplayDecisions.OK,
+                CandidateDecision = ReplayDecisions.OK
+            },
+            new ReplaySampleComparison
+            {
+                SampleId = "S2",
+                GroundTruth = ReplayDecisions.NG,
+                IsValid = false,
+                InvalidReason = "Candidate inference failed."
+            }
+        };
+        samples[1].Classification = ReplayMetrics.Classify(samples[1]);
+        ReplayComparisonMetrics metrics = ReplayMetrics.Compute(samples);
+        var report = new ReplayRunReport
+        {
+            Status = ReplayRunStatuses.Completed,
+            Metrics = metrics,
+            Samples = samples
+        };
+
+        metrics.TotalSampleCount.Should().Be(2);
+        metrics.ValidSampleCount.Should().Be(1);
+        metrics.InvalidSampleCount.Should().Be(1);
+        samples[1].Classification.Should().Be("InvalidSample");
+
+        ReplayApprovalDecision decision = new ReplayAcceptancePolicy(new ReplayAcceptancePolicyOptions
+        {
+            Version = 2,
+            MaximumInvalidSampleCount = 0
+        }).Evaluate(report);
+        decision.Approved.Should().BeFalse();
+        decision.Reasons.Should().Contain(reason => reason.Contains("invalid samples", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ReplayPolicy_V1保持旧语义_V2使用新语义且未知版本FailClosed()
+    {
+        var samples = new List<ReplaySampleComparison>
+        {
+            new ReplaySampleComparison
+            {
+                SampleId = "S1",
+                GroundTruth = ReplayDecisions.OK,
+                BaselineDecision = ReplayDecisions.OK,
+                CandidateDecision = ReplayDecisions.NG
+            },
+            new ReplaySampleComparison
+            {
+                SampleId = "S2",
+                GroundTruth = ReplayDecisions.OK,
+                BaselineDecision = ReplayDecisions.NG,
+                CandidateDecision = ReplayDecisions.OK
+            }
+        };
+        ReplayComparisonMetrics metrics = ReplayMetrics.Compute(samples);
+        var report = new ReplayRunReport
+        {
+            Status = ReplayRunStatuses.Completed,
+            Metrics = metrics,
+            Samples = samples
+        };
+
+        ReplayApprovalDecision v1 = new ReplayAcceptancePolicy(new ReplayAcceptancePolicyOptions
+        {
+            Version = 1,
+            MaximumFalseRejectRateIncrease = 0
+        }).Evaluate(report);
+        ReplayApprovalDecision v2 = new ReplayAcceptancePolicy(new ReplayAcceptancePolicyOptions
+        {
+            Version = 2,
+            MaximumFalseRejectRateIncrease = 0
+        }).Evaluate(report);
+        ReplayApprovalDecision unsupported = new ReplayAcceptancePolicy(new ReplayAcceptancePolicyOptions
+        {
+            Version = 99
+        }).Evaluate(report);
+
+        v1.Approved.Should().BeFalse();
+        v2.Approved.Should().BeTrue();
+        unsupported.Approved.Should().BeFalse();
+        unsupported.Reasons.Should().Contain(reason => reason.Contains("not supported", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task ReplayDataset_Manifest不写绝对路径并可移动后校验()
     {
         string tempDir = CreateTempDirectory();
@@ -105,6 +274,130 @@ public class ReplayClosureTests
             moved.DatasetHash.Should().Be(fixture.Dataset.DatasetHash);
             moved.RootDirectory.Should().Be(Path.GetFullPath(movedDirectory));
             moved.Samples.Should().OnlyContain(sample => Path.IsPathRooted(sample.ImagePath) && File.Exists(sample.ImagePath));
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayDataset_重复InspectionId按DetectionRecordId分别冻结并拒绝绑定不一致()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string imageSourceDir = Path.Combine(tempDir, "source-duplicate");
+            Directory.CreateDirectory(imageSourceDir);
+            string imageA = Path.Combine(imageSourceDir, "a.png");
+            string imageB = Path.Combine(imageSourceDir, "b.png");
+            using (var image = new Mat(24, 24, MatType.CV_8UC3, new Scalar(30, 80, 160)))
+            {
+                Cv2.ImWrite(imageA, image);
+                Cv2.ImWrite(imageB, image);
+            }
+
+            var records = new List<DetectionRecord>
+            {
+                new DetectionRecord
+                {
+                    Id = 101,
+                    InspectionId = "DUP-INSPECTION",
+                    Timestamp = new DateTime(2026, 6, 30, 10, 0, 0),
+                    IsQualified = true,
+                    ImagePath = imageA,
+                    RecipeId = "recipe-dup",
+                    RecipeVersion = "1"
+                },
+                new DetectionRecord
+                {
+                    Id = 102,
+                    InspectionId = "DUP-INSPECTION",
+                    Timestamp = new DateTime(2026, 6, 30, 10, 1, 0),
+                    IsQualified = false,
+                    ImagePath = imageB,
+                    RecipeId = "recipe-dup",
+                    RecipeVersion = "1"
+                }
+            };
+            var reviews = new Dictionary<long, ReplayManualReviewRecord>
+            {
+                [101] = new ReplayManualReviewRecord
+                {
+                    SampleId = "dup-a",
+                    InspectionId = "DUP-INSPECTION",
+                    GroundTruth = ReplayDecisions.OK,
+                    SystemDecision = ReplayDecisions.OK,
+                    Disposition = ReplayReviewDispositions.Confirmed,
+                    ReviewerId = "qa01",
+                    ReviewerRole = "Engineer",
+                    Revision = 1,
+                    ReviewedAt = DateTimeOffset.UtcNow
+                },
+                [102] = new ReplayManualReviewRecord
+                {
+                    SampleId = "dup-b",
+                    InspectionId = "DUP-INSPECTION",
+                    GroundTruth = ReplayDecisions.NG,
+                    SystemDecision = ReplayDecisions.NG,
+                    Disposition = ReplayReviewDispositions.Confirmed,
+                    ReviewerId = "qa01",
+                    ReviewerRole = "Engineer",
+                    Revision = 1,
+                    ReviewedAt = DateTimeOffset.UtcNow
+                }
+            };
+            var store = new FileReplayDatasetStore(
+                new FakeDatabaseService(records),
+                Path.Combine(tempDir, "datasets-duplicate"));
+            var request = new ReplayDatasetCreateRequest
+            {
+                DatasetId = "duplicate-inspection",
+                Query = new DetectionReplayQuery { Limit = 2 },
+                Recipe = new ReplayRecipeSnapshot
+                {
+                    RecipeId = "recipe-dup",
+                    RecipeVersion = "1",
+                    RuleSet = new InspectionRuleSet(),
+                    RuleSetJson = "{}"
+                },
+                BaselineModel = new ReplayModelIdentity { ModelId = "baseline", Version = "1", Sha256 = "baseline-hash" },
+                CandidateModel = new ReplayModelIdentity { ModelId = "candidate", Version = "2", Sha256 = "candidate-hash" },
+                ManualReviewsByDetectionRecordId = reviews
+            };
+
+            ReplayDatasetSnapshot snapshot = await store.CreateSnapshotAsync(request);
+
+            snapshot.Samples.Should().HaveCount(2);
+            snapshot.Samples.Should().Contain(sample => sample.DetectionRecordId == 101 && sample.SampleId == "dup-a");
+            snapshot.Samples.Should().Contain(sample => sample.DetectionRecordId == 102 && sample.SampleId == "dup-b");
+
+            var mismatchedReviews = new Dictionary<long, ReplayManualReviewRecord>(reviews)
+            {
+                [101] = new ReplayManualReviewRecord
+                {
+                    SampleId = "dup-a",
+                    InspectionId = "OTHER-INSPECTION",
+                    GroundTruth = ReplayDecisions.OK,
+                    SystemDecision = ReplayDecisions.OK,
+                    Disposition = ReplayReviewDispositions.Confirmed,
+                    ReviewerId = "qa01",
+                    ReviewerRole = "Engineer",
+                    Revision = 1,
+                    ReviewedAt = DateTimeOffset.UtcNow
+                }
+            };
+            Func<Task> mismatched = () => store.CreateSnapshotAsync(new ReplayDatasetCreateRequest
+            {
+                DatasetId = "duplicate-inspection-mismatch",
+                Query = request.Query,
+                Recipe = request.Recipe,
+                BaselineModel = request.BaselineModel,
+                CandidateModel = request.CandidateModel,
+                ManualReviewsByDetectionRecordId = mismatchedReviews
+            });
+            await mismatched.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*binding mismatch*");
         }
         finally
         {
@@ -151,7 +444,10 @@ public class ReplayClosureTests
                 fixture.DatasetStore,
                 evidenceStore,
                 evidenceGate,
-                replayPolicy);
+                replayPolicy,
+                null,
+                () => "qa01",
+                () => ProductionRole.Engineer);
             ReplayApprovalResult approvalResult = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
             {
                 RunId = report.RunId,
@@ -282,7 +578,10 @@ public class ReplayClosureTests
                 fixture.DatasetStore,
                 evidenceStore,
                 rejectingGate,
-                policy);
+                policy,
+                null,
+                () => "qa01",
+                () => ProductionRole.Engineer);
 
             ReplayApprovalResult result = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
             {
@@ -325,7 +624,10 @@ public class ReplayClosureTests
                 fixture.DatasetStore,
                 evidenceStore,
                 gate,
-                policy);
+                policy,
+                null,
+                () => "qa01",
+                () => ProductionRole.Engineer);
 
             ReplayApprovalResult result = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
             {
@@ -354,6 +656,66 @@ public class ReplayClosureTests
     }
 
     [Fact]
+    public async Task ReplayApproval_OperatorProvider无法绕过且不产生Evidence或Manifest变更()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            var policy = new ReplayAcceptancePolicy();
+            var service = new ReplayApplicationService(
+                fixture.DatasetStore,
+                new DeterministicReplayRunner(fixture.Decisions),
+                new PassingReplayModelValidator(),
+                fixture.RunStore,
+                policy);
+            ReplayRunReport report = await service.RunComparisonAsync(new ReplayComparisonRequest
+            {
+                RunId = "run-operator-denied",
+                DatasetId = fixture.Dataset.DatasetId,
+                BaselineModel = fixture.BaselineModel,
+                CandidateModel = fixture.CandidateModel
+            });
+
+            var registry = new ModelRegistry();
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: false));
+            ModelRegistryEntry candidate = registry.Resolve(fixture.CandidateModel.ModelPath)!;
+            byte[] originalManifest = await File.ReadAllBytesAsync(candidate.ManifestPath);
+            string evidenceRoot = Path.Combine(tempDir, "evidence-operator-denied");
+            var evidenceStore = new FileModelApprovalEvidenceStore(evidenceRoot, policy);
+            var gate = new ReplayApprovalEvidenceProductionGate(evidenceStore, fixture.DatasetStore, fixture.RunStore);
+            var approval = new ReplayApprovalApplicationService(
+                registry,
+                () => registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true)),
+                fixture.RunStore,
+                fixture.DatasetStore,
+                evidenceStore,
+                gate,
+                policy,
+                null,
+                () => "operator01",
+                () => ProductionRole.Operator);
+
+            ReplayApprovalResult result = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
+            {
+                RunId = report.RunId,
+                ApprovedBy = "spoofed-engineer",
+                ApprovedByRole = "Engineer",
+                CandidateEntry = candidate
+            });
+
+            result.Succeeded.Should().BeFalse();
+            result.ErrorCode.Should().Be("ReplayApprovalUnauthorized");
+            Directory.Exists(evidenceRoot).Should().BeFalse();
+            (await File.ReadAllBytesAsync(candidate.ManifestPath)).Should().Equal(originalManifest);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task FormalCompositionRootChain_历史真值DatasetReplay批准激活重启Ready与篡改拒绝()
     {
         string tempDir = CreateTempDirectory();
@@ -368,7 +730,7 @@ public class ReplayClosureTests
                 Recipe = regressedFixture.Dataset.Recipe,
                 BaselineModel = regressedFixture.BaselineModel,
                 CandidateModel = regressedFixture.CandidateModel,
-                ManualReviewsByInspectionId = new Dictionary<string, ReplayManualReviewRecord>(StringComparer.OrdinalIgnoreCase)
+                ManualReviewsByDetectionRecordId = new Dictionary<long, ReplayManualReviewRecord>()
             });
             await unreviewedDataset.Should().ThrowAsync<InvalidOperationException>()
                 .WithMessage("*Manual review is required*");
@@ -429,7 +791,10 @@ public class ReplayClosureTests
                 cleanFixture.DatasetStore,
                 evidenceStore,
                 evidenceGate,
-                replayPolicy);
+                replayPolicy,
+                null,
+                () => "qa01",
+                () => ProductionRole.Engineer);
             ReplayApprovalResult approvalResult = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
             {
                 RunId = report.RunId,
@@ -507,7 +872,7 @@ public class ReplayClosureTests
     }
 
     [Fact]
-    public async Task ReplayApplicationService_异常和取消都会释放当前模型会话()
+    public async Task ReplayApplicationService_样本异常形成InvalidSample且取消释放当前模型会话()
     {
         string tempDir = CreateTempDirectory();
         try
@@ -524,7 +889,7 @@ public class ReplayClosureTests
                 new PassingReplayModelValidator(),
                 fixture.RunStore);
 
-            Func<Task> act = () => service.RunComparisonAsync(new ReplayComparisonRequest
+            ReplayRunReport invalidReport = await service.RunComparisonAsync(new ReplayComparisonRequest
             {
                 RunId = "run-exception",
                 DatasetId = fixture.Dataset.DatasetId,
@@ -532,7 +897,12 @@ public class ReplayClosureTests
                 CandidateModel = fixture.CandidateModel
             });
 
-            await act.Should().ThrowAsync<InvalidOperationException>();
+            invalidReport.Status.Should().Be(ReplayRunStatuses.Completed);
+            invalidReport.Metrics.InvalidSampleCount.Should().Be(1);
+            invalidReport.Samples.Should().ContainSingle(sample =>
+                sample.SampleId == "S2" &&
+                !sample.IsValid &&
+                sample.InvalidReason.Contains("fixture inference failed", StringComparison.OrdinalIgnoreCase));
             runner.Events.Should().Contain($"dispose:{fixture.BaselineModel.ModelId}");
             runner.Events.Should().Contain($"dispose:{fixture.CandidateModel.ModelId}");
 
@@ -922,7 +1292,7 @@ public class ReplayClosureTests
             string imageSourceDir = Path.Combine(tempDir, "source-images");
             Directory.CreateDirectory(imageSourceDir);
             List<DetectionRecord> records = new();
-            Dictionary<string, ReplayManualReviewRecord> reviews = new(StringComparer.OrdinalIgnoreCase);
+            Dictionary<long, ReplayManualReviewRecord> reviews = new();
             string[] groundTruth = { "OK", "NG", "NG", "NG", "OK", "OK", "OK", "NG" };
             string[] baseline = { "OK", "NG", "OK", "NG", "NG", "OK", "OK", "NG" };
 
@@ -937,9 +1307,10 @@ public class ReplayClosureTests
                 }
 
                 string inspectionId = $"CF-FIXTURE-{sampleId}";
+                long detectionRecordId = i + 1;
                 records.Add(new DetectionRecord
                 {
-                    Id = i + 1,
+                    Id = detectionRecordId,
                     Timestamp = new DateTime(2026, 6, 30, 8, 0, 0).AddMinutes(i),
                     IsQualified = baseline[i] == ReplayDecisions.OK,
                     InspectionId = inspectionId,
@@ -953,7 +1324,7 @@ public class ReplayClosureTests
                     RuleSetJson = JsonSerializer.Serialize(CreateRuleSet(), ReplayJson.Options),
                     ResultJson = "{}"
                 });
-                reviews[inspectionId] = new ReplayManualReviewRecord
+                reviews[detectionRecordId] = new ReplayManualReviewRecord
                 {
                     SampleId = sampleId,
                     InspectionId = inspectionId,
@@ -993,7 +1364,7 @@ public class ReplayClosureTests
                 },
                 BaselineModel = baselineModel,
                 CandidateModel = candidateModel,
-                ManualReviewsByInspectionId = reviews
+                ManualReviewsByDetectionRecordId = reviews
             });
 
             return new ReplayFixture
@@ -1163,6 +1534,10 @@ public class ReplayClosureTests
             => Task.FromResult(_records.Take(limit).ToList());
         public Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
             => Task.FromResult(_records.FirstOrDefault(record => record.Id == id));
+        public Task<List<DetectionRecord>> GetDetectionRecordsByInspectionIdAsync(string inspectionId)
+            => Task.FromResult(_records
+                .Where(record => string.Equals(record.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase))
+                .ToList());
         public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
             => Task.FromResult(new List<DetectionTraceRecord>());
         public Task<DetectionTracePage> GetTraceRecordPageAsync(DetectionTraceQuery query)

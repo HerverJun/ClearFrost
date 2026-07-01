@@ -1880,6 +1880,27 @@ namespace ClearFrost
             return false;
         }
 
+        private async Task<bool> EnsureReplayWriteAuthorizedAsync(
+            WebUiCommandEventArgs args,
+            string operation,
+            Func<Task> sendUnauthorizedResponseAsync)
+        {
+            if (ProductionAuthorizationService.Authorize(
+                    _appConfig.CurrentOperatorRole,
+                    ProductionOperation.EngineeringChange,
+                    out string denialReason))
+            {
+                return true;
+            }
+
+            await ReportUnauthorizedOperationAsync(
+                operation,
+                ProductionOperation.EngineeringChange,
+                denialReason).ConfigureAwait(false);
+            await sendUnauthorizedResponseAsync().ConfigureAwait(false);
+            return false;
+        }
+
         private async Task ReportUnauthorizedOperationAsync(
             string operation,
             ProductionOperation requiredOperation,
@@ -2629,6 +2650,15 @@ namespace ClearFrost
 
         private async Task ArchiveReplayDatasetAsync(WebUiCommandEventArgs args)
         {
+            if (!await EnsureReplayWriteAuthorizedAsync(
+                    args,
+                    "archive_replay_dataset",
+                    () => SendReplayDatasetFailureAsync(args.RequestId, "ReplayWriteUnauthorized", "Replay dataset archive requires engineering change permission."))
+                .ConfigureAwait(false))
+            {
+                return;
+            }
+
             try
             {
                 using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
@@ -2659,6 +2689,21 @@ namespace ClearFrost
 
         private async Task CancelReplayRunAsync(WebUiCommandEventArgs args)
         {
+            if (!await EnsureReplayWriteAuthorizedAsync(
+                    args,
+                    "cancel_replay_run",
+                    () => _uiController.SendReplayRunStatus(new ReplayRunProgress
+                    {
+                        RunId = _appRuntime.ReplayCoordinator.CurrentRun?.RunId ?? _lastReplayRunId,
+                        Status = ReplayRunStatuses.Failed,
+                        Phase = "authorization",
+                        Message = "ReplayWriteUnauthorized: Replay cancel requires engineering change permission."
+                    }, args.RequestId))
+                .ConfigureAwait(false))
+            {
+                return;
+            }
+
             _appRuntime.ReplayCoordinator.Cancel();
             await _uiController.SendReplayRunStatus(new ReplayRunProgress
             {
@@ -2738,6 +2783,17 @@ namespace ClearFrost
 
         private async Task SaveManualReviewAsync(WebUiCommandEventArgs args)
         {
+            if (!await EnsureReplayWriteAuthorizedAsync(
+                    args,
+                    "save_manual_review",
+                    () => _uiController.SendManualReviewResponse(
+                        ManualReviewSaveResult.Fail("ReplayWriteUnauthorized", "Manual review save requires engineering change permission."),
+                        args.RequestId))
+                .ConfigureAwait(false))
+            {
+                return;
+            }
+
             try
             {
                 ManualReviewSaveRequest request = ParseManualReviewSaveRequest(args.PayloadJson);
@@ -2760,6 +2816,15 @@ namespace ClearFrost
 
         private async Task CreateReplayDatasetAsync(WebUiCommandEventArgs args)
         {
+            if (!await EnsureReplayWriteAuthorizedAsync(
+                    args,
+                    "create_replay_dataset",
+                    () => SendReplayDatasetFailureAsync(args.RequestId, "ReplayWriteUnauthorized", "Replay dataset creation requires engineering change permission."))
+                .ConfigureAwait(false))
+            {
+                return;
+            }
+
             try
             {
                 using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
@@ -2804,9 +2869,6 @@ namespace ClearFrost
                 IReadOnlyList<ManualReviewTraceItem> reviewItems = await _appRuntime.ManualReviewStore
                     .QueryAsync(reviewQuery, _appShutdownCts.Token)
                     .ConfigureAwait(false);
-                Dictionary<string, ReplayManualReviewRecord> reviews = reviewItems
-                    .Where(item => item.Review != null && !string.IsNullOrWhiteSpace(item.InspectionId))
-                    .ToDictionary(item => item.InspectionId, item => item.Review!, StringComparer.OrdinalIgnoreCase);
                 Dictionary<long, ReplayManualReviewRecord> reviewsByRecordId = reviewItems
                     .Where(item => item.Review != null && item.DetectionRecordId > 0)
                     .ToDictionary(item => item.DetectionRecordId, item => item.Review!);
@@ -2819,8 +2881,7 @@ namespace ClearFrost
                         Recipe = CreateReplayRecipeSnapshot(recipe),
                         BaselineModel = ReplayModelIdentity.FromRegistryEntry(baselineEntry),
                         CandidateModel = ReplayModelIdentity.FromRegistryEntry(candidateEntry),
-                        ManualReviewsByDetectionRecordId = reviewsByRecordId,
-                        ManualReviewsByInspectionId = reviews
+                        ManualReviewsByDetectionRecordId = reviewsByRecordId
                     },
                     _appShutdownCts.Token).ConfigureAwait(false);
 
@@ -2851,6 +2912,15 @@ namespace ClearFrost
 
         private async Task RunReplayComparisonAsync(WebUiCommandEventArgs args)
         {
+            if (!await EnsureReplayWriteAuthorizedAsync(
+                    args,
+                    "run_replay_comparison",
+                    () => SendReplayRunFailureAsync(args.RequestId, "ReplayWriteUnauthorized", "Replay comparison requires engineering change permission."))
+                .ConfigureAwait(false))
+            {
+                return;
+            }
+
             try
             {
                 using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
@@ -2912,6 +2982,17 @@ namespace ClearFrost
 
         private async Task ApproveReplayCandidateAsync(WebUiCommandEventArgs args)
         {
+            if (!await EnsureReplayWriteAuthorizedAsync(
+                    args,
+                    "approve_replay_candidate",
+                    () => _uiController.SendReplayApprovalResponse(
+                        ReplayApprovalResult.Fail("ReplayWriteUnauthorized", "Replay approval requires engineering change permission."),
+                        args.RequestId))
+                .ConfigureAwait(false))
+            {
+                return;
+            }
+
             try
             {
                 using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
@@ -2928,9 +3009,7 @@ namespace ClearFrost
                 ReplayApprovalResult result = await _appRuntime.ReplayApprovalApplicationService.ApproveCandidateAsync(
                     new ReplayApprovalRequest
                     {
-                        RunId = runId,
-                        ApprovedBy = ResolveCurrentOperatorId(),
-                        ApprovedByRole = _appConfig.CurrentOperatorRole.ToString()
+                        RunId = runId
                     },
                     _appShutdownCts.Token).ConfigureAwait(false);
 

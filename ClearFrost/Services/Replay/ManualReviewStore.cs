@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Core.Security;
@@ -165,6 +166,22 @@ namespace ClearFrost.Services.Replay
                 return ManualReviewSaveResult.Fail("ManualReviewInspectionIdMissing", "InspectionId is required.");
             }
 
+            if (!TryResolveAuthorizedReviewer(
+                    out string reviewerId,
+                    out ProductionRole reviewerRole,
+                    out string authorizationErrorCode,
+                    out string authorizationMessage))
+            {
+                await AppendAuditAsync(
+                    request,
+                    OperationAuditStatus.Denied,
+                    authorizationMessage,
+                    reviewerId,
+                    reviewerRole,
+                    cancellationToken).ConfigureAwait(false);
+                return ManualReviewSaveResult.Fail(authorizationErrorCode, authorizationMessage);
+            }
+
             DetectionRecord? detectionRecord = await _databaseService.GetDetectionRecordByIdAsync(request.DetectionRecordId)
                 .ConfigureAwait(false);
             if (detectionRecord == null)
@@ -207,7 +224,13 @@ namespace ClearFrost.Services.Replay
                 if (request.ExpectedRevision.HasValue && request.ExpectedRevision.Value != existingRevision)
                 {
                     await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-                    await AppendAuditAsync(request, OperationAuditStatus.Denied, "Review revision conflict", cancellationToken)
+                    await AppendAuditAsync(
+                        request,
+                        OperationAuditStatus.Denied,
+                        "Review revision conflict",
+                        reviewerId,
+                        reviewerRole,
+                        cancellationToken)
                         .ConfigureAwait(false);
                     return ManualReviewSaveResult.Fail(
                         "ReviewRevisionConflict",
@@ -215,8 +238,6 @@ namespace ClearFrost.Services.Replay
                         existing);
                 }
 
-                string reviewerId = ResolveReviewerId(request);
-                ProductionRole reviewerRole = ResolveReviewerRole(request);
                 var record = new ReplayManualReviewRecord
                 {
                     SampleId = string.IsNullOrWhiteSpace(request.SampleId)
@@ -266,14 +287,26 @@ namespace ClearFrost.Services.Replay
                 await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-                await AppendAuditAsync(request, OperationAuditStatus.Succeeded, "Manual review saved", cancellationToken)
+                await AppendAuditAsync(
+                    request,
+                    OperationAuditStatus.Succeeded,
+                    "Manual review saved",
+                    reviewerId,
+                    reviewerRole,
+                    cancellationToken)
                     .ConfigureAwait(false);
                 return ManualReviewSaveResult.Ok(record);
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
-                await AppendAuditAsync(request, OperationAuditStatus.Failed, ex.Message, CancellationToken.None)
+                await AppendAuditAsync(
+                    request,
+                    OperationAuditStatus.Failed,
+                    ex.Message,
+                    reviewerId,
+                    reviewerRole,
+                    CancellationToken.None)
                     .ConfigureAwait(false);
                 return ManualReviewSaveResult.Fail("ManualReviewSaveFailed", ex.Message);
             }
@@ -378,6 +411,26 @@ namespace ClearFrost.Services.Replay
                 );
                 CREATE INDEX IF NOT EXISTS idx_manual_review_inspection ON ManualReviewRecords(InspectionId);
                 CREATE INDEX IF NOT EXISTS idx_manual_review_status ON ManualReviewRecords(GroundTruth, ReviewedAt);
+                CREATE TABLE IF NOT EXISTS ManualReviewMigrationQuarantine (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    SourceRowId INTEGER NOT NULL,
+                    SourceDetectionRecordId INTEGER NOT NULL DEFAULT 0,
+                    InspectionId TEXT NOT NULL,
+                    SampleId TEXT NOT NULL,
+                    GroundTruth TEXT NOT NULL,
+                    SystemDecision TEXT NOT NULL DEFAULT '',
+                    Disposition TEXT NOT NULL DEFAULT '',
+                    ReviewerId TEXT NOT NULL DEFAULT '',
+                    ReviewerRole TEXT NOT NULL DEFAULT '',
+                    Revision INTEGER NOT NULL DEFAULT 0,
+                    ReviewedAt TEXT NOT NULL DEFAULT '',
+                    Notes TEXT,
+                    Reason TEXT NOT NULL,
+                    MigratedAt TEXT NOT NULL,
+                    SourcePayloadJson TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_manual_review_quarantine_inspection ON ManualReviewMigrationQuarantine(InspectionId);
+                CREATE INDEX IF NOT EXISTS idx_manual_review_quarantine_reason ON ManualReviewMigrationQuarantine(Reason);
             ";
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             await EnsureColumnAsync(connection, "ManualReviewRecords", "SystemDecision", "TEXT NOT NULL DEFAULT ''", cancellationToken)
@@ -453,30 +506,74 @@ namespace ClearFrost.Services.Replay
                    string.Equals(disposition, ReplayReviewDispositions.InvalidSample, StringComparison.OrdinalIgnoreCase);
         }
 
-        private string ResolveReviewerId(ManualReviewSaveRequest request)
+        private bool TryResolveAuthorizedReviewer(
+            out string reviewerId,
+            out ProductionRole reviewerRole,
+            out string errorCode,
+            out string message)
         {
-            string providerValue = _operatorIdProvider?.Invoke() ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(providerValue))
+            reviewerId = string.Empty;
+            reviewerRole = ProductionRole.Operator;
+            errorCode = string.Empty;
+            message = string.Empty;
+
+            if (_operatorIdProvider == null)
             {
-                return providerValue.Trim();
+                errorCode = "ManualReviewOperatorProviderMissing";
+                message = "Manual review operator provider is required.";
+                return false;
             }
 
-            return request.ReviewerId?.Trim() ?? string.Empty;
-        }
-
-        private ProductionRole ResolveReviewerRole(ManualReviewSaveRequest request)
-        {
-            if (_operatorRoleProvider != null)
+            try
             {
-                return _operatorRoleProvider();
+                reviewerId = (_operatorIdProvider.Invoke() ?? string.Empty).Trim();
+            }
+            catch (Exception ex)
+            {
+                errorCode = "ManualReviewOperatorProviderFailed";
+                message = $"Manual review operator provider failed: {ex.Message}";
+                return false;
             }
 
-            return Enum.TryParse(request.ReviewerRole, ignoreCase: true, out ProductionRole role)
-                ? role
-                : ProductionRole.Engineer;
+            if (string.IsNullOrWhiteSpace(reviewerId))
+            {
+                errorCode = "ManualReviewOperatorMissing";
+                message = "Manual review operator id is required.";
+                return false;
+            }
+
+            if (_operatorRoleProvider == null)
+            {
+                errorCode = "ManualReviewOperatorRoleProviderMissing";
+                message = "Manual review operator role provider is required.";
+                return false;
+            }
+
+            try
+            {
+                reviewerRole = _operatorRoleProvider.Invoke();
+            }
+            catch (Exception ex)
+            {
+                errorCode = "ManualReviewOperatorRoleProviderFailed";
+                message = $"Manual review operator role provider failed: {ex.Message}";
+                return false;
+            }
+
+            if (!ProductionAuthorizationService.Authorize(
+                    reviewerRole,
+                    ProductionOperation.EngineeringChange,
+                    out string denialReason))
+            {
+                errorCode = "ManualReviewUnauthorized";
+                message = denialReason;
+                return false;
+            }
+
+            return true;
         }
 
-        private static async Task EnsureManualReviewPrimaryKeyAsync(
+        private async Task EnsureManualReviewPrimaryKeyAsync(
             SqliteConnection connection,
             CancellationToken cancellationToken)
         {
@@ -503,6 +600,7 @@ namespace ClearFrost.Services.Replay
             }
 
             string legacyTable = $"ManualReviewRecords_legacy_{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}";
+            string migratedAt = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
             await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -536,30 +634,54 @@ namespace ClearFrost.Services.Replay
                     await create.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
 
-                string idExpression = hasDetectionRecordId
-                    ? "CASE WHEN DetectionRecordId > 0 THEN DetectionRecordId ELSE rowid END"
-                    : "rowid";
-                await using (SqliteCommand copy = connection.CreateCommand())
+                IReadOnlyList<LegacyManualReviewRow> legacyRows = await LoadLegacyManualReviewsAsync(
+                    connection,
+                    transaction,
+                    legacyTable,
+                    hasDetectionRecordId,
+                    cancellationToken).ConfigureAwait(false);
+                var migratedDetectionRecordIds = new HashSet<long>();
+                foreach (LegacyManualReviewRow row in legacyRows)
                 {
-                    copy.Transaction = transaction;
-                    copy.CommandText = $@"
-                        INSERT OR IGNORE INTO ManualReviewRecords
-                            (DetectionRecordId, InspectionId, SampleId, GroundTruth, SystemDecision, Disposition, ReviewerId, ReviewerRole, Revision, ReviewedAt, Notes)
-                        SELECT
-                            {idExpression},
-                            InspectionId,
-                            SampleId,
-                            GroundTruth,
-                            SystemDecision,
-                            CASE WHEN Disposition = 'Invalid' THEN 'InvalidSample' ELSE Disposition END,
-                            ReviewerId,
-                            ReviewerRole,
-                            Revision,
-                            ReviewedAt,
-                            Notes
-                        FROM {legacyTable};
-                    ";
-                    await copy.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                    List<DetectionRecord> matches = await _databaseService
+                        .GetDetectionRecordsByInspectionIdAsync(row.InspectionId)
+                        .ConfigureAwait(false);
+                    if (matches.Count != 1)
+                    {
+                        string reason = matches.Count == 0
+                            ? "ManualReviewLegacyInspectionMissing"
+                            : "ManualReviewLegacyInspectionAmbiguous";
+                        await InsertLegacyQuarantineAsync(
+                            connection,
+                            transaction,
+                            row,
+                            reason,
+                            migratedAt,
+                            cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    long detectionRecordId = matches[0].Id;
+                    if (detectionRecordId <= 0 || !migratedDetectionRecordIds.Add(detectionRecordId))
+                    {
+                        await InsertLegacyQuarantineAsync(
+                            connection,
+                            transaction,
+                            row,
+                            detectionRecordId <= 0
+                                ? "ManualReviewLegacyDetectionRecordInvalid"
+                                : "ManualReviewLegacyDetectionRecordDuplicate",
+                            migratedAt,
+                            cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    await InsertMigratedReviewAsync(
+                        connection,
+                        transaction,
+                        row,
+                        detectionRecordId,
+                        cancellationToken).ConfigureAwait(false);
                 }
 
                 await using (SqliteCommand drop = connection.CreateCommand())
@@ -576,6 +698,119 @@ namespace ClearFrost.Services.Replay
                 await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
                 throw;
             }
+        }
+
+        private static async Task<IReadOnlyList<LegacyManualReviewRow>> LoadLegacyManualReviewsAsync(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            string legacyTable,
+            bool hasDetectionRecordId,
+            CancellationToken cancellationToken)
+        {
+            var rows = new List<LegacyManualReviewRow>();
+            await using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction;
+            string detectionRecordColumn = hasDetectionRecordId
+                ? "DetectionRecordId"
+                : "0 AS DetectionRecordId";
+            command.CommandText = $@"
+                SELECT
+                    rowid,
+                    {detectionRecordColumn},
+                    InspectionId,
+                    SampleId,
+                    GroundTruth,
+                    SystemDecision,
+                    CASE WHEN Disposition = 'Invalid' THEN 'InvalidSample' ELSE Disposition END AS Disposition,
+                    ReviewerId,
+                    ReviewerRole,
+                    Revision,
+                    ReviewedAt,
+                    Notes
+                FROM {legacyTable}
+                ORDER BY rowid ASC;";
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                rows.Add(new LegacyManualReviewRow
+                {
+                    SourceRowId = reader.GetInt64(0),
+                    SourceDetectionRecordId = reader.IsDBNull(1) ? 0 : reader.GetInt64(1),
+                    InspectionId = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                    SampleId = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                    GroundTruth = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                    SystemDecision = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
+                    Disposition = reader.IsDBNull(6) ? ReplayReviewDispositions.InvalidSample : reader.GetString(6),
+                    ReviewerId = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
+                    ReviewerRole = reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
+                    Revision = reader.IsDBNull(9) ? 0 : reader.GetInt64(9),
+                    ReviewedAt = reader.IsDBNull(10) ? string.Empty : reader.GetString(10),
+                    Notes = reader.IsDBNull(11) ? string.Empty : reader.GetString(11)
+                });
+            }
+
+            return rows;
+        }
+
+        private static async Task InsertMigratedReviewAsync(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            LegacyManualReviewRow row,
+            long detectionRecordId,
+            CancellationToken cancellationToken)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"
+                INSERT INTO ManualReviewRecords
+                    (DetectionRecordId, InspectionId, SampleId, GroundTruth, SystemDecision, Disposition, ReviewerId, ReviewerRole, Revision, ReviewedAt, Notes)
+                VALUES
+                    ($detectionRecordId, $inspectionId, $sampleId, $groundTruth, $systemDecision, $disposition, $reviewerId, $reviewerRole, $revision, $reviewedAt, $notes);";
+            command.Parameters.AddWithValue("$detectionRecordId", detectionRecordId);
+            command.Parameters.AddWithValue("$inspectionId", row.InspectionId);
+            command.Parameters.AddWithValue("$sampleId", row.SampleId);
+            command.Parameters.AddWithValue("$groundTruth", row.GroundTruth);
+            command.Parameters.AddWithValue("$systemDecision", row.SystemDecision);
+            command.Parameters.AddWithValue("$disposition", row.Disposition);
+            command.Parameters.AddWithValue("$reviewerId", row.ReviewerId);
+            command.Parameters.AddWithValue("$reviewerRole", row.ReviewerRole);
+            command.Parameters.AddWithValue("$revision", row.Revision);
+            command.Parameters.AddWithValue("$reviewedAt", row.ReviewedAt);
+            command.Parameters.AddWithValue("$notes", row.Notes);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        private static async Task InsertLegacyQuarantineAsync(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            LegacyManualReviewRow row,
+            string reason,
+            string migratedAt,
+            CancellationToken cancellationToken)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"
+                INSERT INTO ManualReviewMigrationQuarantine
+                    (SourceRowId, SourceDetectionRecordId, InspectionId, SampleId, GroundTruth, SystemDecision, Disposition, ReviewerId, ReviewerRole, Revision, ReviewedAt, Notes, Reason, MigratedAt, SourcePayloadJson)
+                VALUES
+                    ($sourceRowId, $sourceDetectionRecordId, $inspectionId, $sampleId, $groundTruth, $systemDecision, $disposition, $reviewerId, $reviewerRole, $revision, $reviewedAt, $notes, $reason, $migratedAt, $payload);";
+            command.Parameters.AddWithValue("$sourceRowId", row.SourceRowId);
+            command.Parameters.AddWithValue("$sourceDetectionRecordId", row.SourceDetectionRecordId);
+            command.Parameters.AddWithValue("$inspectionId", row.InspectionId);
+            command.Parameters.AddWithValue("$sampleId", row.SampleId);
+            command.Parameters.AddWithValue("$groundTruth", row.GroundTruth);
+            command.Parameters.AddWithValue("$systemDecision", row.SystemDecision);
+            command.Parameters.AddWithValue("$disposition", row.Disposition);
+            command.Parameters.AddWithValue("$reviewerId", row.ReviewerId);
+            command.Parameters.AddWithValue("$reviewerRole", row.ReviewerRole);
+            command.Parameters.AddWithValue("$revision", row.Revision);
+            command.Parameters.AddWithValue("$reviewedAt", row.ReviewedAt);
+            command.Parameters.AddWithValue("$notes", row.Notes);
+            command.Parameters.AddWithValue("$reason", reason);
+            command.Parameters.AddWithValue("$migratedAt", migratedAt);
+            command.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(row, ReplayJson.Options));
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         private static async Task EnsureColumnAsync(
@@ -619,6 +854,8 @@ namespace ClearFrost.Services.Replay
             ManualReviewSaveRequest request,
             OperationAuditStatus status,
             string details,
+            string operatorId,
+            ProductionRole role,
             CancellationToken cancellationToken)
         {
             return _auditService == null
@@ -627,11 +864,27 @@ namespace ClearFrost.Services.Replay
                 {
                     Operation = "ManualReview",
                     Status = status,
-                    OperatorId = ResolveReviewerId(request),
-                    Role = ResolveReviewerRole(request),
+                    OperatorId = operatorId ?? string.Empty,
+                    Role = role,
                     InspectionId = request.InspectionId,
                     Details = details
                 }, cancellationToken);
+        }
+
+        private sealed class LegacyManualReviewRow
+        {
+            public long SourceRowId { get; init; }
+            public long SourceDetectionRecordId { get; init; }
+            public string InspectionId { get; init; } = string.Empty;
+            public string SampleId { get; init; } = string.Empty;
+            public string GroundTruth { get; init; } = string.Empty;
+            public string SystemDecision { get; init; } = string.Empty;
+            public string Disposition { get; init; } = ReplayReviewDispositions.InvalidSample;
+            public string ReviewerId { get; init; } = string.Empty;
+            public string ReviewerRole { get; init; } = string.Empty;
+            public long Revision { get; init; }
+            public string ReviewedAt { get; init; } = string.Empty;
+            public string Notes { get; init; } = string.Empty;
         }
     }
 }

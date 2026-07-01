@@ -126,7 +126,9 @@ namespace ClearFrost
                 ModelApprovalEvidenceStore,
                 ReplayProductionGate,
                 ReplayPolicy,
-                OperationAuditService);
+                OperationAuditService,
+                () => AppConfig.CurrentOperatorId,
+                () => AppConfig.CurrentOperatorRole);
             HealthMonitor = new HealthMonitor(
                 CameraService,
                 PlcService,

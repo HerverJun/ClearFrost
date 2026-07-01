@@ -74,13 +74,13 @@ namespace ClearFrost.Services.Replay
                     request.ManualReviewsByDetectionRecordId.TryGetValue(record.Id, out ReplayManualReviewRecord? review);
                     if (review == null)
                     {
-                        request.ManualReviewsByInspectionId.TryGetValue(
-                            record.InspectionId ?? string.Empty,
-                            out review);
-                    }
-                    if (review == null)
-                    {
                         throw new InvalidOperationException($"Manual review is required before freezing replay dataset: {record.InspectionId}.");
+                    }
+
+                    if (!string.Equals(review.InspectionId, record.InspectionId ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException(
+                            $"Manual review binding mismatch for DetectionRecordId={record.Id}. Record InspectionId={record.InspectionId}; Review InspectionId={review.InspectionId}.");
                     }
 
                     string systemDecision = record.IsQualified ? ReplayDecisions.OK : ReplayDecisions.NG;
@@ -975,14 +975,28 @@ namespace ClearFrost.Services.Replay
             var builder = new StringBuilder();
             builder.AppendLine("Metric,Value");
             builder.AppendLine($"SampleCount,{report.Metrics.SampleCount}");
+            builder.AppendLine($"TotalSampleCount,{report.Metrics.TotalSampleCount}");
+            builder.AppendLine($"ValidSampleCount,{report.Metrics.ValidSampleCount}");
+            builder.AppendLine($"InvalidSampleCount,{report.Metrics.InvalidSampleCount}");
             builder.AppendLine($"BaselineAccuracy,{report.Metrics.BaselineAccuracy.ToString(CultureInfo.InvariantCulture)}");
             builder.AppendLine($"CandidateAccuracy,{report.Metrics.CandidateAccuracy.ToString(CultureInfo.InvariantCulture)}");
             builder.AppendLine($"CandidateNewMissedDetectionCount,{report.Metrics.CandidateNewMissedDetectionCount}");
+            builder.AppendLine($"CandidateFixedMissedDetectionCount,{report.Metrics.CandidateFixedMissedDetectionCount}");
             builder.AppendLine($"CandidateNewFalseRejectCount,{report.Metrics.CandidateNewFalseRejectCount}");
+            builder.AppendLine($"CandidateFixedFalseRejectCount,{report.Metrics.CandidateFixedFalseRejectCount}");
+            builder.AppendLine($"BaselineMissedDetectionCount,{report.Metrics.BaselineMissedDetectionCount}");
+            builder.AppendLine($"BaselineMissedDetectionRate,{report.Metrics.BaselineMissedDetectionRate.ToString(CultureInfo.InvariantCulture)}");
+            builder.AppendLine($"CandidateMissedDetectionCount,{report.Metrics.CandidateMissedDetectionCount}");
+            builder.AppendLine($"CandidateMissedDetectionRate,{report.Metrics.CandidateMissedDetectionRate.ToString(CultureInfo.InvariantCulture)}");
+            builder.AppendLine($"BaselineFalseRejectCount,{report.Metrics.BaselineFalseRejectCount}");
+            builder.AppendLine($"BaselineFalseRejectRate,{report.Metrics.BaselineFalseRejectRate.ToString(CultureInfo.InvariantCulture)}");
+            builder.AppendLine($"CandidateFalseRejectCount,{report.Metrics.CandidateFalseRejectCount}");
+            builder.AppendLine($"CandidateFalseRejectRate,{report.Metrics.CandidateFalseRejectRate.ToString(CultureInfo.InvariantCulture)}");
+            builder.AppendLine($"FalseRejectRateIncrease,{report.Metrics.FalseRejectRateIncrease.ToString(CultureInfo.InvariantCulture)}");
             builder.AppendLine($"BaselineP95ElapsedMs,{report.Metrics.BaselineP95ElapsedMs}");
             builder.AppendLine($"CandidateP95ElapsedMs,{report.Metrics.CandidateP95ElapsedMs}");
             builder.AppendLine();
-            builder.AppendLine("SampleId,InspectionId,GroundTruth,BaselineDecision,CandidateDecision,Classification,DecisionChanged,BaselineElapsedMs,CandidateElapsedMs");
+            builder.AppendLine("SampleId,InspectionId,GroundTruth,BaselineDecision,CandidateDecision,Classification,DecisionChanged,BaselineElapsedMs,CandidateElapsedMs,IsValid,InvalidReason");
             foreach (ReplaySampleComparison sample in report.Samples)
             {
                 builder.AppendLine(string.Join(
@@ -995,7 +1009,9 @@ namespace ClearFrost.Services.Replay
                     Csv(sample.Classification),
                     sample.DecisionChanged ? "true" : "false",
                     sample.BaselineElapsedMs.ToString(CultureInfo.InvariantCulture),
-                    sample.CandidateElapsedMs.ToString(CultureInfo.InvariantCulture)));
+                    sample.CandidateElapsedMs.ToString(CultureInfo.InvariantCulture),
+                    sample.IsValid ? "true" : "false",
+                    Csv(sample.InvalidReason)));
             }
 
             return builder.ToString();
@@ -1197,6 +1213,13 @@ namespace ClearFrost.Services.Replay
             if (!ReplayAcceptancePolicyOptions.IsSupportedVersion(evidence.PolicyVersion))
             {
                 return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidencePolicyVersionUnsupported", "Replay approval evidence policy version is not supported.");
+            }
+
+            if (evidence.PolicySnapshot == null ||
+                evidence.PolicySnapshot.Version != evidence.PolicyVersion ||
+                !ReplayAcceptancePolicyOptions.IsSupportedVersion(evidence.PolicySnapshot.Version))
+            {
+                return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidencePolicySnapshotInvalid", "Replay approval evidence policy snapshot is invalid or unsupported.");
             }
 
             if (!string.IsNullOrWhiteSpace(candidate.ModelPath))

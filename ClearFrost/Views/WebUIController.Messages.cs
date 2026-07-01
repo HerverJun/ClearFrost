@@ -93,7 +93,10 @@ namespace ClearFrost
                 recipeHash = report.RecipeHash,
                 ruleSetHash = report.RuleSetHash,
                 approvalAvailable = report.Metrics.CandidateNewMissedDetectionCount == 0 &&
-                    report.Metrics.CandidateNewFalseRejectCount == 0
+                    report.Metrics.CandidateNewFalseRejectCount == 0 &&
+                    report.Metrics.CandidateMissedDetectionCount == 0 &&
+                    report.Metrics.InvalidSampleCount == 0 &&
+                    report.Metrics.FalseRejectRateIncrease <= 0
             }, requestId);
             return Task.CompletedTask;
         }

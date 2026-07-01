@@ -163,8 +163,6 @@ namespace ClearFrost.Services.Replay
         public ReplayModelIdentity CandidateModel { get; init; } = new ReplayModelIdentity();
         public IReadOnlyDictionary<long, ReplayManualReviewRecord> ManualReviewsByDetectionRecordId { get; init; } =
             new Dictionary<long, ReplayManualReviewRecord>();
-        public IReadOnlyDictionary<string, ReplayManualReviewRecord> ManualReviewsByInspectionId { get; init; } =
-            new Dictionary<string, ReplayManualReviewRecord>(StringComparer.OrdinalIgnoreCase);
     }
 
     public sealed class ReplayInferenceOutput
@@ -194,15 +192,28 @@ namespace ClearFrost.Services.Replay
         public long CandidateElapsedMs { get; set; }
         public string BaselineRuleSummary { get; set; } = string.Empty;
         public string CandidateRuleSummary { get; set; } = string.Empty;
+        public bool IsValid { get; set; } = true;
+        public string InvalidReason { get; set; } = string.Empty;
     }
 
     public sealed class ReplayComparisonMetrics
     {
         public int SampleCount { get; set; }
+        public int TotalSampleCount { get; set; }
+        public int ValidSampleCount { get; set; }
         public int CandidateNewMissedDetectionCount { get; set; }
         public int CandidateFixedMissedDetectionCount { get; set; }
         public int CandidateNewFalseRejectCount { get; set; }
         public int CandidateFixedFalseRejectCount { get; set; }
+        public int BaselineMissedDetectionCount { get; set; }
+        public double BaselineMissedDetectionRate { get; set; }
+        public int CandidateMissedDetectionCount { get; set; }
+        public double CandidateMissedDetectionRate { get; set; }
+        public int BaselineFalseRejectCount { get; set; }
+        public double BaselineFalseRejectRate { get; set; }
+        public int CandidateFalseRejectCount { get; set; }
+        public double CandidateFalseRejectRate { get; set; }
+        public double FalseRejectRateIncrease { get; set; }
         public int ChangedDecisionCount { get; set; }
         public int InvalidSampleCount { get; set; }
         public int BaselineCorrectCount { get; set; }
@@ -497,26 +508,49 @@ namespace ClearFrost.Services.Replay
     {
         public static ReplayComparisonMetrics Compute(IReadOnlyList<ReplaySampleComparison> samples)
         {
+            samples ??= Array.Empty<ReplaySampleComparison>();
+            List<ReplaySampleComparison> validSamples = samples
+                .Where(sample => sample.IsValid)
+                .ToList();
+            int groundTruthNgCount = validSamples.Count(sample => IsNg(sample.GroundTruth));
+            int groundTruthOkCount = validSamples.Count(sample => IsOk(sample.GroundTruth));
+            int baselineMissedDetectionCount = validSamples.Count(sample => IsNg(sample.GroundTruth) && IsOk(sample.BaselineDecision));
+            int candidateMissedDetectionCount = validSamples.Count(sample => IsNg(sample.GroundTruth) && IsOk(sample.CandidateDecision));
+            int baselineFalseRejectCount = validSamples.Count(sample => IsOk(sample.GroundTruth) && IsNg(sample.BaselineDecision));
+            int candidateFalseRejectCount = validSamples.Count(sample => IsOk(sample.GroundTruth) && IsNg(sample.CandidateDecision));
+
             return new ReplayComparisonMetrics
             {
-                SampleCount = samples.Count,
-                CandidateNewMissedDetectionCount = samples.Count(sample => IsNewMissedDetection(sample)),
-                CandidateFixedMissedDetectionCount = samples.Count(sample => IsFixedMissedDetection(sample)),
-                CandidateNewFalseRejectCount = samples.Count(sample => IsNewFalseReject(sample)),
-                CandidateFixedFalseRejectCount = samples.Count(sample => IsFixedFalseReject(sample)),
-                ChangedDecisionCount = samples.Count(sample => sample.DecisionChanged),
-                InvalidSampleCount = 0,
-                BaselineCorrectCount = samples.Count(sample => IsCorrect(sample.GroundTruth, sample.BaselineDecision)),
-                CandidateCorrectCount = samples.Count(sample => IsCorrect(sample.GroundTruth, sample.CandidateDecision)),
-                BaselineAccuracy = samples.Count == 0 ? 0 : samples.Count(sample => IsCorrect(sample.GroundTruth, sample.BaselineDecision)) / (double)samples.Count,
-                CandidateAccuracy = samples.Count == 0 ? 0 : samples.Count(sample => IsCorrect(sample.GroundTruth, sample.CandidateDecision)) / (double)samples.Count,
-                BaselineP95ElapsedMs = Percentile95(samples.Select(sample => sample.BaselineElapsedMs)),
-                CandidateP95ElapsedMs = Percentile95(samples.Select(sample => sample.CandidateElapsedMs))
+                SampleCount = validSamples.Count,
+                TotalSampleCount = samples.Count,
+                ValidSampleCount = validSamples.Count,
+                CandidateNewMissedDetectionCount = validSamples.Count(sample => IsNewMissedDetection(sample)),
+                CandidateFixedMissedDetectionCount = validSamples.Count(sample => IsFixedMissedDetection(sample)),
+                CandidateNewFalseRejectCount = validSamples.Count(sample => IsNewFalseReject(sample)),
+                CandidateFixedFalseRejectCount = validSamples.Count(sample => IsFixedFalseReject(sample)),
+                BaselineMissedDetectionCount = baselineMissedDetectionCount,
+                BaselineMissedDetectionRate = Rate(baselineMissedDetectionCount, groundTruthNgCount),
+                CandidateMissedDetectionCount = candidateMissedDetectionCount,
+                CandidateMissedDetectionRate = Rate(candidateMissedDetectionCount, groundTruthNgCount),
+                BaselineFalseRejectCount = baselineFalseRejectCount,
+                BaselineFalseRejectRate = Rate(baselineFalseRejectCount, groundTruthOkCount),
+                CandidateFalseRejectCount = candidateFalseRejectCount,
+                CandidateFalseRejectRate = Rate(candidateFalseRejectCount, groundTruthOkCount),
+                FalseRejectRateIncrease = Rate(candidateFalseRejectCount, groundTruthOkCount) - Rate(baselineFalseRejectCount, groundTruthOkCount),
+                ChangedDecisionCount = validSamples.Count(sample => sample.DecisionChanged),
+                InvalidSampleCount = samples.Count(sample => !sample.IsValid),
+                BaselineCorrectCount = validSamples.Count(sample => IsCorrect(sample.GroundTruth, sample.BaselineDecision)),
+                CandidateCorrectCount = validSamples.Count(sample => IsCorrect(sample.GroundTruth, sample.CandidateDecision)),
+                BaselineAccuracy = validSamples.Count == 0 ? 0 : validSamples.Count(sample => IsCorrect(sample.GroundTruth, sample.BaselineDecision)) / (double)validSamples.Count,
+                CandidateAccuracy = validSamples.Count == 0 ? 0 : validSamples.Count(sample => IsCorrect(sample.GroundTruth, sample.CandidateDecision)) / (double)validSamples.Count,
+                BaselineP95ElapsedMs = Percentile95(validSamples.Select(sample => sample.BaselineElapsedMs)),
+                CandidateP95ElapsedMs = Percentile95(validSamples.Select(sample => sample.CandidateElapsedMs))
             };
         }
 
         public static string Classify(ReplaySampleComparison sample)
         {
+            if (!sample.IsValid) return "InvalidSample";
             if (IsNewMissedDetection(sample)) return "CandidateNewMissedDetection";
             if (IsFixedMissedDetection(sample)) return "CandidateFixedMissedDetection";
             if (IsNewFalseReject(sample)) return "CandidateNewFalseReject";
@@ -563,6 +597,11 @@ namespace ClearFrost.Services.Replay
         private static bool IsNg(string value)
         {
             return string.Equals(Normalize(value), ReplayDecisions.NG, StringComparison.Ordinal);
+        }
+
+        private static double Rate(int numerator, int denominator)
+        {
+            return denominator <= 0 ? 0 : numerator / (double)denominator;
         }
 
         internal static bool TryNormalizeDecision(string value, out string normalized)

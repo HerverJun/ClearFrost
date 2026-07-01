@@ -835,6 +835,40 @@ namespace ClearFrost.Services
             }
         }
 
+        public async Task<List<DetectionRecord>> GetDetectionRecordsByInspectionIdAsync(string inspectionId)
+        {
+            if (string.IsNullOrWhiteSpace(inspectionId))
+            {
+                return new List<DetectionRecord>();
+            }
+
+            if (!_initialized) await InitializeAsync();
+
+            var records = new List<DetectionRecord>();
+            try
+            {
+                using var connection = await OpenConnectionAsync();
+                using var command = connection.CreateCommand();
+                command.CommandText = @"
+                    SELECT *
+                    FROM DetectionRecords
+                    WHERE InspectionId = @InspectionId
+                    ORDER BY Timestamp ASC, Id ASC;";
+                command.Parameters.AddWithValue("@InspectionId", inspectionId.Trim());
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    records.Add(ReadDetectionRecord(reader));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SqliteDatabaseService] InspectionId exact query error: {ex.Message}");
+            }
+
+            return records;
+        }
+
         public async Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
         {
             DetectionTracePage page = await GetTraceRecordPageAsync(query);
