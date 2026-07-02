@@ -2669,14 +2669,7 @@ namespace ClearFrost
                     return;
                 }
 
-                if (_appRuntime.ModelApprovalEvidenceStore.ListEvidence()
-                    .Any(evidence => string.Equals(evidence.DatasetId, datasetId, StringComparison.OrdinalIgnoreCase)))
-                {
-                    await SendReplayDatasetFailureAsync(args.RequestId, "ReplayDatasetEvidenceReferenced", "Replay dataset is referenced by approval evidence.").ConfigureAwait(false);
-                    return;
-                }
-
-                ReplayDatasetArchiveResult result = await _appRuntime.ReplayDatasetStore
+                ReplayDatasetArchiveResult result = await _appRuntime.ReplayDatasetLifecycleService
                     .ArchiveSnapshotAsync(datasetId, _appShutdownCts.Token)
                     .ConfigureAwait(false);
                 await _uiController.SendDatasetCreateStatus(result, args.RequestId).ConfigureAwait(false);
@@ -2704,14 +2697,22 @@ namespace ClearFrost
                 return;
             }
 
-            _appRuntime.ReplayCoordinator.Cancel();
-            await _uiController.SendReplayRunStatus(new ReplayRunProgress
+            ReplayCancelRequestResult result = await _appRuntime.ReplayCoordinator
+                .RequestCancelAsync(_appShutdownCts.Token)
+                .ConfigureAwait(false);
+            if (!result.Succeeded)
             {
-                RunId = _appRuntime.ReplayCoordinator.CurrentRun?.RunId ?? _lastReplayRunId,
-                Status = ReplayRunStatuses.Canceled,
-                Phase = "cancel",
-                Message = "Replay cancel requested."
-            }, args.RequestId).ConfigureAwait(false);
+                await _uiController.SendReplayRunStatus(new ReplayRunProgress
+                {
+                    RunId = _appRuntime.ReplayCoordinator.CurrentRun?.RunId ?? _lastReplayRunId,
+                    Status = ReplayRunStatuses.Failed,
+                    Phase = "cancel",
+                    Message = $"{result.ErrorCode}: {result.Message}"
+                }, args.RequestId).ConfigureAwait(false);
+                return;
+            }
+
+            await _uiController.SendReplayRunStatus(result.Progress!, args.RequestId).ConfigureAwait(false);
         }
 
         private async Task QueryReplayRunsAsync(WebUiCommandEventArgs args)
@@ -2751,7 +2752,7 @@ namespace ClearFrost
 
         private Task QueryModelApprovalEvidenceAsync(WebUiCommandEventArgs args)
         {
-            IReadOnlyList<ModelApprovalEvidence> evidence = _appRuntime.ModelApprovalEvidenceStore.ListEvidence();
+            IReadOnlyList<ModelApprovalEvidence> evidence = _appRuntime.ReplayApprovalApplicationService.ListEvidence();
             return _uiController.SendModelApprovalEvidence(evidence, args.RequestId);
         }
 

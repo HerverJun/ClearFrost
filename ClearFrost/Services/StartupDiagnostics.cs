@@ -8,6 +8,7 @@ using ClearFrost.Core.Models;
 using ClearFrost.Hardware;
 using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
+using ClearFrost.Yolo;
 using Microsoft.Web.WebView2.Core;
 
 namespace ClearFrost.Services
@@ -44,7 +45,7 @@ namespace ClearFrost.Services
             AppConfig config,
             IStorageService storageService,
             ModelRegistry? modelRegistry = null,
-            Func<ModelRegistryEntry, ProductionModelReadinessResult>? approvalEvidenceValidator = null)
+            Func<ModelRole, ModelRegistryEntry, ProductionModelReference, ProductionModelReadinessResult>? approvalEvidenceValidator = null)
         {
             if (config == null) throw new ArgumentNullException(nameof(config));
             if (storageService == null) throw new ArgumentNullException(nameof(storageService));
@@ -68,7 +69,7 @@ namespace ClearFrost.Services
                 items.Add(CheckModelRegistry(modelRegistry));
                 if (config.RequireApprovedModelsForProduction)
                 {
-                    items.Add(CheckReplayEvidenceGate(modelRegistry, approvalEvidenceValidator));
+                    items.Add(CheckReplayEvidenceGate(config, modelRegistry, approvalEvidenceValidator));
                 }
             }
 
@@ -288,8 +289,9 @@ namespace ClearFrost.Services
         }
 
         private static StartupDiagnosticItem CheckReplayEvidenceGate(
+            AppConfig config,
             ModelRegistry modelRegistry,
-            Func<ModelRegistryEntry, ProductionModelReadinessResult>? approvalEvidenceValidator)
+            Func<ModelRole, ModelRegistryEntry, ProductionModelReference, ProductionModelReadinessResult>? approvalEvidenceValidator)
         {
             if (approvalEvidenceValidator == null)
             {
@@ -300,15 +302,47 @@ namespace ClearFrost.Services
                     isBlocking: true);
             }
 
-            foreach (ModelRegistryEntry entry in modelRegistry.Entries.Where(e => e.IsPackage && e.ApprovedForProduction))
+            foreach ((ModelRole Role, ProductionModelReference? Reference) slot in new[]
             {
-                ProductionModelReadinessResult result = approvalEvidenceValidator(entry);
+                (ModelRole.Primary, config.CurrentModelReference),
+                (ModelRole.Auxiliary1, config.Auxiliary1ModelReference),
+                (ModelRole.Auxiliary2, config.Auxiliary2ModelReference)
+            })
+            {
+                ProductionModelReference reference = slot.Reference?.Clone() ?? ProductionModelReference.Empty();
+                if (reference.IsEmpty)
+                {
+                    if (slot.Role == ModelRole.Primary)
+                    {
+                        return Fail(
+                            "Replay evidence gate",
+                            "Primary model reference is empty.",
+                            "RequireApprovedModelsForProduction=true",
+                            isBlocking: true);
+                    }
+
+                    continue;
+                }
+
+                ProductionModelResolutionResult resolved = modelRegistry.ResolveReference(
+                    reference,
+                    requireProductionApproval: true);
+                if (!resolved.Succeeded || resolved.Entry == null)
+                {
+                    return Fail(
+                        "Replay evidence gate",
+                        "Configured model reference cannot be resolved.",
+                        $"{slot.Role}: {resolved.ErrorCode} {resolved.Message}",
+                        isBlocking: true);
+                }
+
+                ProductionModelReadinessResult result = approvalEvidenceValidator(slot.Role, resolved.Entry, reference);
                 if (!result.Succeeded)
                 {
                     return Fail(
                         "Replay evidence gate",
                         "Approved model evidence validation failed.",
-                        $"{entry.ModelId}/{entry.Version}: {result.ErrorCode} {result.Message}",
+                        $"{slot.Role} {resolved.Entry.ModelId}/{resolved.Entry.Version}: {result.ErrorCode} {result.Message}",
                         isBlocking: true);
                 }
             }

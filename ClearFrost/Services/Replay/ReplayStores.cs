@@ -29,6 +29,18 @@ namespace ClearFrost.Services.Replay
 
         internal string RootDirectory => Path.GetFullPath(_rootDirectory);
 
+        internal bool HasStagingDirectory(string datasetId)
+        {
+            if (string.IsNullOrWhiteSpace(datasetId) || !Directory.Exists(_rootDirectory))
+            {
+                return false;
+            }
+
+            string prefix = $".{SanitizeName(datasetId)}.staging-";
+            return Directory.EnumerateDirectories(_rootDirectory)
+                .Any(path => Path.GetFileName(path).StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        }
+
         public async Task<ReplayDatasetSnapshot> CreateSnapshotAsync(
             ReplayDatasetCreateRequest request,
             CancellationToken cancellationToken = default)
@@ -869,6 +881,33 @@ namespace ClearFrost.Services.Replay
             return UpdateTerminalStateAsync(runId, ReplayRunStatuses.Canceled, "Replay canceled.", cancellationToken);
         }
 
+        public async Task RecordRunCancelRequestedAsync(
+            ReplayRunProgress progress,
+            CancellationToken cancellationToken = default)
+        {
+            if (progress == null) throw new ArgumentNullException(nameof(progress));
+            await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
+            await RecordRunProgressAsync(progress, cancellationToken).ConfigureAwait(false);
+            await using SqliteConnection connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = @"
+                UPDATE ReplayRuns
+                SET Status = $status,
+                    CompletedAt = NULL,
+                    Message = $message
+                WHERE RunId = $runId
+                  AND Status NOT IN ($completed, $failed, $canceled, $interrupted);
+            ";
+            command.Parameters.AddWithValue("$runId", progress.RunId);
+            command.Parameters.AddWithValue("$status", ReplayRunStatuses.CancelRequested);
+            command.Parameters.AddWithValue("$message", progress.Message);
+            command.Parameters.AddWithValue("$completed", ReplayRunStatuses.Completed);
+            command.Parameters.AddWithValue("$failed", ReplayRunStatuses.Failed);
+            command.Parameters.AddWithValue("$canceled", ReplayRunStatuses.Canceled);
+            command.Parameters.AddWithValue("$interrupted", ReplayRunStatuses.Interrupted);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         public async Task MarkNonTerminalRunsInterruptedAsync(
             string stationId,
             CancellationToken cancellationToken = default)
@@ -1019,31 +1058,7 @@ namespace ClearFrost.Services.Replay
 
         internal static string ComputeReportHash(ReplayRunReport report)
         {
-            var canonical = new ReplayRunReport
-            {
-                RunId = report.RunId,
-                Status = report.Status,
-                DatasetId = report.DatasetId,
-                DatasetHash = report.DatasetHash,
-                BaselineModel = report.BaselineModel,
-                CandidateModel = report.CandidateModel,
-                StartedAt = report.StartedAt,
-                CompletedAt = report.CompletedAt,
-                Metrics = report.Metrics,
-                Samples = report.Samples,
-                Errors = report.Errors,
-                ReportJsonPath = string.Empty,
-                ReportCsvPath = string.Empty,
-                ReportHash = string.Empty,
-                PolicyVersion = report.PolicyVersion,
-                RecipeHash = report.RecipeHash,
-                RuleSetHash = report.RuleSetHash,
-                PolicyHash = report.PolicyHash,
-                PolicySnapshot = report.PolicySnapshot,
-                BaselineModelHash = report.BaselineModelHash,
-                CandidateModelHash = report.CandidateModelHash
-            };
-            return FileReplayDatasetStore.ComputeSha256(JsonSerializer.SerializeToUtf8Bytes(canonical, ReplayJson.Options));
+            return ReplayArtifactHashing.ComputeReportHash(report);
         }
 
         private static ReplayRunRecord ReadRunRecord(SqliteDataReader reader)
@@ -1122,6 +1137,29 @@ namespace ClearFrost.Services.Replay
             string policyHash)
         {
             if (report == null) throw new ArgumentNullException(nameof(report));
+            if (string.IsNullOrWhiteSpace(report.ReportHash))
+            {
+                throw new InvalidOperationException("Replay report hash is required before saving approval evidence.");
+            }
+
+            if (report.PolicyVersion <= 0 ||
+                report.PolicySnapshot == null ||
+                report.PolicySnapshot.Version != report.PolicyVersion)
+            {
+                throw new InvalidOperationException("Replay report policy snapshot is required before saving approval evidence.");
+            }
+
+            if (!ReplayArtifactHashing.TryComputePolicyHash(report.PolicySnapshot, out string reportPolicyHash, out string policyHashError) ||
+                string.IsNullOrWhiteSpace(report.PolicyHash) ||
+                !string.Equals(report.PolicyHash, reportPolicyHash, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(policyHash) &&
+                 !string.Equals(policyHash, reportPolicyHash, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(policyHashError)
+                    ? "Replay report policy hash is invalid."
+                    : policyHashError);
+            }
+
             ReplayApprovalDecision decision = _policy.Evaluate(report, report.PolicySnapshot);
             if (!decision.Approved)
             {
@@ -1140,17 +1178,15 @@ namespace ClearFrost.Services.Replay
                 DatasetHash = report.DatasetHash,
                 DatasetPath = datasetPath ?? string.Empty,
                 ReplayRunId = report.RunId,
-                ReplayReportHash = string.IsNullOrWhiteSpace(report.ReportHash)
-                    ? SqliteReplayRunStore.ComputeReportHash(report)
-                    : report.ReportHash,
+                ReplayReportHash = report.ReportHash,
                 BaselineModel = report.BaselineModel,
                 CandidateModel = report.CandidateModel,
                 Metrics = report.Metrics,
                 PolicyReasons = decision.Reasons,
                 ReplayReportPath = report.ReportJsonPath,
-                PolicyVersion = report.PolicyVersion == 0 ? _policy.Options.Version : report.PolicyVersion,
-                PolicyHash = string.IsNullOrWhiteSpace(policyHash) ? report.PolicyHash : policyHash,
-                PolicySnapshot = (report.PolicySnapshot ?? _policy.Options).Clone(),
+                PolicyVersion = report.PolicyVersion,
+                PolicyHash = reportPolicyHash,
+                PolicySnapshot = report.PolicySnapshot.Clone(),
                 RecipeHash = report.RecipeHash,
                 RuleSetHash = report.RuleSetHash,
                 BaselineModelHash = report.BaselineModelHash,
@@ -1195,7 +1231,13 @@ namespace ClearFrost.Services.Replay
                 return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceFileMissing", $"Replay approval evidence file is missing: {ResolvePath(evidenceId)}");
             }
 
-            string actualEvidenceHash = ComputeEvidenceHash(evidence);
+            if (!ReplayArtifactHashing.TryComputeEvidenceHash(evidence, out string actualEvidenceHash, out string evidenceHashError))
+            {
+                return ModelApprovalEvidenceValidationResult.Fail(
+                    "ReplayEvidenceHashVersionInvalid",
+                    evidenceHashError);
+            }
+
             if (!string.Equals(actualEvidenceHash, evidence.EvidenceHash, StringComparison.OrdinalIgnoreCase) ||
                 (!string.IsNullOrWhiteSpace(expectedEvidenceHash) &&
                  !string.Equals(actualEvidenceHash, expectedEvidenceHash, StringComparison.OrdinalIgnoreCase)))
@@ -1220,6 +1262,16 @@ namespace ClearFrost.Services.Replay
                 !ReplayAcceptancePolicyOptions.IsSupportedVersion(evidence.PolicySnapshot.Version))
             {
                 return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidencePolicySnapshotInvalid", "Replay approval evidence policy snapshot is invalid or unsupported.");
+            }
+
+            if (!ReplayArtifactHashing.TryComputePolicyHash(evidence.PolicySnapshot, out string evidencePolicyHash, out string evidencePolicyHashError) ||
+                !string.Equals(evidencePolicyHash, evidence.PolicyHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return ModelApprovalEvidenceValidationResult.Fail(
+                    "ReplayEvidencePolicyHashMismatch",
+                    string.IsNullOrWhiteSpace(evidencePolicyHashError)
+                        ? "Replay approval evidence policy hash does not match policy snapshot."
+                        : evidencePolicyHashError);
             }
 
             if (!string.IsNullOrWhiteSpace(candidate.ModelPath))
@@ -1300,7 +1352,13 @@ namespace ClearFrost.Services.Replay
                 return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceReportParseFailed", ex.Message);
             }
 
-            string reportHash = SqliteReplayRunStore.ComputeReportHash(report);
+            if (!ReplayArtifactHashing.TryComputeReportHash(report, out string reportHash, out string reportHashError))
+            {
+                return ModelApprovalEvidenceValidationResult.Fail(
+                    "ReplayEvidenceReportHashVersionInvalid",
+                    reportHashError);
+            }
+
             if (!string.Equals(reportHash, report.ReportHash, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(reportHash, evidence.ReplayReportHash, StringComparison.OrdinalIgnoreCase))
             {
@@ -1312,7 +1370,10 @@ namespace ClearFrost.Services.Replay
                 !string.Equals(report.CandidateModel.Sha256, evidence.CandidateModel.Sha256, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(report.BaselineModel.Sha256, evidence.BaselineModel.Sha256, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(report.RecipeHash, evidence.RecipeHash, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(report.RuleSetHash, evidence.RuleSetHash, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(report.RuleSetHash, evidence.RuleSetHash, StringComparison.OrdinalIgnoreCase) ||
+                report.PolicyVersion != evidence.PolicyVersion ||
+                report.PolicySnapshot == null ||
+                report.PolicySnapshot.Version != evidence.PolicyVersion)
             {
                 return ModelApprovalEvidenceValidationResult.Fail("ReplayEvidenceReportBindingMismatch", "Replay report bindings do not match approval evidence.");
             }
@@ -1410,31 +1471,7 @@ namespace ClearFrost.Services.Replay
 
         internal static string ComputeEvidenceHash(ModelApprovalEvidence evidence)
         {
-            var canonical = new ModelApprovalEvidence
-            {
-                EvidenceId = evidence.EvidenceId,
-                EvidenceHash = string.Empty,
-                CreatedAt = evidence.CreatedAt,
-                ApprovedBy = evidence.ApprovedBy,
-                DatasetId = evidence.DatasetId,
-                DatasetHash = evidence.DatasetHash,
-                DatasetPath = evidence.DatasetPath,
-                ReplayRunId = evidence.ReplayRunId,
-                ReplayReportHash = evidence.ReplayReportHash,
-                BaselineModel = evidence.BaselineModel,
-                CandidateModel = evidence.CandidateModel,
-                Metrics = evidence.Metrics,
-                PolicyReasons = evidence.PolicyReasons,
-                ReplayReportPath = evidence.ReplayReportPath,
-                PolicyVersion = evidence.PolicyVersion,
-                PolicyHash = evidence.PolicyHash,
-                PolicySnapshot = evidence.PolicySnapshot,
-                RecipeHash = evidence.RecipeHash,
-                RuleSetHash = evidence.RuleSetHash,
-                BaselineModelHash = evidence.BaselineModelHash,
-                CandidateModelHash = evidence.CandidateModelHash
-            };
-            return FileReplayDatasetStore.ComputeSha256(JsonSerializer.SerializeToUtf8Bytes(canonical, ReplayJson.Options));
+            return ReplayArtifactHashing.ComputeEvidenceHash(evidence);
         }
 
         private static bool SamePath(string left, string right)

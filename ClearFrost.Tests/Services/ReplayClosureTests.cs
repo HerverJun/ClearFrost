@@ -240,6 +240,85 @@ public class ReplayClosureTests
     }
 
     [Fact]
+    public void ReplayArtifactHashing_GoldenFixtures匹配冻结V1V2()
+    {
+        GoldenReplayArtifactFixture v1 = CreateGoldenArtifactFixture(1);
+        GoldenReplayArtifactFixture v2 = CreateGoldenArtifactFixture(2);
+
+        ReplayArtifactHashing.ComputeReportHash(v1.Report).Should().Be(v1.ExpectedReportHash);
+        ReplayArtifactHashing.ComputeEvidenceHash(v1.Evidence).Should().Be(v1.ExpectedEvidenceHash);
+        ReplayAcceptancePolicy.ComputePolicyHash(v1.Report.PolicySnapshot).Should().Be(v1.ExpectedPolicyHash);
+        v1.Report.ReportHash.Should().Be(v1.ExpectedReportHash);
+        v1.Evidence.EvidenceHash.Should().Be(v1.ExpectedEvidenceHash);
+
+        ReplayArtifactHashing.ComputeReportHash(v2.Report).Should().Be(v2.ExpectedReportHash);
+        ReplayArtifactHashing.ComputeEvidenceHash(v2.Evidence).Should().Be(v2.ExpectedEvidenceHash);
+        ReplayAcceptancePolicy.ComputePolicyHash(v2.Report.PolicySnapshot).Should().Be(v2.ExpectedPolicyHash);
+        v2.Report.ReportHash.Should().Be(v2.ExpectedReportHash);
+        v2.Evidence.EvidenceHash.Should().Be(v2.ExpectedEvidenceHash);
+    }
+
+    [Fact]
+    public void ReplayArtifactHashing_拒绝缺失未知版本且禁止V2降级()
+    {
+        ReplayRunReport missingVersion = CreateGoldenArtifactFixture(2).Report;
+        missingVersion.PolicyVersion = 0;
+        ReplayArtifactHashing.TryComputeReportHash(missingVersion, out _, out string missingError)
+            .Should().BeFalse();
+        missingError.Should().Contain("missing");
+
+        ReplayRunReport unsupported = CreateGoldenArtifactFixture(2).Report;
+        unsupported.PolicyVersion = 99;
+        unsupported.PolicySnapshot.Version = 99;
+        ReplayArtifactHashing.TryComputeReportHash(unsupported, out _, out string unsupportedError)
+            .Should().BeFalse();
+        unsupportedError.Should().Contain("not supported");
+
+        ReplayRunReport missingSnapshot = CreateGoldenArtifactFixture(2).Report;
+        missingSnapshot.PolicySnapshot = null!;
+        ReplayArtifactHashing.TryComputeReportHash(missingSnapshot, out _, out string snapshotError)
+            .Should().BeFalse();
+        snapshotError.Should().Contain("snapshot");
+
+        ReplayRunReport versionMismatch = CreateGoldenArtifactFixture(2).Report;
+        versionMismatch.PolicySnapshot.Version = 1;
+        ReplayArtifactHashing.TryComputeReportHash(versionMismatch, out _, out string mismatchError)
+            .Should().BeFalse();
+        mismatchError.Should().Contain("does not match");
+
+        GoldenReplayArtifactFixture v2 = CreateGoldenArtifactFixture(2);
+        ReplayRunReport downgraded = v2.Report;
+        downgraded.PolicyVersion = 1;
+        downgraded.PolicySnapshot = CreateGoldenPolicy(1);
+        downgraded.PolicyHash = ReplayAcceptancePolicy.ComputePolicyHash(downgraded.PolicySnapshot);
+
+        ReplayArtifactHashing.ComputeReportHash(downgraded).Should().NotBe(v2.ExpectedReportHash);
+        Action forceV2 = () => ReplayArtifactHashing.ComputeReportHashV2(downgraded);
+        forceV2.Should().Throw<InvalidOperationException>()
+            .WithMessage("*does not match hash algorithm v2*");
+    }
+
+    [Fact]
+    public void ReplayArtifactHashing_V1忽略V2字段且V2绑定这些字段()
+    {
+        GoldenReplayArtifactFixture v1 = CreateGoldenArtifactFixture(1);
+        v1.Report.Metrics.TotalSampleCount = 99;
+        v1.Report.Metrics.ValidSampleCount = 98;
+        v1.Report.Metrics.CandidateMissedDetectionRate = 0.75;
+        foreach (ReplaySampleComparison sample in v1.Report.Samples)
+        {
+            sample.IsValid = false;
+            sample.InvalidReason = "v2-only mutation";
+        }
+
+        ReplayArtifactHashing.ComputeReportHash(v1.Report).Should().Be(v1.ExpectedReportHash);
+
+        GoldenReplayArtifactFixture v2 = CreateGoldenArtifactFixture(2);
+        v2.Report.Samples[0].InvalidReason = "v2 mutation";
+        ReplayArtifactHashing.ComputeReportHash(v2.Report).Should().NotBe(v2.ExpectedReportHash);
+    }
+
+    [Fact]
     public async Task ReplayDataset_Manifest不写绝对路径并可移动后校验()
     {
         string tempDir = CreateTempDirectory();
@@ -406,6 +485,109 @@ public class ReplayClosureTests
     }
 
     [Fact]
+    public async Task ReplayDatasetLifecycle_归档经应用服务并阻止引用和残留()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture unauthorizedFixture = await ReplayFixture.CreateAsync(
+                Path.Combine(tempDir, "unauthorized"),
+                CandidateMatrixWithoutRegressions());
+            using var unauthorizedCoordinator = new ReplayAssetChangeCoordinator();
+            var unauthorizedLifecycle = new ReplayDatasetLifecycleService(
+                unauthorizedFixture.DatasetStore,
+                unauthorizedFixture.RunStore,
+                new FileModelApprovalEvidenceStore(Path.Combine(tempDir, "unauthorized-evidence")),
+                unauthorizedCoordinator);
+            ReplayDatasetArchiveResult unauthorized = await unauthorizedLifecycle.ArchiveSnapshotAsync(
+                unauthorizedFixture.Dataset.DatasetId);
+            unauthorized.Succeeded.Should().BeFalse();
+            unauthorized.ErrorCode.Should().Be("ReplayDatasetArchiveAuthorizationProviderMissing");
+
+            ReplayFixture activeFixture = await ReplayFixture.CreateAsync(
+                Path.Combine(tempDir, "active"),
+                CandidateMatrixWithoutRegressions());
+            using var activeCoordinator = new ReplayAssetChangeCoordinator();
+            var activeLifecycle = CreateDatasetLifecycle(activeFixture, activeCoordinator, activeDatasetId: activeFixture.Dataset.DatasetId);
+            ReplayDatasetArchiveResult active = await activeLifecycle.ArchiveSnapshotAsync(activeFixture.Dataset.DatasetId);
+            active.Succeeded.Should().BeFalse();
+            active.ErrorCode.Should().Be("ReplayDatasetRunActive");
+
+            ReplayFixture runFixture = await ReplayFixture.CreateAsync(
+                Path.Combine(tempDir, "run"),
+                CandidateMatrixWithoutRegressions());
+            ReplayRunReport completedReport = await new ReplayApplicationService(
+                runFixture.DatasetStore,
+                new DeterministicReplayRunner(runFixture.Decisions),
+                new PassingReplayModelValidator(),
+                runFixture.RunStore).RunComparisonAsync(new ReplayComparisonRequest
+                {
+                    RunId = "run-archive-blocked",
+                    DatasetId = runFixture.Dataset.DatasetId,
+                    BaselineModel = runFixture.BaselineModel,
+                    CandidateModel = runFixture.CandidateModel
+                });
+            completedReport.Status.Should().Be(ReplayRunStatuses.Completed);
+            using var runCoordinator = new ReplayAssetChangeCoordinator();
+            ReplayDatasetArchiveResult runReferenced = await CreateDatasetLifecycle(runFixture, runCoordinator)
+                .ArchiveSnapshotAsync(runFixture.Dataset.DatasetId);
+            runReferenced.Succeeded.Should().BeFalse();
+            runReferenced.ErrorCode.Should().Be("ReplayDatasetRunReferenced");
+
+            ReplayFixture evidenceFixture = await ReplayFixture.CreateAsync(
+                Path.Combine(tempDir, "evidence"),
+                CandidateMatrixWithoutRegressions());
+            var policy = new ReplayAcceptancePolicy();
+            ReplayRunReport evidenceReport = await new ReplayApplicationService(
+                evidenceFixture.DatasetStore,
+                new DeterministicReplayRunner(evidenceFixture.Decisions),
+                new PassingReplayModelValidator(),
+                evidenceFixture.RunStore,
+                policy).RunComparisonAsync(new ReplayComparisonRequest
+                {
+                    RunId = "run-evidence-archive-blocked",
+                    DatasetId = evidenceFixture.Dataset.DatasetId,
+                    BaselineModel = evidenceFixture.BaselineModel,
+                    CandidateModel = evidenceFixture.CandidateModel
+                });
+            var evidenceStore = new FileModelApprovalEvidenceStore(Path.Combine(tempDir, "evidence-store"), policy);
+            evidenceStore.SaveEvidence(evidenceReport, "qa01", evidenceFixture.Dataset.RootDirectory, evidenceReport.PolicyHash);
+            using var evidenceCoordinator = new ReplayAssetChangeCoordinator();
+            var evidenceLifecycle = CreateDatasetLifecycle(evidenceFixture, evidenceCoordinator, evidenceStore);
+            ReplayDatasetArchiveResult evidenceReferenced = await evidenceLifecycle.ArchiveSnapshotAsync(evidenceFixture.Dataset.DatasetId);
+            evidenceReferenced.Succeeded.Should().BeFalse();
+            evidenceReferenced.ErrorCode.Should().Be("ReplayDatasetEvidenceReferenced");
+
+            ReplayFixture stagingFixture = await ReplayFixture.CreateAsync(
+                Path.Combine(tempDir, "staging"),
+                CandidateMatrixWithoutRegressions());
+            Directory.CreateDirectory(Path.Combine(
+                stagingFixture.DatasetStore.RootDirectory,
+                $".{stagingFixture.Dataset.DatasetId}.staging-leftover"));
+            using var stagingCoordinator = new ReplayAssetChangeCoordinator();
+            ReplayDatasetArchiveResult staging = await CreateDatasetLifecycle(stagingFixture, stagingCoordinator)
+                .ArchiveSnapshotAsync(stagingFixture.Dataset.DatasetId);
+            staging.Succeeded.Should().BeFalse();
+            staging.ErrorCode.Should().Be("ReplayDatasetStagingPresent");
+
+            ReplayFixture idleFixture = await ReplayFixture.CreateAsync(
+                Path.Combine(tempDir, "idle"),
+                CandidateMatrixWithoutRegressions());
+            string originalDatasetPath = idleFixture.Dataset.RootDirectory;
+            using var idleCoordinator = new ReplayAssetChangeCoordinator();
+            ReplayDatasetArchiveResult idle = await CreateDatasetLifecycle(idleFixture, idleCoordinator)
+                .ArchiveSnapshotAsync(idleFixture.Dataset.DatasetId);
+            idle.Succeeded.Should().BeTrue();
+            Directory.Exists(originalDatasetPath).Should().BeFalse();
+            Directory.Exists(idle.ArchivePath).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task ReplayEvidence_批准后生产激活接受_篡改Dataset后拒绝()
     {
         string tempDir = CreateTempDirectory();
@@ -484,7 +666,7 @@ public class ReplayClosureTests
                 () => null,
                 () => "op",
                 () => "Engineer",
-                evidenceGate.Validate);
+                (role, entry, reference) => evidenceGate.Validate(role, entry, reference));
 
             ProductionModelReference reference = ProductionModelReference.FromApprovedPackage(approvedCandidate);
             ProductionModelActivationResult activationResult = await activation.ActivatePrimaryAsync(
@@ -504,7 +686,7 @@ public class ReplayClosureTests
                     MaximumNewMissedDetections = 0
                 }));
             var stricterGate = new ReplayApprovalEvidenceProductionGate(stricterEvidenceStore, fixture.DatasetStore, fixture.RunStore);
-            stricterGate.Validate(approvedCandidate).Succeeded.Should().BeTrue();
+            stricterGate.ValidateEvidenceBacked(approvedCandidate).Succeeded.Should().BeTrue();
 
             byte[] originalReport = await File.ReadAllBytesAsync(report.ReportJsonPath);
             WriteValidReportTamper(report.ReportJsonPath);
@@ -829,7 +1011,7 @@ public class ReplayClosureTests
                 () => null,
                 () => "qa01",
                 () => "Engineer",
-                evidenceGate.Validate);
+                (role, entry, reference) => evidenceGate.Validate(role, entry, reference));
 
             ProductionModelActivationResult activationResult = await activation.ActivatePrimaryAsync(
                 reference.ToSelectionValue(),
@@ -849,7 +1031,7 @@ public class ReplayClosureTests
                 () => null,
                 () => "qa01",
                 () => "Engineer",
-                evidenceGate.Validate);
+                (role, entry, reference) => evidenceGate.Validate(role, entry, reference));
             restartedActivation.EnsureReadyForProduction().Succeeded.Should().BeTrue();
 
             WriteValidReportTamper(report.ReportJsonPath);
@@ -963,7 +1145,8 @@ public class ReplayClosureTests
             ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
             var runner = new DeterministicReplayRunner(fixture.Decisions)
             {
-                DelayMs = 25
+                DelayMs = 150,
+                IgnoreCancellationDuringDelay = true
             };
             var service = new ReplayApplicationService(
                 fixture.DatasetStore,
@@ -998,11 +1181,37 @@ public class ReplayClosureTests
 
             coordinator.IsReplayRunning.Should().BeTrue();
             (await coordinator.TryBeginProductionAsync()).Should().BeFalse();
-            coordinator.Cancel();
+            ReplayCancelRequestResult requested = await coordinator.RequestCancelAsync();
+            requested.Succeeded.Should().BeTrue();
+            requested.Progress.Should().NotBeNull();
+            requested.Progress!.Status.Should().Be(ReplayRunStatuses.CancelRequested);
+
+            ReplayRunRecord? cancelRequestedRecord = await fixture.RunStore.LoadRunRecordAsync("run-coordinator-cancel");
+            cancelRequestedRecord.Should().NotBeNull();
+            cancelRequestedRecord!.Status.Should().Be(ReplayRunStatuses.CancelRequested);
 
             Func<Task> canceled = async () => await runTask;
             await canceled.Should().ThrowAsync<OperationCanceledException>();
             coordinator.IsReplayRunning.Should().BeFalse();
+            ReplayRunRecord? canceledRecord = await fixture.RunStore.LoadRunRecordAsync("run-coordinator-cancel");
+            canceledRecord.Should().NotBeNull();
+            canceledRecord!.Status.Should().Be(ReplayRunStatuses.Canceled);
+
+            ReplayCancelRequestResult noRunning = await coordinator.RequestCancelAsync();
+            noRunning.Succeeded.Should().BeFalse();
+            noRunning.ErrorCode.Should().Be("ReplayNotRunning");
+
+            ReplayRunReport completed = await coordinator.StartAsync(new ReplayComparisonRequest
+            {
+                RunId = "run-coordinator-completed",
+                DatasetId = fixture.Dataset.DatasetId,
+                BaselineModel = fixture.BaselineModel,
+                CandidateModel = fixture.CandidateModel
+            });
+            completed.Status.Should().Be(ReplayRunStatuses.Completed);
+            ReplayCancelRequestResult completedCancel = await coordinator.RequestCancelAsync();
+            completedCancel.Succeeded.Should().BeFalse();
+            completedCancel.ErrorCode.Should().Be("ReplayNotRunning");
         }
         finally
         {
@@ -1118,10 +1327,12 @@ public class ReplayClosureTests
                 ModelId = legacyEntry.ModelId,
                 Version = legacyEntry.Version,
                 ModelHash = legacyEntry.ModelHash,
-                ManifestHash = manifest.EffectiveHash,
+                ManifestHash = string.Empty,
                 ConfigReference = originalReference.ToSelectionValue(),
                 MigratedAt = DateTimeOffset.UtcNow
             };
+            manifest.Approval.LegacyMigration.ManifestHash =
+                ReplayApprovalEvidenceProductionGate.ComputeLegacyManifestHash(manifest);
             File.WriteAllText(legacyEntry.ManifestPath, JsonSerializer.Serialize(manifest, ReplayJson.Options));
 
             registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
@@ -1130,10 +1341,9 @@ public class ReplayClosureTests
             var originalSlotGate = new ReplayApprovalEvidenceProductionGate(
                 evidenceStore,
                 fixture.DatasetStore,
-                fixture.RunStore,
-                () => originalReference);
+                fixture.RunStore);
 
-            originalSlotGate.Validate(legacyEntry).Succeeded.Should().BeTrue();
+            originalSlotGate.Validate(ModelRole.Primary, legacyEntry, originalReference).Succeeded.Should().BeTrue();
 
             var scanner = new ReplayIntegrityScanner(
                 registry,
@@ -1150,11 +1360,13 @@ public class ReplayClosureTests
             var wrongSlotGate = new ReplayApprovalEvidenceProductionGate(
                 evidenceStore,
                 fixture.DatasetStore,
-                fixture.RunStore,
-                () => ProductionModelReference.Empty());
-            ProductionModelReadinessResult wrongSlot = wrongSlotGate.Validate(legacyEntry);
+                fixture.RunStore);
+            ProductionModelReadinessResult wrongSlot = wrongSlotGate.Validate(
+                ModelRole.Auxiliary1,
+                legacyEntry,
+                originalReference);
             wrongSlot.Succeeded.Should().BeFalse();
-            wrongSlot.ErrorCode.Should().Be("ReplayLegacyConfigReferenceMismatch");
+            wrongSlot.ErrorCode.Should().Be("ReplayLegacyRoleMismatch");
 
             await using (FileStream tamperStream = new FileStream(
                 legacyEntry.ModelPath,
@@ -1164,9 +1376,72 @@ public class ReplayClosureTests
             {
                 await tamperStream.WriteAsync(new byte[] { 9 });
             }
-            ProductionModelReadinessResult tampered = originalSlotGate.Validate(legacyEntry);
+            ProductionModelReadinessResult tampered = originalSlotGate.Validate(ModelRole.Primary, legacyEntry, originalReference);
             tampered.Succeeded.Should().BeFalse();
             tampered.ErrorCode.Should().Be("ReplayLegacyHashMismatch");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayLegacyApproval_Auxiliary槽绑定角色和原配置引用()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            var registry = new ModelRegistry();
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
+            ModelRegistryEntry legacyEntry = registry.Resolve(fixture.BaselineModel.ModelPath)!;
+            ProductionModelReference auxiliaryReference = ProductionModelReference.FromApprovedPackage(legacyEntry);
+            WriteLegacyMigration(legacyEntry, ModelRole.Auxiliary1, auxiliaryReference);
+
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
+            legacyEntry = registry.Resolve(fixture.BaselineModel.ModelPath)!;
+            var evidenceStore = new FileModelApprovalEvidenceStore(Path.Combine(tempDir, "legacy-aux-evidence"));
+            var gate = new ReplayApprovalEvidenceProductionGate(
+                evidenceStore,
+                fixture.DatasetStore,
+                fixture.RunStore);
+
+            gate.Validate(ModelRole.Auxiliary1, legacyEntry, auxiliaryReference)
+                .Succeeded.Should().BeTrue();
+
+            ProductionModelReadinessResult wrongRole = gate.Validate(
+                ModelRole.Primary,
+                legacyEntry,
+                auxiliaryReference);
+            wrongRole.Succeeded.Should().BeFalse();
+            wrongRole.ErrorCode.Should().Be("ReplayLegacyRoleMismatch");
+
+            ProductionModelReference legacyOnnxReference = ProductionModelReference.FromLegacyOnnx(
+                Path.GetFileName(legacyEntry.ModelPath),
+                legacyEntry.ModelHash);
+            ProductionModelReadinessResult wrongReference = gate.Validate(
+                ModelRole.Auxiliary1,
+                legacyEntry,
+                legacyOnnxReference);
+            wrongReference.Succeeded.Should().BeFalse();
+            wrongReference.ErrorCode.Should().Be("ReplayEvidenceConfigReferenceMismatch");
+
+            WriteLegacyMigration(
+                legacyEntry,
+                ModelRole.Auxiliary1,
+                auxiliaryReference,
+                legacyOnnxReference.ToSelectionValue());
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
+            legacyEntry = registry.Resolve(fixture.BaselineModel.ModelPath)!;
+            ProductionModelReadinessResult tamperedConfigReference = gate.Validate(
+                ModelRole.Auxiliary1,
+                legacyEntry,
+                auxiliaryReference);
+            tamperedConfigReference.Succeeded.Should().BeFalse();
+            tamperedConfigReference.ErrorCode.Should().Be("ReplayLegacyConfigReferenceMismatch");
+
+            await Task.CompletedTask;
         }
         finally
         {
@@ -1188,6 +1463,227 @@ public class ReplayClosureTests
             ["S8"] = ReplayDecisions.NG
         };
     }
+
+    private static ReplayDatasetLifecycleService CreateDatasetLifecycle(
+        ReplayFixture fixture,
+        ReplayAssetChangeCoordinator coordinator,
+        IModelApprovalEvidenceStore? evidenceStore = null,
+        string activeDatasetId = "")
+    {
+        evidenceStore ??= new FileModelApprovalEvidenceStore(
+            Path.Combine(Path.GetDirectoryName(fixture.Dataset.RootDirectory) ?? fixture.Dataset.RootDirectory, "evidence-lifecycle"));
+        return new ReplayDatasetLifecycleService(
+            fixture.DatasetStore,
+            fixture.RunStore,
+            evidenceStore,
+            coordinator,
+            null,
+            () => "qa01",
+            () => ProductionRole.Engineer,
+            id => string.Equals(id, activeDatasetId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static GoldenReplayArtifactFixture CreateGoldenArtifactFixture(int version)
+    {
+        bool v2 = version == 2;
+        ReplayAcceptancePolicyOptions policy = CreateGoldenPolicy(version);
+        string policyHash = ReplayAcceptancePolicy.ComputePolicyHash(policy);
+        var report = new ReplayRunReport
+        {
+            RunId = $"golden-v{version}-run",
+            Status = ReplayRunStatuses.Completed,
+            DatasetId = $"golden-v{version}-dataset",
+            DatasetHash = $"dataset-v{version}-hash",
+            BaselineModel = CreateGoldenModel(
+                "baseline-golden",
+                "1.0.0",
+                "1111111111111111111111111111111111111111111111111111111111111111",
+                ModelApprovalStatuses.Approved),
+            CandidateModel = CreateGoldenModel(
+                "candidate-golden",
+                version == 1 ? "1.1.0" : "2.0.0",
+                "2222222222222222222222222222222222222222222222222222222222222222",
+                ModelApprovalStatuses.Pending),
+            StartedAt = new DateTimeOffset(2026, 7, 1, 8, 0, 0, TimeSpan.Zero),
+            CompletedAt = new DateTimeOffset(2026, 7, 1, 8, 5, 0, TimeSpan.Zero),
+            Metrics = CreateGoldenMetrics(v2),
+            Samples = CreateGoldenSamples(v2),
+            Errors = Array.Empty<string>(),
+            ReportJsonPath = $"reports/golden-v{version}-run/report.json",
+            ReportCsvPath = $"reports/golden-v{version}-run/report.csv",
+            PolicyVersion = version,
+            RecipeHash = $"recipe-v{version}-hash",
+            RuleSetHash = $"rules-v{version}-hash",
+            PolicyHash = policyHash,
+            PolicySnapshot = policy.Clone(),
+            BaselineModelHash = "1111111111111111111111111111111111111111111111111111111111111111",
+            CandidateModelHash = "2222222222222222222222222222222222222222222222222222222222222222"
+        };
+        report.ReportHash = ReplayArtifactHashing.ComputeReportHash(report);
+
+        var evidence = new ModelApprovalEvidence
+        {
+            EvidenceId = $"golden-v{version}-evidence",
+            CreatedAt = new DateTimeOffset(2026, 7, 1, 8, 10, 0, TimeSpan.Zero),
+            ApprovedBy = "qa01",
+            DatasetId = report.DatasetId,
+            DatasetHash = report.DatasetHash,
+            DatasetPath = $"datasets/{report.DatasetId}",
+            ReplayRunId = report.RunId,
+            ReplayReportHash = report.ReportHash,
+            BaselineModel = report.BaselineModel,
+            CandidateModel = report.CandidateModel,
+            Metrics = report.Metrics,
+            PolicyReasons = Array.Empty<string>(),
+            ReplayReportPath = report.ReportJsonPath,
+            PolicyVersion = report.PolicyVersion,
+            PolicyHash = report.PolicyHash,
+            PolicySnapshot = report.PolicySnapshot.Clone(),
+            RecipeHash = report.RecipeHash,
+            RuleSetHash = report.RuleSetHash,
+            BaselineModelHash = report.BaselineModelHash,
+            CandidateModelHash = report.CandidateModelHash
+        };
+        evidence.EvidenceHash = ReplayArtifactHashing.ComputeEvidenceHash(evidence);
+
+        return version switch
+        {
+            1 => new GoldenReplayArtifactFixture(
+                report,
+                evidence,
+                "8a4a2dd5fd32b41547e17bfe88f3f7eaf64c9957dfbd16a07fc7e4abfdac52ab",
+                "9919096ca8ad0838f0788aef7cfd1401eb9f2f999a27deac8167f80a71ddc830",
+                "e690d82296ad19f4547eaa4c52ff47a86a721042c24212387b929f0541e9d57e"),
+            2 => new GoldenReplayArtifactFixture(
+                report,
+                evidence,
+                "c22ef524f3222cdf606be93b43cf63ae4bd68eed9a2d3e9b5ad1851e173d9f5b",
+                "ce08dc4f13cffe017ed665c5aa38ae96e547f4f68547ec08fdc0601a88c68aa7",
+                "9c43ef531e53d167254dabae9a60f8601893ee1a398d9f7c0cedd3f137d0e253"),
+            _ => throw new ArgumentOutOfRangeException(nameof(version), version, "Unsupported golden fixture version.")
+        };
+    }
+
+    private static ReplayAcceptancePolicyOptions CreateGoldenPolicy(int version)
+    {
+        return new ReplayAcceptancePolicyOptions
+        {
+            Version = version,
+            MinimumValidSamples = 4,
+            MaximumInvalidSampleCount = version >= 2 ? 1 : int.MaxValue,
+            MaximumInvalidSampleRate = version >= 2 ? 0.25 : null,
+            MaximumNewMissedDetections = 0,
+            MaximumCandidateMissedDetectionRate = version >= 2 ? 0 : null,
+            MaximumNewFalseRejects = 0,
+            MaximumFalseRejectRateIncrease = version >= 2 ? 0 : null,
+            MinimumCandidateAccuracy = 0.95,
+            MaximumCandidateP95ElapsedMs = 100,
+            MaximumP95InferenceIncreaseRatio = 2
+        };
+    }
+
+    private static ReplayModelIdentity CreateGoldenModel(
+        string modelId,
+        string version,
+        string hash,
+        string approvalStatus)
+    {
+        return new ReplayModelIdentity
+        {
+            ModelId = modelId,
+            Version = version,
+            Sha256 = hash,
+            ModelPath = $"models/{modelId}/model.onnx",
+            ManifestPath = $"models/{modelId}/manifest.json",
+            Labels = new[] { "part", "defect" },
+            TaskType = "Detect",
+            InputWidth = 640,
+            InputHeight = 640,
+            ApprovalStatus = approvalStatus,
+            IsPackage = true
+        };
+    }
+
+    private static ReplayComparisonMetrics CreateGoldenMetrics(bool v2)
+    {
+        return new ReplayComparisonMetrics
+        {
+            SampleCount = 4,
+            TotalSampleCount = v2 ? 5 : 0,
+            ValidSampleCount = v2 ? 4 : 0,
+            CandidateNewMissedDetectionCount = 0,
+            CandidateFixedMissedDetectionCount = 1,
+            CandidateNewFalseRejectCount = 0,
+            CandidateFixedFalseRejectCount = 1,
+            BaselineMissedDetectionCount = v2 ? 1 : 0,
+            BaselineMissedDetectionRate = v2 ? 0.5 : 0,
+            CandidateMissedDetectionCount = 0,
+            CandidateMissedDetectionRate = 0,
+            BaselineFalseRejectCount = v2 ? 1 : 0,
+            BaselineFalseRejectRate = v2 ? 0.5 : 0,
+            CandidateFalseRejectCount = 0,
+            CandidateFalseRejectRate = 0,
+            FalseRejectRateIncrease = v2 ? -0.5 : 0,
+            ChangedDecisionCount = 2,
+            InvalidSampleCount = v2 ? 1 : 0,
+            BaselineCorrectCount = 2,
+            CandidateCorrectCount = 4,
+            BaselineAccuracy = 0.5,
+            CandidateAccuracy = 1,
+            BaselineP95ElapsedMs = 41,
+            CandidateP95ElapsedMs = 43
+        };
+    }
+
+    private static List<ReplaySampleComparison> CreateGoldenSamples(bool v2)
+    {
+        return new List<ReplaySampleComparison>
+        {
+            CreateGoldenSample("S1", "INS-001", ReplayDecisions.OK, ReplayDecisions.OK, ReplayDecisions.OK, "Confirmed", false, 21, 22, true, string.Empty),
+            CreateGoldenSample("S2", "INS-002", ReplayDecisions.NG, ReplayDecisions.OK, ReplayDecisions.NG, "FixedMissedDetection", true, 39, 42, true, string.Empty),
+            CreateGoldenSample("S3", "INS-003", ReplayDecisions.OK, ReplayDecisions.NG, ReplayDecisions.OK, "FixedFalseReject", true, 41, 43, true, string.Empty),
+            CreateGoldenSample("S4", "INS-004", ReplayDecisions.NG, ReplayDecisions.NG, ReplayDecisions.NG, "Confirmed", false, 30, 31, true, string.Empty),
+            CreateGoldenSample("S5", "INS-005", ReplayDecisions.NG, ReplayDecisions.NG, ReplayDecisions.NG, "InvalidSample", false, 0, 0, !v2, v2 ? "candidate inference failed" : string.Empty)
+        };
+    }
+
+    private static ReplaySampleComparison CreateGoldenSample(
+        string sampleId,
+        string inspectionId,
+        string groundTruth,
+        string baselineDecision,
+        string candidateDecision,
+        string classification,
+        bool decisionChanged,
+        long baselineElapsedMs,
+        long candidateElapsedMs,
+        bool isValid,
+        string invalidReason)
+    {
+        return new ReplaySampleComparison
+        {
+            SampleId = sampleId,
+            InspectionId = inspectionId,
+            GroundTruth = groundTruth,
+            BaselineDecision = baselineDecision,
+            CandidateDecision = candidateDecision,
+            Classification = classification,
+            DecisionChanged = decisionChanged,
+            BaselineElapsedMs = baselineElapsedMs,
+            CandidateElapsedMs = candidateElapsedMs,
+            BaselineRuleSummary = "count>=1",
+            CandidateRuleSummary = "count>=1",
+            IsValid = isValid,
+            InvalidReason = invalidReason
+        };
+    }
+
+    private sealed record GoldenReplayArtifactFixture(
+        ReplayRunReport Report,
+        ModelApprovalEvidence Evidence,
+        string ExpectedReportHash,
+        string ExpectedEvidenceHash,
+        string ExpectedPolicyHash);
 
     private static Dictionary<string, string> CandidateMatrixWithoutRegressions()
     {
@@ -1250,6 +1746,31 @@ public class ReplayClosureTests
             ReplayJson.Options) ?? throw new InvalidOperationException("Report parse failed.");
         tampered.Metrics.CandidateCorrectCount = Math.Max(0, tampered.Metrics.CandidateCorrectCount - 1);
         File.WriteAllText(reportPath, JsonSerializer.Serialize(tampered, ReplayJson.Options));
+    }
+
+    private static void WriteLegacyMigration(
+        ModelRegistryEntry entry,
+        ModelRole role,
+        ProductionModelReference reference,
+        string? configReferenceOverride = null)
+    {
+        ModelPackageManifest manifest = JsonSerializer.Deserialize<ModelPackageManifest>(
+            File.ReadAllText(entry.ManifestPath),
+            ReplayJson.Options) ?? throw new InvalidOperationException("Manifest parse failed.");
+        manifest.Approval.LegacyMigration = new ModelApprovalLegacyMigration
+        {
+            MigrationId = $"legacy-{role}",
+            ModelRole = role.ToString(),
+            ModelId = entry.ModelId,
+            Version = entry.Version,
+            ModelHash = entry.ModelHash,
+            ManifestHash = string.Empty,
+            ConfigReference = configReferenceOverride ?? reference.ToSelectionValue(),
+            MigratedAt = DateTimeOffset.UtcNow
+        };
+        manifest.Approval.LegacyMigration.ManifestHash =
+            ReplayApprovalEvidenceProductionGate.ComputeLegacyManifestHash(manifest);
+        File.WriteAllText(entry.ManifestPath, JsonSerializer.Serialize(manifest, ReplayJson.Options));
     }
 
     private static string ComputeSha256(string path)
@@ -1443,6 +1964,7 @@ public class ReplayClosureTests
         public string CancelAfterModelId { get; init; } = string.Empty;
         public int CancelAfterCallCount { get; init; }
         public int DelayMs { get; init; }
+        public bool IgnoreCancellationDuringDelay { get; init; }
 
         public int CallCount(string modelId)
         {
@@ -1477,8 +1999,16 @@ public class ReplayClosureTests
                 cancellationToken.ThrowIfCancellationRequested();
                 if (_owner.DelayMs > 0)
                 {
-                    await Task.Delay(_owner.DelayMs, cancellationToken);
+                    if (_owner.IgnoreCancellationDuringDelay)
+                    {
+                        await Task.Delay(_owner.DelayMs);
+                    }
+                    else
+                    {
+                        await Task.Delay(_owner.DelayMs, cancellationToken);
+                    }
                 }
+                cancellationToken.ThrowIfCancellationRequested();
 
                 _owner._callCounts[Model.ModelId] = _owner.CallCount(Model.ModelId) + 1;
                 _owner.Events.Add($"run:{Model.ModelId}:{sample.SampleId}");

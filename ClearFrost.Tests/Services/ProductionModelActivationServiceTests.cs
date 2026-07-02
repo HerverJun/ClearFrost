@@ -1036,7 +1036,7 @@ public class ProductionModelActivationServiceTests
             () => null,
             () => "op",
             () => "Engineer",
-            omitApprovalEvidenceValidator ? null : _ => ProductionModelReadinessResult.Ok());
+            omitApprovalEvidenceValidator ? null : (_, _, _) => ProductionModelReadinessResult.Ok());
     }
 
     private static ModelRegistryScanOptions ScanOptions(string packageRoot)

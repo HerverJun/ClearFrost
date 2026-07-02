@@ -27,7 +27,7 @@ namespace ClearFrost.Services.Replay
         private readonly OperationAuditService? _auditService;
         private readonly Func<string>? _approverIdProvider;
         private readonly Func<ProductionRole>? _approverRoleProvider;
-        private readonly SemaphoreSlim _approvalLock = new SemaphoreSlim(1, 1);
+        private readonly ReplayAssetChangeCoordinator _assetCoordinator;
 
         public ReplayApprovalApplicationService(
             ModelRegistry registry,
@@ -39,7 +39,8 @@ namespace ClearFrost.Services.Replay
             ReplayAcceptancePolicy policy,
             OperationAuditService? auditService = null,
             Func<string>? approverIdProvider = null,
-            Func<ProductionRole>? approverRoleProvider = null)
+            Func<ProductionRole>? approverRoleProvider = null,
+            ReplayAssetChangeCoordinator? assetCoordinator = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _refreshRegistry = refreshRegistry ?? throw new ArgumentNullException(nameof(refreshRegistry));
@@ -51,6 +52,7 @@ namespace ClearFrost.Services.Replay
             _auditService = auditService;
             _approverIdProvider = approverIdProvider;
             _approverRoleProvider = approverRoleProvider;
+            _assetCoordinator = assetCoordinator ?? new ReplayAssetChangeCoordinator();
         }
 
         public async Task<ReplayApprovalResult> ApproveCandidateAsync(
@@ -73,147 +75,155 @@ namespace ClearFrost.Services.Replay
                 return ReplayApprovalResult.Fail(authorizationErrorCode, authorizationMessage);
             }
 
-            await _approvalLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
+            return await _assetCoordinator.RunAsync(
+                token => ApproveCandidateUnderAssetLockAsync(request, approverId, approverRole, token),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        public IReadOnlyList<ModelApprovalEvidence> ListEvidence()
+        {
+            return _evidenceStore.ListEvidence();
+        }
+
+        private async Task<ReplayApprovalResult> ApproveCandidateUnderAssetLockAsync(
+            ReplayApprovalRequest request,
+            string approverId,
+            ProductionRole approverRole,
+            CancellationToken cancellationToken)
+        {
+            await AppendAuditAsync(
+                OperationAuditStatus.Requested,
+                "Replay approval requested",
+                approverId,
+                approverRole,
+                cancellationToken)
+                .ConfigureAwait(false);
+
+            ReplayApprovalContext context = await BuildApprovalContextAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!context.Result.Succeeded)
             {
                 await AppendAuditAsync(
-                    OperationAuditStatus.Requested,
-                    "Replay approval requested",
+                    OperationAuditStatus.Denied,
+                    context.Result.Message,
                     approverId,
                     approverRole,
                     cancellationToken)
                     .ConfigureAwait(false);
+                return context.Result;
+            }
 
-                ReplayApprovalContext context = await BuildApprovalContextAsync(request, cancellationToken).ConfigureAwait(false);
-                if (!context.Result.Succeeded)
+            string manifestPath = context.CandidateEntry.ManifestPath;
+            byte[] originalManifest = await File.ReadAllBytesAsync(manifestPath, cancellationToken).ConfigureAwait(false);
+            ModelApprovalEvidence? evidence = null;
+            var compensationFailures = new List<string>();
+
+            try
+            {
+                evidence = _evidenceStore.SaveEvidence(
+                    context.Report,
+                    approverId,
+                    context.Dataset.RootDirectory,
+                    context.Report.PolicyHash);
+
+                ModelPackageManifest manifest = JsonSerializer.Deserialize<ModelPackageManifest>(
+                    File.ReadAllText(manifestPath),
+                    ReplayJson.Options) ?? new ModelPackageManifest();
+
+                manifest.AcceptanceDataset = evidence.DatasetPath;
+                manifest.AcceptanceMetrics["totalSamples"] = evidence.Metrics.TotalSampleCount > 0
+                    ? evidence.Metrics.TotalSampleCount
+                    : evidence.Metrics.SampleCount;
+                manifest.AcceptanceMetrics["validSamples"] = evidence.Metrics.ValidSampleCount > 0
+                    ? evidence.Metrics.ValidSampleCount
+                    : evidence.Metrics.SampleCount;
+                manifest.AcceptanceMetrics["invalidSamples"] = evidence.Metrics.InvalidSampleCount;
+                manifest.AcceptanceMetrics["candidateCorrectSamples"] = evidence.Metrics.CandidateCorrectCount;
+                manifest.AcceptanceMetrics["candidateNewMissedDetectionCount"] = evidence.Metrics.CandidateNewMissedDetectionCount;
+                manifest.AcceptanceMetrics["candidateMissedDetectionCount"] = evidence.Metrics.CandidateMissedDetectionCount;
+                manifest.AcceptanceMetrics["candidateMissedDetectionRate"] = evidence.Metrics.CandidateMissedDetectionRate;
+                manifest.AcceptanceMetrics["candidateNewFalseRejectCount"] = evidence.Metrics.CandidateNewFalseRejectCount;
+                manifest.AcceptanceMetrics["falseRejectRateIncrease"] = evidence.Metrics.FalseRejectRateIncrease;
+                manifest.AcceptanceMetrics["candidateAccuracy"] = evidence.Metrics.CandidateAccuracy;
+                manifest.AcceptanceMetrics["candidateP95ElapsedMs"] = evidence.Metrics.CandidateP95ElapsedMs;
+                manifest.Approval = new ModelApprovalMetadata
                 {
-                    await AppendAuditAsync(
-                        OperationAuditStatus.Denied,
-                        context.Result.Message,
-                        approverId,
-                        approverRole,
-                        cancellationToken)
-                        .ConfigureAwait(false);
-                    return context.Result;
+                    Status = ModelApprovalStatuses.Approved,
+                    ApprovedAt = evidence.CreatedAt,
+                    ApprovedBy = approverId,
+                    Summary = $"Replay evidence {evidence.EvidenceId}",
+                    GoldenDatasetPath = evidence.DatasetPath,
+                    ActualPassRate = evidence.Metrics.CandidateAccuracy,
+                    ReplayEvidenceId = evidence.EvidenceId,
+                    ReplayEvidenceHash = evidence.EvidenceHash,
+                    ReplayDatasetHash = evidence.DatasetHash,
+                    ReplayRunId = evidence.ReplayRunId
+                };
+
+                AtomicFileWriter.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest, ReplayJson.Options));
+                _refreshRegistry();
+
+                ModelRegistryEntry? refreshedEntry = _registry.Resolve(context.CandidateEntry.ModelPath);
+                if (refreshedEntry == null)
+                {
+                    throw new InvalidOperationException("Candidate disappeared from registry after approval manifest update.");
                 }
 
-                string manifestPath = context.CandidateEntry.ManifestPath;
-                byte[] originalManifest = await File.ReadAllBytesAsync(manifestPath, cancellationToken).ConfigureAwait(false);
-                ModelApprovalEvidence? evidence = null;
-                var compensationFailures = new List<string>();
+                ProductionModelReadinessResult gate = _productionGate.ValidateEvidenceBacked(refreshedEntry);
+                if (!gate.Succeeded)
+                {
+                    throw new InvalidOperationException($"{gate.ErrorCode}: {gate.Message}");
+                }
+
+                await AppendAuditAsync(
+                    OperationAuditStatus.Succeeded,
+                    evidence.EvidenceId,
+                    approverId,
+                    approverRole,
+                    cancellationToken)
+                    .ConfigureAwait(false);
+                return ReplayApprovalResult.Ok(evidence, "Replay approval evidence bound to candidate model.");
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    AtomicFileWriter.RestoreAllBytes(manifestPath, originalManifest);
+                }
+                catch (Exception restoreEx)
+                {
+                    compensationFailures.Add($"Manifest restore failed: {restoreEx.Message}");
+                }
 
                 try
                 {
-                    evidence = _evidenceStore.SaveEvidence(
-                        context.Report,
-                        approverId,
-                        context.Dataset.RootDirectory,
-                        context.Report.PolicyHash);
-
-                    ModelPackageManifest manifest = JsonSerializer.Deserialize<ModelPackageManifest>(
-                        File.ReadAllText(manifestPath),
-                        ReplayJson.Options) ?? new ModelPackageManifest();
-
-                    manifest.AcceptanceDataset = evidence.DatasetPath;
-                    manifest.AcceptanceMetrics["totalSamples"] = evidence.Metrics.TotalSampleCount > 0
-                        ? evidence.Metrics.TotalSampleCount
-                        : evidence.Metrics.SampleCount;
-                    manifest.AcceptanceMetrics["validSamples"] = evidence.Metrics.ValidSampleCount > 0
-                        ? evidence.Metrics.ValidSampleCount
-                        : evidence.Metrics.SampleCount;
-                    manifest.AcceptanceMetrics["invalidSamples"] = evidence.Metrics.InvalidSampleCount;
-                    manifest.AcceptanceMetrics["candidateCorrectSamples"] = evidence.Metrics.CandidateCorrectCount;
-                    manifest.AcceptanceMetrics["candidateNewMissedDetectionCount"] = evidence.Metrics.CandidateNewMissedDetectionCount;
-                    manifest.AcceptanceMetrics["candidateMissedDetectionCount"] = evidence.Metrics.CandidateMissedDetectionCount;
-                    manifest.AcceptanceMetrics["candidateMissedDetectionRate"] = evidence.Metrics.CandidateMissedDetectionRate;
-                    manifest.AcceptanceMetrics["candidateNewFalseRejectCount"] = evidence.Metrics.CandidateNewFalseRejectCount;
-                    manifest.AcceptanceMetrics["falseRejectRateIncrease"] = evidence.Metrics.FalseRejectRateIncrease;
-                    manifest.AcceptanceMetrics["candidateAccuracy"] = evidence.Metrics.CandidateAccuracy;
-                    manifest.AcceptanceMetrics["candidateP95ElapsedMs"] = evidence.Metrics.CandidateP95ElapsedMs;
-                    manifest.Approval = new ModelApprovalMetadata
-                    {
-                        Status = ModelApprovalStatuses.Approved,
-                        ApprovedAt = evidence.CreatedAt,
-                        ApprovedBy = approverId,
-                        Summary = $"Replay evidence {evidence.EvidenceId}",
-                        GoldenDatasetPath = evidence.DatasetPath,
-                        ActualPassRate = evidence.Metrics.CandidateAccuracy,
-                        ReplayEvidenceId = evidence.EvidenceId,
-                        ReplayEvidenceHash = evidence.EvidenceHash,
-                        ReplayDatasetHash = evidence.DatasetHash,
-                        ReplayRunId = evidence.ReplayRunId
-                    };
-
-                    AtomicFileWriter.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest, ReplayJson.Options));
                     _refreshRegistry();
-
-                    ModelRegistryEntry? refreshedEntry = _registry.Resolve(context.CandidateEntry.ModelPath);
-                    if (refreshedEntry == null)
-                    {
-                        throw new InvalidOperationException("Candidate disappeared from registry after approval manifest update.");
-                    }
-
-                    ProductionModelReadinessResult gate = _productionGate.Validate(refreshedEntry);
-                    if (!gate.Succeeded)
-                    {
-                        throw new InvalidOperationException($"{gate.ErrorCode}: {gate.Message}");
-                    }
-
-                    await AppendAuditAsync(
-                        OperationAuditStatus.Succeeded,
-                        evidence.EvidenceId,
-                        approverId,
-                        approverRole,
-                        cancellationToken)
-                        .ConfigureAwait(false);
-                    return ReplayApprovalResult.Ok(evidence, "Replay approval evidence bound to candidate model.");
                 }
-                catch (Exception ex)
+                catch (Exception refreshEx)
                 {
-                    try
-                    {
-                        AtomicFileWriter.RestoreAllBytes(manifestPath, originalManifest);
-                    }
-                    catch (Exception restoreEx)
-                    {
-                        compensationFailures.Add($"Manifest restore failed: {restoreEx.Message}");
-                    }
-
-                    try
-                    {
-                        _refreshRegistry();
-                    }
-                    catch (Exception refreshEx)
-                    {
-                        compensationFailures.Add($"Registry refresh failed: {refreshEx.Message}");
-                    }
-
-                    if (evidence != null &&
-                        _evidenceStore is FileModelApprovalEvidenceStore fileEvidenceStore &&
-                        !fileEvidenceStore.TryDeleteUnpublishedEvidence(evidence.EvidenceId, out string evidenceDeleteError))
-                    {
-                        compensationFailures.Add($"Unpublished evidence cleanup failed: {evidenceDeleteError}");
-                    }
-
-                    await AppendAuditAsync(
-                        compensationFailures.Count == 0 ? OperationAuditStatus.Denied : OperationAuditStatus.Failed,
-                        ex.Message,
-                        approverId,
-                        approverRole,
-                        CancellationToken.None).ConfigureAwait(false);
-
-                    return ReplayApprovalResult.Fail(
-                        compensationFailures.Count == 0 ? "ReplayApprovalRejected" : "ReplayApprovalFaulted",
-                        compensationFailures.Count == 0
-                            ? $"Replay approval failed; manifest restored: {ex.Message}"
-                            : $"Replay approval failed and compensation faulted: {ex.Message}",
-                        compensationFailures.Count > 0,
-                        compensationFailures);
+                    compensationFailures.Add($"Registry refresh failed: {refreshEx.Message}");
                 }
-            }
-            finally
-            {
-                _approvalLock.Release();
+
+                if (evidence != null &&
+                    _evidenceStore is FileModelApprovalEvidenceStore fileEvidenceStore &&
+                    !fileEvidenceStore.TryDeleteUnpublishedEvidence(evidence.EvidenceId, out string evidenceDeleteError))
+                {
+                    compensationFailures.Add($"Unpublished evidence cleanup failed: {evidenceDeleteError}");
+                }
+
+                await AppendAuditAsync(
+                    compensationFailures.Count == 0 ? OperationAuditStatus.Denied : OperationAuditStatus.Failed,
+                    ex.Message,
+                    approverId,
+                    approverRole,
+                    CancellationToken.None).ConfigureAwait(false);
+
+                return ReplayApprovalResult.Fail(
+                    compensationFailures.Count == 0 ? "ReplayApprovalRejected" : "ReplayApprovalFaulted",
+                    compensationFailures.Count == 0
+                        ? $"Replay approval failed; manifest restored: {ex.Message}"
+                        : $"Replay approval failed and compensation faulted: {ex.Message}",
+                    compensationFailures.Count > 0,
+                    compensationFailures);
             }
         }
 
@@ -260,7 +270,12 @@ namespace ClearFrost.Services.Replay
                 return ReplayApprovalContext.Fail("ReplayApprovalRunNotCompleted", "Only completed replay runs can approve a candidate.");
             }
 
-            if (!string.Equals(report.ReportHash, SqliteReplayRunStore.ComputeReportHash(report), StringComparison.OrdinalIgnoreCase))
+            if (!ReplayArtifactHashing.TryComputeReportHash(report, out string reportHash, out string reportHashError))
+            {
+                return ReplayApprovalContext.Fail("ReplayApprovalReportHashVersionInvalid", reportHashError);
+            }
+
+            if (!string.Equals(report.ReportHash, reportHash, StringComparison.OrdinalIgnoreCase))
             {
                 return ReplayApprovalContext.Fail("ReplayApprovalReportHashMismatch", "Replay report hash is invalid.");
             }
@@ -315,12 +330,24 @@ namespace ClearFrost.Services.Replay
                 return ReplayApprovalContext.Fail("ReplayApprovalCurrentModelHashMismatch", "Current candidate model file no longer matches replay report.");
             }
 
-            ReplayAcceptancePolicyOptions policySnapshot = report.PolicySnapshot ?? ReplayAcceptancePolicyOptions.ProductionDefault();
-            if (!ReplayAcceptancePolicyOptions.IsSupportedVersion(policySnapshot.Version) ||
-                report.PolicyVersion != policySnapshot.Version ||
-                !string.Equals(report.PolicyHash, ReplayAcceptancePolicy.ComputePolicyHash(policySnapshot), StringComparison.OrdinalIgnoreCase))
+            ReplayAcceptancePolicyOptions? policySnapshot = report.PolicySnapshot;
+            if (policySnapshot == null ||
+                !ReplayAcceptancePolicyOptions.IsSupportedVersion(policySnapshot.Version) ||
+                report.PolicyVersion != policySnapshot.Version)
             {
-                return ReplayApprovalContext.Fail("ReplayApprovalPolicySnapshotInvalid", "Replay report policy snapshot is invalid or unsupported.");
+                return ReplayApprovalContext.Fail(
+                    "ReplayApprovalPolicySnapshotInvalid",
+                    "Replay report policy snapshot is invalid or unsupported.");
+            }
+
+            if (!ReplayArtifactHashing.TryComputePolicyHash(policySnapshot, out string policyHash, out string policyHashError) ||
+                !string.Equals(report.PolicyHash, policyHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return ReplayApprovalContext.Fail(
+                    "ReplayApprovalPolicySnapshotInvalid",
+                    string.IsNullOrWhiteSpace(policyHashError)
+                        ? "Replay report policy hash does not match policy snapshot."
+                        : policyHashError);
             }
 
             ReplayApprovalDecision decision = _policy.Evaluate(report, policySnapshot);

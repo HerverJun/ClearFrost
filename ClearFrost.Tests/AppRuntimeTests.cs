@@ -173,13 +173,16 @@ namespace ClearFrost.Tests
                 runtime.ModelApprovalEvidenceStore.Should().NotBeNull();
                 runtime.ReplayProductionGate.Should().NotBeNull();
                 runtime.ReplayCoordinator.Should().NotBeNull();
+                runtime.ReplayAssetCoordinator.Should().NotBeNull();
+                runtime.ReplayDatasetLifecycleService.Should().NotBeNull();
                 runtime.ReplayIntegrityScanner.Should().NotBeNull();
                 runtime.ReplayApplicationService.Should().NotBeNull();
                 runtime.ReplayApprovalApplicationService.Should().NotBeNull();
                 runtime.StartupDiagnostics.CurrentReport.Items.Should().Contain(item =>
                     item.Name == "Replay evidence gate" &&
-                    item.Status == StartupDiagnosticStatus.Pass &&
-                    item.IsBlocking);
+                    item.Status == StartupDiagnosticStatus.Fail &&
+                    item.IsBlocking &&
+                    item.Message.Contains("Primary model reference is empty", StringComparison.OrdinalIgnoreCase));
 
                 await runtime.DisposeAsync();
             }

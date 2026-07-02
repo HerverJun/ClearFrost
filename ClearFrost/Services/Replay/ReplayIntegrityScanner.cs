@@ -458,20 +458,6 @@ namespace ClearFrost.Services.Replay
             foreach (ModelRegistryEntry entry in _registry.Entries.Where(item => item.IsPackage && item.ApprovedForProduction))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                ProductionModelReadinessResult result = _gate.Validate(entry);
-                if (!result.Succeeded)
-                {
-                    AddFinding(
-                        findings,
-                        "ApprovedModel",
-                        result.ErrorCode,
-                        result.Message,
-                        modelId: entry.ModelId,
-                        version: entry.Version,
-                        entityId: $"{entry.ModelId}/{entry.Version}");
-                    continue;
-                }
-
                 if (entry.Manifest?.Approval?.LegacyMigration != null &&
                     string.IsNullOrWhiteSpace(entry.Manifest.Approval.ReplayEvidenceId))
                 {
@@ -485,6 +471,21 @@ namespace ClearFrost.Services.Replay
                         entityId: $"{entry.ModelId}/{entry.Version}",
                         severity: "Warning",
                         recommendation: "Run Replay approval for this model to replace legacy compatibility with EvidenceApproved authority.");
+                    continue;
+                }
+
+                ProductionModelReadinessResult result = _gate.ValidateEvidenceBacked(entry);
+                if (!result.Succeeded)
+                {
+                    AddFinding(
+                        findings,
+                        "ApprovedModel",
+                        result.ErrorCode,
+                        result.Message,
+                        modelId: entry.ModelId,
+                        version: entry.Version,
+                        entityId: $"{entry.ModelId}/{entry.Version}");
+                    continue;
                 }
             }
         }

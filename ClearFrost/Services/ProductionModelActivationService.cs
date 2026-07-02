@@ -98,7 +98,7 @@ namespace ClearFrost.Services
         private readonly Func<float[]?> _roiSnapshotProvider;
         private readonly Func<string> _operatorIdProvider;
         private readonly Func<string> _operatorRoleProvider;
-        private readonly Func<ModelRegistryEntry, ProductionModelReadinessResult>? _approvalEvidenceValidator;
+        private readonly Func<ModelRole, ModelRegistryEntry, ProductionModelReference, ProductionModelReadinessResult>? _approvalEvidenceValidator;
         private readonly object _faultLock = new object();
         private readonly SemaphoreSlim _activationGate = new SemaphoreSlim(1, 1);
         private bool _faulted;
@@ -114,7 +114,7 @@ namespace ClearFrost.Services
             Func<float[]?> roiSnapshotProvider,
             Func<string> operatorIdProvider,
             Func<string> operatorRoleProvider,
-            Func<ModelRegistryEntry, ProductionModelReadinessResult>? approvalEvidenceValidator = null)
+            Func<ModelRole, ModelRegistryEntry, ProductionModelReference, ProductionModelReadinessResult>? approvalEvidenceValidator = null)
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
@@ -658,7 +658,10 @@ namespace ClearFrost.Services
                     return runtimeCheck;
                 }
 
-                ProductionModelReadinessResult evidenceCheck = ValidateApprovalEvidence(resolved.Entry);
+                ProductionModelReadinessResult evidenceCheck = ValidateApprovalEvidence(
+                    candidate.Role,
+                    resolved.Entry,
+                    candidate.Reference);
                 if (!evidenceCheck.Succeeded)
                 {
                     return evidenceCheck;
@@ -725,7 +728,10 @@ namespace ClearFrost.Services
                 return runtimeCheck;
             }
 
-            ProductionModelReadinessResult evidenceCheck = ValidateApprovalEvidence(primary.Entry);
+            ProductionModelReadinessResult evidenceCheck = ValidateApprovalEvidence(
+                ModelRole.Primary,
+                primary.Entry,
+                _config.CurrentModelReference);
             if (!evidenceCheck.Succeeded)
             {
                 return evidenceCheck;
@@ -762,7 +768,10 @@ namespace ClearFrost.Services
                     return runtimeCheck;
                 }
 
-                evidenceCheck = ValidateApprovalEvidence(resolved.Entry);
+                evidenceCheck = ValidateApprovalEvidence(
+                    slot.Role,
+                    resolved.Entry,
+                    slot.Reference);
                 if (!evidenceCheck.Succeeded)
                 {
                     return evidenceCheck;
@@ -772,7 +781,10 @@ namespace ClearFrost.Services
             return ProductionModelReadinessResult.Ok();
         }
 
-        private ProductionModelReadinessResult ValidateApprovalEvidence(ModelRegistryEntry? entry)
+        private ProductionModelReadinessResult ValidateApprovalEvidence(
+            ModelRole role,
+            ModelRegistryEntry? entry,
+            ProductionModelReference? reference)
         {
             if (!_config.RequireApprovedModelsForProduction)
             {
@@ -800,7 +812,7 @@ namespace ClearFrost.Services
                     "Production approval is enabled but Replay evidence gate is not configured.");
             }
 
-            return _approvalEvidenceValidator(entry);
+            return _approvalEvidenceValidator(role, entry, reference?.Clone() ?? ProductionModelReference.Empty());
         }
 
         private async Task<bool> LoadResolvedSlotAsync(

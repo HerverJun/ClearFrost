@@ -865,7 +865,7 @@
 
     function cancelReplayRun() {
         const requestId = bridge.sendCommand("cancel_replay_run", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `Cancel ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `Cancelling ${requestId}`);
     }
 
     function queryReplayRuns() {

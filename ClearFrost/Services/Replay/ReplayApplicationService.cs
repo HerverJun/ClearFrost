@@ -122,6 +122,13 @@ namespace ClearFrost.Services.Replay
             }
         }
 
+        public Task RecordCancelRequestedAsync(
+            ReplayRunProgress progress,
+            CancellationToken cancellationToken = default)
+        {
+            return _runStore.RecordRunCancelRequestedAsync(progress, cancellationToken);
+        }
+
         private async Task EnsureModelValidAsync(
             ReplayModelIdentity model,
             ReplayModelValidationOptions options,
@@ -316,6 +323,8 @@ namespace ClearFrost.Services.Replay
         private CancellationTokenSource? _replayCts;
         private Task<ReplayRunReport>? _currentTask;
         private ReplayRunProgress? _currentRun;
+        private IProgress<ReplayRunProgress>? _currentProgress;
+        private string _currentDatasetId = string.Empty;
         private bool _productionRunning;
         private bool _disposed;
 
@@ -354,6 +363,21 @@ namespace ClearFrost.Services.Replay
                 {
                     return _currentTask != null && !_currentTask.IsCompleted;
                 }
+            }
+        }
+
+        public bool IsDatasetActive(string datasetId)
+        {
+            if (string.IsNullOrWhiteSpace(datasetId))
+            {
+                return false;
+            }
+
+            lock (_sync)
+            {
+                return _currentTask != null &&
+                    !_currentTask.IsCompleted &&
+                    string.Equals(_currentDatasetId, datasetId.Trim(), StringComparison.OrdinalIgnoreCase);
             }
         }
 
@@ -416,6 +440,8 @@ namespace ClearFrost.Services.Replay
             lock (_sync)
             {
                 _replayCts = linkedCts;
+                _currentDatasetId = request.DatasetId;
+                _currentProgress = coordinatorProgress;
                 _currentRun = new ReplayRunProgress
                 {
                     RunId = request.RunId,
@@ -438,12 +464,44 @@ namespace ClearFrost.Services.Replay
             }
         }
 
+        public async Task<ReplayCancelRequestResult> RequestCancelAsync(CancellationToken cancellationToken = default)
+        {
+            ReplayRunProgress? progress;
+            IProgress<ReplayRunProgress>? progressSink;
+            lock (_sync)
+            {
+                if (_currentTask == null || _currentTask.IsCompleted || _replayCts == null)
+                {
+                    return ReplayCancelRequestResult.Fail(
+                        "ReplayNotRunning",
+                        "No replay run is currently running.");
+                }
+
+                _replayCts.Cancel();
+                ReplayRunProgress current = _currentRun ?? new ReplayRunProgress();
+                progress = new ReplayRunProgress
+                {
+                    RunId = current.RunId,
+                    Status = ReplayRunStatuses.CancelRequested,
+                    Phase = "cancel",
+                    CompletedSamples = current.CompletedSamples,
+                    TotalSamples = current.TotalSamples,
+                    Message = "Replay cancel requested."
+                };
+                _currentRun = progress;
+                progressSink = _currentProgress;
+            }
+
+            progressSink?.Report(progress);
+            await _replayService.RecordCancelRequestedAsync(progress, cancellationToken).ConfigureAwait(false);
+            return ReplayCancelRequestResult.Ok(progress);
+        }
+
         public async Task CancelAndWaitAsync(CancellationToken cancellationToken = default)
         {
             Task<ReplayRunReport>? task;
             lock (_sync)
             {
-                _replayCts?.Cancel();
                 task = _currentTask;
             }
 
@@ -452,6 +510,7 @@ namespace ClearFrost.Services.Replay
                 return;
             }
 
+            await RequestCancelAsync(cancellationToken).ConfigureAwait(false);
             using CancellationTokenRegistration registration = cancellationToken.Register(() => Cancel());
             try
             {
@@ -505,6 +564,8 @@ namespace ClearFrost.Services.Replay
                     }
 
                     _currentTask = null;
+                    _currentDatasetId = string.Empty;
+                    _currentProgress = null;
                 }
 
                 linkedCts.Dispose();
@@ -726,9 +787,7 @@ namespace ClearFrost.Services.Replay
 
         public static string ComputePolicyHash(ReplayAcceptancePolicyOptions options)
         {
-            return FileReplayDatasetStore.ComputeSha256(JsonSerializer.SerializeToUtf8Bytes(
-                options ?? ReplayAcceptancePolicyOptions.ProductionDefault(),
-                ReplayJson.Options));
+            return ReplayArtifactHashing.ComputePolicyHash(options ?? ReplayAcceptancePolicyOptions.ProductionDefault());
         }
     }
 

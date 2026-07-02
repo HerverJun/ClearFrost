@@ -3,6 +3,7 @@ using ClearFrost.Core.Models;
 using ClearFrost.Hardware;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
+using ClearFrost.Yolo;
 using FluentAssertions;
 using System.Drawing;
 
@@ -16,7 +17,11 @@ public class StartupDiagnosticsTests
         string tempDir = CreateTempDirectory();
         try
         {
-            var config = new AppConfig { StoragePath = tempDir };
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false
+            };
             using var storage = new StorageService(tempDir);
 
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
@@ -66,7 +71,11 @@ public class StartupDiagnosticsTests
             });
             registry.HasBlockingErrors.Should().BeTrue();
 
-            var config = new AppConfig { StoragePath = tempDir };
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false
+            };
             using var storage = new StorageService(tempDir);
 
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
@@ -97,6 +106,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 PlcProtocol = PlcProtocolType.Mitsubishi_MC_ASCII.ToString(),
                 PlcTriggerAddress = "bad-address"
             };
@@ -128,6 +138,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 PlcProtocol = "Mitsubishi_MC_ASCI"
             };
             using var storage = new StorageService(tempDir);
@@ -160,6 +171,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 TriggerSource = TriggerSource.SerialPhotoelectric,
                 PlcProtocol = "Mitsubishi_MC_ASCI",
                 PlcTriggerAddress = "bad-address",
@@ -223,6 +235,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 PlcDriverProvider = "HaoCommunicaton"
             };
             using var storage = new StorageService(tempDir);
@@ -255,6 +268,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 BarcodeEnabled = true,
                 BarcodeAddress = "bad-address"
             };
@@ -286,6 +300,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 BarcodeEnabled = false,
                 BarcodeAddress = "bad-address"
             };
@@ -315,7 +330,8 @@ public class StartupDiagnosticsTests
         {
             var config = new AppConfig
             {
-                StoragePath = @"Z:\ClearFrost_Unavailable_Test_Path"
+                StoragePath = @"Z:\ClearFrost_Unavailable_Test_Path",
+                RequireApprovedModelsForProduction = false
             };
             using var storage = new FakeStorageService(tempDir);
 
@@ -346,6 +362,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 PlcProtocol = PlcProtocolType.Mitsubishi_MC_Binary.ToString(),
                 PlcDriverProvider = "McpX",
                 PlcTriggerAddress = "M100",
@@ -378,6 +395,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 PlcProtocol = PlcProtocolType.Mitsubishi_MC_Binary.ToString(),
                 PlcDriverProvider = "HaoCommunication",
                 PlcTriggerAddress = "M100",
@@ -407,7 +425,10 @@ public class StartupDiagnosticsTests
         return path;
     }
 
-    private static ProductionModelReadinessResult PassGate(ModelRegistryEntry entry)
+    private static ProductionModelReadinessResult PassGate(
+        ModelRole role,
+        ModelRegistryEntry entry,
+        ProductionModelReference reference)
     {
         return ProductionModelReadinessResult.Ok();
     }

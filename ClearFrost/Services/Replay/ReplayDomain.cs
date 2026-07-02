@@ -24,6 +24,7 @@ namespace ClearFrost.Services.Replay
         public const string CandidateRunning = "CandidateRunning";
         public const string Reporting = "Reporting";
         public const string Running = "Running";
+        public const string CancelRequested = "CancelRequested";
         public const string Completed = "Completed";
         public const string Failed = "Failed";
         public const string Canceled = "Canceled";
@@ -267,6 +268,34 @@ namespace ClearFrost.Services.Replay
         public string Message { get; init; } = string.Empty;
     }
 
+    public sealed class ReplayCancelRequestResult
+    {
+        public bool Succeeded { get; init; }
+        public string ErrorCode { get; init; } = string.Empty;
+        public string Message { get; init; } = string.Empty;
+        public ReplayRunProgress? Progress { get; init; }
+
+        public static ReplayCancelRequestResult Ok(ReplayRunProgress progress)
+        {
+            return new ReplayCancelRequestResult
+            {
+                Succeeded = true,
+                Message = progress.Message,
+                Progress = progress
+            };
+        }
+
+        public static ReplayCancelRequestResult Fail(string errorCode, string message)
+        {
+            return new ReplayCancelRequestResult
+            {
+                Succeeded = false,
+                ErrorCode = errorCode ?? string.Empty,
+                Message = message ?? string.Empty
+            };
+        }
+    }
+
     public sealed class ReplayModelValidationOptions
     {
         public bool AllowPendingApproval { get; init; }
@@ -428,6 +457,10 @@ namespace ClearFrost.Services.Replay
 
         Task RecordRunCanceledAsync(
             string runId,
+            CancellationToken cancellationToken = default);
+
+        Task RecordRunCancelRequestedAsync(
+            ReplayRunProgress progress,
             CancellationToken cancellationToken = default);
 
         Task MarkNonTerminalRunsInterruptedAsync(

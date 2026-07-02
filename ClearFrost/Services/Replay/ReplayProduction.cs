@@ -18,21 +18,56 @@ namespace ClearFrost.Services.Replay
         private readonly IModelApprovalEvidenceStore _evidenceStore;
         private readonly IReplayDatasetStore _datasetStore;
         private readonly IReplayRunStore _runStore;
-        private readonly Func<ProductionModelReference?>? _currentPrimaryReferenceProvider;
 
         public ReplayApprovalEvidenceProductionGate(
             IModelApprovalEvidenceStore evidenceStore,
             IReplayDatasetStore datasetStore,
-            IReplayRunStore runStore,
-            Func<ProductionModelReference?>? currentPrimaryReferenceProvider = null)
+            IReplayRunStore runStore)
         {
             _evidenceStore = evidenceStore ?? throw new ArgumentNullException(nameof(evidenceStore));
             _datasetStore = datasetStore ?? throw new ArgumentNullException(nameof(datasetStore));
             _runStore = runStore ?? throw new ArgumentNullException(nameof(runStore));
-            _currentPrimaryReferenceProvider = currentPrimaryReferenceProvider;
         }
 
-        public ProductionModelReadinessResult Validate(ModelRegistryEntry entry)
+        public ProductionModelReadinessResult Validate(
+            ModelRole role,
+            ModelRegistryEntry entry,
+            ProductionModelReference? currentReference)
+        {
+            if (entry == null) throw new ArgumentNullException(nameof(entry));
+            if (role != ModelRole.Primary && role != ModelRole.Auxiliary1 && role != ModelRole.Auxiliary2)
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayEvidenceSlotMissing",
+                    "Production evidence validation requires an explicit model slot role.");
+            }
+
+            ProductionModelReference expectedReference = ProductionModelReference.FromApprovedPackage(entry);
+            ProductionModelReference slotReference = currentReference?.Clone() ?? ProductionModelReference.Empty();
+            if (slotReference.IsEmpty ||
+                !slotReference.IdentityEquals(expectedReference))
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayEvidenceConfigReferenceMismatch",
+                    "Production evidence validation is not bound to the current AppConfig slot reference.");
+            }
+
+            if (entry.Manifest?.Approval == null)
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayEvidenceMissing",
+                    "Model manifest approval metadata is missing.");
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.Manifest.Approval.ReplayEvidenceId))
+            {
+                return ValidateLegacyApproval(role, entry, entry.Manifest.Approval, slotReference, expectedReference);
+            }
+
+            return ValidateEvidenceBacked(entry);
+        }
+
+        public ProductionModelReadinessResult ValidateEvidenceBacked(ModelRegistryEntry entry)
         {
             if (entry == null) throw new ArgumentNullException(nameof(entry));
             if (entry.Manifest?.Approval == null)
@@ -44,7 +79,9 @@ namespace ClearFrost.Services.Replay
 
             if (string.IsNullOrWhiteSpace(entry.Manifest.Approval.ReplayEvidenceId))
             {
-                return ValidateLegacyApproval(entry, entry.Manifest.Approval);
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayEvidenceMissing",
+                    "Replay approval evidence id is missing.");
             }
 
             ModelApprovalEvidenceValidationResult result = _evidenceStore.ValidateEvidence(
@@ -60,8 +97,11 @@ namespace ClearFrost.Services.Replay
         }
 
         private ProductionModelReadinessResult ValidateLegacyApproval(
+            ModelRole role,
             ModelRegistryEntry entry,
-            ModelApprovalMetadata approval)
+            ModelApprovalMetadata approval,
+            ProductionModelReference slotReference,
+            ProductionModelReference expectedReference)
         {
             ModelApprovalLegacyMigration? legacy = approval.LegacyMigration;
             if (legacy == null)
@@ -78,29 +118,27 @@ namespace ClearFrost.Services.Replay
                     "Legacy migration can only authorize an already approved manifest.");
             }
 
-            if (!string.Equals(legacy.ModelRole, "Primary", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(legacy.ModelRole, role.ToString(), StringComparison.OrdinalIgnoreCase))
             {
                 return ProductionModelReadinessResult.Fail(
                     "ReplayLegacyRoleMismatch",
-                    "Legacy migration is only valid for the original primary model slot.");
+                    "Legacy migration is only valid for the original model slot.");
             }
 
-            ProductionModelReference expectedReference = ProductionModelReference.FromApprovedPackage(entry);
             string expectedConfigReference = expectedReference.ToSelectionValue();
-            ProductionModelReference currentReference = _currentPrimaryReferenceProvider?.Invoke()?.Clone()
-                ?? ProductionModelReference.Empty();
-            if (currentReference.IsEmpty ||
-                !currentReference.IdentityEquals(expectedReference) ||
-                !string.Equals(currentReference.ToSelectionValue(), legacy.ConfigReference, StringComparison.Ordinal))
+            if (slotReference.IsEmpty ||
+                !slotReference.IdentityEquals(expectedReference) ||
+                !string.Equals(slotReference.ToSelectionValue(), legacy.ConfigReference, StringComparison.Ordinal))
             {
                 return ProductionModelReadinessResult.Fail(
                     "ReplayLegacyConfigReferenceMismatch",
-                    "Legacy migration is not bound to the current primary AppConfig model reference.");
+                    "Legacy migration is not bound to the current AppConfig model slot reference.");
             }
 
             if (!string.Equals(legacy.ConfigReference, expectedConfigReference, StringComparison.Ordinal) ||
                 !string.Equals(legacy.ModelId, entry.ModelId, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(legacy.Version, entry.Version, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(legacy.Version, entry.Version, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(legacy.ModelHash, entry.ModelHash, StringComparison.OrdinalIgnoreCase))
             {
                 return ProductionModelReadinessResult.Fail(
                     "ReplayLegacyIdentityMismatch",
@@ -126,12 +164,22 @@ namespace ClearFrost.Services.Replay
                     ex.Message);
             }
 
-            string manifestHash = entry.Manifest!.EffectiveHash;
+            string manifestHash;
+            try
+            {
+                manifestHash = ComputeLegacyManifestHash(entry.ManifestPath);
+            }
+            catch (Exception ex)
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayLegacyManifestHashUnavailable",
+                    ex.Message);
+            }
+
             if (string.IsNullOrWhiteSpace(legacy.ModelHash) ||
                 string.IsNullOrWhiteSpace(legacy.ManifestHash) ||
                 !string.Equals(actualHash, legacy.ModelHash, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(actualHash, entry.ModelHash, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(actualHash, manifestHash, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(legacy.ManifestHash, manifestHash, StringComparison.OrdinalIgnoreCase))
             {
                 return ProductionModelReadinessResult.Fail(
@@ -147,6 +195,35 @@ namespace ClearFrost.Services.Replay
             }
 
             return ProductionModelReadinessResult.Ok();
+        }
+
+        internal static string ComputeLegacyManifestHash(string manifestPath)
+        {
+            if (string.IsNullOrWhiteSpace(manifestPath) || !File.Exists(manifestPath))
+            {
+                throw new FileNotFoundException("Legacy-approved manifest file is missing.", manifestPath);
+            }
+
+            ModelPackageManifest manifest = JsonSerializer.Deserialize<ModelPackageManifest>(
+                File.ReadAllText(manifestPath),
+                ReplayJson.Options) ?? new ModelPackageManifest();
+            return ComputeLegacyManifestHash(manifest);
+        }
+
+        internal static string ComputeLegacyManifestHash(ModelPackageManifest manifest)
+        {
+            if (manifest == null) throw new ArgumentNullException(nameof(manifest));
+            string json = JsonSerializer.Serialize(manifest, ReplayJson.Options);
+            ModelPackageManifest canonical = JsonSerializer.Deserialize<ModelPackageManifest>(
+                json,
+                ReplayJson.Options) ?? new ModelPackageManifest();
+            if (canonical.Approval?.LegacyMigration != null)
+            {
+                canonical.Approval.LegacyMigration.ManifestHash = string.Empty;
+            }
+
+            return FileReplayDatasetStore.ComputeSha256(
+                JsonSerializer.SerializeToUtf8Bytes(canonical, ReplayJson.Options));
         }
     }
 

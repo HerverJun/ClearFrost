@@ -84,7 +84,7 @@ namespace ClearFrost
                 SnapshotCurrentROI,
                 ResolveCurrentOperatorId,
                 () => _appConfig.CurrentOperatorRole.ToString(),
-                _appRuntime.ReplayProductionGate.Validate);
+                (role, entry, reference) => _appRuntime.ReplayProductionGate.Validate(role, entry, reference));
             _healthMonitor = _appRuntime.HealthMonitor;
             _startupDiagnostics = _appRuntime.StartupDiagnostics;
             _inspectionPipelineService = new InspectionPipelineService(
@@ -148,7 +148,7 @@ namespace ClearFrost
                 _appConfig,
                 _storageService,
                 _modelRegistry,
-                _appRuntime.ReplayProductionGate.Validate);
+                (role, entry, reference) => _appRuntime.ReplayProductionGate.Validate(role, entry, reference));
             LogStartupDiagnostics();
             return report;
         }

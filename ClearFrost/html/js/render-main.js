@@ -505,6 +505,10 @@
         logQueuePressureAdvice(health);
     }
 
+    function formatReplayRunStatus(status) {
+        return status === "CancelRequested" ? "Cancelling" : (status || "");
+    }
+
     function renderReplayStatus(state) {
         const replay = state?.replay || {};
         const run = replay.currentRunId ? replay.runs?.[replay.currentRunId] : null;
@@ -516,7 +520,7 @@
         setText("replay-dataset-id", dataset.datasetId || run?.datasetId || "");
         setText("replay-dataset-hash", dataset.datasetHash || run?.datasetHash || "");
         setText("replay-dataset-count", Array.isArray(replay.datasets) ? replay.datasets.length : "");
-        setText("replay-run-status", run?.status || dataset.status || "");
+        setText("replay-run-status", formatReplayRunStatus(run?.status || dataset.status || ""));
         setText("replay-run-progress", run ? `${run.completedSamples ?? 0}/${run.totalSamples ?? 0}` : "");
         setText("replay-changed-count", metrics.changedDecisionCount ?? "");
         setText("replay-new-missed-count", metrics.candidateNewMissedDetectionCount ?? "");

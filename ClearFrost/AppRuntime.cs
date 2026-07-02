@@ -15,6 +15,7 @@ using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
 using ClearFrost.Services.Replay;
+using ClearFrost.Yolo;
 using Microsoft.Data.Sqlite;
 
 namespace ClearFrost
@@ -92,12 +93,12 @@ namespace ClearFrost
             ModelApprovalEvidenceStore = new FileModelApprovalEvidenceStore(
                 Path.Combine(StorageService.SystemPath, "ReplayEvidence"),
                 ReplayPolicy);
+            ReplayAssetCoordinator = new ReplayAssetChangeCoordinator();
             TryMigrateLegacyReplayApproval();
             ReplayProductionGate = new ReplayApprovalEvidenceProductionGate(
                 ModelApprovalEvidenceStore,
                 ReplayDatasetStore,
-                ReplayRunStore,
-                () => AppConfig.CurrentModelReference?.Clone() ?? ProductionModelReference.Empty());
+                ReplayRunStore);
             ReplayIntegrityScanner = new ReplayIntegrityScanner(
                 ModelRegistry,
                 ReplayProductionGate,
@@ -118,6 +119,15 @@ namespace ClearFrost
                 ReplayRunStore,
                 ReplayPolicy);
             ReplayCoordinator = new ReplayRunCoordinator(ReplayApplicationService);
+            ReplayDatasetLifecycleService = new ReplayDatasetLifecycleService(
+                ReplayDatasetStore,
+                ReplayRunStore,
+                ModelApprovalEvidenceStore,
+                ReplayAssetCoordinator,
+                OperationAuditService,
+                () => AppConfig.CurrentOperatorId,
+                () => AppConfig.CurrentOperatorRole,
+                datasetId => ReplayCoordinator.IsDatasetActive(datasetId));
             ReplayApprovalApplicationService = new ReplayApprovalApplicationService(
                 ModelRegistry,
                 () => RefreshModelRegistry(),
@@ -128,7 +138,8 @@ namespace ClearFrost
                 ReplayPolicy,
                 OperationAuditService,
                 () => AppConfig.CurrentOperatorId,
-                () => AppConfig.CurrentOperatorRole);
+                () => AppConfig.CurrentOperatorRole,
+                ReplayAssetCoordinator);
             HealthMonitor = new HealthMonitor(
                 CameraService,
                 PlcService,
@@ -138,7 +149,11 @@ namespace ClearFrost
                 DetectionRecordQueue);
             WebUIController = webUIController ?? new WebUIController();
             StartupDiagnostics = startupDiagnostics ?? new StartupDiagnostics();
-            StartupDiagnostics.Run(AppConfig, StorageService, ModelRegistry, ReplayProductionGate.Validate);
+            StartupDiagnostics.Run(
+                AppConfig,
+                StorageService,
+                ModelRegistry,
+                (role, entry, reference) => ReplayProductionGate.Validate(role, entry, reference));
             DiagnosticPackageExporter = diagnosticPackageExporter ?? new DiagnosticPackageExporter();
         }
 
@@ -185,6 +200,10 @@ namespace ClearFrost
         public ReplayApplicationService ReplayApplicationService { get; }
 
         public ReplayRunCoordinator ReplayCoordinator { get; }
+
+        internal ReplayAssetChangeCoordinator ReplayAssetCoordinator { get; }
+
+        internal ReplayDatasetLifecycleService ReplayDatasetLifecycleService { get; }
 
         public IModelApprovalEvidenceStore ModelApprovalEvidenceStore { get; }
 
@@ -379,6 +398,15 @@ namespace ClearFrost
 
             try
             {
+                ReplayAssetCoordinator.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AppRuntime] 释放 ReplayAssetCoordinator 失败: {ex.Message}");
+            }
+
+            try
+            {
                 DetectionService.Dispose();
             }
             catch (Exception ex)
@@ -507,8 +535,17 @@ namespace ClearFrost
                 return;
             }
 
-            ProductionModelReference currentReference = AppConfig.CurrentModelReference?.Clone()
-                ?? ProductionModelReference.Empty();
+            foreach ((ModelRole Role, ProductionModelReference? Reference) slot in GetConfiguredModelSlots())
+            {
+                TryMigrateLegacyReplayApprovalSlot(slot.Role, slot.Reference);
+            }
+        }
+
+        private void TryMigrateLegacyReplayApprovalSlot(
+            ModelRole role,
+            ProductionModelReference? reference)
+        {
+            ProductionModelReference currentReference = reference?.Clone() ?? ProductionModelReference.Empty();
             if (currentReference.IsEmpty || currentReference.Type != ProductionModelReferenceType.ApprovedPackage)
             {
                 return;
@@ -550,12 +587,10 @@ namespace ClearFrost
                 return;
             }
 
-            string manifestHash = entry.Manifest.EffectiveHash;
             if (string.IsNullOrWhiteSpace(actualHash) ||
-                string.IsNullOrWhiteSpace(manifestHash) ||
                 !string.Equals(actualHash, currentReference.Sha256, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(actualHash, entry.ModelHash, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(actualHash, manifestHash, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(actualHash, entry.Manifest.EffectiveHash, StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
@@ -583,15 +618,17 @@ namespace ClearFrost
             string configReference = currentReference.ToSelectionValue();
             manifest.Approval.LegacyMigration = new ModelApprovalLegacyMigration
             {
-                MigrationId = $"legacy-{entry.ModelId}-{entry.Version}-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}",
-                ModelRole = "Primary",
+                MigrationId = $"legacy-{entry.ModelId}-{entry.Version}-{role}-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}",
+                ModelRole = role.ToString(),
                 ModelId = entry.ModelId,
                 Version = entry.Version,
                 ModelHash = actualHash,
-                ManifestHash = manifest.EffectiveHash,
+                ManifestHash = string.Empty,
                 ConfigReference = configReference,
                 MigratedAt = DateTimeOffset.UtcNow
             };
+            manifest.Approval.LegacyMigration.ManifestHash =
+                ReplayApprovalEvidenceProductionGate.ComputeLegacyManifestHash(manifest);
 
             try
             {
@@ -602,6 +639,13 @@ namespace ClearFrost
             {
                 Debug.WriteLine($"[AppRuntime] Legacy Replay approval migration skipped: {ex.Message}");
             }
+        }
+
+        private IEnumerable<(ModelRole Role, ProductionModelReference? Reference)> GetConfiguredModelSlots()
+        {
+            yield return (ModelRole.Primary, AppConfig.CurrentModelReference);
+            yield return (ModelRole.Auxiliary1, AppConfig.Auxiliary1ModelReference);
+            yield return (ModelRole.Auxiliary2, AppConfig.Auxiliary2ModelReference);
         }
 
         private static ModelRegistryScanOptions CreateModelRegistryScanOptions(AppConfig appConfig)
