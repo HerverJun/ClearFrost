@@ -39,6 +39,7 @@
             lastResponse: {},
         },
         fieldDebug: {},
+        visionDebug: {},
         diagnosticPackage: {},
         metrics: {},
         previewFrameId: 0,
@@ -60,6 +61,7 @@
     state.manualReview.records = state.manualReview.records || [];
     state.manualReview.lastResponse = state.manualReview.lastResponse || {};
     state.fieldDebug = state.fieldDebug || {};
+    state.visionDebug = state.visionDebug || {};
     state.diagnosticPackage = state.diagnosticPackage || {};
     window.CF_STATE = state;
 
@@ -416,6 +418,21 @@
         notify("fieldDebug");
     }
 
+    function applyVisionDebugResult(payload) {
+        if (!payload) return;
+        const status = pickValue(payload, "status", "Status") || "";
+        const records = pickValue(payload, "records", "Records");
+        const snapshot = pickValue(payload, "snapshot", "Snapshot");
+        state.visionDebug = {
+            ...(state.visionDebug || {}),
+            ...payload,
+            status,
+            records: Array.isArray(records) ? records : (state.visionDebug?.records || []),
+            snapshot: snapshot || state.visionDebug?.snapshot || null,
+        };
+        notify("visionDebug");
+    }
+
     function applyDiagnosticPackageExportResult(payload) {
         if (!payload) return;
         state.diagnosticPackage = {
@@ -478,6 +495,7 @@
         applyReplayUpdate,
         applyHealthSnapshot,
         applyFieldDebugResult,
+        applyVisionDebugResult,
         applyDiagnosticPackageExportResult,
         applyBootstrapSnapshot,
     };

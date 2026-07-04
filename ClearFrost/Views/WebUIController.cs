@@ -103,6 +103,7 @@ namespace ClearFrost
         public event EventHandler? OnRequestHealthSnapshot;
         public event EventHandler<WebUiCommandEventArgs>? OnExportDiagnosticPackage;
         public event EventHandler<WebUiCommandEventArgs>? OnFieldDebugCommand;
+        public event EventHandler<WebUiCommandEventArgs>? OnVisionDebugCommand;
         public event EventHandler<float[]>? OnUpdateROI;
         public event EventHandler<float>? OnSetConfidence;
         public event EventHandler<float>? OnSetIou;
@@ -815,6 +816,13 @@ namespace ClearFrost
                             case "field_debug_simulate_trigger":
                                 OnFieldDebugCommand?.Invoke(this, CreateCommandEventArgs(root, requestId));
                                 break;
+                            case "vision_debug_query_recent":
+                            case "vision_debug_run_current":
+                            case "vision_debug_run_history":
+                            case "vision_debug_save_params":
+                            case "vision_debug_apply_template":
+                                OnVisionDebugCommand?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
                             case "set_confidence":
                                 if (root.TryGetProperty("value", out JsonElement confElement))
                                 {
@@ -1300,6 +1308,12 @@ namespace ClearFrost
         public Task SendFieldDebugResult(object result, string? requestId = null)
         {
             PostMessage("fieldDebugResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendVisionDebugResult(object result, string? requestId = null)
+        {
+            PostMessage("visionDebugResult", result, requestId);
             return Task.CompletedTask;
         }
 
@@ -2053,6 +2067,7 @@ namespace ClearFrost
                 OnRequestHealthSnapshot = null;
                 OnExportDiagnosticPackage = null;
                 OnFieldDebugCommand = null;
+                OnVisionDebugCommand = null;
                 OnUpdateROI = null;
                 OnSetConfidence = null;
                 OnSetIou = null;

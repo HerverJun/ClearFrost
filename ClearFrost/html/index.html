@@ -112,6 +112,14 @@
                         d="m14 14 5 5" />
                 </svg>
             </button>
+            <button data-action="openVisionDebugPanel" title="算法调试/视觉调试" aria-label="算法调试/视觉调试">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 5h16M4 19h16M7 5v14M17 5v14M9 9h6M9 15h6" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M6 12h12" />
+                </svg>
+            </button>
             <button data-action="openGalleryModal" title="记录追溯" aria-label="记录追溯">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -216,6 +224,7 @@
                         src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz48c3ZnIHdpZHRoPSIxMjgwIiBoZWlnaHQ9IjcyMCIgdmlld0JveD0iMCAwIDEyODAgNzIwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMjgwIiBoZWlnaHQ9IjcyMCIgZmlsbD0iI2NiZDVlMSIvPjx0ZXh0IHg9IjY0MCIgeT0iMzYwIiBmb250LWZhbWlseT0iSW50ZXIsU2Vnb2UgVUksTWljcm9zb2Z0IFlhSGVpLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMzIiIGZpbGw9IiM0NzU1NjkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPuetieW+heWbvuWDj+i+k+WFpTwvdGV4dD48L3N2Zz4="
                         alt="相机画面">
                     <canvas id="roi-canvas"></canvas>
+                    <canvas id="vision-debug-overlay"></canvas>
                     <div class="stitch-bounding-box" aria-hidden="true"></div>
                     <div id="result-overlay" class="hidden stitch-result-overlay">OK</div>
                 </div>
@@ -393,6 +402,117 @@
                         </button>
                         <strong id="diag-package-path">尚未导出</strong>
                     </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vision Debug Modal -->
+    <div id="vision-debug-modal"
+        class="fixed inset-0 bg-ink-900/60 z-[66] hidden flex items-center justify-center p-3">
+        <div class="cf-vision-debug-panel">
+            <div class="cf-vision-debug-header">
+                <div>
+                    <span>算法调试</span>
+                    <h2>视觉调试工作台</h2>
+                </div>
+                <div class="cf-vision-debug-actions">
+                    <button data-action="requestVisionDebugRecentRecords" title="刷新历史样本" aria-label="刷新历史样本">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M20 11a8 8 0 0 0-15.5-3M4 4v4h4m-4 5a8 8 0 0 0 15.5 3M20 20v-4h-4" />
+                        </svg>
+                    </button>
+                    <button data-action="closeVisionDebugPanel" title="关闭" aria-label="关闭">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="cf-vision-debug-body scroller">
+                <section class="cf-vision-debug-section cf-vision-debug-controls">
+                    <div class="cf-vision-debug-toolbar">
+                        <button id="vision-debug-run-current" data-action="runVisionDebugCurrent">
+                            <span>当前帧重跑</span>
+                        </button>
+                        <button id="vision-debug-save-params" data-action="saveVisionDebugParams">
+                            <span>保存参数</span>
+                        </button>
+                    </div>
+                    <div class="cf-vision-debug-grid">
+                        <label>
+                            <span>置信度 <b id="vision-debug-confidence-value">0.50</b></span>
+                            <input id="vision-debug-confidence" type="range" min="0" max="1" step="0.01">
+                        </label>
+                        <label>
+                            <span>IOU <b id="vision-debug-iou-value">0.30</b></span>
+                            <input id="vision-debug-iou" type="range" min="0" max="1" step="0.01">
+                        </label>
+                        <label>
+                            <span>目标类别</span>
+                            <select id="vision-debug-target-label"></select>
+                        </label>
+                        <label>
+                            <span>期望数量</span>
+                            <input id="vision-debug-target-count" type="number" min="0" max="256" step="1">
+                        </label>
+                        <label>
+                            <span>预处理模式</span>
+                            <select id="vision-debug-preprocess-mode">
+                                <option value="StandardLetterBox">StandardLetterBox</option>
+                                <option value="IndustrialFast">IndustrialFast</option>
+                            </select>
+                        </label>
+                        <label class="cf-vision-debug-switch">
+                            <span>ROI 开关/显示</span>
+                            <input id="vision-debug-roi-enabled" type="checkbox" checked>
+                        </label>
+                    </div>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>场景模板</h3>
+                    <div class="cf-vision-template-grid">
+                        <button data-action="applyVisionDebugTemplate" data-value="screw_count">螺钉数量检测</button>
+                        <button data-action="applyVisionDebugTemplate" data-value="remote_missing_part">遥控器漏装检测</button>
+                        <button data-action="applyVisionDebugTemplate" data-value="wire_sequence">线序顺序检测</button>
+                        <button data-action="applyVisionDebugTemplate" data-value="relative_position">相对位置检测</button>
+                    </div>
+                    <textarea id="vision-debug-rule-set" spellcheck="false"></textarea>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>历史样本快速回放</h3>
+                    <div class="cf-vision-history-row">
+                        <select id="vision-debug-history-select"></select>
+                        <button id="vision-debug-run-history" data-action="runVisionDebugHistory">重跑历史样本</button>
+                    </div>
+                    <div id="vision-debug-history-status" class="cf-vision-debug-status">等待选择历史样本</div>
+                </section>
+
+                <section class="cf-vision-debug-section cf-vision-debug-result-section">
+                    <div class="cf-vision-debug-result-head">
+                        <span id="vision-debug-final-result" class="cf-vision-debug-result-pill">等待</span>
+                        <strong id="vision-debug-primary-reason">尚未运行调试</strong>
+                    </div>
+                    <div class="cf-vision-debug-summary">
+                        <span>全部 <b id="vision-debug-count-all">0</b></span>
+                        <span>ROI内 <b id="vision-debug-count-in">0</b></span>
+                        <span>过滤 <b id="vision-debug-count-out">0</b></span>
+                        <span>耗时 <b id="vision-debug-elapsed">0ms</b></span>
+                    </div>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>检测框列表</h3>
+                    <div id="vision-debug-box-list" class="cf-vision-debug-list"></div>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>规则判定详情</h3>
+                    <div id="vision-debug-rule-details" class="cf-vision-debug-list"></div>
                 </section>
             </div>
         </div>

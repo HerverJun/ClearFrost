@@ -637,6 +637,7 @@ namespace ClearFrost.Core.Rules
                 IsMatch = isMatch,
                 Expected = expected,
                 Actual = actual,
+                Reason = message,
                 Message = message
             };
         }

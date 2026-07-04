@@ -419,6 +419,23 @@ namespace ClearFrost.Services
             InspectionFallbackGoal? fallbackGoal = null,
             MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
+            return await DetectAsync(
+                image,
+                confidence,
+                iouThreshold,
+                fallbackGoal,
+                candidateEvaluator,
+                YoloPreprocessingMode.StandardLetterBox).ConfigureAwait(false);
+        }
+
+        public async Task<DetectionResultData> DetectAsync(
+            Mat image,
+            float confidence,
+            float iouThreshold,
+            InspectionFallbackGoal? fallbackGoal,
+            MultiModelCandidateEvaluator? candidateEvaluator,
+            YoloPreprocessingMode preprocessingMode)
+        {
             var result = new DetectionResultData();
 
             if (image == null || image.Empty())
@@ -438,7 +455,7 @@ namespace ClearFrost.Services
                 await _lifecycleLock.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator);
+                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator, preprocessingMode);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
                 _cachedLastMetrics = _modelManager?.GetPrimaryLastMetrics() ?? _yolo?.LastMetrics;
@@ -475,6 +492,23 @@ namespace ClearFrost.Services
             InspectionFallbackGoal? fallbackGoal = null,
             MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
+            return await DetectAsync(
+                image,
+                confidence,
+                iouThreshold,
+                fallbackGoal,
+                candidateEvaluator,
+                YoloPreprocessingMode.StandardLetterBox).ConfigureAwait(false);
+        }
+
+        public async Task<DetectionResultData> DetectAsync(
+            Bitmap image,
+            float confidence,
+            float iouThreshold,
+            InspectionFallbackGoal? fallbackGoal,
+            MultiModelCandidateEvaluator? candidateEvaluator,
+            YoloPreprocessingMode preprocessingMode)
+        {
             var result = new DetectionResultData();
 
             if (image == null)
@@ -494,7 +528,7 @@ namespace ClearFrost.Services
                 await _lifecycleLock.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator);
+                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator, preprocessingMode);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
                 _cachedLastMetrics = _modelManager?.GetPrimaryLastMetrics() ?? _yolo?.LastMetrics;
@@ -529,7 +563,8 @@ namespace ClearFrost.Services
             float confidence,
             float iouThreshold,
             InspectionFallbackGoal? fallbackGoal,
-            MultiModelCandidateEvaluator? candidateEvaluator)
+            MultiModelCandidateEvaluator? candidateEvaluator,
+            YoloPreprocessingMode preprocessingMode)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
@@ -538,7 +573,7 @@ namespace ClearFrost.Services
                     confidence,
                     iouThreshold,
                     false,
-                    (int)YoloPreprocessingMode.StandardLetterBox,
+                    (int)preprocessingMode,
                     fallbackGoal?.TargetLabel,
                     fallbackGoal?.TargetCount ?? 0,
                     candidateEvaluator);
@@ -559,7 +594,7 @@ namespace ClearFrost.Services
             if (_yolo != null)
             {
                 var allResults = await Task.Run(() =>
-                    _yolo.Inference(image, confidence, iouThreshold, false, (int)YoloPreprocessingMode.StandardLetterBox));
+                    _yolo.Inference(image, confidence, iouThreshold, false, (int)preprocessingMode));
                 return (allResults, "", _yolo.Labels, false, 1, string.Empty);
             }
 
@@ -571,7 +606,8 @@ namespace ClearFrost.Services
             float confidence,
             float iouThreshold,
             InspectionFallbackGoal? fallbackGoal,
-            MultiModelCandidateEvaluator? candidateEvaluator)
+            MultiModelCandidateEvaluator? candidateEvaluator,
+            YoloPreprocessingMode preprocessingMode)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
@@ -580,7 +616,7 @@ namespace ClearFrost.Services
                     confidence,
                     iouThreshold,
                     false,
-                    (int)YoloPreprocessingMode.StandardLetterBox,
+                    (int)preprocessingMode,
                     fallbackGoal?.TargetLabel,
                     fallbackGoal?.TargetCount ?? 0,
                     candidateEvaluator);
@@ -601,7 +637,7 @@ namespace ClearFrost.Services
             if (_yolo != null)
             {
                 var allResults = await Task.Run(() =>
-                    _yolo.Inference(image, confidence, iouThreshold, false, (int)YoloPreprocessingMode.StandardLetterBox));
+                    _yolo.Inference(image, confidence, iouThreshold, false, (int)preprocessingMode));
                 return (allResults, "", _yolo.Labels, false, 1, string.Empty);
             }
 

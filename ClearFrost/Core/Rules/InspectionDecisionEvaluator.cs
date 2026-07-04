@@ -19,6 +19,11 @@ namespace ClearFrost.Core.Rules
         public int ImageWidth { get; init; }
         public int ImageHeight { get; init; }
         public float[]? Roi { get; init; }
+        public string ModelName { get; init; } = string.Empty;
+        public YoloPreprocessingMode PreprocessingMode { get; init; } = YoloPreprocessingMode.StandardLetterBox;
+        public float Confidence { get; init; }
+        public float IouThreshold { get; init; }
+        public long ElapsedMs { get; init; }
     }
 
     public sealed class InspectionDecisionResult
@@ -33,6 +38,10 @@ namespace ClearFrost.Core.Rules
     public interface IInspectionDecisionEvaluator
     {
         InspectionDecisionResult Evaluate(InspectionDecisionRequest request);
+
+        VisionDebugSnapshot Explain(InspectionDecisionRequest request);
+
+        VisionDebugSnapshot EvaluateWithDebug(InspectionDecisionRequest request);
 
         MultiModelCandidateEvaluator CreateCandidateEvaluator(
             InspectionRuleSet ruleSet,
@@ -55,6 +64,7 @@ namespace ClearFrost.Core.Rules
                     request.ImageHeight,
                     request.Roi,
                     out IReadOnlyList<YoloResult> filtered,
+                    out _,
                     out string errorCode,
                     out string message))
             {
@@ -79,6 +89,51 @@ namespace ClearFrost.Core.Rules
                 JudgeResult = judgeResult,
                 FilteredDetections = filtered
             };
+        }
+
+        public VisionDebugSnapshot Explain(InspectionDecisionRequest request) => EvaluateWithDebug(request);
+
+        public VisionDebugSnapshot EvaluateWithDebug(InspectionDecisionRequest request)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+
+            IReadOnlyList<YoloResult> detections = request.Detections ?? Array.Empty<YoloResult>();
+            IReadOnlyList<string> labels = request.Labels ?? Array.Empty<string>();
+            if (!TryFilterByRoi(
+                    detections,
+                    request.ImageWidth,
+                    request.ImageHeight,
+                    request.Roi,
+                    out IReadOnlyList<YoloResult> filtered,
+                    out IReadOnlyList<YoloResult> excluded,
+                    out string errorCode,
+                    out string message))
+            {
+                return VisionDebugSnapshot.From(
+                    request,
+                    detections,
+                    Array.Empty<YoloResult>(),
+                    detections,
+                    FailClosedJudge(message),
+                    false,
+                    errorCode,
+                    message);
+            }
+
+            InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(
+                request.RuleSet,
+                filtered,
+                labels);
+
+            return VisionDebugSnapshot.From(
+                request,
+                detections,
+                filtered,
+                excluded,
+                judgeResult,
+                true,
+                string.Empty,
+                string.Empty);
         }
 
         public MultiModelCandidateEvaluator CreateCandidateEvaluator(
@@ -116,10 +171,12 @@ namespace ClearFrost.Core.Rules
             int imageHeight,
             float[]? roi,
             out IReadOnlyList<YoloResult> filtered,
+            out IReadOnlyList<YoloResult> excluded,
             out string errorCode,
             out string message)
         {
             filtered = results;
+            excluded = Array.Empty<YoloResult>();
             errorCode = string.Empty;
             message = string.Empty;
 
@@ -142,6 +199,7 @@ namespace ClearFrost.Core.Rules
                 errorCode = "InvalidRoi";
                 message = "ROI is invalid; decision failed closed.";
                 filtered = Array.Empty<YoloResult>();
+                excluded = results;
                 return false;
             }
 
@@ -151,21 +209,26 @@ namespace ClearFrost.Core.Rules
             float roiH = roi[3] * imageHeight;
 
             Debug.WriteLine($"[ROI过滤] ROI区域: X={roiX:F0}, Y={roiY:F0}, W={roiW:F0}, H={roiH:F0}");
-            filtered = results
-                .Where(r =>
+            var inside = new List<YoloResult>();
+            var outside = new List<YoloResult>();
+            foreach (YoloResult result in results)
+            {
+                float centerX = result.CenterX;
+                float centerY = result.CenterY;
+                bool inRoi = centerX >= roiX && centerX <= roiX + roiW &&
+                             centerY >= roiY && centerY <= roiY + roiH;
+                if (inRoi)
                 {
-                    float centerX = r.CenterX;
-                    float centerY = r.CenterY;
-                    bool inRoi = centerX >= roiX && centerX <= roiX + roiW &&
-                                 centerY >= roiY && centerY <= roiY + roiH;
-                    if (!inRoi)
-                    {
-                        Debug.WriteLine($"[ROI过滤] 过滤掉: 中心点({centerX:F0},{centerY:F0}) 不在ROI内");
-                    }
+                    inside.Add(result);
+                    continue;
+                }
 
-                    return inRoi;
-                })
-                .ToList();
+                outside.Add(result);
+                Debug.WriteLine($"[ROI过滤] 过滤掉: 中心点({centerX:F0},{centerY:F0}) 不在ROI内");
+            }
+
+            filtered = inside;
+            excluded = outside;
             Debug.WriteLine($"[ROI过滤] 过滤前: {results.Count} 个, 过滤后: {filtered.Count} 个");
             return true;
         }

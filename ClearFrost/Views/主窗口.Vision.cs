@@ -490,6 +490,394 @@ namespace ClearFrost
             return null;
         }
 
+        private async Task HandleVisionDebugCommandAsync(WebUiCommandEventArgs args)
+        {
+            VisionDebugRunParameters parameters;
+            try
+            {
+                parameters = DeserializeVisionDebugParameters(args.PayloadJson);
+            }
+            catch (Exception ex)
+            {
+                await SendVisionDebugErrorAsync(args.RequestId, "InvalidRequest", $"算法调试参数无效: {ex.Message}");
+                return;
+            }
+
+            try
+            {
+                switch (args.Command)
+                {
+                    case "vision_debug_query_recent":
+                        await SendVisionDebugRecentRecordsAsync(args.RequestId);
+                        break;
+                    case "vision_debug_apply_template":
+                        await ApplyVisionDebugTemplateAsync(parameters, args.RequestId);
+                        break;
+                    case "vision_debug_save_params":
+                        await SaveVisionDebugParametersAsync(parameters, args.RequestId);
+                        break;
+                    case "vision_debug_run_history":
+                        await RunVisionDebugHistoryAsync(parameters, args.RequestId);
+                        break;
+                    case "vision_debug_run_current":
+                        await RunVisionDebugCurrentFrameAsync(parameters, args.RequestId);
+                        break;
+                    default:
+                        await SendVisionDebugErrorAsync(args.RequestId, "UnknownVisionDebugCommand", $"未知算法调试命令: {args.Command}");
+                        break;
+                }
+            }
+            catch (NotSupportedException ex)
+            {
+                await SendVisionDebugErrorAsync(args.RequestId, "UnsupportedPreprocessingMode", ex.Message);
+            }
+            catch (Exception ex)
+            {
+                await SendVisionDebugErrorAsync(args.RequestId, "VisionDebugException", $"算法调试失败: {ex.Message}");
+            }
+        }
+
+        private static VisionDebugRunParameters DeserializeVisionDebugParameters(string payloadJson)
+        {
+            return JsonSerializer.Deserialize<VisionDebugRunParameters>(
+                string.IsNullOrWhiteSpace(payloadJson) ? "{}" : payloadJson,
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                }) ?? new VisionDebugRunParameters();
+        }
+
+        private async Task SendVisionDebugRecentRecordsAsync(string? requestId)
+        {
+            List<DetectionRecord> records = await _databaseService.GetRecordsAsync(limit: 30).ConfigureAwait(false);
+            await _uiController.SendVisionDebugResult(new
+            {
+                status = "recentRecords",
+                records = records.Select(record => new
+                {
+                    record.Id,
+                    timestamp = record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"),
+                    record.InspectionId,
+                    isQualified = record.IsQualified,
+                    result = record.IsQualified ? "OK" : "NG",
+                    record.ImagePath,
+                    record.RenderedImagePath,
+                    record.TraceImagePath,
+                    record.ModelName,
+                    record.UsedModelName,
+                    record.RuleSummary,
+                    hasOriginalImage = !string.IsNullOrWhiteSpace(record.ImagePath) && File.Exists(record.ImagePath)
+                }).ToArray()
+            }, requestId);
+        }
+
+        private async Task ApplyVisionDebugTemplateAsync(VisionDebugRunParameters parameters, string? requestId)
+        {
+            InspectionRuleSet ruleSet = InspectionRuleSetTemplates.Create(
+                parameters.TemplateId,
+                parameters.Labels,
+                parameters.TargetLabel,
+                parameters.TargetCount ?? 0);
+            await _uiController.SendVisionDebugResult(new
+            {
+                status = "templateApplied",
+                templateId = parameters.TemplateId,
+                ruleSet = ruleSet,
+                ruleSetJson = InspectionRuleSetSerializer.Serialize(ruleSet),
+                message = "场景模板已生成，仅用于当前调试会话，点击保存参数后才会写入配置"
+            }, requestId);
+        }
+
+        private async Task SaveVisionDebugParametersAsync(VisionDebugRunParameters parameters, string? requestId)
+        {
+            if (!await EnsureRuntimeMutationAllowedAsync("算法调试参数保存").ConfigureAwait(false))
+            {
+                await SendVisionDebugErrorAsync(requestId, "RuntimeMutationBlocked", "系统运行中，暂不允许保存算法调试参数");
+                return;
+            }
+
+            VisionDebugParameterService.ApplySavedParameters(_appConfig, parameters);
+            if (!_appConfig.Save())
+            {
+                await SendVisionDebugErrorAsync(requestId, "ConfigSaveFailed", _appConfig.LastError ?? "配置保存失败");
+                return;
+            }
+
+            TrySaveCurrentRecipeSnapshot("算法调试参数保存");
+            InspectionRuleSet savedRuleSet = _appConfig.GetInspectionRuleSet();
+            await _uiController.SendVisionDebugResult(new
+            {
+                status = "paramsSaved",
+                succeeded = true,
+                message = "算法调试参数已保存到生产配置和配方快照",
+                confidence = _appConfig.Confidence,
+                iouThreshold = _appConfig.IouThreshold,
+                targetLabel = _appConfig.TargetLabel,
+                targetCount = _appConfig.TargetCount,
+                ruleSetJson = InspectionRuleSetSerializer.Serialize(savedRuleSet)
+            }, requestId);
+            await _uiController.InitSettings(_appConfig);
+        }
+
+        private async Task RunVisionDebugCurrentFrameAsync(VisionDebugRunParameters parameters, string? requestId)
+        {
+            DetectionTriggerDecision decision = await _detectionGate.TryEnterAsync(IsShutdownInProgress).ConfigureAwait(false);
+            if (!decision.Accepted)
+            {
+                string message = decision.DropReason == DetectionDropReason.Shutdown
+                    ? "软件正在退出，已忽略算法调试"
+                    : "检测正在进行中，请稍后再运行算法调试";
+                await SendVisionDebugErrorAsync(requestId, "DetectionBusy", message);
+                return;
+            }
+
+            try
+            {
+                using Mat? frame = TryCloneCurrentVisionDebugFrame();
+                if (frame == null || frame.Empty())
+                {
+                    await SendVisionDebugErrorAsync(requestId, "NoCurrentFrame", "当前帧不可用，请先启动相机并完成一次取图");
+                    return;
+                }
+
+                VisionDebugSnapshot snapshot = await RunVisionDebugOnMatAsync(
+                    frame,
+                    parameters,
+                    comparison: null,
+                    requestId,
+                    "当前帧算法调试").ConfigureAwait(false);
+                await PublishVisionDebugSnapshotAsync(frame, snapshot, requestId).ConfigureAwait(false);
+            }
+            finally
+            {
+                _detectionGate.Release();
+            }
+        }
+
+        private async Task RunVisionDebugHistoryAsync(VisionDebugRunParameters parameters, string? requestId)
+        {
+            long recordId = parameters.RecordId ?? 0;
+            if (recordId <= 0)
+            {
+                await SendVisionDebugErrorAsync(requestId, "MissingRecordId", "请选择一条历史样本记录");
+                return;
+            }
+
+            DetectionTriggerDecision decision = await _detectionGate.TryEnterAsync(IsShutdownInProgress).ConfigureAwait(false);
+            if (!decision.Accepted)
+            {
+                string message = decision.DropReason == DetectionDropReason.Shutdown
+                    ? "软件正在退出，已忽略历史样本回放"
+                    : "检测正在进行中，请稍后再回放历史样本";
+                await SendVisionDebugErrorAsync(requestId, "DetectionBusy", message);
+                return;
+            }
+
+            try
+            {
+                DetectionRecord? record = await _databaseService.GetDetectionRecordByIdAsync(recordId).ConfigureAwait(false);
+                if (record == null)
+                {
+                    await SendVisionDebugErrorAsync(requestId, "RecordNotFound", $"历史样本不存在: {recordId}");
+                    return;
+                }
+
+                string imagePath = ResolveDebugOriginalImagePath(record);
+                if (string.IsNullOrWhiteSpace(imagePath))
+                {
+                    string message = string.IsNullOrWhiteSpace(record.ImagePath)
+                        ? "该历史记录缺少原图路径，无法回放"
+                        : $"历史原图不存在: {record.ImagePath}";
+                    await SendVisionDebugErrorAsync(requestId, "OriginalImageMissing", message);
+                    return;
+                }
+
+                using Mat image = Cv2.ImRead(imagePath, ImreadModes.Color);
+                if (image.Empty())
+                {
+                    await SendVisionDebugErrorAsync(requestId, "ImageReadFailed", $"历史原图读取失败: {imagePath}");
+                    return;
+                }
+
+                var comparison = new VisionDebugComparison
+                {
+                    RecordId = record.Id,
+                    InspectionId = record.InspectionId,
+                    OldIsQualified = record.IsQualified,
+                    OldPrimaryReason = ResolveRecordPrimaryReason(record),
+                    ImagePath = imagePath
+                };
+                VisionDebugSnapshot snapshot = await RunVisionDebugOnMatAsync(
+                    image,
+                    parameters,
+                    comparison,
+                    requestId,
+                    "历史样本算法调试").ConfigureAwait(false);
+                await PublishVisionDebugSnapshotAsync(image, snapshot, requestId).ConfigureAwait(false);
+            }
+            finally
+            {
+                _detectionGate.Release();
+            }
+        }
+
+        private async Task<VisionDebugSnapshot> RunVisionDebugOnMatAsync(
+            Mat image,
+            VisionDebugRunParameters parameters,
+            VisionDebugComparison? comparison,
+            string? requestId,
+            string sourceLabel)
+        {
+            if (!_detectionService.IsModelLoaded)
+            {
+                throw new InvalidOperationException("YOLO模型未初始化，无法运行算法调试");
+            }
+
+            VisionDebugParameterService.ValidatePreprocessingMode(parameters.PreprocessingMode);
+            InspectionRuleSet ruleSet = VisionDebugParameterService.ResolveRuleSet(_appConfig, parameters, out string ruleSetJson);
+            InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
+            float confidence = VisionDebugParameterService.ResolveConfidence(_appConfig, parameters);
+            float iouThreshold = VisionDebugParameterService.ResolveIou(_appConfig, parameters);
+            float[]? roiSnapshot = parameters.RoiEnabled ? SnapshotCurrentROI() : null;
+            MultiModelCandidateEvaluator candidateEvaluator = _appRuntime.DecisionEvaluator.CreateCandidateEvaluator(
+                ruleSet,
+                image.Width,
+                image.Height,
+                roiSnapshot);
+
+            Stopwatch sw = Stopwatch.StartNew();
+            DetectionResultData result;
+            using (await DetectionRuntimeConcurrencyGate.EnterAsync().ConfigureAwait(false))
+            {
+                if (_detectionService is DetectionService concrete)
+                {
+                    result = await concrete.DetectAsync(
+                        image,
+                        confidence,
+                        iouThreshold,
+                        fallbackGoal,
+                        candidateEvaluator,
+                        parameters.PreprocessingMode).ConfigureAwait(false);
+                }
+                else
+                {
+                    result = await _detectionService.DetectAsync(
+                        image,
+                        confidence,
+                        iouThreshold,
+                        fallbackGoal,
+                        candidateEvaluator).ConfigureAwait(false);
+                }
+            }
+
+            sw.Stop();
+            ApplyRuleTraceSnapshot(result, ruleSetJson, fallbackGoal);
+            string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
+            string usedModelName = string.IsNullOrWhiteSpace(result.UsedModelName)
+                ? _detectionService.CurrentModelName
+                : result.UsedModelName;
+            VisionDebugSnapshot snapshot = _appRuntime.DecisionEvaluator.EvaluateWithDebug(new InspectionDecisionRequest
+            {
+                RuleSet = ruleSet,
+                Detections = result.Results ?? new List<YoloResult>(),
+                Labels = labels,
+                ImageWidth = image.Width,
+                ImageHeight = image.Height,
+                Roi = roiSnapshot,
+                ModelName = usedModelName,
+                PreprocessingMode = parameters.PreprocessingMode,
+                Confidence = confidence,
+                IouThreshold = iouThreshold,
+                ElapsedMs = sw.ElapsedMilliseconds
+            });
+
+            if (result.HasError)
+            {
+                snapshot.Succeeded = false;
+                snapshot.ErrorCode = "DetectionServiceError";
+                snapshot.Message = result.ErrorMessage;
+                snapshot.FinalOk = false;
+                snapshot.PrimaryFailureReason = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                    ? "检测服务失败，按 NG 处理"
+                    : result.ErrorMessage;
+            }
+
+            snapshot.Comparison = comparison;
+            if (snapshot.Comparison != null)
+            {
+                snapshot.Comparison.NewIsQualified = snapshot.FinalOk;
+                snapshot.Comparison.NewPrimaryReason = snapshot.PrimaryFailureReason;
+            }
+
+            await _uiController.LogToFrontend(
+                $"{sourceLabel}: {(snapshot.FinalOk ? "OK" : "NG")} | {snapshot.JudgeResult.Summary}",
+                snapshot.FinalOk ? "info" : "warning").ConfigureAwait(false);
+            return snapshot;
+        }
+
+        private async Task PublishVisionDebugSnapshotAsync(Mat image, VisionDebugSnapshot snapshot, string? requestId)
+        {
+            await _uiController.UpdateImage(image, targetWidth: 960, targetHeight: 540, jpegQuality: 70).ConfigureAwait(false);
+            await _uiController.SendVisionDebugResult(new
+            {
+                status = "completed",
+                succeeded = snapshot.Succeeded,
+                snapshot,
+                message = snapshot.FinalOk
+                    ? "算法调试完成: OK"
+                    : $"算法调试完成: NG - {snapshot.PrimaryFailureReason}"
+            }, requestId).ConfigureAwait(false);
+        }
+
+        private Mat? TryCloneCurrentVisionDebugFrame()
+        {
+            try
+            {
+                Mat? lastFrame = _cameraService.LastFrame;
+                if (lastFrame != null && !lastFrame.Empty())
+                {
+                    return lastFrame.Clone();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[VisionDebug] 获取当前帧失败: {ex.Message}");
+            }
+
+            return null;
+        }
+
+        private string ResolveDebugOriginalImagePath(DetectionRecord record)
+        {
+            return TryResolveHistoryImagePath(record.ImagePath) ?? string.Empty;
+        }
+
+        private static string ResolveRecordPrimaryReason(DetectionRecord record)
+        {
+            if (!string.IsNullOrWhiteSpace(record.RuleSummary))
+            {
+                return record.RuleSummary;
+            }
+
+            if (!string.IsNullOrWhiteSpace(record.ErrorMessage))
+            {
+                return record.ErrorMessage;
+            }
+
+            return record.IsQualified ? "历史判定 OK" : "历史判定 NG";
+        }
+
+        private Task SendVisionDebugErrorAsync(string? requestId, string errorCode, string message)
+        {
+            return _uiController.SendVisionDebugResult(new
+            {
+                status = "failed",
+                succeeded = false,
+                errorCode,
+                message
+            }, requestId);
+        }
+
         private IEnumerable<string> GetHistoryImageBasePaths()
         {
             var paths = new[]

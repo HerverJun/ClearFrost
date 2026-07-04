@@ -140,6 +140,7 @@
             lastResponse: {},
         },
         fieldDebug: {},
+        visionDebug: {},
         diagnosticPackage: {},
         metrics: {},
         previewFrameId: 0,
@@ -161,6 +162,7 @@
     state.manualReview.records = state.manualReview.records || [];
     state.manualReview.lastResponse = state.manualReview.lastResponse || {};
     state.fieldDebug = state.fieldDebug || {};
+    state.visionDebug = state.visionDebug || {};
     state.diagnosticPackage = state.diagnosticPackage || {};
     window.CF_STATE = state;
 
@@ -517,6 +519,21 @@
         notify("fieldDebug");
     }
 
+    function applyVisionDebugResult(payload) {
+        if (!payload) return;
+        const status = pickValue(payload, "status", "Status") || "";
+        const records = pickValue(payload, "records", "Records");
+        const snapshot = pickValue(payload, "snapshot", "Snapshot");
+        state.visionDebug = {
+            ...(state.visionDebug || {}),
+            ...payload,
+            status,
+            records: Array.isArray(records) ? records : (state.visionDebug?.records || []),
+            snapshot: snapshot || state.visionDebug?.snapshot || null,
+        };
+        notify("visionDebug");
+    }
+
     function applyDiagnosticPackageExportResult(payload) {
         if (!payload) return;
         state.diagnosticPackage = {
@@ -579,6 +596,7 @@
         applyReplayUpdate,
         applyHealthSnapshot,
         applyFieldDebugResult,
+        applyVisionDebugResult,
         applyDiagnosticPackageExportResult,
         applyBootstrapSnapshot,
     };
@@ -590,7 +608,7 @@
 (function () {
     "use strict";
 
-    const { escapeHtml } = window.CF_UTILS;
+    const { escapeHtml, pickValue } = window.CF_UTILS;
     const store = window.CF_STORE;
     const errorAdvice = window.CF_ERROR_ADVICE;
     const domCache = new Map();
@@ -616,7 +634,7 @@
     let exitAppPending = false;
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
-    const KnownRenderReasons = new Set(["inspection", "stats", "health", "replay", "manualReview", "fieldDebug", "bootstrap", "state"]);
+    const KnownRenderReasons = new Set(["inspection", "stats", "health", "replay", "manualReview", "fieldDebug", "visionDebug", "bootstrap", "state"]);
     const InspectionStageLabels = Object.freeze({
         Unknown: "未知",
         Triggered: "已触发",
@@ -1248,6 +1266,314 @@
         el("field-diagnostics-modal")?.classList.add("hidden");
     }
 
+    function getVisionDebugSettings() {
+        return store.state.settings || {};
+    }
+
+    function getVisionDebugRuleSetJson() {
+        return String(el("vision-debug-rule-set")?.value || "").trim();
+    }
+
+    function setVisionDebugRuleSetJson(value) {
+        const node = el("vision-debug-rule-set");
+        if (node && node.value !== value) node.value = value || "";
+    }
+
+    function populateVisionDebugControls() {
+        const settings = getVisionDebugSettings();
+        const confidence = Number(settings.Confidence ?? settings.confidence ?? 0.5);
+        const iou = Number(settings.IouThreshold ?? settings.iouThreshold ?? 0.3);
+        const targetLabel = String(settings.TargetLabel ?? settings.targetLabel ?? "");
+        const targetCount = Number(settings.TargetCount ?? settings.targetCount ?? 0);
+        const ruleSetJson = settings.InspectionRuleSetJson || settings.inspectionRuleSetJson || "";
+        const labels = Array.isArray(store.state.modelLabels) ? store.state.modelLabels : [];
+        const confNode = el("vision-debug-confidence");
+        const iouNode = el("vision-debug-iou");
+        const targetCountNode = el("vision-debug-target-count");
+        const targetSelect = el("vision-debug-target-label");
+        const roiNode = el("vision-debug-roi-enabled");
+        const preprocessNode = el("vision-debug-preprocess-mode");
+        if (confNode) confNode.value = String(Math.max(0, Math.min(1, confidence)));
+        if (iouNode) iouNode.value = String(Math.max(0, Math.min(1, iou)));
+        if (targetCountNode) targetCountNode.value = String(Math.max(0, Math.trunc(targetCount || 0)));
+        if (roiNode) roiNode.checked = true;
+        if (preprocessNode) preprocessNode.value = "StandardLetterBox";
+        if (targetSelect) {
+            const options = [`<option value="">全部目标</option>`]
+                .concat(labels.map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`));
+            if (targetLabel && !labels.includes(targetLabel)) {
+                options.push(`<option value="${escapeHtml(targetLabel)}">${escapeHtml(targetLabel)}</option>`);
+            }
+            targetSelect.innerHTML = options.join("");
+            targetSelect.value = targetLabel;
+        }
+        if (!getVisionDebugRuleSetJson()) setVisionDebugRuleSetJson(ruleSetJson);
+        updateVisionDebugSliderLabels();
+    }
+
+    function updateVisionDebugSliderLabels() {
+        const conf = Number(el("vision-debug-confidence")?.value ?? 0);
+        const iou = Number(el("vision-debug-iou")?.value ?? 0);
+        setText("vision-debug-confidence-value", conf.toFixed(2), "0.50");
+        setText("vision-debug-iou-value", iou.toFixed(2), "0.30");
+    }
+
+    function openVisionDebugPanel() {
+        populateVisionDebugControls();
+        el("vision-debug-modal")?.classList.remove("hidden");
+        requestVisionDebugRecentRecords();
+        redrawVisionDebugOverlay();
+    }
+
+    function closeVisionDebugPanel() {
+        el("vision-debug-modal")?.classList.add("hidden");
+    }
+
+    function collectVisionDebugParams(extra = {}) {
+        return {
+            confidence: Number(el("vision-debug-confidence")?.value ?? 0.5),
+            iouThreshold: Number(el("vision-debug-iou")?.value ?? 0.3),
+            targetLabel: String(el("vision-debug-target-label")?.value || ""),
+            targetCount: Number(el("vision-debug-target-count")?.value ?? 0),
+            preprocessingMode: String(el("vision-debug-preprocess-mode")?.value || "StandardLetterBox"),
+            roiEnabled: Boolean(el("vision-debug-roi-enabled")?.checked),
+            ruleSetJson: getVisionDebugRuleSetJson(),
+            ...extra,
+        };
+    }
+
+    function requestVisionDebugRecentRecords() {
+        window.sendCommand("vision_debug_query_recent", {});
+    }
+
+    function runVisionDebugCurrent() {
+        setText("vision-debug-primary-reason", "正在重跑当前帧...");
+        window.sendCommand("vision_debug_run_current", collectVisionDebugParams());
+        window.handleCommandDispatched?.("vision_debug_run_current");
+    }
+
+    function runVisionDebugHistory() {
+        const recordId = Number(el("vision-debug-history-select")?.value || 0);
+        if (!recordId) {
+            showToast("请选择历史样本", "warning", 1200);
+            return;
+        }
+        setText("vision-debug-history-status", "正在用当前调试参数重跑历史样本...");
+        window.sendCommand("vision_debug_run_history", collectVisionDebugParams({ recordId }));
+        window.handleCommandDispatched?.("vision_debug_run_history");
+    }
+
+    function saveVisionDebugParams() {
+        window.sendCommand("vision_debug_save_params", collectVisionDebugParams());
+        window.handleCommandDispatched?.("vision_debug_save_params");
+    }
+
+    function applyVisionDebugTemplate(templateId) {
+        const labels = Array.from(el("vision-debug-target-label")?.options || [])
+            .map((option) => option.value)
+            .filter(Boolean);
+        window.sendCommand("vision_debug_apply_template", collectVisionDebugParams({ templateId, labels }));
+        window.handleCommandDispatched?.("vision_debug_apply_template");
+    }
+
+    function renderVisionDebugRecentRecords(records) {
+        const select = el("vision-debug-history-select");
+        if (!select) return;
+        if (!Array.isArray(records) || records.length === 0) {
+            select.innerHTML = `<option value="">暂无历史记录</option>`;
+            setText("vision-debug-history-status", "未查询到可回放样本");
+            return;
+        }
+        select.innerHTML = records.map((record) => {
+            const id = pickValue(record, "id", "Id") || "";
+            const time = pickValue(record, "timestamp", "Timestamp") || "";
+            const inspectionId = pickValue(record, "inspectionId", "InspectionId") || "-";
+            const result = pickValue(record, "result", "Result") || "";
+            return `<option value="${escapeHtml(id)}">${escapeHtml(time)} · ${escapeHtml(result)} · ${escapeHtml(inspectionId)}</option>`;
+        }).join("");
+        setText("vision-debug-history-status", `${records.length} 条最近样本，使用当前调试参数重跑`);
+    }
+
+    function renderVisionDebugResult(state) {
+        const debug = state?.visionDebug || {};
+        if (Array.isArray(debug.records)) renderVisionDebugRecentRecords(debug.records);
+        if (debug.status === "templateApplied") {
+            setVisionDebugRuleSetJson(debug.ruleSetJson || debug.RuleSetJson || "");
+            setText("vision-debug-primary-reason", debug.message || "场景模板已生成");
+            return;
+        }
+        if (debug.status === "paramsSaved") {
+            setText("vision-debug-primary-reason", debug.message || "算法调试参数已保存");
+            showToast(debug.message || "算法调试参数已保存", "success", 1500);
+            return;
+        }
+        if (debug.status === "failed") {
+            const message = debug.message || debug.Message || "算法调试失败";
+            renderVisionDebugFailure(message);
+            addLog(message, "error");
+            return;
+        }
+        const snapshot = debug.snapshot || debug.Snapshot;
+        if (!snapshot) return;
+        const finalOk = Boolean(snapshot.finalOk ?? snapshot.FinalOk);
+        const pill = el("vision-debug-final-result");
+        if (pill) {
+            pill.textContent = finalOk ? "OK" : "NG";
+            pill.classList.remove("ok", "ng", "error");
+            pill.classList.add(finalOk ? "ok" : "ng");
+        }
+        setText("vision-debug-primary-reason", snapshot.primaryFailureReason || snapshot.PrimaryFailureReason || (finalOk ? "规则判定 OK" : "规则判定 NG"));
+        setText("vision-debug-count-all", (snapshot.allDetections || snapshot.AllDetections || []).length, "0");
+        setText("vision-debug-count-in", (snapshot.roiIncludedDetections || snapshot.RoiIncludedDetections || []).length, "0");
+        setText("vision-debug-count-out", (snapshot.roiExcludedDetections || snapshot.RoiExcludedDetections || []).length, "0");
+        setText("vision-debug-elapsed", `${snapshot.elapsedMs ?? snapshot.ElapsedMs ?? 0}ms`, "0ms");
+        renderVisionDebugBoxes(snapshot);
+        renderVisionDebugRules(snapshot);
+        renderVisionDebugComparison(snapshot);
+        redrawVisionDebugOverlay();
+    }
+
+    function renderVisionDebugFailure(message) {
+        const pill = el("vision-debug-final-result");
+        if (pill) {
+            pill.textContent = "错误";
+            pill.classList.remove("ok", "ng", "error");
+            pill.classList.add("error");
+        }
+        setText("vision-debug-primary-reason", message || "算法调试失败");
+    }
+
+    function renderVisionDebugBoxes(snapshot) {
+        const list = el("vision-debug-box-list");
+        if (!list) return;
+        const boxes = snapshot.allDetections || snapshot.AllDetections || [];
+        if (!boxes.length) {
+            list.innerHTML = `<div>未检测到目标</div>`;
+            return;
+        }
+        list.innerHTML = boxes.map((box) => {
+            const filtered = Boolean(box.filteredOutByRoi ?? box.FilteredOutByRoi);
+            const label = box.label || box.Label || `Class_${box.classId ?? box.ClassId}`;
+            const confidence = Number(box.confidence ?? box.Confidence ?? 0);
+            const centerX = Number(box.centerX ?? box.CenterX ?? 0);
+            const centerY = Number(box.centerY ?? box.CenterY ?? 0);
+            const index = box.index ?? box.Index ?? "-";
+            return `<div class="${filtered ? "cf-vision-debug-box-muted" : ""}">
+                <strong>#${index} ${escapeHtml(label)}</strong>
+                <span>${confidence.toFixed(2)} · 中心(${centerX.toFixed(0)}, ${centerY.toFixed(0)})${filtered ? " · ROI外过滤" : ""}</span>
+            </div>`;
+        }).join("");
+    }
+
+    function renderVisionDebugRules(snapshot) {
+        const list = el("vision-debug-rule-details");
+        if (!list) return;
+        const rules = snapshot.ruleResults || snapshot.RuleResults || [];
+        if (!rules.length) {
+            list.innerHTML = `<div>未启用规则或规则判定失败</div>`;
+            return;
+        }
+        list.innerHTML = rules.map((rule) => {
+            const ok = Boolean(rule.isMatch ?? rule.IsMatch);
+            const name = rule.ruleName || rule.RuleName || rule.ruleType || rule.RuleType || "规则";
+            const expected = rule.expected || rule.Expected || "";
+            const actual = rule.actual || rule.Actual || "";
+            const reason = rule.reason || rule.Reason || rule.message || rule.Message || "";
+            return `<div>
+                <strong>${ok ? "OK" : "NG"} · ${escapeHtml(name)}</strong>
+                <span>期望: ${escapeHtml(expected)} | 实际: ${escapeHtml(actual)}</span>
+                <span>${escapeHtml(reason)}</span>
+            </div>`;
+        }).join("");
+    }
+
+    function renderVisionDebugComparison(snapshot) {
+        const comparison = snapshot.comparison || snapshot.Comparison;
+        if (!comparison) return;
+        const oldResult = comparison.oldResult || comparison.OldResult || "";
+        const newResult = comparison.newResult || comparison.NewResult || "";
+        setText("vision-debug-history-status", `旧判定 ${oldResult || "-"} / 新判定 ${newResult || "-"}`);
+    }
+
+    function getVisionDebugOverlayLayout() {
+        const image = el("camera-view");
+        const container = el("camera-container");
+        const canvas = el("vision-debug-overlay");
+        if (!image || !container || !canvas) return null;
+        const imageWidth = image.naturalWidth || image.width || 1280;
+        const imageHeight = image.naturalHeight || image.height || 720;
+        const containerRect = container.getBoundingClientRect();
+        const containerRatio = containerRect.width / Math.max(1, containerRect.height);
+        const imageRatio = imageWidth / Math.max(1, imageHeight);
+        let renderedWidth;
+        let renderedHeight;
+        let offsetX;
+        let offsetY;
+        if (containerRatio > imageRatio) {
+            renderedHeight = containerRect.height;
+            renderedWidth = containerRect.height * imageRatio;
+            offsetX = (containerRect.width - renderedWidth) / 2;
+            offsetY = 0;
+        } else {
+            renderedWidth = containerRect.width;
+            renderedHeight = containerRect.width / imageRatio;
+            offsetX = 0;
+            offsetY = (containerRect.height - renderedHeight) / 2;
+        }
+        canvas.style.width = `${renderedWidth}px`;
+        canvas.style.height = `${renderedHeight}px`;
+        canvas.style.left = `${offsetX}px`;
+        canvas.style.top = `${offsetY}px`;
+        canvas.width = Math.max(1, Math.round(renderedWidth));
+        canvas.height = Math.max(1, Math.round(renderedHeight));
+        return { canvas, imageWidth, imageHeight, scaleX: canvas.width / imageWidth, scaleY: canvas.height / imageHeight };
+    }
+
+    function clearVisionDebugOverlay() {
+        const canvas = el("vision-debug-overlay");
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function redrawVisionDebugOverlay() {
+        const snapshot = store.state.visionDebug?.snapshot || store.state.visionDebug?.Snapshot;
+        const layout = getVisionDebugOverlayLayout();
+        if (!layout) return;
+        const { canvas, scaleX, scaleY } = layout;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!snapshot) return;
+        const boxes = snapshot.allDetections || snapshot.AllDetections || [];
+        boxes.forEach((box) => {
+            const filtered = Boolean(box.filteredOutByRoi ?? box.FilteredOutByRoi);
+            const x = Number(box.x ?? box.X ?? 0) * scaleX;
+            const y = Number(box.y ?? box.Y ?? 0) * scaleY;
+            const width = Number(box.width ?? box.Width ?? 0) * scaleX;
+            const height = Number(box.height ?? box.Height ?? 0) * scaleY;
+            const index = box.index ?? box.Index ?? "";
+            const label = box.label || box.Label || `Class_${box.classId ?? box.ClassId}`;
+            const confidence = Number(box.confidence ?? box.Confidence ?? 0);
+            ctx.save();
+            ctx.globalAlpha = filtered ? 0.45 : 1;
+            ctx.strokeStyle = filtered ? "rgba(100, 116, 139, 0.9)" : "rgba(22, 163, 74, 0.96)";
+            ctx.fillStyle = filtered ? "rgba(100, 116, 139, 0.12)" : "rgba(22, 163, 74, 0.08)";
+            ctx.lineWidth = filtered ? 1.5 : 2.5;
+            ctx.setLineDash(filtered ? [6, 4] : []);
+            ctx.strokeRect(x, y, width, height);
+            ctx.fillRect(x, y, width, height);
+            const caption = `#${index} ${label} ${confidence.toFixed(2)} (${Math.round(Number(box.centerX ?? box.CenterX ?? 0))},${Math.round(Number(box.centerY ?? box.CenterY ?? 0))})`;
+            ctx.font = "12px Microsoft YaHei, sans-serif";
+            const textWidth = ctx.measureText(caption).width + 10;
+            const textY = Math.max(0, y - 20);
+            ctx.fillStyle = filtered ? "rgba(51, 65, 85, 0.85)" : "rgba(21, 128, 61, 0.92)";
+            ctx.fillRect(x, textY, textWidth, 18);
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(caption, x + 5, textY + 13);
+            ctx.restore();
+        });
+    }
+
     function renderReplayStatus(state) {
         const replay = state?.replay || {};
         const run = replay.currentRunId ? replay.runs?.[replay.currentRunId] : null;
@@ -1310,6 +1636,9 @@
         }
         if (hasRenderReason(reasons, "fieldDebug")) {
             renderFieldDiagnostics(state);
+        }
+        if (hasRenderReason(reasons, "visionDebug")) {
+            renderVisionDebugResult(state);
         }
     }
 
@@ -1585,6 +1914,7 @@
             image.onerror = null;
             window.requestAnimationFrame(() => {
                 if (typeof window.redrawROI === "function") window.redrawROI();
+                redrawVisionDebugOverlay();
             });
         };
         image.onerror = () => {
@@ -1749,6 +2079,18 @@
             case "field_debug_simulate_trigger":
                 addLog("现场调试命令已发送", "info");
                 break;
+            case "vision_debug_run_current":
+                addLog("算法调试当前帧重跑已发送", "info");
+                break;
+            case "vision_debug_run_history":
+                addLog("历史样本算法调试已发送", "info");
+                break;
+            case "vision_debug_save_params":
+                addLog("算法调试参数保存请求已发送", "info");
+                break;
+            case "vision_debug_apply_template":
+                addLog("场景模板生成请求已发送", "info");
+                break;
             default:
                 break;
         }
@@ -1756,6 +2098,7 @@
 
     function handleDetectionFrame(data) {
         if (!data) return;
+        clearVisionDebugOverlay();
         if (typeof data.isOk === "boolean") updateResult(data.isOk);
         if (data.stats) updateStatus(data.stats);
         if (data.log?.message) addDetectionLog(data.log.message, data.log.type);
@@ -1812,15 +2155,22 @@
         flashPlcTrigger,
         handleInspectionUpdate,
         openFieldDiagnosticsPanel,
+        openVisionDebugPanel,
         renderHealthSnapshot: handleHealthSnapshot,
         renderFieldDiagnostics: () => renderFieldDiagnostics(window.CF_STATE),
+        renderVisionDebugResult: () => renderVisionDebugResult(window.CF_STATE),
         renderInspectionContext: () => renderInspectionContext(window.CF_STATE),
         renderManualReviewStatus: () => renderManualReviewStatus(window.CF_STATE),
         renderReplayStatus: () => renderReplayStatus(window.CF_STATE),
         renderRecentInspections: () => renderRecentInspections(window.CF_STATE),
         requestExitApp,
         requestOpenCamera,
+        requestVisionDebugRecentRecords,
         requestStartSystem,
+        runVisionDebugCurrent,
+        runVisionDebugHistory,
+        saveVisionDebugParams,
+        applyVisionDebugTemplate,
         startSystem,
         handleCommandDispatched,
         setStartSystemButtonState,
@@ -1834,6 +2184,8 @@
         updateInferenceMetrics,
         updateResult,
         updateStatus,
+        closeVisionDebugPanel,
+        redrawVisionDebugOverlay,
         receiveDetectionResult,
     });
 
@@ -1856,6 +2208,7 @@
     bridge.registerMessageHandler("inspectionUpdate", handleInspectionUpdate);
     bridge.registerMessageHandler("healthSnapshot", handleHealthSnapshot);
     bridge.registerMessageHandler("fieldDebugResult", handleFieldDebugResult);
+    bridge.registerMessageHandler("visionDebugResult", (data) => store.applyVisionDebugResult(data));
     bridge.registerMessageHandler("diagnosticPackageExportResult", handleDiagnosticPackageExportResult);
     bridge.registerMessageHandler("manualReviewRecords", (data) => store.applyManualReviewUpdate(data));
     bridge.registerMessageHandler("manualReviewResponse", (data) => store.applyManualReviewUpdate(data));
@@ -1870,6 +2223,13 @@
     bridge.registerMessageHandler("detectionFrame", handleDetectionFrame);
     bridge.registerMessageHandler("uiCommand", handleUiCommand);
     bridge.registerMessageHandler("commandError", handleCommandError);
+
+    document.addEventListener("input", (event) => {
+        const target = event.target;
+        if (target?.id === "vision-debug-confidence" || target?.id === "vision-debug-iou") {
+            updateVisionDebugSliderLabels();
+        }
+    });
 })();
 
 // ==========================================

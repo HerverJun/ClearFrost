@@ -93,6 +93,7 @@ namespace ClearFrost.Core.Rules
         public bool IsMatch { get; init; }
         public string Expected { get; init; } = string.Empty;
         public string Actual { get; init; } = string.Empty;
+        public string Reason { get; init; } = string.Empty;
         public string Message { get; init; } = string.Empty;
     }
 

@@ -223,6 +223,7 @@ namespace ClearFrost
             _uiController.OnRequestHealthSnapshot += (s, e) => SafeFireAndForget(SendHealthSnapshotToFrontendAsync(showToast: true), "前端刷新健康快照");
             _uiController.OnExportDiagnosticPackage += (s, args) => SafeFireAndForget(ExportDiagnosticPackageFromWebAsync(args), "导出诊断包");
             _uiController.OnFieldDebugCommand += (s, args) => SafeFireAndForget(HandleFieldDebugCommandAsync(args), "现场单步调试");
+            _uiController.OnVisionDebugCommand += (s, args) => SafeFireAndForget(HandleVisionDebugCommandAsync(args), "视觉算法调试");
             _uiController.OnThresholdChanged += (s, val) =>
             {
                 if (IsRuntimeMutationBlocked("ROI阈值更新")) return;
