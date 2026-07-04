@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>清霜 V5 现场操作台 - ClearFrost</title>
+    <title>清霜 V5 现场操作台</title>
 
 
 
@@ -22,12 +22,41 @@
         <div class="stitch-brand">
             <div class="stitch-snow-mark" aria-hidden="true">
                 <svg viewBox="0 0 64 64" role="img" aria-label="清霜图标" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="32" cy="32" r="25" fill="#d9e2ff" />
-                    <g stroke="#094cb2" stroke-width="3" stroke-linecap="round" fill="none">
-                        <path d="M32 10v44M10 32h44M16.4 16.4l31.2 31.2M47.6 16.4 16.4 47.6" />
-                        <path d="m32 10-6 7M32 10l6 7M32 54l-6-7M32 54l6-7M10 32l7-6M10 32l7 6M54 32l-7-6M54 32l-7 6" />
+                    <defs>
+                        <radialGradient id="cf-snow-bg" cx="34%" cy="24%" r="72%">
+                            <stop offset="0" stop-color="#ffffff" />
+                            <stop offset="0.56" stop-color="#dcecff" />
+                            <stop offset="1" stop-color="#b8d4f8" />
+                        </radialGradient>
+                        <linearGradient id="cf-snow-stroke" x1="14" y1="12" x2="50" y2="52">
+                            <stop offset="0" stop-color="#0b63d8" />
+                            <stop offset="1" stop-color="#06449f" />
+                        </linearGradient>
+                    </defs>
+                    <circle cx="32" cy="32" r="24" fill="url(#cf-snow-bg)" stroke="#a9c8ed" stroke-width="1.4" />
+                    <path d="M32 9.5 51.5 20.8v22.4L32 54.5 12.5 43.2V20.8Z" fill="none"
+                        stroke="#7fb0eb" stroke-width="1.2" opacity="0.42" />
+                    <g fill="none" stroke="url(#cf-snow-stroke)" stroke-linecap="round" stroke-linejoin="round">
+                        <g stroke-width="3">
+                            <path d="M32 12v40" />
+                            <path d="M14.7 22 49.3 42" />
+                            <path d="M14.7 42 49.3 22" />
+                        </g>
+                        <g stroke-width="2.3">
+                            <path d="m32 12-5.5 6.2M32 12l5.5 6.2" />
+                            <path d="m32 52-5.5-6.2M32 52l5.5-6.2" />
+                            <path d="m14.7 22 8.1-1.5M14.7 22l2.7 7.7" />
+                            <path d="m49.3 42-8.1 1.5M49.3 42l-2.7-7.7" />
+                            <path d="m14.7 42 2.7-7.7M14.7 42l8.1 1.5" />
+                            <path d="m49.3 22-2.7 7.7M49.3 22l-8.1-1.5" />
+                        </g>
+                        <g stroke-width="1.8" opacity="0.9">
+                            <path d="M32 24h8M32 24h-8M32 40h8M32 40h-8" />
+                            <path d="m25 28 4-6M39 36l-4 6M39 28l-4-6M25 36l4 6" />
+                        </g>
                     </g>
-                    <circle cx="32" cy="32" r="5" fill="#3366cc" />
+                    <circle cx="32" cy="32" r="5.5" fill="#f8fbff" stroke="#0b55be" stroke-width="2" />
+                    <circle cx="32" cy="32" r="2.2" fill="#0b55be" />
                 </svg>
             </div>
             <h1>清霜 <span>ClearFrost</span></h1>
@@ -83,7 +112,7 @@
                         d="m5.5 16 4.2-4.2a1.5 1.5 0 0 1 2.1 0l2 2 1.1-1.1a1.5 1.5 0 0 1 2.1 0l1.5 1.5M15.5 8.5h.01" />
                 </svg>
             </button>
-            <button data-action="openAuditModal" title="Audit" aria-label="Audit">
+            <button data-action="openAuditModal" title="审计记录" aria-label="审计记录">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M9 12h6m-6 4h6M7 3h10l3 3v15H4V3h3Zm10 0v4h4" />
@@ -96,7 +125,7 @@
     <div id="app-main" class="stitch-shell">
         <aside id="left-panel" class="stitch-left-panel">
             <section class="stitch-section">
-                <h3>实时统计 (Real-time Stats)</h3>
+                <h3>实时统计</h3>
                 <div class="stitch-stat-grid">
                     <div class="stitch-stat-card">
                         <span>生产总数</span>
@@ -108,17 +137,17 @@
                     </div>
                 </div>
                 <div class="stitch-okng-grid">
-                    <div><span>OK</span><strong id="val-ok">0</strong></div>
-                    <div><span>NG</span><strong id="val-ng">0</strong></div>
+                    <div><span>合格</span><strong id="val-ok">0</strong></div>
+                    <div><span>不合格</span><strong id="val-ng">0</strong></div>
                 </div>
             </section>
 
             <section class="stitch-section stitch-model-section">
-                <h3>模型配置 (Model Config)</h3>
+                <h3>模型配置</h3>
                 <div id="yolo-controls" class="stitch-model-stack">
                     <div class="stitch-model-card">
                         <label>
-                            <span>主模型 (Main)</span>
+                            <span>主模型</span>
                         </label>
                         <select id="model-select" data-change-cmd="change_model">
                             <option value="">正在初始化系统...</option>
@@ -126,7 +155,7 @@
                     </div>
                     <div class="stitch-model-card">
                         <label>
-                            <span>子模型 1 (Sub 1)</span>
+                            <span>子模型 1</span>
                         </label>
                         <select id="auxiliary1-select" data-change-cmd="set_auxiliary1_model">
                             <option value="">不使用</option>
@@ -134,7 +163,7 @@
                     </div>
                     <div class="stitch-model-card">
                         <label>
-                            <span>子模型 2 (Sub 2)</span>
+                            <span>子模型 2</span>
                         </label>
                         <select id="auxiliary2-select" data-change-cmd="set_auxiliary2_model">
                             <option value="">不使用</option>
@@ -154,7 +183,7 @@
             </section>
 
             <section class="stitch-section stitch-key-log-section">
-                <h3>关键日志 (Key Logs)</h3>
+                <h3>关键日志</h3>
                 <div id="log-container" class="stitch-key-log-list scroller" aria-live="polite"></div>
             </section>
         </aside>
@@ -164,8 +193,8 @@
                 <div class="stitch-feed-info">
                     <div class="stitch-feed-chips">
                         <span id="feed-sn">条码: -</span>
-                        <span id="feed-model-name">Model -</span>
-                        <span id="feed-trigger-seq">T- / R-</span>
+                        <span id="feed-model-name">模型 -</span>
+                        <span id="feed-trigger-seq">触发- / 结果-</span>
                     </div>
                     <button data-action="clearRoi" title="清除 ROI" aria-label="清除 ROI">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -183,7 +212,7 @@
                     <div id="result-overlay" class="hidden stitch-result-overlay">OK</div>
                 </div>
                 <div class="stitch-result-strip">
-                    <span id="camera-result-pill" class="cf-result-pill result-idle">WAIT</span>
+                    <span id="camera-result-pill" class="cf-result-pill result-idle">等待</span>
                     <div>
                         <strong id="camera-result-text">等待检测结果</strong>
                         <p>
@@ -192,16 +221,16 @@
                             检出 <b id="camera-target-count">0</b>
                             <span>|</span>
                             模型 <b id="camera-model">-</b>
-                            <em id="camera-fallback" class="hidden">FALLBACK</em>
+                            <em id="camera-fallback" class="hidden">备用模型</em>
                         </p>
                     </div>
-                    <span id="camera-phase">IDLE</span>
+                    <span id="camera-phase">空闲</span>
                 </div>
             </div>
         </main>
 
         <aside id="right-panel" class="stitch-log-panel">
-            <h3>检测日志 (Detection Logs)</h3>
+            <h3>检测日志</h3>
             <div id="inspection-flow-list" class="stitch-log-list scroller"></div>
             <div class="stitch-action-stack">
                 <button id="btn-open-camera" data-action="startSystem" class="stitch-start-button">
@@ -209,7 +238,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M8 5v14l11-7-11-7Z" />
                     </svg>
-                    启动系统 (Start System)
+                    启动系统
                 </button>
                 <div class="stitch-action-grid">
                     <button data-cmd="manual_detect">
@@ -657,8 +686,8 @@
                                     <label class="text-[10px] font-bold text-ink-400 mb-1 block">业务协议模式</label>
                                     <select id="cfg-plc-protocol-mode" data-change-action="updatePlcProtocolModeUi"
                                         class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
-                                        <option value="Legacy">Legacy（保持旧现场行为）</option>
-                                        <option value="HandshakeV1">HandshakeV1（序号/健康握手）</option>
+                                        <option value="Legacy">旧版模式（保持旧现场行为）</option>
+                                        <option value="HandshakeV1">握手模式 V1（序号/健康握手）</option>
                                     </select>
                                 </div>
                                 <div class="cf-plc-span-2">
@@ -838,7 +867,7 @@
                         <section class="cf-plc-group">
                             <div class="cf-plc-group-title">
                                 <span>节拍与写入值</span>
-                                <em>触发等待、轮询间隔和 OK/NG 返回值</em>
+                                <em>触发等待、轮询间隔和合格/不合格返回值</em>
                             </div>
                             <div class="cf-plc-grid cf-plc-grid-4">
                                 <div>
@@ -900,8 +929,8 @@
                             <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">相机品牌</label>
                             <select id="cfg-cam-manufacturer"
                                 class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
-                                <option value="Huaray">华睿 (Huaray)</option>
-                                <option value="Hikvision">海康威视 (Hikvision)</option>
+                                <option value="Huaray">华睿</option>
+                                <option value="Hikvision">海康威视</option>
                             </select>
                         </div>
                         <div>
@@ -1002,7 +1031,7 @@
                             <div>
                                 <label class="text-[10px] font-bold text-ink-400 mb-1 block">当前操作员</label>
                                 <input id="cfg-current-operator-id" type="text"
-                                    class="w-full tech-input px-4 py-2.5 rounded-xl text-xs font-bold" placeholder="operator-id">
+                                    class="w-full tech-input px-4 py-2.5 rounded-xl text-xs font-bold" placeholder="操作员编号">
                             </div>
                             <div>
                                 <label class="text-[10px] font-bold text-ink-400 mb-1 block">当前角色</label>
@@ -1080,9 +1109,9 @@
             class="absolute inset-y-0 right-0 w-[80%] bg-white/95 shadow-2xl flex flex-col border-l border-slate-200 cf-ornate-modal">
             <header class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0 cf-ornate-header">
                 <div class="cf-trace-title-block">
-                    <div class="cf-trace-kicker">TRACE ARCHIVE</div>
+                    <div class="cf-trace-kicker">追溯档案</div>
                     <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest capitalize">记录追溯 <span
-                            class="text-[10px] font-sans font-normal text-ink-400 ml-2 uppercase italic tracking-normal">查看历史检测异常（NG）图片记录</span></h3>
+                            class="text-[10px] font-sans font-normal text-ink-400 ml-2 uppercase italic tracking-normal">查看历史异常图片记录</span></h3>
                     <div class="cf-trace-filters">
                         <label>日期选择</label>
                         <div id="trace-date-slot"></div>
@@ -1104,102 +1133,102 @@
                 <div class="grid grid-cols-1 xl:grid-cols-3 gap-3 text-[11px] text-ink-600">
                     <div class="space-y-2">
                         <div class="flex items-center justify-between gap-2">
-                            <strong class="text-ink-800">Manual Review</strong>
-                            <span>Records <b id="manual-review-count">0</b></span>
+                            <strong class="text-ink-800">人工复核</strong>
+                            <span>记录 <b id="manual-review-count">0</b></span>
                         </div>
                         <div class="grid grid-cols-3 gap-2">
                             <select id="manual-review-ground-truth-input" class="border border-slate-200 rounded px-2 py-1">
-                                <option value="OK">OK</option>
-                                <option value="NG">NG</option>
+                                <option value="OK">合格</option>
+                                <option value="NG">不合格</option>
                             </select>
                             <select id="manual-review-disposition-input" class="border border-slate-200 rounded px-2 py-1">
-                                <option value="Confirmed">Confirmed</option>
-                                <option value="FalseReject">FalseReject</option>
-                                <option value="MissedDetection">MissedDetection</option>
-                                <option value="Pending">Pending</option>
-                                <option value="InvalidSample">InvalidSample</option>
+                                <option value="Confirmed">已确认</option>
+                                <option value="FalseReject">误判不合格</option>
+                                <option value="MissedDetection">漏检</option>
+                                <option value="Pending">待处理</option>
+                                <option value="InvalidSample">无效样本</option>
                             </select>
-                            <input id="manual-review-expected-revision" type="number" min="0" placeholder="Revision"
+                            <input id="manual-review-expected-revision" type="number" min="0" placeholder="版本号"
                                 class="border border-slate-200 rounded px-2 py-1">
                         </div>
-                        <input id="manual-review-notes" type="text" placeholder="Notes"
+                        <input id="manual-review-notes" type="text" placeholder="备注"
                             class="w-full border border-slate-200 rounded px-2 py-1">
                         <div class="flex gap-2">
                             <button type="button" data-action="queryManualReviewRecords"
-                                class="px-3 py-1 rounded border border-slate-200">Query</button>
+                                class="px-3 py-1 rounded border border-slate-200">查询</button>
                             <button type="button" data-action="saveManualReview"
-                                class="px-3 py-1 rounded bg-ink-800 text-white">Save Truth</button>
+                                class="px-3 py-1 rounded bg-ink-800 text-white">保存真值</button>
                         </div>
                         <div class="grid grid-cols-3 gap-2 text-[10px] text-slate-500">
-                            <span>Result <b id="manual-review-response"></b></span>
-                            <span>Rev <b id="manual-review-revision"></b></span>
-                            <span>Truth <b id="manual-review-ground-truth"></b></span>
+                            <span>结果 <b id="manual-review-response"></b></span>
+                            <span>版本 <b id="manual-review-revision"></b></span>
+                            <span>真值 <b id="manual-review-ground-truth"></b></span>
                         </div>
                     </div>
 
                     <div class="space-y-2">
                         <div class="flex items-center justify-between gap-2">
-                            <strong class="text-ink-800">Replay Dataset</strong>
+                            <strong class="text-ink-800">回放数据集</strong>
                             <span id="replay-dataset-id"></span>
                         </div>
                         <div class="grid grid-cols-3 gap-2">
                             <input id="replay-query-limit" type="number" min="1" max="10000" value="100"
                                 class="border border-slate-200 rounded px-2 py-1">
-                            <input id="replay-dataset-input" type="text" placeholder="DatasetId"
+                            <input id="replay-dataset-input" type="text" placeholder="数据集编号"
                                 class="border border-slate-200 rounded px-2 py-1 col-span-2">
                         </div>
-                        <input id="replay-baseline-model" type="text" placeholder="Baseline selection value"
+                        <input id="replay-baseline-model" type="text" placeholder="基准模型选择值"
                             class="w-full border border-slate-200 rounded px-2 py-1">
-                        <input id="replay-candidate-model" type="text" placeholder="Candidate selection value"
+                        <input id="replay-candidate-model" type="text" placeholder="候选模型选择值"
                             class="w-full border border-slate-200 rounded px-2 py-1">
                         <div class="flex gap-2">
                             <button type="button" data-action="createReplayDataset"
-                                class="px-3 py-1 rounded border border-slate-200">Freeze</button>
+                                class="px-3 py-1 rounded border border-slate-200">固化</button>
                             <button type="button" data-action="previewReplayDataset"
-                                class="px-3 py-1 rounded border border-slate-200">Preview</button>
+                                class="px-3 py-1 rounded border border-slate-200">预览</button>
                             <button type="button" data-action="queryReplayDatasets"
-                                class="px-3 py-1 rounded border border-slate-200">Datasets</button>
+                                class="px-3 py-1 rounded border border-slate-200">数据集</button>
                             <button type="button" data-action="archiveReplayDataset"
-                                class="px-3 py-1 rounded border border-slate-200">Archive</button>
+                                class="px-3 py-1 rounded border border-slate-200">归档</button>
                             <button type="button" data-action="runReplayComparison"
-                                class="px-3 py-1 rounded bg-celadon-600 text-white">Run Replay</button>
+                                class="px-3 py-1 rounded bg-celadon-600 text-white">运行回放</button>
                         </div>
-                        <div class="truncate text-[10px] text-slate-500">Hash <b id="replay-dataset-hash"></b> · Datasets <b id="replay-dataset-count"></b></div>
+                        <div class="truncate text-[10px] text-slate-500">哈希 <b id="replay-dataset-hash"></b> · 数据集 <b id="replay-dataset-count"></b></div>
                     </div>
 
                     <div class="space-y-2">
                         <div class="flex items-center justify-between gap-2">
-                            <strong class="text-ink-800">Approval Gate</strong>
+                            <strong class="text-ink-800">审批关卡</strong>
                             <span id="replay-approval-status"></span>
                         </div>
                         <div class="grid grid-cols-2 gap-2">
-                            <input id="replay-run-input" type="text" placeholder="RunId"
+                            <input id="replay-run-input" type="text" placeholder="运行编号"
                                 class="border border-slate-200 rounded px-2 py-1">
                             <button type="button" data-action="approveReplayCandidate"
-                                class="px-3 py-1 rounded bg-rouge-600 text-white">Approve</button>
+                                class="px-3 py-1 rounded bg-rouge-600 text-white">审批通过</button>
                         </div>
                         <div class="flex flex-wrap gap-2">
                             <button type="button" data-action="cancelReplayRun"
-                                class="px-3 py-1 rounded border border-slate-200">Cancel</button>
+                                class="px-3 py-1 rounded border border-slate-200">取消</button>
                             <button type="button" data-action="queryReplayRuns"
-                                class="px-3 py-1 rounded border border-slate-200">Runs</button>
+                                class="px-3 py-1 rounded border border-slate-200">运行记录</button>
                             <button type="button" data-action="queryReplayReport"
-                                class="px-3 py-1 rounded border border-slate-200">Report</button>
+                                class="px-3 py-1 rounded border border-slate-200">报告</button>
                             <button type="button" data-action="queryModelApprovalEvidence"
-                                class="px-3 py-1 rounded border border-slate-200">Evidence</button>
+                                class="px-3 py-1 rounded border border-slate-200">凭证</button>
                             <button type="button" data-action="runReplayIntegrityScan"
-                                class="px-3 py-1 rounded border border-slate-200">Scan</button>
+                                class="px-3 py-1 rounded border border-slate-200">扫描</button>
                         </div>
                         <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-slate-500">
-                            <span>Status <b id="replay-run-status"></b></span>
-                            <span>Progress <b id="replay-run-progress"></b></span>
-                            <span>Changed <b id="replay-changed-count"></b></span>
-                            <span>New Miss <b id="replay-new-missed-count"></b></span>
-                            <span>Fixed Miss <b id="replay-fixed-missed-count"></b></span>
-                            <span>New FR <b id="replay-new-false-reject-count"></b></span>
-                            <span>Fixed FR <b id="replay-fixed-false-reject-count"></b></span>
-                            <span>Runs <b id="replay-run-count"></b></span>
-                            <span>Integrity <b id="replay-integrity-status"></b></span>
+                            <span>状态 <b id="replay-run-status"></b></span>
+                            <span>进度 <b id="replay-run-progress"></b></span>
+                            <span>变化 <b id="replay-changed-count"></b></span>
+                            <span>新增漏检 <b id="replay-new-missed-count"></b></span>
+                            <span>修复漏检 <b id="replay-fixed-missed-count"></b></span>
+                            <span>新增误判 <b id="replay-new-false-reject-count"></b></span>
+                            <span>修复误判 <b id="replay-fixed-false-reject-count"></b></span>
+                            <span>运行 <b id="replay-run-count"></b></span>
+                            <span>完整性 <b id="replay-integrity-status"></b></span>
                         </div>
                         <div id="replay-rejection-reasons" class="min-h-4 text-[10px] text-rouge-600"></div>
                     </div>
@@ -1210,7 +1239,7 @@
                 <div class="w-60 border-r border-slate-100 flex flex-col bg-slate-50/50 shrink-0">
                     <div class="cf-trace-sidebar-head">
                         <span>异常目录</span>
-                        <strong>NG Archive</strong>
+                        <strong>不合格档案</strong>
                     </div>
                     <div class="p-5 border-b border-slate-100 bg-white">
                         <label
@@ -1305,14 +1334,12 @@
                         <thead>
                             <tr class="bg-slate-50/80 border-b border-slate-200">
                                 <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">
-                                    时间戳 /
-                                    TIMESTAMP</th>
+                                    时间戳</th>
                                 <th
                                     class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest text-center">
-                                    结果 / STATUS</th>
+                                    结果</th>
                                 <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">
-                                    检测详情
-                                    / DETAILS</th>
+                                    检测详情</th>
                             </tr>
                         </thead>
                         <tbody id="log-history-table"
@@ -1326,8 +1353,7 @@
                 </div>
             </div>
             <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
-                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Showing latest 500
-                    records</span>
+                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">最多显示最新 500 条记录</span>
                 <button type="button" disabled title="CSV 导出将在后续版本开放"
                     class="px-4 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-ink-600 hover:text-celadon-600 hover:border-celadon-300 transition-[background-color,border-color,color,box-shadow] flex items-center gap-2">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1345,28 +1371,28 @@
         <div class="glass-panel-lite cf-ornate-modal w-full max-w-6xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[82vh]">
             <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0 cf-ornate-header">
                 <div class="flex items-center gap-4">
-                    <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">AUDIT RECORDS</h3>
+                    <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">审计记录</h3>
                     <span id="audit-count-badge"
-                        class="px-2 py-0.5 text-[10px] font-bold bg-celadon-50 text-celadon-600 rounded-full">0 rows</span>
+                        class="px-2 py-0.5 text-[10px] font-bold bg-celadon-50 text-celadon-600 rounded-full">0 条</span>
                 </div>
                 <div class="flex items-center gap-2">
                     <input id="audit-start-time" type="datetime-local" class="tech-input rounded-lg px-3 py-1.5 text-xs">
                     <input id="audit-end-time" type="datetime-local" class="tech-input rounded-lg px-3 py-1.5 text-xs">
-                    <input id="audit-operation-filter" type="text" placeholder="Operation"
+                    <input id="audit-operation-filter" type="text" placeholder="操作"
                         class="tech-input rounded-lg px-3 py-1.5 text-xs w-28">
-                    <input id="audit-operator-filter" type="text" placeholder="Operator"
+                    <input id="audit-operator-filter" type="text" placeholder="操作员"
                         class="tech-input rounded-lg px-3 py-1.5 text-xs w-28">
                     <select id="audit-status-filter" class="tech-input rounded-lg px-3 py-1.5 text-xs">
-                        <option value="">Any</option>
-                        <option value="Requested">Requested</option>
-                        <option value="Denied">Denied</option>
-                        <option value="Succeeded">Succeeded</option>
-                        <option value="Failed">Failed</option>
+                        <option value="">全部状态</option>
+                        <option value="Requested">已请求</option>
+                        <option value="Denied">已拒绝</option>
+                        <option value="Succeeded">已成功</option>
+                        <option value="Failed">已失败</option>
                     </select>
                     <button data-action="queryAuditRecords"
-                        class="px-3 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">Refresh</button>
+                        class="px-3 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">查询</button>
                     <button data-action="exportAuditRecords"
-                        class="px-3 py-1.5 text-xs font-bold text-ink-600 bg-white border border-slate-200 hover:border-celadon-300 rounded-lg transition-colors">Export</button>
+                        class="px-3 py-1.5 text-xs font-bold text-ink-600 bg-white border border-slate-200 hover:border-celadon-300 rounded-lg transition-colors">导出</button>
                     <button data-action="closeAuditModal"
                         class="text-2xl text-ink-400 hover:text-vermilion transition-colors">&times;</button>
                 </div>
@@ -1377,19 +1403,19 @@
                     <table class="w-full text-left border-collapse min-w-[1100px]">
                         <thead>
                             <tr class="bg-slate-50/80 border-b border-slate-200">
-                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Time</th>
-                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Operation</th>
-                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Status</th>
-                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Operator</th>
-                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Role</th>
-                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Inspection</th>
-                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Details</th>
-                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">Failure</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">时间</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">操作</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">状态</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">操作员</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">角色</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">检测单号</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">详情</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">失败原因</th>
                             </tr>
                         </thead>
                         <tbody id="audit-table" class="text-[11px] text-ink-600 font-mono divide-y divide-slate-100">
                             <tr>
-                                <td colspan="8" class="px-4 py-10 text-center text-ink-300 italic">No audit records loaded.</td>
+                                <td colspan="8" class="px-4 py-10 text-center text-ink-300 italic">尚未加载审计记录</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1397,7 +1423,7 @@
             </div>
             <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
                 <span id="audit-export-path" class="text-[10px] text-ink-400 font-mono truncate"></span>
-                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Read-only audit outbox query</span>
+                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">只读审计队列查询</span>
             </div>
         </div>
     </div>
@@ -1426,9 +1452,9 @@
                             class="text-left text-ink-400 font-bold uppercase tracking-widest border-b border-slate-200">
                             <th class="px-4 py-4">生产日期</th>
                             <th class="px-4 py-4 text-center">总检测数</th>
-                            <th class="px-4 py-4 text-center">合格 (OK)</th>
-                            <th class="px-4 py-4 text-center">不合格 (NG)</th>
-                            <th class="px-4 py-4 text-center">直通率 (Yield)</th>
+                            <th class="px-4 py-4 text-center">合格</th>
+                            <th class="px-4 py-4 text-center">不合格</th>
+                            <th class="px-4 py-4 text-center">直通率</th>
                         </tr>
                     </thead>
                     <tbody id="statistics-history-table" class="divide-y divide-slate-100 text-ink-600 font-mono">

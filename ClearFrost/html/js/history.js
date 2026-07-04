@@ -10,9 +10,71 @@
     const TRACE_DEFAULT_PAGE_SIZE = 100;
     let tracePagerState = createTracePagerState();
     let activeTraceRecord = null;
+    const AuditStatusLabels = Object.freeze({
+        Requested: "已请求",
+        Denied: "已拒绝",
+        Succeeded: "已成功",
+        Failed: "已失败",
+    });
+    const AuditOperationLabels = Object.freeze({
+        ManualRelease: "强制放行",
+        ManualReview: "人工复核",
+        ReplayApproval: "回放审批",
+        ReplayIntegrityScan: "回放完整性扫描",
+        archive_replay_dataset: "归档回放数据集",
+        create_replay_dataset: "创建回放数据集",
+        preview_replay_dataset: "预览回放数据集",
+        query_replay_datasets: "查询回放数据集",
+        run_replay_comparison: "运行回放对比",
+        cancel_replay_run: "取消回放运行",
+        query_replay_runs: "查询回放运行",
+        query_replay_report: "查询回放报告",
+        query_model_approval_evidence: "查询模型审批凭证",
+        run_replay_integrity_scan: "运行回放完整性扫描",
+        approve_replay_candidate: "审批候选模型",
+        query_manual_review_records: "查询人工复核记录",
+        save_manual_review: "保存人工复核",
+    });
+    const ProductionRoleLabels = Object.freeze({
+        Operator: "操作员",
+        ShiftLead: "班组长",
+        Engineer: "工程师",
+    });
 
     function byId(id) {
         return document.getElementById(id);
+    }
+
+    function formatAuditStatus(status) {
+        const value = String(status || "").trim();
+        return AuditStatusLabels[value] || value;
+    }
+
+    function formatProductionRole(role) {
+        const value = String(role || "").trim();
+        return ProductionRoleLabels[value] || value;
+    }
+
+    function formatAuditOperation(operation) {
+        const value = String(operation || "").trim();
+        return AuditOperationLabels[value] || value;
+    }
+
+    function formatAuditText(value) {
+        let text = String(value || "").trim();
+        if (!text) return "";
+
+        Object.entries(AuditOperationLabels).forEach(([raw, label]) => {
+            text = text.split(raw).join(label);
+        });
+        Object.entries(AuditStatusLabels).forEach(([raw, label]) => {
+            text = text.split(raw).join(label);
+        });
+        Object.entries(ProductionRoleLabels).forEach(([raw, label]) => {
+            text = text.split(`RequiredRole=${raw}`).join(`需要${label}权限`);
+            text = text.split(raw).join(label);
+        });
+        return text;
     }
 
     function createTracePagerState() {
@@ -222,7 +284,7 @@
     function syncLogHistoryChrome() {
         if (!document.body.classList.contains("cf-stitch-page")) return;
         const title = document.querySelector("#log-history-modal .cf-ornate-header h3");
-        if (title) title.textContent = "检测日志 (Detection Logs)";
+        if (title) title.textContent = "检测日志";
     }
 
     function openLogHistoryModal() {
@@ -374,7 +436,7 @@
         setAuditError("");
         const tbody = byId("audit-table");
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">Loading audit records...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">正在加载审计记录...</td></tr>';
         }
         bridge.sendCommand("query_audit_records", buildAuditQuery());
     }
@@ -395,9 +457,9 @@
             setAuditError(error);
         }
 
-        if (badge) badge.textContent = `${records.length} rows`;
+        if (badge) badge.textContent = `${records.length} 条`;
         if (!records.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">No audit records matched.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">未匹配到审计记录</td></tr>';
             return;
         }
 
@@ -409,13 +471,13 @@
             return `
                 <tr class="hover:bg-slate-50 transition-colors">
                     <td class="px-3 py-3 whitespace-nowrap">${escapeHtml(record.timestamp || "-")}</td>
-                    <td class="px-3 py-3">${escapeHtml(record.operation || "-")}</td>
-                    <td class="px-3 py-3"><span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusClass}">${escapeHtml(status || "-")}</span></td>
+                    <td class="px-3 py-3">${escapeHtml(formatAuditOperation(record.operation) || "-")}</td>
+                    <td class="px-3 py-3"><span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusClass}">${escapeHtml(formatAuditStatus(status) || "-")}</span></td>
                     <td class="px-3 py-3">${escapeHtml(record.operatorId || "-")}</td>
-                    <td class="px-3 py-3">${escapeHtml(record.role || "-")}</td>
+                    <td class="px-3 py-3">${escapeHtml(formatProductionRole(record.role) || "-")}</td>
                     <td class="px-3 py-3">${escapeHtml(record.inspectionId || "-")}</td>
-                    <td class="px-3 py-3 max-w-md whitespace-normal break-words">${escapeHtml(record.details || record.reason || "-")}</td>
-                    <td class="px-3 py-3 max-w-xs whitespace-normal break-words">${escapeHtml(record.failureBlocker || "-")}</td>
+                    <td class="px-3 py-3 max-w-md whitespace-normal break-words">${escapeHtml(formatAuditText(record.details || record.reason) || "-")}</td>
+                    <td class="px-3 py-3 max-w-xs whitespace-normal break-words">${escapeHtml(formatAuditText(record.failureBlocker) || "-")}</td>
                 </tr>
             `;
         }).join("");
@@ -430,8 +492,8 @@
         }
 
         const node = byId("audit-export-path");
-        if (node) node.textContent = path ? `Exported: ${path}` : "";
-        window.showToast?.("Audit CSV exported", "success", 1600);
+        if (node) node.textContent = path ? `已导出: ${path}` : "";
+        window.showToast?.("审计 CSV 已导出", "success", 1600);
     }
 
     function updateNGDates(data) {
@@ -812,13 +874,13 @@
             limit: getReplayLimit(),
             recipeVersion: activeTraceRecord?.recipeVersion || "",
         });
-        setReplayPanelStatus("manual-review-response", `Query ${requestId}`);
+        setReplayPanelStatus("manual-review-response", `查询中 ${requestId}`);
     }
 
     function saveManualReview() {
         const inspectionId = activeTraceRecord?.inspectionId || "";
         if (!inspectionId) {
-            window.showToast?.("Select a trace record before saving truth.", "warning", 1800);
+            window.showToast?.("请先选择一条追溯记录再保存真值", "warning", 1800);
             return;
         }
 
@@ -832,66 +894,66 @@
             expectedRevision: revisionRaw ? Number(revisionRaw) : null,
             notes: String(byId("manual-review-notes")?.value || "").trim(),
         });
-        setReplayPanelStatus("manual-review-response", `Saving ${requestId}`);
+        setReplayPanelStatus("manual-review-response", `保存中 ${requestId}`);
     }
 
     function createReplayDataset() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("create_replay_dataset", payload);
-        setReplayPanelStatus("replay-run-status", `Freeze ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `固化中 ${requestId}`);
     }
 
     function previewReplayDataset() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("preview_replay_dataset", payload);
-        setReplayPanelStatus("replay-run-status", `Preview ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `预览中 ${requestId}`);
     }
 
     function queryReplayDatasets() {
         const requestId = bridge.sendCommand("query_replay_datasets", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `Datasets ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `查询数据集 ${requestId}`);
     }
 
     function archiveReplayDataset() {
         const requestId = bridge.sendCommand("archive_replay_dataset", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `Archive ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `归档中 ${requestId}`);
     }
 
     function runReplayComparison() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("run_replay_comparison", payload);
-        setReplayPanelStatus("replay-run-status", `Run ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `回放中 ${requestId}`);
     }
 
     function cancelReplayRun() {
         const requestId = bridge.sendCommand("cancel_replay_run", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `Cancelling ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `正在取消 ${requestId}`);
     }
 
     function queryReplayRuns() {
         const requestId = bridge.sendCommand("query_replay_runs", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `Runs ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `查询运行记录 ${requestId}`);
     }
 
     function queryReplayReport() {
         const requestId = bridge.sendCommand("query_replay_report", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `Report ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `生成报告 ${requestId}`);
     }
 
     function queryModelApprovalEvidence() {
         const requestId = bridge.sendCommand("query_model_approval_evidence", getReplayPanelPayload());
-        setReplayPanelStatus("replay-approval-status", `Evidence ${requestId}`);
+        setReplayPanelStatus("replay-approval-status", `查询凭证 ${requestId}`);
     }
 
     function runReplayIntegrityScan() {
         const requestId = bridge.sendCommand("run_replay_integrity_scan", getReplayPanelPayload());
-        setReplayPanelStatus("replay-approval-status", `Scan ${requestId}`);
+        setReplayPanelStatus("replay-approval-status", `扫描中 ${requestId}`);
     }
 
     function approveReplayCandidate() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("approve_replay_candidate", payload);
-        setReplayPanelStatus("replay-approval-status", `Approve ${requestId}`);
+        setReplayPanelStatus("replay-approval-status", `审批中 ${requestId}`);
     }
 
     Object.assign(window, {

@@ -593,6 +593,41 @@
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
     const KnownRenderReasons = new Set(["inspection", "stats", "health", "replay", "manualReview", "bootstrap", "state"]);
+    const InspectionStageLabels = Object.freeze({
+        Unknown: "未知",
+        Triggered: "已触发",
+        Barcode: "读取条码",
+        Capture: "取图",
+        Inference: "推理中",
+        RoiFilter: "规则判定",
+        PlcWrite: "写入 PLC",
+        RenderToUi: "刷新界面",
+        SaveImage: "保存图像",
+        SaveRecord: "保存记录",
+        Completed: "完成",
+        Failed: "失败",
+        IDLE: "空闲",
+    });
+    const ReplayRunStatusLabels = Object.freeze({
+        Pending: "待处理",
+        Preparing: "准备中",
+        BaselineRunning: "基准模型运行中",
+        CandidateRunning: "候选模型运行中",
+        Reporting: "生成报告中",
+        Running: "运行中",
+        CancelRequested: "正在取消",
+        Completed: "已完成",
+        Failed: "已失败",
+        Canceled: "已取消",
+        Interrupted: "已中断",
+        Frozen: "已固化",
+        Invalid: "无效",
+    });
+    const ApprovalStatusLabels = Object.freeze({
+        Approved: "已批准",
+        Rejected: "已拒绝",
+        Available: "可审批",
+    });
     const KeyLogPatterns = [
         /PLC/i,
         /Plc/i,
@@ -651,27 +686,48 @@
         dot.classList.add(state);
     }
 
+    function formatInspectionStage(stage) {
+        const value = String(stage || "").trim();
+        return InspectionStageLabels[value] || value || "空闲";
+    }
+
+    function formatReplayRunStatus(status) {
+        const value = String(status || "").trim();
+        return ReplayRunStatusLabels[value] || value;
+    }
+
+    function formatApprovalStatus(status) {
+        const value = String(status || "").trim();
+        return ApprovalStatusLabels[value] || value;
+    }
+
+    function formatFallbackReason(reason) {
+        const value = String(reason || "").trim();
+        if (value === "FallbackDisabled") return "备用模型未启用";
+        return value;
+    }
+
     function renderInspectionContext(state) {
         const inspection = state.inspection || {};
-        setText("camera-phase", inspection.currentStage, "IDLE");
+        setText("camera-phase", formatInspectionStage(inspection.currentStage), "空闲");
         setText("feed-sn", getTraceIdentityLabel(inspection), "条码: -");
         const isStandaloneSource = !!inspection.sourceLabel && !inspection.inspectionId;
         setText(
             "feed-trigger-seq",
             isStandaloneSource
-                ? "LOCAL"
-                : `T${inspection.triggerSeq ?? "-"} / R${inspection.resultSeq ?? "-"}`,
-            "T- / R-",
+                ? "本地"
+                : `触发${inspection.triggerSeq ?? "-"} / 结果${inspection.resultSeq ?? "-"}`,
+            "触发- / 结果-",
         );
     }
 
     function getTraceIdentityLabel(item) {
-        if (item?.productBarcode) return `SN: ${item.productBarcode}`;
+        if (item?.productBarcode) return `条码: ${item.productBarcode}`;
         if (item?.sourceLabel) return item.sourceLabel;
         if (item?.barcodeEnabled === true) {
             return item?.barcodeReadSucceeded === false ? "条码未读取" : "等待条码";
         }
-        if (item?.inspectionId) return `ID: ${item.inspectionId}`;
+        if (item?.inspectionId) return `单号: ${item.inspectionId}`;
         return "条码: -";
     }
 
@@ -682,7 +738,7 @@
     function getProductJudgementText(item) {
         if (item?.isOk === true) return "OK";
         if (item?.isOk === false) return "NG";
-        return "UNKNOWN";
+        return "未知";
     }
 
     function getTerminalFailureMessage(item) {
@@ -739,7 +795,7 @@
 
         const fallbackCount = inspections.filter((item) => item.wasFallback === true).length;
         const ratio = fallbackCount / inspections.length * 100;
-        return `近${inspections.length}次 fallback ${fallbackCount}次 (${ratio.toFixed(1)}%)`;
+        return `近${inspections.length}次备用模型 ${fallbackCount}次 (${ratio.toFixed(1)}%)`;
     }
 
     function getFallbackBadge(inspection, recentInspections) {
@@ -750,16 +806,16 @@
 
         if (inspection?.wasFallback === true) {
             return {
-                text: attempts > 1 ? `FALLBACK x${attempts}` : "FALLBACK",
-                title: `fallback命中，模型: ${inspection.usedModelName || "-"}，推理: ${inferenceMs}ms${ratioSuffix}`,
+                text: attempts > 1 ? `备用模型 x${attempts}` : "备用模型",
+                title: `备用模型命中，模型: ${inspection.usedModelName || "-"}，推理: ${inferenceMs}ms${ratioSuffix}`,
             };
         }
 
         const skippedReason = String(inspection?.fallbackSkippedReason || "").trim();
         if (skippedReason && skippedReason !== "FallbackDisabled") {
             return {
-                text: "FB SKIP",
-                title: `fallback未命中或跳过: ${skippedReason}${ratioSuffix}`,
+                text: "备用跳过",
+                title: `备用模型未命中或跳过: ${formatFallbackReason(skippedReason)}${ratioSuffix}`,
             };
         }
 
@@ -775,14 +831,14 @@
 
         const attempts = Math.max(0, Math.trunc(toFiniteNumber(item?.fallbackAttemptCount)));
         if (item?.wasFallback === true) {
-            parts.push(`fallback ${attempts > 0 ? attempts : "?"}模型`);
+            parts.push(`备用模型 ${attempts > 0 ? attempts : "?"}次`);
         } else if (attempts > 1) {
             parts.push(`模型尝试${attempts}次`);
         }
 
         const skippedReason = String(item?.fallbackSkippedReason || "").trim();
         if (skippedReason && skippedReason !== "FallbackDisabled" && item?.wasFallback !== true) {
-            parts.push(`FB:${skippedReason}`);
+            parts.push(`备用跳过:${formatFallbackReason(skippedReason)}`);
         }
 
         const imagePending = Math.max(0, Math.trunc(toFiniteNumber(item?.imageQueuePending)));
@@ -810,7 +866,7 @@
         const ratioText = getFallbackRatioText(recentInspections);
         const ratioSuffix = ratioText ? `，${ratioText}` : "";
         addDetectionLog(
-            `Fallback命中: ${item.usedModelName || "-"}，尝试${attempts > 0 ? attempts : "-"}模型，推理${item.inferenceMs ?? "-"}ms${ratioSuffix}`,
+            `备用模型命中: ${item.usedModelName || "-"}，尝试${attempts > 0 ? attempts : "-"}次，推理${item.inferenceMs ?? "-"}ms${ratioSuffix}`,
             "warning",
         );
     }
@@ -841,7 +897,7 @@
         if (item?.barcodeError) return item.barcodeError;
         if (item?.errorCode) return item.errorCode;
         if (item?.actualCount !== undefined && item?.actualCount !== null) return `检出 ${item.actualCount}`;
-        return item?.currentStage || "-";
+        return formatInspectionStage(item?.currentStage) || "-";
     }
 
     function renderCameraResult(state) {
@@ -851,7 +907,7 @@
         const pill = el("camera-result-pill");
         if (pill) {
             const className = terminalFailed ? "result-cycle-failed" : isOk === true ? "result-ok" : isOk === false ? "result-ng" : "result-idle";
-            const text = terminalFailed ? "周期失败" : isOk === true ? "OK" : isOk === false ? "NG" : "WAIT";
+            const text = terminalFailed ? "周期失败" : isOk === true ? "OK" : isOk === false ? "NG" : "等待";
             if (pill.dataset.cfResult !== className) {
                 pill.dataset.cfResult = className;
                 pill.classList.remove("result-idle", "result-ok", "result-ng", "result-cycle-failed");
@@ -869,7 +925,7 @@
         setText("camera-total-ms", `${inspection.totalMs || 0}ms`, "0ms");
         setText("camera-target-count", inspection.actualCount ?? 0, "0");
         setText("camera-model", inspection.usedModelName, "-");
-        setText("feed-model-name", inspection.usedModelName ? `MODEL ${inspection.usedModelName}` : "MODEL -", "MODEL -");
+        setText("feed-model-name", inspection.usedModelName ? `模型 ${inspection.usedModelName}` : "模型 -", "模型 -");
         const fallbackBadge = el("camera-fallback");
         const fallbackMeta = getFallbackBadge(inspection, state.recentInspections || []);
         if (fallbackBadge && fallbackMeta) {
@@ -903,7 +959,7 @@
             const isOk = item.isOk === true;
             const terminalFailed = hasTerminalHandshakeFailure(item);
             const statusClass = terminalFailed ? "cycle-failed" : isOk ? "ok" : item.isOk === false ? "ng" : "run";
-            const statusText = terminalFailed ? "周期失败" : isOk ? "OK" : item.isOk === false ? "NG" : "RUN";
+            const statusText = terminalFailed ? "周期失败" : isOk ? "OK" : item.isOk === false ? "NG" : "运行中";
             const identity = getTraceIdentityLabel(item);
             const title = item.productBarcode || item.sourceLabel || item.inspectionId || item.barcodeError || "-";
             const detectionSummary = getDetectionSummary(item);
@@ -1067,10 +1123,6 @@
         logQueuePressureAdvice(health);
     }
 
-    function formatReplayRunStatus(status) {
-        return status === "CancelRequested" ? "Cancelling" : (status || "");
-    }
-
     function renderReplayStatus(state) {
         const replay = state?.replay || {};
         const run = replay.currentRunId ? replay.runs?.[replay.currentRunId] : null;
@@ -1090,16 +1142,16 @@
         setText("replay-new-false-reject-count", metrics.candidateNewFalseRejectCount ?? "");
         setText("replay-fixed-false-reject-count", metrics.candidateFixedFalseRejectCount ?? "");
         setText("replay-run-count", replay.runs ? Object.keys(replay.runs).length : "");
-        setText("replay-integrity-status", replay.integrity?.status || "");
+        setText("replay-integrity-status", formatReplayRunStatus(replay.integrity?.status || ""));
         setText("replay-approval-status",
             approval.succeeded === true
-                ? "Approved"
+                ? formatApprovalStatus("Approved")
                 : approval.succeeded === false
-                    ? (approval.errorCode || "Rejected")
+                    ? (approval.errorCode || formatApprovalStatus("Rejected"))
                     : approvalAvailable === true
-                        ? "Available"
+                        ? formatApprovalStatus("Available")
                         : approvalAvailable === false
-                            ? "Rejected"
+                            ? formatApprovalStatus("Rejected")
                             : "");
         setText("replay-rejection-reasons", (approval.rejectionReasons || []).join("; ") || approval.message || approval.evidenceHash || "");
     }
@@ -1341,7 +1393,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M8 5v14l11-7-11-7Z" />
                 </svg>
-                ${systemBusy ? "正在启动..." : "启动系统 (Start System)"}`;
+                ${systemBusy ? "正在启动..." : "启动系统"}`;
     }
 
     function requestStartSystem() {
@@ -1432,8 +1484,8 @@
         try {
             store.applyStatsUpdate(data);
         } catch (error) {
-            console.error("Status Update Error:", error);
-            addLog("Status Parse Error", "error");
+            console.error("状态更新失败:", error);
+            addLog("状态解析失败", "error");
         }
     }
 
@@ -3866,9 +3918,71 @@
     const TRACE_DEFAULT_PAGE_SIZE = 100;
     let tracePagerState = createTracePagerState();
     let activeTraceRecord = null;
+    const AuditStatusLabels = Object.freeze({
+        Requested: "已请求",
+        Denied: "已拒绝",
+        Succeeded: "已成功",
+        Failed: "已失败",
+    });
+    const AuditOperationLabels = Object.freeze({
+        ManualRelease: "强制放行",
+        ManualReview: "人工复核",
+        ReplayApproval: "回放审批",
+        ReplayIntegrityScan: "回放完整性扫描",
+        archive_replay_dataset: "归档回放数据集",
+        create_replay_dataset: "创建回放数据集",
+        preview_replay_dataset: "预览回放数据集",
+        query_replay_datasets: "查询回放数据集",
+        run_replay_comparison: "运行回放对比",
+        cancel_replay_run: "取消回放运行",
+        query_replay_runs: "查询回放运行",
+        query_replay_report: "查询回放报告",
+        query_model_approval_evidence: "查询模型审批凭证",
+        run_replay_integrity_scan: "运行回放完整性扫描",
+        approve_replay_candidate: "审批候选模型",
+        query_manual_review_records: "查询人工复核记录",
+        save_manual_review: "保存人工复核",
+    });
+    const ProductionRoleLabels = Object.freeze({
+        Operator: "操作员",
+        ShiftLead: "班组长",
+        Engineer: "工程师",
+    });
 
     function byId(id) {
         return document.getElementById(id);
+    }
+
+    function formatAuditStatus(status) {
+        const value = String(status || "").trim();
+        return AuditStatusLabels[value] || value;
+    }
+
+    function formatProductionRole(role) {
+        const value = String(role || "").trim();
+        return ProductionRoleLabels[value] || value;
+    }
+
+    function formatAuditOperation(operation) {
+        const value = String(operation || "").trim();
+        return AuditOperationLabels[value] || value;
+    }
+
+    function formatAuditText(value) {
+        let text = String(value || "").trim();
+        if (!text) return "";
+
+        Object.entries(AuditOperationLabels).forEach(([raw, label]) => {
+            text = text.split(raw).join(label);
+        });
+        Object.entries(AuditStatusLabels).forEach(([raw, label]) => {
+            text = text.split(raw).join(label);
+        });
+        Object.entries(ProductionRoleLabels).forEach(([raw, label]) => {
+            text = text.split(`RequiredRole=${raw}`).join(`需要${label}权限`);
+            text = text.split(raw).join(label);
+        });
+        return text;
     }
 
     function createTracePagerState() {
@@ -4078,7 +4192,7 @@
     function syncLogHistoryChrome() {
         if (!document.body.classList.contains("cf-stitch-page")) return;
         const title = document.querySelector("#log-history-modal .cf-ornate-header h3");
-        if (title) title.textContent = "检测日志 (Detection Logs)";
+        if (title) title.textContent = "检测日志";
     }
 
     function openLogHistoryModal() {
@@ -4230,7 +4344,7 @@
         setAuditError("");
         const tbody = byId("audit-table");
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">Loading audit records...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">正在加载审计记录...</td></tr>';
         }
         bridge.sendCommand("query_audit_records", buildAuditQuery());
     }
@@ -4251,9 +4365,9 @@
             setAuditError(error);
         }
 
-        if (badge) badge.textContent = `${records.length} rows`;
+        if (badge) badge.textContent = `${records.length} 条`;
         if (!records.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">No audit records matched.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">未匹配到审计记录</td></tr>';
             return;
         }
 
@@ -4265,13 +4379,13 @@
             return `
                 <tr class="hover:bg-slate-50 transition-colors">
                     <td class="px-3 py-3 whitespace-nowrap">${escapeHtml(record.timestamp || "-")}</td>
-                    <td class="px-3 py-3">${escapeHtml(record.operation || "-")}</td>
-                    <td class="px-3 py-3"><span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusClass}">${escapeHtml(status || "-")}</span></td>
+                    <td class="px-3 py-3">${escapeHtml(formatAuditOperation(record.operation) || "-")}</td>
+                    <td class="px-3 py-3"><span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusClass}">${escapeHtml(formatAuditStatus(status) || "-")}</span></td>
                     <td class="px-3 py-3">${escapeHtml(record.operatorId || "-")}</td>
-                    <td class="px-3 py-3">${escapeHtml(record.role || "-")}</td>
+                    <td class="px-3 py-3">${escapeHtml(formatProductionRole(record.role) || "-")}</td>
                     <td class="px-3 py-3">${escapeHtml(record.inspectionId || "-")}</td>
-                    <td class="px-3 py-3 max-w-md whitespace-normal break-words">${escapeHtml(record.details || record.reason || "-")}</td>
-                    <td class="px-3 py-3 max-w-xs whitespace-normal break-words">${escapeHtml(record.failureBlocker || "-")}</td>
+                    <td class="px-3 py-3 max-w-md whitespace-normal break-words">${escapeHtml(formatAuditText(record.details || record.reason) || "-")}</td>
+                    <td class="px-3 py-3 max-w-xs whitespace-normal break-words">${escapeHtml(formatAuditText(record.failureBlocker) || "-")}</td>
                 </tr>
             `;
         }).join("");
@@ -4286,8 +4400,8 @@
         }
 
         const node = byId("audit-export-path");
-        if (node) node.textContent = path ? `Exported: ${path}` : "";
-        window.showToast?.("Audit CSV exported", "success", 1600);
+        if (node) node.textContent = path ? `已导出: ${path}` : "";
+        window.showToast?.("审计 CSV 已导出", "success", 1600);
     }
 
     function updateNGDates(data) {
@@ -4668,13 +4782,13 @@
             limit: getReplayLimit(),
             recipeVersion: activeTraceRecord?.recipeVersion || "",
         });
-        setReplayPanelStatus("manual-review-response", `Query ${requestId}`);
+        setReplayPanelStatus("manual-review-response", `查询中 ${requestId}`);
     }
 
     function saveManualReview() {
         const inspectionId = activeTraceRecord?.inspectionId || "";
         if (!inspectionId) {
-            window.showToast?.("Select a trace record before saving truth.", "warning", 1800);
+            window.showToast?.("请先选择一条追溯记录再保存真值", "warning", 1800);
             return;
         }
 
@@ -4688,66 +4802,66 @@
             expectedRevision: revisionRaw ? Number(revisionRaw) : null,
             notes: String(byId("manual-review-notes")?.value || "").trim(),
         });
-        setReplayPanelStatus("manual-review-response", `Saving ${requestId}`);
+        setReplayPanelStatus("manual-review-response", `保存中 ${requestId}`);
     }
 
     function createReplayDataset() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("create_replay_dataset", payload);
-        setReplayPanelStatus("replay-run-status", `Freeze ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `固化中 ${requestId}`);
     }
 
     function previewReplayDataset() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("preview_replay_dataset", payload);
-        setReplayPanelStatus("replay-run-status", `Preview ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `预览中 ${requestId}`);
     }
 
     function queryReplayDatasets() {
         const requestId = bridge.sendCommand("query_replay_datasets", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `Datasets ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `查询数据集 ${requestId}`);
     }
 
     function archiveReplayDataset() {
         const requestId = bridge.sendCommand("archive_replay_dataset", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `Archive ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `归档中 ${requestId}`);
     }
 
     function runReplayComparison() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("run_replay_comparison", payload);
-        setReplayPanelStatus("replay-run-status", `Run ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `回放中 ${requestId}`);
     }
 
     function cancelReplayRun() {
         const requestId = bridge.sendCommand("cancel_replay_run", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `Cancelling ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `正在取消 ${requestId}`);
     }
 
     function queryReplayRuns() {
         const requestId = bridge.sendCommand("query_replay_runs", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `Runs ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `查询运行记录 ${requestId}`);
     }
 
     function queryReplayReport() {
         const requestId = bridge.sendCommand("query_replay_report", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `Report ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `生成报告 ${requestId}`);
     }
 
     function queryModelApprovalEvidence() {
         const requestId = bridge.sendCommand("query_model_approval_evidence", getReplayPanelPayload());
-        setReplayPanelStatus("replay-approval-status", `Evidence ${requestId}`);
+        setReplayPanelStatus("replay-approval-status", `查询凭证 ${requestId}`);
     }
 
     function runReplayIntegrityScan() {
         const requestId = bridge.sendCommand("run_replay_integrity_scan", getReplayPanelPayload());
-        setReplayPanelStatus("replay-approval-status", `Scan ${requestId}`);
+        setReplayPanelStatus("replay-approval-status", `扫描中 ${requestId}`);
     }
 
     function approveReplayCandidate() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("approve_replay_candidate", payload);
-        setReplayPanelStatus("replay-approval-status", `Approve ${requestId}`);
+        setReplayPanelStatus("replay-approval-status", `审批中 ${requestId}`);
     }
 
     Object.assign(window, {

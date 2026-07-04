@@ -31,6 +31,41 @@
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
     const KnownRenderReasons = new Set(["inspection", "stats", "health", "replay", "manualReview", "bootstrap", "state"]);
+    const InspectionStageLabels = Object.freeze({
+        Unknown: "未知",
+        Triggered: "已触发",
+        Barcode: "读取条码",
+        Capture: "取图",
+        Inference: "推理中",
+        RoiFilter: "规则判定",
+        PlcWrite: "写入 PLC",
+        RenderToUi: "刷新界面",
+        SaveImage: "保存图像",
+        SaveRecord: "保存记录",
+        Completed: "完成",
+        Failed: "失败",
+        IDLE: "空闲",
+    });
+    const ReplayRunStatusLabels = Object.freeze({
+        Pending: "待处理",
+        Preparing: "准备中",
+        BaselineRunning: "基准模型运行中",
+        CandidateRunning: "候选模型运行中",
+        Reporting: "生成报告中",
+        Running: "运行中",
+        CancelRequested: "正在取消",
+        Completed: "已完成",
+        Failed: "已失败",
+        Canceled: "已取消",
+        Interrupted: "已中断",
+        Frozen: "已固化",
+        Invalid: "无效",
+    });
+    const ApprovalStatusLabels = Object.freeze({
+        Approved: "已批准",
+        Rejected: "已拒绝",
+        Available: "可审批",
+    });
     const KeyLogPatterns = [
         /PLC/i,
         /Plc/i,
@@ -89,27 +124,48 @@
         dot.classList.add(state);
     }
 
+    function formatInspectionStage(stage) {
+        const value = String(stage || "").trim();
+        return InspectionStageLabels[value] || value || "空闲";
+    }
+
+    function formatReplayRunStatus(status) {
+        const value = String(status || "").trim();
+        return ReplayRunStatusLabels[value] || value;
+    }
+
+    function formatApprovalStatus(status) {
+        const value = String(status || "").trim();
+        return ApprovalStatusLabels[value] || value;
+    }
+
+    function formatFallbackReason(reason) {
+        const value = String(reason || "").trim();
+        if (value === "FallbackDisabled") return "备用模型未启用";
+        return value;
+    }
+
     function renderInspectionContext(state) {
         const inspection = state.inspection || {};
-        setText("camera-phase", inspection.currentStage, "IDLE");
+        setText("camera-phase", formatInspectionStage(inspection.currentStage), "空闲");
         setText("feed-sn", getTraceIdentityLabel(inspection), "条码: -");
         const isStandaloneSource = !!inspection.sourceLabel && !inspection.inspectionId;
         setText(
             "feed-trigger-seq",
             isStandaloneSource
-                ? "LOCAL"
-                : `T${inspection.triggerSeq ?? "-"} / R${inspection.resultSeq ?? "-"}`,
-            "T- / R-",
+                ? "本地"
+                : `触发${inspection.triggerSeq ?? "-"} / 结果${inspection.resultSeq ?? "-"}`,
+            "触发- / 结果-",
         );
     }
 
     function getTraceIdentityLabel(item) {
-        if (item?.productBarcode) return `SN: ${item.productBarcode}`;
+        if (item?.productBarcode) return `条码: ${item.productBarcode}`;
         if (item?.sourceLabel) return item.sourceLabel;
         if (item?.barcodeEnabled === true) {
             return item?.barcodeReadSucceeded === false ? "条码未读取" : "等待条码";
         }
-        if (item?.inspectionId) return `ID: ${item.inspectionId}`;
+        if (item?.inspectionId) return `单号: ${item.inspectionId}`;
         return "条码: -";
     }
 
@@ -120,7 +176,7 @@
     function getProductJudgementText(item) {
         if (item?.isOk === true) return "OK";
         if (item?.isOk === false) return "NG";
-        return "UNKNOWN";
+        return "未知";
     }
 
     function getTerminalFailureMessage(item) {
@@ -177,7 +233,7 @@
 
         const fallbackCount = inspections.filter((item) => item.wasFallback === true).length;
         const ratio = fallbackCount / inspections.length * 100;
-        return `近${inspections.length}次 fallback ${fallbackCount}次 (${ratio.toFixed(1)}%)`;
+        return `近${inspections.length}次备用模型 ${fallbackCount}次 (${ratio.toFixed(1)}%)`;
     }
 
     function getFallbackBadge(inspection, recentInspections) {
@@ -188,16 +244,16 @@
 
         if (inspection?.wasFallback === true) {
             return {
-                text: attempts > 1 ? `FALLBACK x${attempts}` : "FALLBACK",
-                title: `fallback命中，模型: ${inspection.usedModelName || "-"}，推理: ${inferenceMs}ms${ratioSuffix}`,
+                text: attempts > 1 ? `备用模型 x${attempts}` : "备用模型",
+                title: `备用模型命中，模型: ${inspection.usedModelName || "-"}，推理: ${inferenceMs}ms${ratioSuffix}`,
             };
         }
 
         const skippedReason = String(inspection?.fallbackSkippedReason || "").trim();
         if (skippedReason && skippedReason !== "FallbackDisabled") {
             return {
-                text: "FB SKIP",
-                title: `fallback未命中或跳过: ${skippedReason}${ratioSuffix}`,
+                text: "备用跳过",
+                title: `备用模型未命中或跳过: ${formatFallbackReason(skippedReason)}${ratioSuffix}`,
             };
         }
 
@@ -213,14 +269,14 @@
 
         const attempts = Math.max(0, Math.trunc(toFiniteNumber(item?.fallbackAttemptCount)));
         if (item?.wasFallback === true) {
-            parts.push(`fallback ${attempts > 0 ? attempts : "?"}模型`);
+            parts.push(`备用模型 ${attempts > 0 ? attempts : "?"}次`);
         } else if (attempts > 1) {
             parts.push(`模型尝试${attempts}次`);
         }
 
         const skippedReason = String(item?.fallbackSkippedReason || "").trim();
         if (skippedReason && skippedReason !== "FallbackDisabled" && item?.wasFallback !== true) {
-            parts.push(`FB:${skippedReason}`);
+            parts.push(`备用跳过:${formatFallbackReason(skippedReason)}`);
         }
 
         const imagePending = Math.max(0, Math.trunc(toFiniteNumber(item?.imageQueuePending)));
@@ -248,7 +304,7 @@
         const ratioText = getFallbackRatioText(recentInspections);
         const ratioSuffix = ratioText ? `，${ratioText}` : "";
         addDetectionLog(
-            `Fallback命中: ${item.usedModelName || "-"}，尝试${attempts > 0 ? attempts : "-"}模型，推理${item.inferenceMs ?? "-"}ms${ratioSuffix}`,
+            `备用模型命中: ${item.usedModelName || "-"}，尝试${attempts > 0 ? attempts : "-"}次，推理${item.inferenceMs ?? "-"}ms${ratioSuffix}`,
             "warning",
         );
     }
@@ -279,7 +335,7 @@
         if (item?.barcodeError) return item.barcodeError;
         if (item?.errorCode) return item.errorCode;
         if (item?.actualCount !== undefined && item?.actualCount !== null) return `检出 ${item.actualCount}`;
-        return item?.currentStage || "-";
+        return formatInspectionStage(item?.currentStage) || "-";
     }
 
     function renderCameraResult(state) {
@@ -289,7 +345,7 @@
         const pill = el("camera-result-pill");
         if (pill) {
             const className = terminalFailed ? "result-cycle-failed" : isOk === true ? "result-ok" : isOk === false ? "result-ng" : "result-idle";
-            const text = terminalFailed ? "周期失败" : isOk === true ? "OK" : isOk === false ? "NG" : "WAIT";
+            const text = terminalFailed ? "周期失败" : isOk === true ? "OK" : isOk === false ? "NG" : "等待";
             if (pill.dataset.cfResult !== className) {
                 pill.dataset.cfResult = className;
                 pill.classList.remove("result-idle", "result-ok", "result-ng", "result-cycle-failed");
@@ -307,7 +363,7 @@
         setText("camera-total-ms", `${inspection.totalMs || 0}ms`, "0ms");
         setText("camera-target-count", inspection.actualCount ?? 0, "0");
         setText("camera-model", inspection.usedModelName, "-");
-        setText("feed-model-name", inspection.usedModelName ? `MODEL ${inspection.usedModelName}` : "MODEL -", "MODEL -");
+        setText("feed-model-name", inspection.usedModelName ? `模型 ${inspection.usedModelName}` : "模型 -", "模型 -");
         const fallbackBadge = el("camera-fallback");
         const fallbackMeta = getFallbackBadge(inspection, state.recentInspections || []);
         if (fallbackBadge && fallbackMeta) {
@@ -341,7 +397,7 @@
             const isOk = item.isOk === true;
             const terminalFailed = hasTerminalHandshakeFailure(item);
             const statusClass = terminalFailed ? "cycle-failed" : isOk ? "ok" : item.isOk === false ? "ng" : "run";
-            const statusText = terminalFailed ? "周期失败" : isOk ? "OK" : item.isOk === false ? "NG" : "RUN";
+            const statusText = terminalFailed ? "周期失败" : isOk ? "OK" : item.isOk === false ? "NG" : "运行中";
             const identity = getTraceIdentityLabel(item);
             const title = item.productBarcode || item.sourceLabel || item.inspectionId || item.barcodeError || "-";
             const detectionSummary = getDetectionSummary(item);
@@ -505,10 +561,6 @@
         logQueuePressureAdvice(health);
     }
 
-    function formatReplayRunStatus(status) {
-        return status === "CancelRequested" ? "Cancelling" : (status || "");
-    }
-
     function renderReplayStatus(state) {
         const replay = state?.replay || {};
         const run = replay.currentRunId ? replay.runs?.[replay.currentRunId] : null;
@@ -528,16 +580,16 @@
         setText("replay-new-false-reject-count", metrics.candidateNewFalseRejectCount ?? "");
         setText("replay-fixed-false-reject-count", metrics.candidateFixedFalseRejectCount ?? "");
         setText("replay-run-count", replay.runs ? Object.keys(replay.runs).length : "");
-        setText("replay-integrity-status", replay.integrity?.status || "");
+        setText("replay-integrity-status", formatReplayRunStatus(replay.integrity?.status || ""));
         setText("replay-approval-status",
             approval.succeeded === true
-                ? "Approved"
+                ? formatApprovalStatus("Approved")
                 : approval.succeeded === false
-                    ? (approval.errorCode || "Rejected")
+                    ? (approval.errorCode || formatApprovalStatus("Rejected"))
                     : approvalAvailable === true
-                        ? "Available"
+                        ? formatApprovalStatus("Available")
                         : approvalAvailable === false
-                            ? "Rejected"
+                            ? formatApprovalStatus("Rejected")
                             : "");
         setText("replay-rejection-reasons", (approval.rejectionReasons || []).join("; ") || approval.message || approval.evidenceHash || "");
     }
@@ -779,7 +831,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M8 5v14l11-7-11-7Z" />
                 </svg>
-                ${systemBusy ? "正在启动..." : "启动系统 (Start System)"}`;
+                ${systemBusy ? "正在启动..." : "启动系统"}`;
     }
 
     function requestStartSystem() {
@@ -870,8 +922,8 @@
         try {
             store.applyStatsUpdate(data);
         } catch (error) {
-            console.error("Status Update Error:", error);
-            addLog("Status Parse Error", "error");
+            console.error("状态更新失败:", error);
+            addLog("状态解析失败", "error");
         }
     }
 
