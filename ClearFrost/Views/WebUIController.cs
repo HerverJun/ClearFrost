@@ -666,6 +666,9 @@ namespace ClearFrost
         /// </summary>
         private async void CoreWebView2_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
+            string? requestId = null;
+            string cmd = string.Empty;
+
             try
             {
                 // Use WebMessageAsJson as TryGetWebMessageAsString might be missing/obsolete
@@ -676,12 +679,12 @@ namespace ClearFrost
                 using (JsonDocument doc = JsonDocument.Parse(json))
                 {
                     JsonElement root = doc.RootElement;
-                    string? requestId = root.TryGetProperty("requestId", out JsonElement requestIdElement)
+                    requestId = root.TryGetProperty("requestId", out JsonElement requestIdElement)
                         ? requestIdElement.GetString()
                         : null;
                     if (root.TryGetProperty("cmd", out JsonElement cmdElement))
                     {
-                        string cmd = cmdElement.GetString() ?? string.Empty;
+                        cmd = cmdElement.GetString() ?? string.Empty;
 
                         switch (cmd)
                         {
@@ -1030,16 +1033,59 @@ namespace ClearFrost
                                 break;
 
                             default:
+                                await SendCommandErrorAsync(
+                                    cmd,
+                                    requestId,
+                                    "UnknownCommand",
+                                    $"未知前端命令: {cmd}");
                                 break;
+                        }
+                    }
+                    else
+                    {
+                        await SendCommandErrorAsync(
+                            string.Empty,
+                            requestId,
+                            "MissingCommand",
+                            "前端消息缺少 cmd 字段");
                     }
                 }
-            }
             }
             catch (Exception ex)
             {
                 // Optionally log error to debugger or frontend
                 System.Diagnostics.Debug.WriteLine($"Error processing web message: {ex.Message}");
+                try
+                {
+                    await SendCommandErrorAsync(
+                        cmd,
+                        requestId,
+                        "CommandException",
+                        $"前端命令处理异常: {(string.IsNullOrWhiteSpace(cmd) ? "<empty>" : cmd)} - {ex.Message}");
+                }
+                catch (Exception notifyEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error reporting web message failure: {notifyEx.Message}");
+                }
             }
+        }
+
+        private Task SendCommandErrorAsync(string cmd, string? requestId, string errorCode, string message)
+        {
+            string normalizedCmd = string.IsNullOrWhiteSpace(cmd) ? "<empty>" : cmd;
+            string normalizedErrorCode = string.IsNullOrWhiteSpace(errorCode) ? "CommandError" : errorCode;
+            string normalizedMessage = string.IsNullOrWhiteSpace(message)
+                ? $"前端命令处理失败: {normalizedCmd}"
+                : message;
+
+            Debug.WriteLine($"[WebUIController] {normalizedErrorCode}: {normalizedMessage}");
+            PostMessage("commandError", new
+            {
+                cmd = normalizedCmd,
+                errorCode = normalizedErrorCode,
+                message = normalizedMessage
+            }, requestId);
+            return LogToFrontend(normalizedMessage, "error");
         }
 
         private static WebUiCommandEventArgs CreateCommandEventArgs(JsonElement root, string? requestId)

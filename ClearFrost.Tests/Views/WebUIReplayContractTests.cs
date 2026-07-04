@@ -125,6 +125,23 @@ public class WebUIReplayContractTests
         bundle.Should().Contain("approve_replay_candidate");
     }
 
+    [Fact]
+    public void WebUi源码_Replay追溯工具条拥有独立Grid行()
+    {
+        string root = FindRepositoryRoot();
+        string styleCss = File.ReadAllText(Path.Combine(root, "ClearFrost", "html", "css", "style.css"));
+
+        styleCss.Should().Contain("grid-template-rows: 126px auto minmax(0, 1fr) 56px;");
+        styleCss.Should().Contain(".cf-stitch-page #gallery-modal #replay-acceptance-panel");
+        styleCss.Should().Contain("grid-column: 2;");
+        styleCss.Should().Contain("grid-row: 2;");
+        styleCss.Should().Contain(".cf-stitch-page #gallery-modal #ng-image-grid");
+        styleCss.Should().Contain("grid-row: 3;");
+        styleCss.Should().Contain(".cf-stitch-page #gallery-modal #trace-pagination");
+        styleCss.Should().Contain("grid-row: 4;");
+        styleCss.Should().Contain("grid-template-rows: auto 120px auto minmax(0, 1fr) 56px;");
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);

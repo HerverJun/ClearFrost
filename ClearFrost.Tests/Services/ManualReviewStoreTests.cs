@@ -6,6 +6,7 @@ using FluentAssertions;
 
 namespace ClearFrost.Tests.Services;
 
+[Collection(global::ClearFrost.Tests.TestCollections.SqliteGlobalPool)]
 public class ManualReviewStoreTests
 {
     [Fact]

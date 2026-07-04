@@ -417,6 +417,7 @@ namespace ClearFrost.Services.Replay
             IProgress<ReplayRunProgress>? progress = null,
             CancellationToken cancellationToken = default)
         {
+            if (request == null) throw new ArgumentNullException(nameof(request));
             ThrowIfDisposed();
             if (!await _lifecycleGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
             {

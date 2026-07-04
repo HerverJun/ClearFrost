@@ -962,6 +962,16 @@
         }
     }
 
+    function handleCommandError(data, envelope) {
+        const cmd = data?.cmd || data?.Cmd || "";
+        const errorCode = data?.errorCode || data?.ErrorCode || "CommandError";
+        const message = data?.message || data?.Message || `前端命令处理失败: ${cmd || errorCode}`;
+        const requestId = envelope?.requestId ? ` (${envelope.requestId})` : "";
+
+        addLog(`${message}${requestId}`, "error");
+        if (window.__CF_DEV_MODE) console.warn("Command error:", data, envelope);
+    }
+
     function handleCommandDispatched(cmd) {
         switch (cmd) {
             case "manual_detect":
@@ -1087,4 +1097,5 @@
     bridge.registerMessageHandler("replayApprovalResponse", (data) => store.applyReplayUpdate(data));
     bridge.registerMessageHandler("detectionFrame", handleDetectionFrame);
     bridge.registerMessageHandler("uiCommand", handleUiCommand);
+    bridge.registerMessageHandler("commandError", handleCommandError);
 })();

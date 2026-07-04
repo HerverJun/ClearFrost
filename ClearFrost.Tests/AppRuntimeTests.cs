@@ -19,6 +19,7 @@ using OpenCvSharp;
 namespace ClearFrost.Tests
 {
 #pragma warning disable CS0067
+    [Collection(TestCollections.SqliteGlobalPool)]
     public class AppRuntimeTests
     {
         [Fact]

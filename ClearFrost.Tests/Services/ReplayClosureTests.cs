@@ -15,6 +15,7 @@ using OpenCvSharp;
 namespace ClearFrost.Tests.Services;
 
 #pragma warning disable CS0067
+[Collection(global::ClearFrost.Tests.TestCollections.SqliteGlobalPool)]
 public class ReplayClosureTests
 {
     [Fact]
@@ -1154,6 +1155,11 @@ public class ReplayClosureTests
                 new PassingReplayModelValidator(),
                 fixture.RunStore);
             using var coordinator = new ReplayRunCoordinator(service);
+
+            Func<Task> nullRequest = async () => await coordinator.StartAsync(null!);
+            ArgumentNullException nullRequestError = (await nullRequest.Should()
+                .ThrowAsync<ArgumentNullException>()).Which;
+            nullRequestError.ParamName.Should().Be("request");
 
             (await coordinator.TryBeginProductionAsync()).Should().BeTrue();
             Func<Task> blockedByProduction = async () => await coordinator.StartAsync(new ReplayComparisonRequest

@@ -7,6 +7,7 @@ using Microsoft.Data.Sqlite;
 
 namespace ClearFrost.Tests.Services;
 
+[Collection(global::ClearFrost.Tests.TestCollections.SqliteGlobalPool)]
 public class SqliteDatabaseServiceTests
 {
     [Fact]
