@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ClearFrost\ClearFrost.csproj" />
+    <ProjectReference Include="..\tools\ClearFrost.SimStress\ClearFrost.SimStress.csproj" />
   </ItemGroup>
 
   <ItemGroup>

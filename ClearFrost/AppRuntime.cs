@@ -261,6 +261,7 @@ namespace ClearFrost
             CancellationToken cancellationToken = default)
         {
             var recentRecords = await DatabaseService.GetRecordsAsync(limit: 100).ConfigureAwait(false);
+            HealthSnapshot healthSnapshot = HealthMonitor.GetSnapshot();
             return await DiagnosticPackageExporter.ExportAsync(
                 new DiagnosticPackageRequest
                 {
@@ -269,11 +270,23 @@ namespace ClearFrost
                     Recipe = RecipeManager.CurrentRecipe,
                     ModelEntries = ModelRegistry.Entries,
                     StartupDiagnostics = StartupDiagnostics.CurrentReport,
-                    HealthSnapshot = HealthMonitor.GetSnapshot(),
+                    HealthSnapshot = healthSnapshot,
+                    FieldDiagnostics = BuildFieldDiagnosticsSnapshot(healthSnapshot),
                     RecentRecords = recentRecords,
                     LogsDirectory = StorageService.LogBasePath
                 },
                 cancellationToken).ConfigureAwait(false);
+        }
+
+        public FieldDiagnosticsSnapshot BuildFieldDiagnosticsSnapshot(HealthSnapshot? healthSnapshot = null)
+        {
+            return FieldDiagnosticsSnapshotFactory.Create(
+                healthSnapshot ?? HealthMonitor.GetSnapshot(),
+                StartupDiagnostics.CurrentReport,
+                ModelRegistry.Entries,
+                DetectionService.RuntimeModelSnapshot,
+                DetectionService.CurrentModelName,
+                DetectionService.GetLastMetrics());
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)

@@ -25,6 +25,10 @@ namespace ClearFrost.Services
         public IReadOnlyList<ModelRegistryEntry> ModelEntries { get; init; } = Array.Empty<ModelRegistryEntry>();
         public StartupDiagnosticReport? StartupDiagnostics { get; init; }
         public HealthSnapshot? HealthSnapshot { get; init; }
+        public FieldDiagnosticsSnapshot? FieldDiagnostics { get; init; }
+        public IReadOnlyList<RecentInspectionTimingSnapshot> RecentInspectionTimings { get; init; } = Array.Empty<RecentInspectionTimingSnapshot>();
+        public FieldModelProbeSummary? ModelProbeSummary { get; init; }
+        public FieldQueueStatus? QueueStatus { get; init; }
         public IReadOnlyList<DetectionRecord> RecentRecords { get; init; } = Array.Empty<DetectionRecord>();
         public string LogsDirectory { get; init; } = RuntimePaths.LogsDirectory;
     }
@@ -56,18 +60,83 @@ namespace ClearFrost.Services
             }
 
             using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
+            FieldDiagnosticsSnapshot fieldDiagnostics = request.FieldDiagnostics ??
+                BuildFallbackFieldDiagnostics(request);
+            IReadOnlyList<RecentInspectionTimingSnapshot> recentTimings =
+                request.RecentInspectionTimings.Count > 0
+                    ? request.RecentInspectionTimings
+                    : fieldDiagnostics.RecentInspectionTimings;
 
             AddText(archive, "config.sanitized.json", BuildSanitizedConfigJson(request.AppConfig));
             AddJson(archive, "recipe.json", request.Recipe);
             AddJson(archive, "model_registry.json", SanitizeModelEntries(request.ModelEntries));
             AddJson(archive, "startup_diagnostics.json", request.StartupDiagnostics);
             AddJson(archive, "health.json", request.HealthSnapshot);
+            AddJson(archive, "field_diagnostics.json", fieldDiagnostics);
+            AddJson(archive, "recent_inspection_timings.json", recentTimings);
+            AddJson(archive, "recent_errors.json", fieldDiagnostics.RecentErrors);
+            AddJson(archive, "model_probe_summary.json", request.ModelProbeSummary ?? fieldDiagnostics.ModelProbe);
+            AddJson(archive, "queue_status.json", request.QueueStatus ?? fieldDiagnostics.Queues);
             AddJson(archive, "recent_records.json", SanitizeRecentRecords(request.RecentRecords));
             AddText(archive, "system_info.txt", BuildSystemInfo());
             AddText(archive, "native_dependencies.txt", BuildNativeDependencyManifest());
             await AddLogsAsync(archive, request.LogsDirectory, cancellationToken).ConfigureAwait(false);
 
             return zipPath;
+        }
+
+        private static FieldDiagnosticsSnapshot BuildFallbackFieldDiagnostics(DiagnosticPackageRequest request)
+        {
+            HealthSnapshot health = request.HealthSnapshot ?? new HealthSnapshot();
+            FieldModelProbeSummary modelProbe = request.ModelProbeSummary ??
+                FieldDiagnosticsSnapshotFactory.BuildModelProbeSummary(
+                    health,
+                    request.ModelEntries,
+                    new DetectionRuntimeModelSnapshot(),
+                    null,
+                    null);
+            FieldQueueStatus queueStatus = request.QueueStatus ??
+                FieldDiagnosticsSnapshotFactory.BuildQueueStatus(health);
+            IReadOnlyList<RecentInspectionTimingSnapshot> timings = request.RecentInspectionTimings.Count > 0
+                ? request.RecentInspectionTimings
+                : health.RecentInspectionTimings;
+
+            FieldDiagnosticsSnapshot snapshot = FieldDiagnosticsSnapshotFactory.Create(
+                health,
+                request.StartupDiagnostics,
+                request.ModelEntries,
+                new DetectionRuntimeModelSnapshot(),
+                modelProbe.CurrentModelName,
+                null);
+
+            return new FieldDiagnosticsSnapshot
+            {
+                UpdatedAt = snapshot.UpdatedAt,
+                OverallLevel = snapshot.OverallLevel,
+                CameraStatus = snapshot.CameraStatus,
+                PlcStatus = snapshot.PlcStatus,
+                CurrentModelName = snapshot.CurrentModelName,
+                ModelStatus = snapshot.ModelStatus,
+                StorageStatus = snapshot.StorageStatus,
+                DatabaseStatus = snapshot.DatabaseStatus,
+                LastInspectionId = snapshot.LastInspectionId,
+                LastInspectionTotalMs = snapshot.LastInspectionTotalMs,
+                RecentInspectionP95Ms = snapshot.RecentInspectionP95Ms,
+                RecentInspectionP99Ms = snapshot.RecentInspectionP99Ms,
+                ImageQueueLength = snapshot.ImageQueueLength,
+                ImageQueueCapacity = snapshot.ImageQueueCapacity,
+                RecordQueueLength = snapshot.RecordQueueLength,
+                RecordQueueCapacity = snapshot.RecordQueueCapacity,
+                FreeDiskGb = snapshot.FreeDiskGb,
+                MemoryMb = snapshot.MemoryMb,
+                HealthSnapshot = health,
+                StartupDiagnostics = request.StartupDiagnostics,
+                Queues = queueStatus,
+                ModelProbe = modelProbe,
+                Components = snapshot.Components,
+                RecentInspectionTimings = timings,
+                RecentErrors = health.RecentErrors
+            };
         }
 
         private static string BuildSanitizedConfigJson(AppConfig config)

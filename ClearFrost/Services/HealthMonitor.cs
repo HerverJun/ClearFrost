@@ -57,6 +57,8 @@ namespace ClearFrost.Services
         public long RecordQueueFailedCount { get; init; }
         public double FreeDiskGb { get; init; }
         public long MemoryMb { get; init; }
+        public RecentInspectionTimingSnapshot? LastInspectionTiming { get; init; }
+        public IReadOnlyList<RecentInspectionTimingSnapshot> RecentInspectionTimings { get; init; } = Array.Empty<RecentInspectionTimingSnapshot>();
         public IReadOnlyList<HealthError> RecentErrors { get; init; } = Array.Empty<HealthError>();
         public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.Now;
     }
@@ -79,6 +81,7 @@ namespace ClearFrost.Services
         private readonly TimeSpan _diskProbeCacheTtl;
         private readonly Queue<HealthError> _recentErrors = new Queue<HealthError>();
         private readonly Queue<long> _recentInspectionMs = new Queue<long>();
+        private readonly Queue<RecentInspectionTimingSnapshot> _recentInspectionTimings = new Queue<RecentInspectionTimingSnapshot>();
         private DiskProbeSnapshot _diskProbeSnapshot;
         private bool _hasDiskProbeSnapshot;
         private string _lastInspectionId = string.Empty;
@@ -133,17 +136,43 @@ namespace ClearFrost.Services
                 return;
             }
 
+            RecordInspectionTiming(RecentInspectionTimingSnapshot.FromContext(context));
+        }
+
+        public void RecordInspection(InspectionPipelineResult result)
+        {
+            if (result == null || string.IsNullOrWhiteSpace(result.Context.InspectionId))
+            {
+                return;
+            }
+
+            RecordInspectionTiming(RecentInspectionTimingSnapshot.FromPipelineResult(result));
+        }
+
+        private void RecordInspectionTiming(RecentInspectionTimingSnapshot timing)
+        {
+            if (timing == null || string.IsNullOrWhiteSpace(timing.InspectionId))
+            {
+                return;
+            }
+
             lock (_syncRoot)
             {
-                _lastInspectionId = context.InspectionId;
-                _lastInspectionTotalMs = context.TotalMs;
-                if (context.TotalMs > 0)
+                _lastInspectionId = timing.InspectionId;
+                _lastInspectionTotalMs = timing.TotalMs;
+                if (timing.TotalMs > 0)
                 {
-                    _recentInspectionMs.Enqueue(context.TotalMs);
+                    _recentInspectionMs.Enqueue(timing.TotalMs);
                     while (_recentInspectionMs.Count > MaxRecentInspectionSamples)
                     {
                         _recentInspectionMs.Dequeue();
                     }
+                }
+
+                _recentInspectionTimings.Enqueue(timing);
+                while (_recentInspectionTimings.Count > MaxRecentInspectionSamples)
+                {
+                    _recentInspectionTimings.Dequeue();
                 }
             }
         }
@@ -152,6 +181,7 @@ namespace ClearFrost.Services
         {
             HealthError[] errors;
             long[] inspectionMs;
+            RecentInspectionTimingSnapshot[] inspectionTimings;
             string lastInspectionId;
             long lastInspectionTotalMs;
 
@@ -159,6 +189,7 @@ namespace ClearFrost.Services
             {
                 errors = _recentErrors.ToArray();
                 inspectionMs = _recentInspectionMs.ToArray();
+                inspectionTimings = _recentInspectionTimings.ToArray();
                 lastInspectionId = _lastInspectionId;
                 lastInspectionTotalMs = _lastInspectionTotalMs;
             }
@@ -224,6 +255,8 @@ namespace ClearFrost.Services
                 RecordQueueFailedCount = recordFailed,
                 FreeDiskGb = diskProbe.FreeDiskGb,
                 MemoryMb = Process.GetCurrentProcess().WorkingSet64 / 1024 / 1024,
+                LastInspectionTiming = inspectionTimings.LastOrDefault(),
+                RecentInspectionTimings = inspectionTimings,
                 RecentErrors = allErrors,
                 UpdatedAt = DateTimeOffset.Now
             };

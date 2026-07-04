@@ -784,7 +784,14 @@ namespace ClearFrost
             {
                 totalSw.Stop();
                 context.TotalMs = totalSw.ElapsedMilliseconds;
-                _healthMonitor.RecordInspection(context);
+                if (pipelineResult != null)
+                {
+                    _healthMonitor.RecordInspection(pipelineResult);
+                }
+                else
+                {
+                    _healthMonitor.RecordInspection(context);
+                }
 
                 await SendHealthSnapshotToFrontendAsync();
 

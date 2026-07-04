@@ -30,7 +30,7 @@
     let exitAppPending = false;
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
-    const KnownRenderReasons = new Set(["inspection", "stats", "health", "replay", "manualReview", "bootstrap", "state"]);
+    const KnownRenderReasons = new Set(["inspection", "stats", "health", "replay", "manualReview", "fieldDebug", "bootstrap", "state"]);
     const InspectionStageLabels = Object.freeze({
         Unknown: "未知",
         Triggered: "已触发",
@@ -559,6 +559,107 @@
             updateConnection("plc", /^Connected/i.test(String(plcStatus)));
         }
         logQueuePressureAdvice(health);
+        renderFieldDiagnostics(state);
+    }
+
+    function getNestedHealthSnapshot(health) {
+        return health?.healthSnapshot || health?.HealthSnapshot || health || {};
+    }
+
+    function getFieldValue(health, camelName, pascalName, fallback = "") {
+        const nested = getNestedHealthSnapshot(health);
+        return health?.[camelName] ?? health?.[pascalName] ?? nested?.[camelName] ?? nested?.[pascalName] ?? fallback;
+    }
+
+    function getFieldArray(health, camelName, pascalName) {
+        const nested = getNestedHealthSnapshot(health);
+        const value = health?.[camelName] ?? health?.[pascalName] ?? nested?.[camelName] ?? nested?.[pascalName];
+        return Array.isArray(value) ? value : [];
+    }
+
+    function formatQueueText(pending, capacity) {
+        const p = Math.max(0, Math.trunc(toFiniteNumber(pending)));
+        const c = Math.max(0, Math.trunc(toFiniteNumber(capacity)));
+        return c > 0 ? `${p}/${c}` : `${p}/-`;
+    }
+
+    function getLastFieldError(health) {
+        const errors = getFieldArray(health, "recentErrors", "RecentErrors");
+        if (errors.length === 0) return "";
+        const last = errors[errors.length - 1] || {};
+        const source = last.source || last.Source || "系统";
+        const message = last.message || last.Message || "";
+        return `${source}: ${message}`;
+    }
+
+    function getLastTimingText(health) {
+        const timings = getFieldArray(health, "recentInspectionTimings", "RecentInspectionTimings");
+        const lastTiming = health.lastInspectionTiming || health.LastInspectionTiming ||
+            getNestedHealthSnapshot(health).lastInspectionTiming || getNestedHealthSnapshot(health).LastInspectionTiming ||
+            timings[timings.length - 1];
+        if (!lastTiming) return "等待检测";
+
+        const parts = [
+            lastTiming.captureMs || lastTiming.CaptureMs ? `取图${lastTiming.captureMs ?? lastTiming.CaptureMs}ms` : "",
+            lastTiming.inferenceMs || lastTiming.InferenceMs ? `推理${lastTiming.inferenceMs ?? lastTiming.InferenceMs}ms` : "",
+            lastTiming.roiFilterMs || lastTiming.RoiFilterMs ? `规则${lastTiming.roiFilterMs ?? lastTiming.RoiFilterMs}ms` : "",
+            lastTiming.plcWriteMs || lastTiming.PlcWriteMs ? `PLC${lastTiming.plcWriteMs ?? lastTiming.PlcWriteMs}ms` : "",
+        ].filter(Boolean);
+        return parts.length ? parts.join(" / ") : "暂无阶段耗时";
+    }
+
+    function renderFieldDiagnostics(state) {
+        const health = state?.health || {};
+        const modelProbe = health.modelProbe || health.ModelProbe || {};
+        const currentModel = getFieldValue(health, "currentModelName", "CurrentModelName") ||
+            modelProbe.currentModelName || modelProbe.CurrentModelName ||
+            getFieldValue(health, "modelStatus", "ModelStatus");
+
+        setText("diag-camera-status", getFieldValue(health, "cameraStatus", "CameraStatus"), "未连接");
+        setText("diag-plc-status", getFieldValue(health, "plcStatus", "PlcStatus"), "未连接");
+        setText("diag-current-model", currentModel, "未加载");
+        setText("diag-last-inspection-id", getFieldValue(health, "lastInspectionId", "LastInspectionId"), "-");
+        setText("diag-p95", `${getFieldValue(health, "recentInspectionP95Ms", "RecentInspectionP95Ms", 0)}ms`, "0ms");
+        setText("diag-p99", `${getFieldValue(health, "recentInspectionP99Ms", "RecentInspectionP99Ms", 0)}ms`, "0ms");
+        setText(
+            "diag-image-queue",
+            formatQueueText(
+                getFieldValue(health, "imageQueueLength", "ImageQueueLength", 0),
+                getFieldValue(health, "imageQueueCapacity", "ImageQueueCapacity", 0),
+            ),
+            "0/-",
+        );
+        setText(
+            "diag-record-queue",
+            formatQueueText(
+                getFieldValue(health, "recordQueueLength", "RecordQueueLength", 0),
+                getFieldValue(health, "recordQueueCapacity", "RecordQueueCapacity", 0),
+            ),
+            "0/-",
+        );
+        setText("diag-free-disk", `${getFieldValue(health, "freeDiskGb", "FreeDiskGb", 0)}GB`, "0GB");
+        setText("diag-memory", `${getFieldValue(health, "memoryMb", "MemoryMb", 0)}MB`, "0MB");
+        setText("diag-last-error", getLastFieldError(health), "暂无错误");
+        setText("diag-stage-timing", getLastTimingText(health), "等待检测");
+
+        const debug = state?.fieldDebug || {};
+        const debugMessage = debug.message || debug.Message || "等待调试命令";
+        const debugCode = debug.errorCode || debug.ErrorCode || "";
+        setText("diag-debug-status", debugCode ? `${debugMessage} [${debugCode}]` : debugMessage, "等待调试命令");
+
+        const pkg = state?.diagnosticPackage || {};
+        setText("diag-package-path", pkg.path || pkg.Path || pkg.message || pkg.Message || "", "尚未导出");
+    }
+
+    function openFieldDiagnosticsPanel() {
+        const modal = el("field-diagnostics-modal");
+        if (!modal) return;
+        modal.classList.remove("hidden");
+        window.sendCommand("request_health_snapshot");
+    }
+
+    function closeFieldDiagnosticsPanel() {
+        el("field-diagnostics-modal")?.classList.add("hidden");
     }
 
     function renderReplayStatus(state) {
@@ -620,6 +721,9 @@
         }
         if (hasRenderReason(reasons, "manualReview")) {
             renderManualReviewStatus(state);
+        }
+        if (hasRenderReason(reasons, "fieldDebug")) {
+            renderFieldDiagnostics(state);
         }
     }
 
@@ -1024,6 +1128,20 @@
         if (window.__CF_DEV_MODE) console.warn("Command error:", data, envelope);
     }
 
+    function handleFieldDebugResult(data) {
+        store.applyFieldDebugResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const message = data?.message || data?.Message || "";
+        if (message) addLog(message, succeeded === false ? "error" : "info");
+    }
+
+    function handleDiagnosticPackageExportResult(data) {
+        store.applyDiagnosticPackageExportResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const message = data?.message || data?.Message || "";
+        if (message) addLog(message, succeeded === false ? "error" : "info");
+    }
+
     function handleCommandDispatched(cmd) {
         switch (cmd) {
             case "manual_detect":
@@ -1033,6 +1151,17 @@
             case "manual_release":
                 addLog("强制放行申请已提交", "warning");
                 showToast("强制放行申请已提交", "warning", 1200);
+                break;
+            case "export_diagnostic_package":
+                addLog("正在导出诊断包...", "info");
+                showToast("正在导出诊断包...", "info", 1200);
+                break;
+            case "field_debug_step_capture":
+            case "field_debug_step_infer":
+            case "field_debug_plc_write_test":
+            case "field_debug_barcode_read_test":
+            case "field_debug_simulate_trigger":
+                addLog("现场调试命令已发送", "info");
                 break;
             default:
                 break;
@@ -1092,10 +1221,13 @@
         addDetectionLog,
         clearLogs,
         clearDetectionLogs,
+        closeFieldDiagnosticsPanel,
         escapeHtml,
         flashPlcTrigger,
         handleInspectionUpdate,
+        openFieldDiagnosticsPanel,
         renderHealthSnapshot: handleHealthSnapshot,
+        renderFieldDiagnostics: () => renderFieldDiagnostics(window.CF_STATE),
         renderInspectionContext: () => renderInspectionContext(window.CF_STATE),
         renderManualReviewStatus: () => renderManualReviewStatus(window.CF_STATE),
         renderReplayStatus: () => renderReplayStatus(window.CF_STATE),
@@ -1137,6 +1269,8 @@
     bridge.registerMessageHandler("updateCameraName", (data) => updateCameraName(data?.name ?? data));
     bridge.registerMessageHandler("inspectionUpdate", handleInspectionUpdate);
     bridge.registerMessageHandler("healthSnapshot", handleHealthSnapshot);
+    bridge.registerMessageHandler("fieldDebugResult", handleFieldDebugResult);
+    bridge.registerMessageHandler("diagnosticPackageExportResult", handleDiagnosticPackageExportResult);
     bridge.registerMessageHandler("manualReviewRecords", (data) => store.applyManualReviewUpdate(data));
     bridge.registerMessageHandler("manualReviewResponse", (data) => store.applyManualReviewUpdate(data));
     bridge.registerMessageHandler("datasetCreateStatus", (data) => store.applyReplayUpdate(data));

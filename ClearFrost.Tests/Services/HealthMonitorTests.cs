@@ -42,10 +42,21 @@ public class HealthMonitorTests
             HealthSnapshot snapshot = monitor.GetSnapshot();
 
             snapshot.HealthLevel.Should().Be(HealthLevel.Warning);
+            snapshot.CameraStatus.Should().Be("Grabbing");
+            snapshot.PlcStatus.Should().Be("Connected:Fake");
+            snapshot.ModelStatus.Should().Contain("Loaded:fake-model");
+            snapshot.StorageStatus.Should().Be("Writable");
+            snapshot.DatabaseStatus.Should().Be("Ready");
             snapshot.LastInspectionId.Should().Be("CF-1");
             snapshot.LastInspectionTotalMs.Should().Be(123);
+            snapshot.LastInspectionTiming.Should().NotBeNull();
+            snapshot.RecentInspectionTimings.Should().Contain(t => t.InspectionId == "CF-1" && t.TotalMs == 123);
+            snapshot.RecentInspectionP95Ms.Should().Be(123);
+            snapshot.RecentInspectionP99Ms.Should().Be(123);
             snapshot.ImageQueueLength.Should().Be(imageQueue.PendingCount);
             snapshot.RecordQueueLength.Should().Be(recordQueue.PendingCount);
+            snapshot.FreeDiskGb.Should().BeGreaterThanOrEqualTo(0);
+            snapshot.MemoryMb.Should().BeGreaterThan(0);
             snapshot.RecentErrors.Should().Contain(e => e.Source == "PLC" && e.InspectionId == "CF-1");
         }
         finally

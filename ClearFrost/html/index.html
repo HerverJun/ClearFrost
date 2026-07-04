@@ -104,6 +104,14 @@
                         d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4m-4 5a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4" />
                 </svg>
             </button>
+            <button data-action="openFieldDiagnosticsPanel" title="诊断/调试" aria-label="诊断/调试">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M14.7 6.3a4 4 0 0 0-5 5L4 17v3h3l5.7-5.7a4 4 0 0 0 5-5l-2.4 2.4-3-3 2.4-2.4Z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="m14 14 5 5" />
+                </svg>
+            </button>
             <button data-action="openGalleryModal" title="记录追溯" aria-label="记录追溯">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -263,6 +271,132 @@
     </div>
 
     <!-- MODALS: 瓷感磨砂 -->
+
+    <!-- Field Diagnostics Modal -->
+    <div id="field-diagnostics-modal"
+        class="fixed inset-0 bg-ink-900/60 z-[65] hidden flex items-center justify-center p-3">
+        <div class="cf-diagnostics-panel">
+            <div class="cf-diagnostics-header">
+                <div>
+                    <span>现场诊断中心</span>
+                    <h2>诊断/调试</h2>
+                </div>
+                <div class="cf-diagnostics-header-actions">
+                    <button data-cmd="request_health_snapshot" title="刷新诊断状态" aria-label="刷新诊断状态">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M20 11a8 8 0 0 0-15.5-3M4 4v4h4m-4 5a8 8 0 0 0 15.5 3M20 20v-4h-4" />
+                        </svg>
+                    </button>
+                    <button data-action="closeFieldDiagnosticsPanel" title="关闭" aria-label="关闭">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="cf-diagnostics-body scroller">
+                <section class="cf-diagnostics-section">
+                    <h3>设备状态</h3>
+                    <div class="cf-diagnostics-grid">
+                        <div class="cf-diagnostic-tile">
+                            <span>相机状态</span>
+                            <strong id="diag-camera-status">未连接</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>PLC 状态</span>
+                            <strong id="diag-plc-status">未连接</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>当前模型</span>
+                            <strong id="diag-current-model">未加载</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>最近 InspectionId</span>
+                            <strong id="diag-last-inspection-id">-</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>P95 耗时</span>
+                            <strong id="diag-p95">0ms</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>P99 耗时</span>
+                            <strong id="diag-p99">0ms</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>图像队列</span>
+                            <strong id="diag-image-queue">0/-</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>记录队列</span>
+                            <strong id="diag-record-queue">0/-</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>磁盘剩余</span>
+                            <strong id="diag-free-disk">0GB</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>内存占用</span>
+                            <strong id="diag-memory">0MB</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="cf-diagnostics-section">
+                    <h3>最近异常与阶段耗时</h3>
+                    <div class="cf-diagnostics-readout">
+                        <div>
+                            <span>最近错误</span>
+                            <strong id="diag-last-error">暂无错误</strong>
+                        </div>
+                        <div>
+                            <span>最近检测阶段耗时</span>
+                            <strong id="diag-stage-timing">等待检测</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="cf-diagnostics-section">
+                    <h3>单步调试</h3>
+                    <div class="cf-debug-command-grid">
+                        <button data-cmd="field_debug_step_capture">
+                            <span>单步取图</span>
+                        </button>
+                        <button data-cmd="field_debug_step_infer">
+                            <span>单步推理</span>
+                        </button>
+                        <button data-cmd="field_debug_plc_write_test"
+                            data-confirm="确认向 PLC 结果地址写入测试值？请确认设备处于调试状态。">
+                            <span>PLC 写入测试</span>
+                        </button>
+                        <button data-cmd="field_debug_barcode_read_test">
+                            <span>条码读取测试</span>
+                        </button>
+                        <button data-cmd="field_debug_simulate_trigger"
+                            data-confirm="确认执行一次触发模拟？系统会按完整检测链路运行。">
+                            <span>触发模拟</span>
+                        </button>
+                    </div>
+                    <div class="cf-debug-status-line">
+                        <span>调试结果</span>
+                        <strong id="diag-debug-status">等待调试命令</strong>
+                    </div>
+                </section>
+
+                <section class="cf-diagnostics-section">
+                    <h3>诊断包</h3>
+                    <div class="cf-diagnostics-export-row">
+                        <button data-cmd="export_diagnostic_package">
+                            <span>一键导出诊断包</span>
+                        </button>
+                        <strong id="diag-package-path">尚未导出</strong>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
 
     <!-- Manual Release Modal -->
     <div id="manual-release-modal"

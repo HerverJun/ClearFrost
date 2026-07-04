@@ -221,6 +221,8 @@ namespace ClearFrost
             _uiController.OnChangeModel += (s, modelName) => InvokeOnUIThread(() => ChangeModel_Logic(modelName));
             _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC手动连接");
             _uiController.OnRequestHealthSnapshot += (s, e) => SafeFireAndForget(SendHealthSnapshotToFrontendAsync(showToast: true), "前端刷新健康快照");
+            _uiController.OnExportDiagnosticPackage += (s, args) => SafeFireAndForget(ExportDiagnosticPackageFromWebAsync(args), "导出诊断包");
+            _uiController.OnFieldDebugCommand += (s, args) => SafeFireAndForget(HandleFieldDebugCommandAsync(args), "现场单步调试");
             _uiController.OnThresholdChanged += (s, val) =>
             {
                 if (IsRuntimeMutationBlocked("ROI阈值更新")) return;
@@ -757,7 +759,7 @@ namespace ClearFrost
                         _cameraManager.ActiveCameraId ?? _appConfig.ActiveCameraId,
                         modelNames,
                         currentStats,
-                        _healthMonitor.GetSnapshot(),
+                        BuildFieldDiagnosticsSnapshot(),
                         _appConfig.StoragePath);
                     await _uiController.SendUiCommand("setRoi", new { rect = SnapshotCurrentROI() });
                     await _uiController.SendModelLabels(_detectionService.GetLabels());
@@ -2370,7 +2372,7 @@ namespace ClearFrost
                     await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
                 }
 
-                await _uiController.SendHealthSnapshot(_healthMonitor.GetSnapshot());
+                await _uiController.SendHealthSnapshot(BuildFieldDiagnosticsSnapshot());
                 if (showToast)
                 {
                     await _uiController.SendUiCommand("toast", new
@@ -2385,6 +2387,11 @@ namespace ClearFrost
             {
                 Debug.WriteLine($"[HealthMonitor] 推送健康快照失败: {ex.Message}");
             }
+        }
+
+        private FieldDiagnosticsSnapshot BuildFieldDiagnosticsSnapshot()
+        {
+            return _appRuntime.BuildFieldDiagnosticsSnapshot(_healthMonitor.GetSnapshot());
         }
 
         private static string FormatBytes(long bytes)

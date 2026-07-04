@@ -38,6 +38,8 @@
             records: [],
             lastResponse: {},
         },
+        fieldDebug: {},
+        diagnosticPackage: {},
         metrics: {},
         previewFrameId: 0,
     };
@@ -57,6 +59,8 @@
     state.manualReview = state.manualReview || { records: [], lastResponse: {} };
     state.manualReview.records = state.manualReview.records || [];
     state.manualReview.lastResponse = state.manualReview.lastResponse || {};
+    state.fieldDebug = state.fieldDebug || {};
+    state.diagnosticPackage = state.diagnosticPackage || {};
     window.CF_STATE = state;
 
     function pickValue(source, ...keys) {
@@ -403,6 +407,24 @@
         notify("health");
     }
 
+    function applyFieldDebugResult(payload) {
+        if (!payload) return;
+        state.fieldDebug = {
+            ...(state.fieldDebug || {}),
+            ...payload,
+        };
+        notify("fieldDebug");
+    }
+
+    function applyDiagnosticPackageExportResult(payload) {
+        if (!payload) return;
+        state.diagnosticPackage = {
+            ...(state.diagnosticPackage || {}),
+            ...payload,
+        };
+        notify("fieldDebug");
+    }
+
     function applyBootstrapSnapshot(snapshot) {
         if (!snapshot) return;
 
@@ -455,6 +477,8 @@
         applyStatsUpdate,
         applyReplayUpdate,
         applyHealthSnapshot,
+        applyFieldDebugResult,
+        applyDiagnosticPackageExportResult,
         applyBootstrapSnapshot,
     };
 })();

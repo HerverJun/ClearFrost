@@ -43,15 +43,18 @@ namespace ClearFrost
 {
     public sealed class WebUiCommandEventArgs : EventArgs
     {
-        public WebUiCommandEventArgs(string requestId, string payloadJson)
+        public WebUiCommandEventArgs(string requestId, string payloadJson, string command = "")
         {
             RequestId = requestId ?? string.Empty;
+            Command = command ?? string.Empty;
             PayloadJson = string.IsNullOrWhiteSpace(payloadJson) || string.Equals(payloadJson, "null", StringComparison.OrdinalIgnoreCase)
                 ? "{}"
                 : payloadJson;
         }
 
         public string RequestId { get; }
+
+        public string Command { get; }
 
         public string PayloadJson { get; }
     }
@@ -98,6 +101,8 @@ namespace ClearFrost
         public event EventHandler? OnStartDrag;
         public event EventHandler? OnConnectPlc;
         public event EventHandler? OnRequestHealthSnapshot;
+        public event EventHandler<WebUiCommandEventArgs>? OnExportDiagnosticPackage;
+        public event EventHandler<WebUiCommandEventArgs>? OnFieldDebugCommand;
         public event EventHandler<float[]>? OnUpdateROI;
         public event EventHandler<float>? OnSetConfidence;
         public event EventHandler<float>? OnSetIou;
@@ -800,6 +805,16 @@ namespace ClearFrost
                             case "request_health_snapshot":
                                 OnRequestHealthSnapshot?.Invoke(this, EventArgs.Empty);
                                 break;
+                            case "export_diagnostic_package":
+                                OnExportDiagnosticPackage?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "field_debug_step_capture":
+                            case "field_debug_step_infer":
+                            case "field_debug_plc_write_test":
+                            case "field_debug_barcode_read_test":
+                            case "field_debug_simulate_trigger":
+                                OnFieldDebugCommand?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
                             case "set_confidence":
                                 if (root.TryGetProperty("value", out JsonElement confElement))
                                 {
@@ -1093,7 +1108,10 @@ namespace ClearFrost
             string payload = root.TryGetProperty("value", out JsonElement valueElement)
                 ? valueElement.GetRawText()
                 : "{}";
-            return new WebUiCommandEventArgs(requestId ?? string.Empty, payload);
+            string command = root.TryGetProperty("cmd", out JsonElement cmdElement)
+                ? cmdElement.GetString() ?? string.Empty
+                : string.Empty;
+            return new WebUiCommandEventArgs(requestId ?? string.Empty, payload, command);
         }
 
         private async void CoreWebView2_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -1276,6 +1294,18 @@ namespace ClearFrost
             }
 
             PostMessage("healthSnapshot", snapshot);
+            return Task.CompletedTask;
+        }
+
+        public Task SendFieldDebugResult(object result, string? requestId = null)
+        {
+            PostMessage("fieldDebugResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendDiagnosticPackageExportResult(object result, string? requestId = null)
+        {
+            PostMessage("diagnosticPackageExportResult", result, requestId);
             return Task.CompletedTask;
         }
 
@@ -2021,6 +2051,8 @@ namespace ClearFrost
                 OnStartDrag = null;
                 OnConnectPlc = null;
                 OnRequestHealthSnapshot = null;
+                OnExportDiagnosticPackage = null;
+                OnFieldDebugCommand = null;
                 OnUpdateROI = null;
                 OnSetConfidence = null;
                 OnSetIou = null;

@@ -31,7 +31,45 @@ public class DiagnosticPackageExporterTests
                 LogsDirectory = logsDir,
                 AppConfig = new AppConfig { StoragePath = tempDir, CurrentOperatorId = "operator-secret" },
                 Recipe = new Recipe { RecipeId = "default", Version = "v1" },
-                HealthSnapshot = new HealthSnapshot { HealthLevel = HealthLevel.Ok },
+                StartupDiagnostics = new StartupDiagnosticReport
+                {
+                    Items = new[]
+                    {
+                        new StartupDiagnosticItem
+                        {
+                            Name = "Storage directory",
+                            Status = StartupDiagnosticStatus.Pass,
+                            Message = "Writable."
+                        }
+                    }
+                },
+                HealthSnapshot = new HealthSnapshot
+                {
+                    HealthLevel = HealthLevel.Ok,
+                    CameraStatus = "Grabbing",
+                    PlcStatus = "Connected:Fake",
+                    ModelStatus = "Loaded:model-a:CPU",
+                    LastInspectionId = "CF-1",
+                    RecentInspectionTimings = new[]
+                    {
+                        new RecentInspectionTimingSnapshot
+                        {
+                            InspectionId = "CF-1",
+                            TotalMs = 42,
+                            CaptureMs = 5,
+                            InferenceMs = 31
+                        }
+                    },
+                    RecentErrors = new[]
+                    {
+                        new HealthError
+                        {
+                            Source = "PLC",
+                            Message = "写入失败",
+                            InspectionId = "CF-1"
+                        }
+                    }
+                },
                 RecentRecords = new List<DetectionRecord>
                 {
                     new DetectionRecord
@@ -51,7 +89,13 @@ public class DiagnosticPackageExporterTests
             {
                 "config.sanitized.json",
                 "recipe.json",
+                "startup_diagnostics.json",
                 "health.json",
+                "field_diagnostics.json",
+                "recent_inspection_timings.json",
+                "recent_errors.json",
+                "model_probe_summary.json",
+                "queue_status.json",
                 "recent_records.json",
                 "logs/app.log"
             });
@@ -61,10 +105,15 @@ public class DiagnosticPackageExporterTests
 
             string configJson = ReadEntry(zip, "config.sanitized.json");
             string recordsJson = ReadEntry(zip, "recent_records.json");
+            string timingsJson = ReadEntry(zip, "recent_inspection_timings.json");
+            string startupJson = ReadEntry(zip, "startup_diagnostics.json");
             configJson.Should().NotContain("operator-secret");
             configJson.Should().NotContain(tempDir);
             recordsJson.Should().NotContain("barcode-secret");
             recordsJson.Should().NotContain("raw.jpg");
+            timingsJson.Should().Contain("CF-1");
+            timingsJson.Should().Contain("CaptureMs");
+            startupJson.Should().Contain("Storage directory");
 
         }
         finally
