@@ -348,25 +348,43 @@ namespace ClearFrost
         /// <summary>
         /// Sends the real-time camera image as base64 to the frontend.
         /// </summary>
-        public Task UpdateImage(string base64Image)
+        public Task UpdateImage(
+            string base64Image,
+            int sourceWidth = 0,
+            int sourceHeight = 0,
+            int previewWidth = 0,
+            int previewHeight = 0)
         {
             if (!IsWebViewControlUsable(_webView)) return Task.CompletedTask;
             PostMessage("previewFrame", new
             {
                 base64 = base64Image,
-                frameId = Interlocked.Increment(ref _previewFrameId)
+                frameId = Interlocked.Increment(ref _previewFrameId),
+                sourceWidth = Math.Max(0, sourceWidth),
+                sourceHeight = Math.Max(0, sourceHeight),
+                previewWidth = Math.Max(0, previewWidth),
+                previewHeight = Math.Max(0, previewHeight)
             });
             return Task.CompletedTask;
         }
 
-        public Task UpdateImageUrl(string url)
+        public Task UpdateImageUrl(
+            string url,
+            int sourceWidth = 0,
+            int sourceHeight = 0,
+            int previewWidth = 0,
+            int previewHeight = 0)
         {
             if (!IsWebViewControlUsable(_webView)) return Task.CompletedTask;
 
             PostMessage("previewFrame", new
             {
                 url = url,
-                frameId = Interlocked.Increment(ref _previewFrameId)
+                frameId = Interlocked.Increment(ref _previewFrameId),
+                sourceWidth = Math.Max(0, sourceWidth),
+                sourceHeight = Math.Max(0, sourceHeight),
+                previewWidth = Math.Max(0, previewWidth),
+                previewHeight = Math.Max(0, previewHeight)
             });
             return Task.CompletedTask;
         }
@@ -408,12 +426,12 @@ namespace ClearFrost
 
                 if (UseFileBackedImageTransport && !string.IsNullOrWhiteSpace(_webPreviewCachePath))
                 {
-                    await UpdateImageFileAsync(encoded);
+                    await UpdateImageFileAsync(encoded, image.Width, image.Height, resized.Width, resized.Height);
                 }
                 else
                 {
                     string base64 = Convert.ToBase64String(encoded);
-                    await UpdateImage(base64);
+                    await UpdateImage(base64, image.Width, image.Height, resized.Width, resized.Height);
                 }
 
                 Volatile.Write(ref _lastImagePushTick, Environment.TickCount64);
@@ -446,12 +464,17 @@ namespace ClearFrost
             return Task.CompletedTask;
         }
 
-        private async Task UpdateImageFileAsync(byte[] encoded)
+        private async Task UpdateImageFileAsync(
+            byte[] encoded,
+            int sourceWidth = 0,
+            int sourceHeight = 0,
+            int previewWidth = 0,
+            int previewHeight = 0)
         {
             if (string.IsNullOrWhiteSpace(_webPreviewCachePath))
             {
                 string base64 = Convert.ToBase64String(encoded);
-                await UpdateImage(base64);
+                await UpdateImage(base64, sourceWidth, sourceHeight, previewWidth, previewHeight);
                 return;
             }
 
@@ -462,7 +485,7 @@ namespace ClearFrost
             await File.WriteAllBytesAsync(filePath, encoded);
 
             string imageUrl = $"https://{PreviewHostName}/{fileName}?t={Environment.TickCount64}";
-            await UpdateImageUrl(imageUrl);
+            await UpdateImageUrl(imageUrl, sourceWidth, sourceHeight, previewWidth, previewHeight);
         }
 
         private static Mat ResizeForPreview(Mat image, int targetWidth, int targetHeight)
@@ -819,6 +842,7 @@ namespace ClearFrost
                             case "vision_debug_query_recent":
                             case "vision_debug_run_current":
                             case "vision_debug_run_history":
+                            case "vision_debug_run_batch":
                             case "vision_debug_save_params":
                             case "vision_debug_apply_template":
                                 OnVisionDebugCommand?.Invoke(this, CreateCommandEventArgs(root, requestId));

@@ -22,6 +22,16 @@ public class WebUIVisionDebugContractTests
         index.Should().Contain("id=\"vision-debug-target-label\"");
         index.Should().Contain("id=\"vision-debug-target-count\"");
         index.Should().Contain("id=\"vision-debug-roi-enabled\"");
+        index.Should().Contain("id=\"vision-debug-preprocess-help\"");
+        index.Should().Contain("data-value=\"w5_screw_count\"");
+        index.Should().Contain("data-value=\"w6_screw_count\"");
+        index.Should().Contain("data-value=\"n5_remote_missing_part\"");
+        index.Should().Contain("data-value=\"n6_remote_missing_part\"");
+        index.Should().Contain("data-value=\"electric_heating_screw_count\"");
+        index.Should().Contain("id=\"vision-debug-batch-limit\"");
+        index.Should().Contain("id=\"vision-debug-run-batch\"");
+        index.Should().Contain("id=\"vision-debug-param-diff\"");
+        index.Should().Contain("id=\"vision-debug-batch-summary\"");
         index.Should().Contain("id=\"vision-debug-box-list\"");
         index.Should().Contain("id=\"vision-debug-rule-details\"");
         index.Should().Contain("id=\"vision-debug-overlay\"");
@@ -29,18 +39,27 @@ public class WebUIVisionDebugContractTests
         controller.Should().Contain("OnVisionDebugCommand");
         controller.Should().Contain("case \"vision_debug_run_current\"");
         controller.Should().Contain("case \"vision_debug_run_history\"");
+        controller.Should().Contain("case \"vision_debug_run_batch\"");
         controller.Should().Contain("case \"vision_debug_save_params\"");
         controller.Should().Contain("case \"vision_debug_apply_template\"");
         controller.Should().Contain("PostMessage(\"visionDebugResult\"");
 
+        renderMain.Should().Contain("CF_COORDINATE_MAPPING");
         renderMain.Should().Contain("function openVisionDebugPanel");
         renderMain.Should().Contain("function runVisionDebugCurrent");
+        renderMain.Should().Contain("function runVisionDebugBatch");
+        renderMain.Should().Contain("projectDefaultTemplates");
+        renderMain.Should().Contain("renderVisionDebugParameterComparison");
+        renderMain.Should().Contain("renderVisionDebugBatchReplay");
+        renderMain.Should().Contain("关联目标框");
         renderMain.Should().Contain("function redrawVisionDebugOverlay");
         renderMain.Should().Contain("registerMessageHandler(\"visionDebugResult\"");
         state.Should().Contain("applyVisionDebugResult");
 
         bundle.Should().Contain("function openVisionDebugPanel");
         bundle.Should().Contain("registerMessageHandler(\"visionDebugResult\"");
+        bundle.Should().Contain("calculateImageContentMapping");
+        bundle.Should().Contain("vision_debug_run_batch");
     }
 
     private static string FindRepositoryRoot()

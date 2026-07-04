@@ -15,6 +15,11 @@ namespace ClearFrost.Core.Rules
         public const string RemoteMissingPart = "remote_missing_part";
         public const string WireSequence = "wire_sequence";
         public const string RelativePosition = "relative_position";
+        public const string W5ScrewCount = "w5_screw_count";
+        public const string W6ScrewCount = "w6_screw_count";
+        public const string N5RemoteMissingPart = "n5_remote_missing_part";
+        public const string N6RemoteMissingPart = "n6_remote_missing_part";
+        public const string ElectricHeatingScrewCount = "electric_heating_screw_count";
     }
 
     public static class InspectionRuleSetTemplates
@@ -30,8 +35,13 @@ namespace ClearFrost.Core.Rules
             InspectionRuleSet ruleSet = id switch
             {
                 InspectionRuleSetTemplateIds.RemoteMissingPart => CreateRemoteMissingPart(normalizedLabels),
+                InspectionRuleSetTemplateIds.N5RemoteMissingPart => CreateRemoteMissingPart(normalizedLabels, targetLabel),
+                InspectionRuleSetTemplateIds.N6RemoteMissingPart => CreateRemoteMissingPart(normalizedLabels, targetLabel),
                 InspectionRuleSetTemplateIds.WireSequence => CreateWireSequence(normalizedLabels),
                 InspectionRuleSetTemplateIds.RelativePosition => CreateRelativePosition(normalizedLabels),
+                InspectionRuleSetTemplateIds.W5ScrewCount => CreateScrewCount(targetLabel, targetCount),
+                InspectionRuleSetTemplateIds.W6ScrewCount => CreateScrewCount(targetLabel, targetCount),
+                InspectionRuleSetTemplateIds.ElectricHeatingScrewCount => CreateScrewCount(targetLabel, targetCount, "电加热螺钉数量"),
                 _ => CreateScrewCount(targetLabel, targetCount)
             };
 
@@ -45,12 +55,17 @@ namespace ClearFrost.Core.Rules
             {
                 new { id = InspectionRuleSetTemplateIds.ScrewCount, name = "螺钉数量检测" },
                 new { id = InspectionRuleSetTemplateIds.RemoteMissingPart, name = "遥控器漏装检测" },
+                new { id = InspectionRuleSetTemplateIds.W5ScrewCount, name = "W5 螺钉数量检测" },
+                new { id = InspectionRuleSetTemplateIds.W6ScrewCount, name = "W6 螺钉数量检测" },
+                new { id = InspectionRuleSetTemplateIds.N5RemoteMissingPart, name = "N5 遥控器漏装" },
+                new { id = InspectionRuleSetTemplateIds.N6RemoteMissingPart, name = "N6 遥控器漏装" },
+                new { id = InspectionRuleSetTemplateIds.ElectricHeatingScrewCount, name = "电加热螺钉检测" },
                 new { id = InspectionRuleSetTemplateIds.WireSequence, name = "线序顺序检测" },
                 new { id = InspectionRuleSetTemplateIds.RelativePosition, name = "相对位置检测" }
             };
         }
 
-        private static InspectionRuleSet CreateScrewCount(string? targetLabel, int targetCount)
+        private static InspectionRuleSet CreateScrewCount(string? targetLabel, int targetCount, string ruleName = "螺钉数量")
         {
             string label = string.IsNullOrWhiteSpace(targetLabel) ? "screw" : targetLabel.Trim();
             int count = targetCount > 0 ? targetCount : 4;
@@ -62,7 +77,7 @@ namespace ClearFrost.Core.Rules
                 {
                     new InspectionRule
                     {
-                        Name = "螺钉数量",
+                        Name = ruleName,
                         Type = InspectionRuleTypes.Count,
                         Label = label,
                         Operator = InspectionRuleOperators.Equal,
@@ -73,12 +88,14 @@ namespace ClearFrost.Core.Rules
             };
         }
 
-        private static InspectionRuleSet CreateRemoteMissingPart(IReadOnlyList<string> labels)
+        private static InspectionRuleSet CreateRemoteMissingPart(IReadOnlyList<string> labels, string? targetLabel = null)
         {
             string[] defaults = { "shell", "button", "battery_cover", "pcb" };
             List<string> expectedLabels = labels.Count > 0
                 ? labels.Take(4).ToList()
-                : defaults.ToList();
+                : !string.IsNullOrWhiteSpace(targetLabel)
+                    ? new List<string> { targetLabel.Trim() }
+                    : defaults.ToList();
 
             return new InspectionRuleSet
             {
@@ -156,11 +173,21 @@ namespace ClearFrost.Core.Rules
             if (string.Equals(value, "RemoteMissingPart", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.RemoteMissingPart;
             if (string.Equals(value, "WireSequence", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.WireSequence;
             if (string.Equals(value, "RelativePosition", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.RelativePosition;
+            if (string.Equals(value, "W5ScrewCount", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.W5ScrewCount;
+            if (string.Equals(value, "W6ScrewCount", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.W6ScrewCount;
+            if (string.Equals(value, "N5RemoteMissingPart", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.N5RemoteMissingPart;
+            if (string.Equals(value, "N6RemoteMissingPart", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.N6RemoteMissingPart;
+            if (string.Equals(value, "ElectricHeatingScrewCount", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.ElectricHeatingScrewCount;
             return value.ToLowerInvariant() switch
             {
                 InspectionRuleSetTemplateIds.RemoteMissingPart => InspectionRuleSetTemplateIds.RemoteMissingPart,
                 InspectionRuleSetTemplateIds.WireSequence => InspectionRuleSetTemplateIds.WireSequence,
                 InspectionRuleSetTemplateIds.RelativePosition => InspectionRuleSetTemplateIds.RelativePosition,
+                InspectionRuleSetTemplateIds.W5ScrewCount => InspectionRuleSetTemplateIds.W5ScrewCount,
+                InspectionRuleSetTemplateIds.W6ScrewCount => InspectionRuleSetTemplateIds.W6ScrewCount,
+                InspectionRuleSetTemplateIds.N5RemoteMissingPart => InspectionRuleSetTemplateIds.N5RemoteMissingPart,
+                InspectionRuleSetTemplateIds.N6RemoteMissingPart => InspectionRuleSetTemplateIds.N6RemoteMissingPart,
+                InspectionRuleSetTemplateIds.ElectricHeatingScrewCount => InspectionRuleSetTemplateIds.ElectricHeatingScrewCount,
                 _ => InspectionRuleSetTemplateIds.ScrewCount
             };
         }

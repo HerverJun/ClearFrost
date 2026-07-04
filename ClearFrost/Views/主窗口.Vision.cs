@@ -519,6 +519,9 @@ namespace ClearFrost
                     case "vision_debug_run_history":
                         await RunVisionDebugHistoryAsync(parameters, args.RequestId);
                         break;
+                    case "vision_debug_run_batch":
+                        await RunVisionDebugBatchHistoryAsync(parameters, args.RequestId);
+                        break;
                     case "vision_debug_run_current":
                         await RunVisionDebugCurrentFrameAsync(parameters, args.RequestId);
                         break;
@@ -573,17 +576,16 @@ namespace ClearFrost
 
         private async Task ApplyVisionDebugTemplateAsync(VisionDebugRunParameters parameters, string? requestId)
         {
-            InspectionRuleSet ruleSet = InspectionRuleSetTemplates.Create(
-                parameters.TemplateId,
-                parameters.Labels,
-                parameters.TargetLabel,
-                parameters.TargetCount ?? 0);
+            InspectionRuleSet ruleSet = VisionDebugParameterService.ResolveRuleSet(
+                _appConfig,
+                parameters,
+                out string ruleSetJson);
             await _uiController.SendVisionDebugResult(new
             {
                 status = "templateApplied",
                 templateId = parameters.TemplateId,
                 ruleSet = ruleSet,
-                ruleSetJson = InspectionRuleSetSerializer.Serialize(ruleSet),
+                ruleSetJson,
                 message = "场景模板已生成，仅用于当前调试会话，点击保存参数后才会写入配置"
             }, requestId);
         }
@@ -682,20 +684,17 @@ namespace ClearFrost
                     return;
                 }
 
-                string imagePath = ResolveDebugOriginalImagePath(record);
-                if (string.IsNullOrWhiteSpace(imagePath))
+                VisionDebugHistoryImageResolution imageResolution = ResolveDebugHistoryImagePath(record);
+                if (!imageResolution.Succeeded)
                 {
-                    string message = string.IsNullOrWhiteSpace(record.ImagePath)
-                        ? "该历史记录缺少原图路径，无法回放"
-                        : $"历史原图不存在: {record.ImagePath}";
-                    await SendVisionDebugErrorAsync(requestId, "OriginalImageMissing", message);
+                    await SendVisionDebugErrorAsync(requestId, "HistoryImageMissing", imageResolution.FailureReason);
                     return;
                 }
 
-                using Mat image = Cv2.ImRead(imagePath, ImreadModes.Color);
+                using Mat image = Cv2.ImRead(imageResolution.ImagePath, ImreadModes.Color);
                 if (image.Empty())
                 {
-                    await SendVisionDebugErrorAsync(requestId, "ImageReadFailed", $"历史原图读取失败: {imagePath}");
+                    await SendVisionDebugErrorAsync(requestId, "ImageReadFailed", $"历史样本图片读取失败: {imageResolution.ImagePath}");
                     return;
                 }
 
@@ -705,7 +704,10 @@ namespace ClearFrost
                     InspectionId = record.InspectionId,
                     OldIsQualified = record.IsQualified,
                     OldPrimaryReason = ResolveRecordPrimaryReason(record),
-                    ImagePath = imagePath
+                    ImagePath = imageResolution.ImagePath,
+                    UsedRenderedImage = imageResolution.UsedRenderedImage,
+                    ImageSourceKind = imageResolution.SourceKind,
+                    ImageWarning = imageResolution.Warning
                 };
                 VisionDebugSnapshot snapshot = await RunVisionDebugOnMatAsync(
                     image,
@@ -713,7 +715,116 @@ namespace ClearFrost
                     comparison,
                     requestId,
                     "历史样本算法调试").ConfigureAwait(false);
+                snapshot.ImageSourceKind = imageResolution.SourceKind;
+                snapshot.ImageSourceWarning = imageResolution.Warning;
                 await PublishVisionDebugSnapshotAsync(image, snapshot, requestId).ConfigureAwait(false);
+            }
+            finally
+            {
+                _detectionGate.Release();
+            }
+        }
+
+        private async Task RunVisionDebugBatchHistoryAsync(VisionDebugRunParameters parameters, string? requestId)
+        {
+            int requestedLimit = parameters.BatchLimit ?? VisionDebugBatchReplayService.DefaultLimit;
+            int effectiveLimit = VisionDebugBatchReplayService.ClampLimit(parameters.BatchLimit);
+            bool? resultFilter = VisionDebugBatchReplayService.ParseResultFilter(parameters.BatchResult);
+
+            DetectionTriggerDecision decision = await _detectionGate.TryEnterAsync(IsShutdownInProgress).ConfigureAwait(false);
+            if (!decision.Accepted)
+            {
+                string message = decision.DropReason == DetectionDropReason.Shutdown
+                    ? "软件正在退出，已忽略批量历史样本回放"
+                    : "检测正在进行中，请稍后再批量回放历史样本";
+                await SendVisionDebugErrorAsync(requestId, "DetectionBusy", message);
+                return;
+            }
+
+            try
+            {
+                if (!_detectionService.IsModelLoaded)
+                {
+                    await SendVisionDebugErrorAsync(requestId, "ModelNotLoaded", "YOLO模型未初始化，无法批量回放历史样本");
+                    return;
+                }
+
+                List<DetectionRecord> records = await _databaseService.GetReplayRecordsAsync(new DetectionReplayQuery
+                {
+                    IsQualified = resultFilter,
+                    Limit = effectiveLimit
+                }).ConfigureAwait(false);
+
+                var items = new List<VisionDebugBatchReplayItem>();
+                foreach (DetectionRecord record in records)
+                {
+                    var item = new VisionDebugBatchReplayItem
+                    {
+                        RecordId = record.Id,
+                        InspectionId = record.InspectionId,
+                        Timestamp = record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"),
+                        OldIsQualified = record.IsQualified,
+                        OldPrimaryReason = ResolveRecordPrimaryReason(record)
+                    };
+
+                    VisionDebugHistoryImageResolution imageResolution = ResolveDebugHistoryImagePath(record);
+                    if (!imageResolution.Succeeded)
+                    {
+                        item.Status = "missingImage";
+                        item.ImageMissing = true;
+                        item.FailureReason = imageResolution.FailureReason;
+                        items.Add(item);
+                        continue;
+                    }
+
+                    item.ImagePath = imageResolution.ImagePath;
+                    item.UsedRenderedImage = imageResolution.UsedRenderedImage;
+                    item.ImageSourceKind = imageResolution.SourceKind;
+                    item.ImageWarning = imageResolution.Warning;
+
+                    try
+                    {
+                        using Mat image = Cv2.ImRead(imageResolution.ImagePath, ImreadModes.Color);
+                        if (image.Empty())
+                        {
+                            item.Status = "failed";
+                            item.FailureReason = "图片读取失败";
+                            items.Add(item);
+                            continue;
+                        }
+
+                        VisionDebugSnapshot snapshot = await RunVisionDebugOnMatAsync(
+                            image,
+                            parameters,
+                            comparison: null,
+                            requestId,
+                            $"批量历史样本 {record.Id}",
+                            writeFrontendLog: false).ConfigureAwait(false);
+                        item.Status = "completed";
+                        item.NewIsQualified = snapshot.FinalOk;
+                        item.NewPrimaryReason = snapshot.PrimaryFailureReason;
+                    }
+                    catch (Exception ex)
+                    {
+                        item.Status = "failed";
+                        item.FailureReason = ex.Message;
+                    }
+
+                    items.Add(item);
+                }
+
+                VisionDebugBatchReplaySummary summary = VisionDebugBatchReplayService.BuildSummary(
+                    items,
+                    requestedLimit,
+                    effectiveLimit);
+
+                await _uiController.SendVisionDebugResult(new
+                {
+                    status = "batchCompleted",
+                    succeeded = true,
+                    batchReplay = summary,
+                    message = $"批量回放完成：{summary.CompletedCount}/{summary.TotalRecords} 条完成，变化 {summary.ChangedCount} 条"
+                }, requestId).ConfigureAwait(false);
             }
             finally
             {
@@ -726,7 +837,8 @@ namespace ClearFrost
             VisionDebugRunParameters parameters,
             VisionDebugComparison? comparison,
             string? requestId,
-            string sourceLabel)
+            string sourceLabel,
+            bool writeFrontendLog = true)
         {
             if (!_detectionService.IsModelLoaded)
             {
@@ -738,7 +850,8 @@ namespace ClearFrost
             InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
             float confidence = VisionDebugParameterService.ResolveConfidence(_appConfig, parameters);
             float iouThreshold = VisionDebugParameterService.ResolveIou(_appConfig, parameters);
-            float[]? roiSnapshot = parameters.RoiEnabled ? SnapshotCurrentROI() : null;
+            float[]? productionRoiSnapshot = SnapshotCurrentROI();
+            float[]? roiSnapshot = parameters.RoiEnabled ? productionRoiSnapshot : null;
             MultiModelCandidateEvaluator candidateEvaluator = _appRuntime.DecisionEvaluator.CreateCandidateEvaluator(
                 ruleSet,
                 image.Width,
@@ -790,6 +903,11 @@ namespace ClearFrost
                 IouThreshold = iouThreshold,
                 ElapsedMs = sw.ElapsedMilliseconds
             });
+            snapshot.ParameterComparison = VisionDebugParameterService.BuildParameterComparison(
+                _appConfig,
+                parameters,
+                ruleSetJson,
+                productionRoiSnapshot != null);
 
             if (result.HasError)
             {
@@ -809,9 +927,13 @@ namespace ClearFrost
                 snapshot.Comparison.NewPrimaryReason = snapshot.PrimaryFailureReason;
             }
 
-            await _uiController.LogToFrontend(
-                $"{sourceLabel}: {(snapshot.FinalOk ? "OK" : "NG")} | {snapshot.JudgeResult.Summary}",
-                snapshot.FinalOk ? "info" : "warning").ConfigureAwait(false);
+            if (writeFrontendLog)
+            {
+                await _uiController.LogToFrontend(
+                    $"{sourceLabel}: {(snapshot.FinalOk ? "OK" : "NG")} | {snapshot.JudgeResult.Summary}",
+                    snapshot.FinalOk ? "info" : "warning").ConfigureAwait(false);
+            }
+
             return snapshot;
         }
 
@@ -847,10 +969,8 @@ namespace ClearFrost
             return null;
         }
 
-        private string ResolveDebugOriginalImagePath(DetectionRecord record)
-        {
-            return TryResolveHistoryImagePath(record.ImagePath) ?? string.Empty;
-        }
+        private VisionDebugHistoryImageResolution ResolveDebugHistoryImagePath(DetectionRecord record) =>
+            VisionDebugHistoryImageResolver.Resolve(record, TryResolveHistoryImagePath);
 
         private static string ResolveRecordPrimaryReason(DetectionRecord record)
         {

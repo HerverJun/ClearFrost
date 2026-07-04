@@ -144,6 +144,7 @@
         diagnosticPackage: {},
         metrics: {},
         previewFrameId: 0,
+        previewFrame: {},
     };
 
     state.stats = state.stats || { total: 0, ok: 0, ng: 0 };
@@ -164,6 +165,7 @@
     state.fieldDebug = state.fieldDebug || {};
     state.visionDebug = state.visionDebug || {};
     state.diagnosticPackage = state.diagnosticPackage || {};
+    state.previewFrame = state.previewFrame || {};
     window.CF_STATE = state;
 
     function pickValue(source, ...keys) {
@@ -600,6 +602,178 @@
         applyDiagnosticPackageExportResult,
         applyBootstrapSnapshot,
     };
+})();
+
+// ==========================================
+// ClearFrost image/overlay coordinate mapping
+// ==========================================
+(function () {
+    "use strict";
+
+    const root = typeof window !== "undefined" ? window : globalThis;
+
+    function positiveNumber(value, fallback = 0) {
+        const number = Number(value);
+        return Number.isFinite(number) && number > 0 ? number : fallback;
+    }
+
+    function calculateContainedRect(outerWidth, outerHeight, innerWidth, innerHeight) {
+        outerWidth = positiveNumber(outerWidth);
+        outerHeight = positiveNumber(outerHeight);
+        innerWidth = positiveNumber(innerWidth);
+        innerHeight = positiveNumber(innerHeight);
+        if (!outerWidth || !outerHeight || !innerWidth || !innerHeight) {
+            return { x: 0, y: 0, width: 0, height: 0, scale: 0 };
+        }
+
+        const scale = Math.min(outerWidth / innerWidth, outerHeight / innerHeight);
+        const width = innerWidth * scale;
+        const height = innerHeight * scale;
+        return {
+            x: (outerWidth - width) / 2,
+            y: (outerHeight - height) / 2,
+            width,
+            height,
+            scale,
+        };
+    }
+
+    function calculateImageContentMapping(input = {}) {
+        const containerWidth = positiveNumber(input.containerWidth);
+        const containerHeight = positiveNumber(input.containerHeight);
+        const previewWidth = positiveNumber(input.previewWidth, positiveNumber(input.naturalWidth));
+        const previewHeight = positiveNumber(input.previewHeight, positiveNumber(input.naturalHeight));
+        const sourceWidth = positiveNumber(input.sourceWidth, previewWidth);
+        const sourceHeight = positiveNumber(input.sourceHeight, previewHeight);
+
+        if (!containerWidth || !containerHeight || !previewWidth || !previewHeight || !sourceWidth || !sourceHeight) {
+            return {
+                valid: false,
+                sourceWidth,
+                sourceHeight,
+                previewRect: { x: 0, y: 0, width: 0, height: 0 },
+                imageRect: { x: 0, y: 0, width: 0, height: 0 },
+                scaleX: 0,
+                scaleY: 0,
+            };
+        }
+
+        const previewRect = calculateContainedRect(containerWidth, containerHeight, previewWidth, previewHeight);
+        const sourceInPreviewRect = calculateContainedRect(previewWidth, previewHeight, sourceWidth, sourceHeight);
+        const previewScaleX = previewRect.width / previewWidth;
+        const previewScaleY = previewRect.height / previewHeight;
+        const imageRect = {
+            x: previewRect.x + sourceInPreviewRect.x * previewScaleX,
+            y: previewRect.y + sourceInPreviewRect.y * previewScaleY,
+            width: sourceInPreviewRect.width * previewScaleX,
+            height: sourceInPreviewRect.height * previewScaleY,
+        };
+
+        return {
+            valid: imageRect.width > 0 && imageRect.height > 0,
+            sourceWidth,
+            sourceHeight,
+            previewWidth,
+            previewHeight,
+            previewRect,
+            sourceInPreviewRect,
+            imageRect,
+            scaleX: imageRect.width / sourceWidth,
+            scaleY: imageRect.height / sourceHeight,
+        };
+    }
+
+    function mapImagePoint(mapping, point = {}) {
+        const x = Number(point.x ?? point.X ?? 0);
+        const y = Number(point.y ?? point.Y ?? 0);
+        return {
+            x: x * mapping.scaleX,
+            y: y * mapping.scaleY,
+        };
+    }
+
+    function mapImageRect(mapping, rect = {}) {
+        const x = Number(rect.x ?? rect.X ?? 0);
+        const y = Number(rect.y ?? rect.Y ?? 0);
+        const width = Number(rect.width ?? rect.Width ?? rect.w ?? rect.W ?? 0);
+        const height = Number(rect.height ?? rect.Height ?? rect.h ?? rect.H ?? 0);
+        return {
+            x: x * mapping.scaleX,
+            y: y * mapping.scaleY,
+            width: width * mapping.scaleX,
+            height: height * mapping.scaleY,
+        };
+    }
+
+    const CoordinateMappingTestCases = Object.freeze([
+        {
+            name: "16:9 source without bars",
+            input: { containerWidth: 1200, containerHeight: 675, previewWidth: 960, previewHeight: 540, sourceWidth: 1280, sourceHeight: 720 },
+            rect: { x: 0, y: 0, width: 1280, height: 720 },
+            expectedRect: { x: 0, y: 0, width: 1200, height: 675 },
+        },
+        {
+            name: "4:3 source in 16:9 backend preview",
+            input: { containerWidth: 960, containerHeight: 540, previewWidth: 960, previewHeight: 540, sourceWidth: 1024, sourceHeight: 768 },
+            rect: { x: 0, y: 0, width: 1024, height: 768 },
+            expectedImageRect: { x: 120, y: 0, width: 720, height: 540 },
+            expectedRect: { x: 0, y: 0, width: 720, height: 540 },
+        },
+        {
+            name: "portrait source in scaled preview",
+            input: { containerWidth: 480, containerHeight: 270, previewWidth: 960, previewHeight: 540, sourceWidth: 720, sourceHeight: 1280 },
+            rect: { x: 0, y: 0, width: 720, height: 1280 },
+            expectedImageRect: { x: 164.0625, y: 0, width: 151.875, height: 270 },
+            expectedRect: { x: 0, y: 0, width: 151.875, height: 270 },
+        },
+        {
+            name: "wide source with browser object-fit bars",
+            input: { containerWidth: 1000, containerHeight: 800, previewWidth: 960, previewHeight: 540, sourceWidth: 2000, sourceHeight: 500 },
+            rect: { x: 0, y: 0, width: 2000, height: 500 },
+            expectedImageRect: { x: 0, y: 275, width: 1000, height: 250 },
+            expectedRect: { x: 0, y: 0, width: 1000, height: 250 },
+        },
+    ]);
+
+    function assertClose(actual, expected, label) {
+        if (Math.abs(actual - expected) > 0.001) {
+            throw new Error(`${label}: expected ${expected}, got ${actual}`);
+        }
+    }
+
+    function runCoordinateMappingSelfTests() {
+        CoordinateMappingTestCases.forEach((testCase) => {
+            const mapping = calculateImageContentMapping(testCase.input);
+            if (!mapping.valid) throw new Error(`${testCase.name}: mapping invalid`);
+            if (testCase.expectedImageRect) {
+                assertClose(mapping.imageRect.x, testCase.expectedImageRect.x, `${testCase.name} imageRect.x`);
+                assertClose(mapping.imageRect.y, testCase.expectedImageRect.y, `${testCase.name} imageRect.y`);
+                assertClose(mapping.imageRect.width, testCase.expectedImageRect.width, `${testCase.name} imageRect.width`);
+                assertClose(mapping.imageRect.height, testCase.expectedImageRect.height, `${testCase.name} imageRect.height`);
+            }
+
+            const mappedRect = mapImageRect(mapping, testCase.rect);
+            assertClose(mappedRect.x, testCase.expectedRect.x, `${testCase.name} rect.x`);
+            assertClose(mappedRect.y, testCase.expectedRect.y, `${testCase.name} rect.y`);
+            assertClose(mappedRect.width, testCase.expectedRect.width, `${testCase.name} rect.width`);
+            assertClose(mappedRect.height, testCase.expectedRect.height, `${testCase.name} rect.height`);
+        });
+        return { ok: true, count: CoordinateMappingTestCases.length };
+    }
+
+    const api = {
+        CoordinateMappingTestCases,
+        calculateContainedRect,
+        calculateImageContentMapping,
+        mapImagePoint,
+        mapImageRect,
+        runCoordinateMappingSelfTests,
+    };
+
+    root.CF_COORDINATE_MAPPING = api;
+    if (typeof module !== "undefined" && module.exports) {
+        module.exports = api;
+    }
 })();
 
 // ==========================================
@@ -1270,6 +1444,17 @@
         return store.state.settings || {};
     }
 
+    const VisionDebugPreprocessHints = Object.freeze({
+        StandardLetterBox: {
+            text: "StandardLetterBox：生产默认等比缩放 + 居中填充，适合标准 YOLO 导出模型。",
+            risk: "",
+        },
+        IndustrialFast: {
+            text: "IndustrialFast：历史工业快速模式，减少插值开销，适合低配 IPC 做临时调试。",
+            risk: "风险：与标准 letterbox 坐标契约不同，窄图/竖图/小目标可能出现框位偏移或召回下降；仅建议对比验证，不改变生产默认。",
+        },
+    });
+
     function getVisionDebugRuleSetJson() {
         return String(el("vision-debug-rule-set")?.value || "").trim();
     }
@@ -1309,6 +1494,7 @@
         }
         if (!getVisionDebugRuleSetJson()) setVisionDebugRuleSetJson(ruleSetJson);
         updateVisionDebugSliderLabels();
+        updateVisionDebugPreprocessHint();
     }
 
     function updateVisionDebugSliderLabels() {
@@ -1316,6 +1502,20 @@
         const iou = Number(el("vision-debug-iou")?.value ?? 0);
         setText("vision-debug-confidence-value", conf.toFixed(2), "0.50");
         setText("vision-debug-iou-value", iou.toFixed(2), "0.30");
+    }
+
+    function updateVisionDebugPreprocessHint(snapshot = null) {
+        const mode = String(el("vision-debug-preprocess-mode")?.value || snapshot?.preprocessingMode || snapshot?.PreprocessingMode || "StandardLetterBox");
+        const hint = VisionDebugPreprocessHints[mode] || VisionDebugPreprocessHints.StandardLetterBox;
+        const failed = snapshot && (snapshot.succeeded === false || snapshot.Succeeded === false);
+        const errorText = failed
+            ? `失败: ${snapshot.errorCode || snapshot.ErrorCode || ""} ${snapshot.message || snapshot.Message || snapshot.primaryFailureReason || snapshot.PrimaryFailureReason || ""}`.trim()
+            : "";
+        setText(
+            "vision-debug-preprocess-help",
+            [hint.text, hint.risk, errorText].filter(Boolean).join(" "),
+            hint.text,
+        );
     }
 
     function openVisionDebugPanel() {
@@ -1363,15 +1563,33 @@
         window.handleCommandDispatched?.("vision_debug_run_history");
     }
 
+    function runVisionDebugBatch() {
+        const rawLimit = Number(el("vision-debug-batch-limit")?.value || 20);
+        const batchLimit = Math.max(1, Math.min(50, Math.trunc(rawLimit || 20)));
+        const batchResult = String(el("vision-debug-batch-result")?.value || "All");
+        setText("vision-debug-history-status", `正在批量回放最近 ${batchLimit} 条样本...`);
+        window.sendCommand("vision_debug_run_batch", collectVisionDebugParams({ batchLimit, batchResult }));
+        window.handleCommandDispatched?.("vision_debug_run_batch");
+    }
+
     function saveVisionDebugParams() {
         window.sendCommand("vision_debug_save_params", collectVisionDebugParams());
         window.handleCommandDispatched?.("vision_debug_save_params");
     }
 
     function applyVisionDebugTemplate(templateId) {
-        const labels = Array.from(el("vision-debug-target-label")?.options || [])
-            .map((option) => option.value)
-            .filter(Boolean);
+        const projectDefaultTemplates = new Set([
+            "w5_screw_count",
+            "w6_screw_count",
+            "n5_remote_missing_part",
+            "n6_remote_missing_part",
+            "electric_heating_screw_count",
+        ]);
+        const labels = projectDefaultTemplates.has(String(templateId || "").toLowerCase())
+            ? []
+            : Array.from(el("vision-debug-target-label")?.options || [])
+                .map((option) => option.value)
+                .filter(Boolean);
         window.sendCommand("vision_debug_apply_template", collectVisionDebugParams({ templateId, labels }));
         window.handleCommandDispatched?.("vision_debug_apply_template");
     }
@@ -1407,6 +1625,12 @@
             showToast(debug.message || "算法调试参数已保存", "success", 1500);
             return;
         }
+        if (debug.status === "batchCompleted") {
+            renderVisionDebugBatchReplay(debug.batchReplay || debug.BatchReplay);
+            setText("vision-debug-history-status", debug.message || "批量回放完成");
+            showToast(debug.message || "批量回放完成", "success", 1800);
+            return;
+        }
         if (debug.status === "failed") {
             const message = debug.message || debug.Message || "算法调试失败";
             renderVisionDebugFailure(message);
@@ -1427,9 +1651,13 @@
         setText("vision-debug-count-in", (snapshot.roiIncludedDetections || snapshot.RoiIncludedDetections || []).length, "0");
         setText("vision-debug-count-out", (snapshot.roiExcludedDetections || snapshot.RoiExcludedDetections || []).length, "0");
         setText("vision-debug-elapsed", `${snapshot.elapsedMs ?? snapshot.ElapsedMs ?? 0}ms`, "0ms");
+        const imageWarning = snapshot.imageSourceWarning || snapshot.ImageSourceWarning || snapshot.comparison?.imageWarning || snapshot.Comparison?.ImageWarning || "";
+        setText("vision-debug-image-warning", imageWarning, "");
+        renderVisionDebugParameterComparison(snapshot);
         renderVisionDebugBoxes(snapshot);
         renderVisionDebugRules(snapshot);
         renderVisionDebugComparison(snapshot);
+        updateVisionDebugPreprocessHint(snapshot);
         redrawVisionDebugOverlay();
     }
 
@@ -1441,6 +1669,7 @@
             pill.classList.add("error");
         }
         setText("vision-debug-primary-reason", message || "算法调试失败");
+        updateVisionDebugPreprocessHint({ succeeded: false, message });
     }
 
     function renderVisionDebugBoxes(snapshot) {
@@ -1479,12 +1708,79 @@
             const expected = rule.expected || rule.Expected || "";
             const actual = rule.actual || rule.Actual || "";
             const reason = rule.reason || rule.Reason || rule.message || rule.Message || "";
+            const associated = rule.associationSummary || rule.AssociationSummary || "";
+            const indexes = rule.associatedBoxIndexes || rule.AssociatedBoxIndexes || [];
+            const associationText = associated || (Array.isArray(indexes) && indexes.length ? `关联目标框: ${indexes.map((index) => `#${index}`).join(", ")}` : "关联目标框: 无");
             return `<div>
                 <strong>${ok ? "OK" : "NG"} · ${escapeHtml(name)}</strong>
                 <span>期望: ${escapeHtml(expected)} | 实际: ${escapeHtml(actual)}</span>
-                <span>${escapeHtml(reason)}</span>
+                <span>原因: ${escapeHtml(reason)}</span>
+                <span>${escapeHtml(associationText)}</span>
             </div>`;
         }).join("");
+    }
+
+    function renderVisionDebugParameterComparison(snapshot) {
+        const list = el("vision-debug-param-diff");
+        if (!list) return;
+        const comparison = snapshot.parameterComparison || snapshot.ParameterComparison;
+        const items = comparison?.items || comparison?.Items || [];
+        if (!Array.isArray(items) || !items.length) {
+            list.innerHTML = `<div>等待试运行后生成参数对比</div>`;
+            return;
+        }
+
+        list.innerHTML = items.map((item) => {
+            const changed = Boolean(item.isDifferent ?? item.IsDifferent);
+            const name = item.displayName || item.DisplayName || item.field || item.Field || "参数";
+            const productionValue = item.productionValue || item.ProductionValue || "";
+            const trialValue = item.trialValue || item.TrialValue || "";
+            return `<div class="${changed ? "" : "cf-vision-debug-box-muted"}">
+                <strong>${changed ? "变更" : "一致"} · ${escapeHtml(name)}</strong>
+                <span>生产: ${escapeHtml(productionValue)}</span>
+                <span>试运行: ${escapeHtml(trialValue)}</span>
+            </div>`;
+        }).join("");
+    }
+
+    function renderVisionDebugBatchReplay(summary) {
+        const list = el("vision-debug-batch-summary");
+        if (!list) return;
+        if (!summary) {
+            list.innerHTML = `<div>等待批量回放</div>`;
+            return;
+        }
+
+        const stats = [
+            `旧 OK ${summary.oldOkCount ?? summary.OldOkCount ?? 0}`,
+            `旧 NG ${summary.oldNgCount ?? summary.OldNgCount ?? 0}`,
+            `新 OK ${summary.newOkCount ?? summary.NewOkCount ?? 0}`,
+            `新 NG ${summary.newNgCount ?? summary.NewNgCount ?? 0}`,
+            `变化 ${summary.changedCount ?? summary.ChangedCount ?? 0}`,
+            `NG→OK ${summary.ngToOkCount ?? summary.NgToOkCount ?? 0}`,
+            `OK→NG ${summary.okToNgCount ?? summary.OkToNgCount ?? 0}`,
+            `缺图 ${summary.missingImageCount ?? summary.MissingImageCount ?? 0}`,
+            `渲染图 ${summary.renderedFallbackCount ?? summary.RenderedFallbackCount ?? 0}`,
+        ];
+        const reasonStats = summary.failureReasonStats || summary.FailureReasonStats || {};
+        const reasonText = Object.keys(reasonStats).length
+            ? Object.keys(reasonStats).map((key) => `${key} ${reasonStats[key]}`).join("；")
+            : "无失败原因";
+        const items = summary.items || summary.Items || [];
+        const previewRows = Array.isArray(items)
+            ? items.slice(0, 8).map((item) => {
+                const oldResult = item.oldResult || item.OldResult || "";
+                const newResult = item.newResult || item.NewResult || "";
+                const warning = item.imageWarning || item.ImageWarning || item.failureReason || item.FailureReason || "";
+                return `<span>${escapeHtml(item.inspectionId || item.InspectionId || item.recordId || item.RecordId)} · ${escapeHtml(oldResult || "-")}→${escapeHtml(newResult || "-")} ${warning ? `· ${escapeHtml(warning)}` : ""}</span>`;
+            }).join("")
+            : "";
+        list.innerHTML = `<div>
+            <strong>完成 ${summary.completedCount ?? summary.CompletedCount ?? 0}/${summary.totalRecords ?? summary.TotalRecords ?? 0} · 上限 ${summary.effectiveLimit ?? summary.EffectiveLimit ?? 50}</strong>
+            <span>${stats.join(" | ")}</span>
+            <span>失败统计: ${escapeHtml(reasonText)}</span>
+            ${previewRows}
+        </div>`;
     }
 
     function renderVisionDebugComparison(snapshot) {
@@ -1495,38 +1791,45 @@
         setText("vision-debug-history-status", `旧判定 ${oldResult || "-"} / 新判定 ${newResult || "-"}`);
     }
 
-    function getVisionDebugOverlayLayout() {
+    function getVisionDebugOverlayLayout(snapshot) {
         const image = el("camera-view");
         const container = el("camera-container");
         const canvas = el("vision-debug-overlay");
         if (!image || !container || !canvas) return null;
-        const imageWidth = image.naturalWidth || image.width || 1280;
-        const imageHeight = image.naturalHeight || image.height || 720;
+        const previewFrame = window.CF_STATE.previewFrame || {};
+        const sourceWidth = Number(snapshot?.imageWidth ?? snapshot?.ImageWidth ?? previewFrame.sourceWidth ?? image.naturalWidth ?? image.width ?? 1280);
+        const sourceHeight = Number(snapshot?.imageHeight ?? snapshot?.ImageHeight ?? previewFrame.sourceHeight ?? image.naturalHeight ?? image.height ?? 720);
+        const previewWidth = Number(previewFrame.previewWidth || image.naturalWidth || image.width || sourceWidth || 1280);
+        const previewHeight = Number(previewFrame.previewHeight || image.naturalHeight || image.height || sourceHeight || 720);
         const containerRect = container.getBoundingClientRect();
-        const containerRatio = containerRect.width / Math.max(1, containerRect.height);
-        const imageRatio = imageWidth / Math.max(1, imageHeight);
-        let renderedWidth;
-        let renderedHeight;
-        let offsetX;
-        let offsetY;
-        if (containerRatio > imageRatio) {
-            renderedHeight = containerRect.height;
-            renderedWidth = containerRect.height * imageRatio;
-            offsetX = (containerRect.width - renderedWidth) / 2;
-            offsetY = 0;
-        } else {
-            renderedWidth = containerRect.width;
-            renderedHeight = containerRect.width / imageRatio;
-            offsetX = 0;
-            offsetY = (containerRect.height - renderedHeight) / 2;
-        }
-        canvas.style.width = `${renderedWidth}px`;
-        canvas.style.height = `${renderedHeight}px`;
-        canvas.style.left = `${offsetX}px`;
-        canvas.style.top = `${offsetY}px`;
-        canvas.width = Math.max(1, Math.round(renderedWidth));
-        canvas.height = Math.max(1, Math.round(renderedHeight));
-        return { canvas, imageWidth, imageHeight, scaleX: canvas.width / imageWidth, scaleY: canvas.height / imageHeight };
+        const mapping = window.CF_COORDINATE_MAPPING?.calculateImageContentMapping({
+            containerWidth: containerRect.width,
+            containerHeight: containerRect.height,
+            previewWidth,
+            previewHeight,
+            sourceWidth,
+            sourceHeight,
+        });
+        if (!mapping?.valid) return null;
+        const imageRect = mapping.imageRect;
+        canvas.style.width = `${imageRect.width}px`;
+        canvas.style.height = `${imageRect.height}px`;
+        canvas.style.left = `${imageRect.x}px`;
+        canvas.style.top = `${imageRect.y}px`;
+        canvas.style.right = "auto";
+        canvas.style.bottom = "auto";
+        canvas.width = Math.max(1, Math.round(imageRect.width));
+        canvas.height = Math.max(1, Math.round(imageRect.height));
+        return {
+            canvas,
+            sourceWidth,
+            sourceHeight,
+            mapping: {
+                ...mapping,
+                scaleX: canvas.width / Math.max(1, sourceWidth),
+                scaleY: canvas.height / Math.max(1, sourceHeight),
+            },
+        };
     }
 
     function clearVisionDebugOverlay() {
@@ -1538,19 +1841,27 @@
 
     function redrawVisionDebugOverlay() {
         const snapshot = store.state.visionDebug?.snapshot || store.state.visionDebug?.Snapshot;
-        const layout = getVisionDebugOverlayLayout();
+        const layout = getVisionDebugOverlayLayout(snapshot);
         if (!layout) return;
-        const { canvas, scaleX, scaleY } = layout;
+        const { canvas, mapping } = layout;
         const ctx = canvas.getContext("2d");
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (!snapshot) return;
+        drawVisionDebugRoi(ctx, snapshot, mapping);
         const boxes = snapshot.allDetections || snapshot.AllDetections || [];
         boxes.forEach((box) => {
             const filtered = Boolean(box.filteredOutByRoi ?? box.FilteredOutByRoi);
-            const x = Number(box.x ?? box.X ?? 0) * scaleX;
-            const y = Number(box.y ?? box.Y ?? 0) * scaleY;
-            const width = Number(box.width ?? box.Width ?? 0) * scaleX;
-            const height = Number(box.height ?? box.Height ?? 0) * scaleY;
+            const mappedRect = window.CF_COORDINATE_MAPPING.mapImageRect(mapping, {
+                x: box.x ?? box.X ?? 0,
+                y: box.y ?? box.Y ?? 0,
+                width: box.width ?? box.Width ?? 0,
+                height: box.height ?? box.Height ?? 0,
+            });
+            const mappedCenter = window.CF_COORDINATE_MAPPING.mapImagePoint(mapping, {
+                x: box.centerX ?? box.CenterX ?? 0,
+                y: box.centerY ?? box.CenterY ?? 0,
+            });
+            const { x, y, width, height } = mappedRect;
             const index = box.index ?? box.Index ?? "";
             const label = box.label || box.Label || `Class_${box.classId ?? box.ClassId}`;
             const confidence = Number(box.confidence ?? box.Confidence ?? 0);
@@ -1562,6 +1873,13 @@
             ctx.setLineDash(filtered ? [6, 4] : []);
             ctx.strokeRect(x, y, width, height);
             ctx.fillRect(x, y, width, height);
+            ctx.beginPath();
+            ctx.arc(mappedCenter.x, mappedCenter.y, filtered ? 3 : 4, 0, Math.PI * 2);
+            ctx.fillStyle = filtered ? "rgba(100, 116, 139, 0.95)" : "rgba(220, 38, 38, 0.95)";
+            ctx.fill();
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
             const caption = `#${index} ${label} ${confidence.toFixed(2)} (${Math.round(Number(box.centerX ?? box.CenterX ?? 0))},${Math.round(Number(box.centerY ?? box.CenterY ?? 0))})`;
             ctx.font = "12px Microsoft YaHei, sans-serif";
             const textWidth = ctx.measureText(caption).width + 10;
@@ -1572,6 +1890,27 @@
             ctx.fillText(caption, x + 5, textY + 13);
             ctx.restore();
         });
+    }
+
+    function drawVisionDebugRoi(ctx, snapshot, mapping) {
+        const roi = snapshot.roi || snapshot.Roi;
+        if (!Array.isArray(roi) || roi.length !== 4) return;
+        const sourceWidth = Number(snapshot.imageWidth ?? snapshot.ImageWidth ?? mapping.sourceWidth ?? 0);
+        const sourceHeight = Number(snapshot.imageHeight ?? snapshot.ImageHeight ?? mapping.sourceHeight ?? 0);
+        const x = Number(roi[0] || 0) * sourceWidth;
+        const y = Number(roi[1] || 0) * sourceHeight;
+        const width = Number(roi[2] || 0) * sourceWidth;
+        const height = Number(roi[3] || 0) * sourceHeight;
+        if (width <= 0 || height <= 0) return;
+        const rect = window.CF_COORDINATE_MAPPING.mapImageRect(mapping, { x, y, width, height });
+        ctx.save();
+        ctx.strokeStyle = "rgba(164, 22, 26, 0.96)";
+        ctx.fillStyle = "rgba(164, 22, 26, 0.08)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 5]);
+        ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        ctx.restore();
     }
 
     function renderReplayStatus(state) {
@@ -1897,7 +2236,7 @@
         return requestStartSystem();
     }
 
-    function updatePreviewImage({ url, base64, frameId }) {
+    function updatePreviewImage({ url, base64, frameId, sourceWidth, sourceHeight, previewWidth, previewHeight }) {
         const image = el("camera-view");
         if (!image) return;
 
@@ -1905,6 +2244,12 @@
         if (normalizedFrameId < lastPreviewFrameId) return;
         lastPreviewFrameId = normalizedFrameId;
         window.CF_STATE.previewFrameId = normalizedFrameId;
+        window.CF_STATE.previewFrame = {
+            sourceWidth: Number(sourceWidth || 0),
+            sourceHeight: Number(sourceHeight || 0),
+            previewWidth: Number(previewWidth || 0),
+            previewHeight: Number(previewHeight || 0),
+        };
 
         const src = url || (base64 ? (String(base64).startsWith("data:image") ? base64 : `data:image/jpeg;base64,${base64}`) : "");
         if (!src || image.src === src) return;
@@ -2085,6 +2430,9 @@
             case "vision_debug_run_history":
                 addLog("历史样本算法调试已发送", "info");
                 break;
+            case "vision_debug_run_batch":
+                addLog("批量历史样本回放已发送", "info");
+                break;
             case "vision_debug_save_params":
                 addLog("算法调试参数保存请求已发送", "info");
                 break;
@@ -2169,6 +2517,7 @@
         requestStartSystem,
         runVisionDebugCurrent,
         runVisionDebugHistory,
+        runVisionDebugBatch,
         saveVisionDebugParams,
         applyVisionDebugTemplate,
         startSystem,
@@ -2228,6 +2577,16 @@
         const target = event.target;
         if (target?.id === "vision-debug-confidence" || target?.id === "vision-debug-iou") {
             updateVisionDebugSliderLabels();
+        }
+        if (target?.id === "vision-debug-preprocess-mode") {
+            updateVisionDebugPreprocessHint();
+        }
+    });
+
+    document.addEventListener("change", (event) => {
+        const target = event.target;
+        if (target?.id === "vision-debug-preprocess-mode") {
+            updateVisionDebugPreprocessHint();
         }
     });
 })();
@@ -5536,36 +5895,27 @@
 
         function updateCanvasLayout() {
             if (!img || !roiCanvas) return;
-            const imageWidth = img.naturalWidth || img.width || 1280;
-            const imageHeight = img.naturalHeight || img.height || 720;
-            if (imageWidth === 0) return;
-
+            const previewFrame = window.CF_STATE?.previewFrame || {};
             const containerRect = container.getBoundingClientRect();
-            const containerRatio = containerRect.width / containerRect.height;
-            const imageRatio = imageWidth / imageHeight;
-            let renderedWidth;
-            let renderedHeight;
-            let offsetX;
-            let offsetY;
+            const mapping = window.CF_COORDINATE_MAPPING?.calculateImageContentMapping({
+                containerWidth: containerRect.width,
+                containerHeight: containerRect.height,
+                previewWidth: Number(previewFrame.previewWidth || img.naturalWidth || img.width || 1280),
+                previewHeight: Number(previewFrame.previewHeight || img.naturalHeight || img.height || 720),
+                sourceWidth: Number(previewFrame.sourceWidth || img.naturalWidth || img.width || 1280),
+                sourceHeight: Number(previewFrame.sourceHeight || img.naturalHeight || img.height || 720),
+            });
+            if (!mapping?.valid) return;
 
-            if (containerRatio > imageRatio) {
-                renderedHeight = containerRect.height;
-                renderedWidth = containerRect.height * imageRatio;
-                offsetX = (containerRect.width - renderedWidth) / 2;
-                offsetY = 0;
-            } else {
-                renderedWidth = containerRect.width;
-                renderedHeight = containerRect.width / imageRatio;
-                offsetX = 0;
-                offsetY = (containerRect.height - renderedHeight) / 2;
-            }
-
-            roiCanvas.style.width = `${renderedWidth}px`;
-            roiCanvas.style.height = `${renderedHeight}px`;
-            roiCanvas.style.left = `${offsetX}px`;
-            roiCanvas.style.top = `${offsetY}px`;
-            roiCanvas.width = renderedWidth;
-            roiCanvas.height = renderedHeight;
+            const imageRect = mapping.imageRect;
+            roiCanvas.style.width = `${imageRect.width}px`;
+            roiCanvas.style.height = `${imageRect.height}px`;
+            roiCanvas.style.left = `${imageRect.x}px`;
+            roiCanvas.style.top = `${imageRect.y}px`;
+            roiCanvas.style.right = "auto";
+            roiCanvas.style.bottom = "auto";
+            roiCanvas.width = Math.max(1, Math.round(imageRect.width));
+            roiCanvas.height = Math.max(1, Math.round(imageRect.height));
             redrawROI();
         }
 
@@ -5578,15 +5928,15 @@
         roiCanvas.addEventListener("mousedown", (event) => {
             isDrawingROI = true;
             const rect = roiCanvas.getBoundingClientRect();
-            roiStartX = event.clientX - rect.left;
-            roiStartY = event.clientY - rect.top;
+            roiStartX = (event.clientX - rect.left) * (roiCanvas.width / Math.max(1, rect.width));
+            roiStartY = (event.clientY - rect.top) * (roiCanvas.height / Math.max(1, rect.height));
         });
 
         roiCanvas.addEventListener("mousemove", (event) => {
             if (!isDrawingROI || !roiCanvas) return;
             const rect = roiCanvas.getBoundingClientRect();
-            const currentX = event.clientX - rect.left;
-            const currentY = event.clientY - rect.top;
+            const currentX = (event.clientX - rect.left) * (roiCanvas.width / Math.max(1, rect.width));
+            const currentY = (event.clientY - rect.top) * (roiCanvas.height / Math.max(1, rect.height));
             const ctx = roiCanvas.getContext("2d");
             ctx.clearRect(0, 0, roiCanvas.width, roiCanvas.height);
 
@@ -5604,8 +5954,8 @@
             if (!isDrawingROI || !roiCanvas) return;
             isDrawingROI = false;
             const rect = roiCanvas.getBoundingClientRect();
-            const currentX = event.clientX - rect.left;
-            const currentY = event.clientY - rect.top;
+            const currentX = (event.clientX - rect.left) * (roiCanvas.width / Math.max(1, rect.width));
+            const currentY = (event.clientY - rect.top) * (roiCanvas.height / Math.max(1, rect.height));
             const x = Math.min(roiStartX, currentX);
             const y = Math.min(roiStartY, currentY);
             const w = Math.abs(currentX - roiStartX);

@@ -95,6 +95,8 @@ namespace ClearFrost.Core.Rules
         public string Actual { get; init; } = string.Empty;
         public string Reason { get; init; } = string.Empty;
         public string Message { get; init; } = string.Empty;
+        public IReadOnlyList<int> AssociatedBoxIndexes { get; init; } = Array.Empty<int>();
+        public string AssociationSummary { get; init; } = string.Empty;
     }
 
     public sealed class InspectionFallbackGoal

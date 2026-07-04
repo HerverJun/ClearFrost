@@ -464,6 +464,7 @@
                                 <option value="StandardLetterBox">StandardLetterBox</option>
                                 <option value="IndustrialFast">IndustrialFast</option>
                             </select>
+                            <small id="vision-debug-preprocess-help" class="cf-vision-debug-hint">StandardLetterBox：生产默认等比缩放，适合标准 YOLO 导出模型。</small>
                         </label>
                         <label class="cf-vision-debug-switch">
                             <span>ROI 开关/显示</span>
@@ -477,6 +478,11 @@
                     <div class="cf-vision-template-grid">
                         <button data-action="applyVisionDebugTemplate" data-value="screw_count">螺钉数量检测</button>
                         <button data-action="applyVisionDebugTemplate" data-value="remote_missing_part">遥控器漏装检测</button>
+                        <button data-action="applyVisionDebugTemplate" data-value="w5_screw_count">W5 螺钉数量</button>
+                        <button data-action="applyVisionDebugTemplate" data-value="w6_screw_count">W6 螺钉数量</button>
+                        <button data-action="applyVisionDebugTemplate" data-value="n5_remote_missing_part">N5 遥控器漏装</button>
+                        <button data-action="applyVisionDebugTemplate" data-value="n6_remote_missing_part">N6 遥控器漏装</button>
+                        <button data-action="applyVisionDebugTemplate" data-value="electric_heating_screw_count">电加热螺钉检测</button>
                         <button data-action="applyVisionDebugTemplate" data-value="wire_sequence">线序顺序检测</button>
                         <button data-action="applyVisionDebugTemplate" data-value="relative_position">相对位置检测</button>
                     </div>
@@ -485,9 +491,18 @@
 
                 <section class="cf-vision-debug-section">
                     <h3>历史样本快速回放</h3>
-                    <div class="cf-vision-history-row">
+                    <div class="cf-vision-history-row cf-vision-batch-row">
                         <select id="vision-debug-history-select"></select>
                         <button id="vision-debug-run-history" data-action="runVisionDebugHistory">重跑历史样本</button>
+                    </div>
+                    <div class="cf-vision-history-row">
+                        <select id="vision-debug-batch-result">
+                            <option value="All">最近 OK/NG</option>
+                            <option value="OK">仅 OK</option>
+                            <option value="NG">仅 NG</option>
+                        </select>
+                        <input id="vision-debug-batch-limit" type="number" min="1" max="50" step="1" value="20" title="批量数量上限 50">
+                        <button id="vision-debug-run-batch" data-action="runVisionDebugBatch">批量回放</button>
                     </div>
                     <div id="vision-debug-history-status" class="cf-vision-debug-status">等待选择历史样本</div>
                 </section>
@@ -503,6 +518,17 @@
                         <span>过滤 <b id="vision-debug-count-out">0</b></span>
                         <span>耗时 <b id="vision-debug-elapsed">0ms</b></span>
                     </div>
+                    <div id="vision-debug-image-warning" class="cf-vision-debug-status"></div>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>参数对比摘要</h3>
+                    <div id="vision-debug-param-diff" class="cf-vision-debug-list"></div>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>批量回放摘要</h3>
+                    <div id="vision-debug-batch-summary" class="cf-vision-debug-list"></div>
                 </section>
 
                 <section class="cf-vision-debug-section">

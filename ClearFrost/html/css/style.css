@@ -667,7 +667,8 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-vision-debug-actions button,
 .cf-vision-debug-toolbar button,
 .cf-vision-template-grid button,
-#vision-debug-run-history {
+#vision-debug-run-history,
+#vision-debug-run-batch {
     border: 1px solid rgba(30, 64, 175, 0.16);
     border-radius: 6px;
     background: #eff6ff;
@@ -692,7 +693,8 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-vision-debug-actions button:hover,
 .cf-vision-debug-toolbar button:hover,
 .cf-vision-template-grid button:hover,
-#vision-debug-run-history:hover {
+#vision-debug-run-history:hover,
+#vision-debug-run-batch:hover {
     background: #dbeafe;
     border-color: rgba(37, 99, 235, 0.32);
 }
@@ -721,7 +723,9 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .cf-vision-debug-result-section,
 .cf-vision-debug-section:nth-of-type(5),
-.cf-vision-debug-section:nth-of-type(6) {
+.cf-vision-debug-section:nth-of-type(6),
+.cf-vision-debug-section:nth-of-type(7),
+.cf-vision-debug-section:nth-of-type(8) {
     grid-column: 2;
 }
 
@@ -733,8 +737,13 @@ input[type="range"]::-webkit-slider-runnable-track {
     margin-bottom: 12px;
 }
 
+.cf-vision-batch-row {
+    grid-template-columns: minmax(0, 1fr) 76px minmax(96px, 0.8fr);
+}
+
 .cf-vision-debug-toolbar button,
-#vision-debug-run-history {
+#vision-debug-run-history,
+#vision-debug-run-batch {
     height: 36px;
 }
 
@@ -753,6 +762,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .cf-vision-debug-grid input,
 .cf-vision-debug-grid select,
+.cf-vision-batch-row input,
 .cf-vision-history-row select,
 #vision-debug-rule-set {
     width: 100%;
@@ -766,9 +776,17 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .cf-vision-debug-grid input,
 .cf-vision-debug-grid select,
+.cf-vision-batch-row input,
 .cf-vision-history-row select {
     min-height: 34px;
     padding: 0 10px;
+}
+
+.cf-vision-debug-hint {
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.45;
+    font-weight: 700;
 }
 
 .cf-vision-debug-grid input[type="range"] {
@@ -899,7 +917,9 @@ input[type="range"]::-webkit-slider-runnable-track {
     .cf-vision-debug-section:nth-of-type(3),
     .cf-vision-debug-result-section,
     .cf-vision-debug-section:nth-of-type(5),
-    .cf-vision-debug-section:nth-of-type(6) {
+    .cf-vision-debug-section:nth-of-type(6),
+    .cf-vision-debug-section:nth-of-type(7),
+    .cf-vision-debug-section:nth-of-type(8) {
         grid-column: 1;
     }
 }

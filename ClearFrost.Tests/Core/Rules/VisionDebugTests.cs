@@ -104,17 +104,20 @@ public class VisionDebugTests
             result.RuleType == InspectionRuleTypes.Count &&
             result.Expected.Contains("screw") &&
             result.Actual == "1" &&
-            result.Reason.Contains("数量规则 NG"));
+            result.Reason.Contains("数量规则 NG") &&
+            result.AssociatedBoxIndexes.Contains(1));
         snapshot.RuleResults.Should().Contain(result =>
             result.RuleType == InspectionRuleTypes.OrderedLabels &&
             result.Expected.Contains("Wire_Brown") &&
             result.Actual.Contains("Wire_Brown") &&
-            result.Reason.Contains("缺失 Wire_Black"));
+            result.Reason.Contains("缺失 Wire_Black") &&
+            result.AssociationSummary.Contains("目标序号"));
         snapshot.RuleResults.Should().Contain(result =>
             result.RuleType == InspectionRuleTypes.RelativePosition &&
             result.Expected.Contains("screw 在 body 右侧") &&
             result.Actual.Contains("间距") &&
-            result.Reason.Contains("位置规则 NG"));
+            result.Reason.Contains("位置规则 NG") &&
+            result.AssociationSummary.Contains("最佳匹配"));
         snapshot.PrimaryFailureReason.Should().Contain("数量规则 NG");
     }
 
@@ -183,6 +186,44 @@ public class VisionDebugTests
             rule.Type == InspectionRuleTypes.RelativePosition &&
             rule.SubjectLabel == "cap" &&
             rule.ReferenceLabel == "body");
+    }
+
+    [Fact]
+    public void 参数对比摘要_列出生产与试运行差异()
+    {
+        var config = new AppConfig
+        {
+            Confidence = 0.45f,
+            IouThreshold = 0.25f,
+            TargetLabel = "screw",
+            TargetCount = 4,
+            InspectionRuleSetJson = InspectionRuleSetSerializer.Serialize(
+                InspectionRuleSetSerializer.FromLegacyTarget("screw", 4))
+        };
+        var parameters = new VisionDebugRunParameters
+        {
+            Confidence = 0.72f,
+            IouThreshold = 0.35f,
+            TargetLabel = "screw",
+            TargetCount = 3,
+            RoiEnabled = false,
+            PreprocessingMode = YoloPreprocessingMode.IndustrialFast
+        };
+        InspectionRuleSet trialRuleSet = VisionDebugParameterService.ResolveRuleSet(config, parameters, out string trialRuleSetJson);
+
+        VisionDebugParameterComparison comparison = VisionDebugParameterService.BuildParameterComparison(
+            config,
+            parameters,
+            trialRuleSetJson,
+            productionRoiEnabled: true);
+
+        trialRuleSet.Rules.Should().ContainSingle().Which.Count.Should().Be(3);
+        comparison.HasDifferences.Should().BeTrue();
+        comparison.Items.Should().Contain(item => item.Field == "confidence" && item.ProductionValue == "0.45" && item.TrialValue == "0.72" && item.IsDifferent);
+        comparison.Items.Should().Contain(item => item.Field == "iou" && item.IsDifferent);
+        comparison.Items.Should().Contain(item => item.Field == "targetCount" && item.ProductionValue == "4" && item.TrialValue == "3" && item.IsDifferent);
+        comparison.Items.Should().Contain(item => item.Field == "preprocessingMode" && item.TrialValue == "IndustrialFast" && item.IsDifferent);
+        comparison.Items.Should().Contain(item => item.Field == "roiEnabled" && item.ProductionValue == "启用" && item.TrialValue == "关闭" && item.IsDifferent);
     }
 
     private static InspectionRuleSet RuleSet(params InspectionRule[] rules)

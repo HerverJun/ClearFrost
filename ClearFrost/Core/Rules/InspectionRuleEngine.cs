@@ -116,23 +116,34 @@ namespace ClearFrost.Core.Rules
         {
             string targetLabel = rule.Label?.Trim() ?? string.Empty;
             double minConfidence = NormalizeConfidence(rule.MinConfidence);
-            int actualCount = detections.Count(detection =>
-                detection.Confidence >= minConfidence &&
-                (string.IsNullOrWhiteSpace(targetLabel) ||
-                 string.Equals(ResolveLabel(detection, labels), targetLabel, StringComparison.OrdinalIgnoreCase)));
+            List<IndexedDetection> matchedDetections = detections
+                .Select((detection, index) => new IndexedDetection(index + 1, detection, ResolveLabel(detection, labels)))
+                .Where(item =>
+                    item.Detection.Confidence >= minConfidence &&
+                    (string.IsNullOrWhiteSpace(targetLabel) ||
+                     string.Equals(item.Label, targetLabel, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            int actualCount = matchedDetections.Count;
 
             int expectedCount = Math.Max(0, rule.Count);
             bool isMatch = Compare(actualCount, expectedCount, NormalizeOperator(rule.Operator));
             string labelText = targetLabelOrAll(targetLabel);
             string expected = $"{labelText} 数量 {OperatorText(rule.Operator)} {expectedCount}";
             string actual = actualCount.ToString(CultureInfo.InvariantCulture);
+            IReadOnlyList<int> associatedIndexes = matchedDetections
+                .Select(item => item.Index)
+                .ToArray();
 
             return Result(
                 rule,
                 isMatch,
                 expected,
                 actual,
-                BuildCountMessage(rule, isMatch, labelText, expectedCount, actualCount));
+                BuildCountMessage(rule, isMatch, labelText, expectedCount, actualCount),
+                associatedIndexes,
+                associatedIndexes.Count == 0
+                    ? "关联目标框: 无"
+                    : $"关联目标框: {FormatIndexes(associatedIndexes)}");
         }
 
         private static InspectionRuleResult EvaluateOrderedLabels(
@@ -143,19 +154,21 @@ namespace ClearFrost.Core.Rules
             List<string> expectedLabels = NormalizeLabels(rule.ExpectedLabels);
             double minConfidence = NormalizeConfidence(rule.MinConfidence);
             var expectedLabelSet = new HashSet<string>(expectedLabels, StringComparer.OrdinalIgnoreCase);
-            IEnumerable<YoloResult> candidates = detections.Where(detection => detection.Confidence >= minConfidence);
+            IEnumerable<IndexedDetection> candidates = detections
+                .Select((detection, index) => new IndexedDetection(index + 1, detection, ResolveLabel(detection, labels)))
+                .Where(item => item.Detection.Confidence >= minConfidence);
             if (expectedLabelSet.Count > 0)
             {
-                candidates = candidates.Where(detection => expectedLabelSet.Contains(ResolveLabel(detection, labels)));
+                candidates = candidates.Where(item => expectedLabelSet.Contains(item.Label));
             }
 
-            List<YoloResult> ordered = SortDetections(
+            List<IndexedDetection> ordered = SortIndexedDetections(
                 candidates,
                 rule.SortBy,
                 rule.Direction);
 
             List<string> actualOrder = ordered
-                .Select(detection => ResolveLabel(detection, labels))
+                .Select(item => item.Label)
                 .Where(label => !string.IsNullOrWhiteSpace(label))
                 .ToList();
 
@@ -201,6 +214,9 @@ namespace ClearFrost.Core.Rules
             bool isMatch = reasons.Count == 0;
             string expectedText = FormatLabelsForMessage(expectedLabels);
             string actualText = FormatLabelsForMessage(actualOrder);
+            IReadOnlyList<int> associatedIndexes = ordered
+                .Select(item => item.Index)
+                .ToArray();
             return Result(
                 rule,
                 isMatch,
@@ -208,7 +224,11 @@ namespace ClearFrost.Core.Rules
                 FormatLabels(actualOrder),
                 isMatch
                     ? $"顺序规则 OK：期望 {expectedText}，实际 {actualText}"
-                    : $"顺序规则 NG：期望 {expectedText}，实际 {actualText}；{string.Join("；", reasons)}");
+                    : $"顺序规则 NG：期望 {expectedText}，实际 {actualText}；{string.Join("；", reasons)}",
+                associatedIndexes,
+                associatedIndexes.Count == 0
+                    ? "目标序号: 无"
+                    : $"目标序号: {FormatIndexedLabels(ordered)}");
         }
 
         private static InspectionRuleResult EvaluateRelativePosition(
@@ -225,8 +245,8 @@ namespace ClearFrost.Core.Rules
                 return Result(rule, false, "主标签和参考标签必须配置", "未配置", "位置规则 NG：主标签和参考标签必须配置");
             }
 
-            List<YoloResult> subjects = FindDetections(detections, labels, subjectLabel, minConfidence);
-            List<YoloResult> references = FindDetections(detections, labels, referenceLabel, minConfidence);
+            List<IndexedDetection> subjects = FindIndexedDetections(detections, labels, subjectLabel, minConfidence);
+            List<IndexedDetection> references = FindIndexedDetections(detections, labels, referenceLabel, minConfidence);
 
             if (subjects.Count == 0 || references.Count == 0)
             {
@@ -242,24 +262,27 @@ namespace ClearFrost.Core.Rules
                     var distances = references
                         .Select(reference =>
                         {
-                            double distance = GetEdgeDistance(subject, reference, rule.Relation);
-                            bool matched = IsRelativeDirectionMatched(subject, reference, rule.Relation, rule.MinDistance) &&
+                            double distance = GetEdgeDistance(subject.Detection, reference.Detection, rule.Relation);
+                            bool matched = IsRelativeDirectionMatched(subject.Detection, reference.Detection, rule.Relation, rule.MinDistance) &&
                                            (rule.MaxDistance <= 0 || distance <= rule.MaxDistance);
 
                             return new
                             {
+                                Reference = reference,
                                 Distance = distance,
                                 Matched = matched
                             };
                         })
                         .ToList();
-                    double bestDistance = distances.Any(item => item.Matched)
-                        ? distances.Where(item => item.Matched).Min(item => item.Distance)
-                        : distances.OrderBy(item => Math.Abs(item.Distance)).First().Distance;
+                    var bestReference = distances.Any(item => item.Matched)
+                        ? distances.Where(item => item.Matched).OrderBy(item => item.Distance).First()
+                        : distances.OrderBy(item => Math.Abs(item.Distance)).First();
 
                     return new
                     {
-                        BestDistance = bestDistance,
+                        Subject = subject,
+                        Reference = bestReference.Reference,
+                        BestDistance = bestReference.Distance,
                         Matched = distances.Any(item => item.Matched)
                     };
                 })
@@ -271,6 +294,14 @@ namespace ClearFrost.Core.Rules
                 .DefaultIfEmpty(0)
                 .Min();
             string actualText = $"{RelativeActual(rule.Relation)}间距 {displayDistance:F1}px，主目标 {subjects.Count} 个，参考 {references.Count} 个";
+            var bestPair = subjectResults.Any(item => item.Matched)
+                ? subjectResults.Where(item => item.Matched).OrderBy(item => item.BestDistance).First()
+                : subjectResults.OrderBy(item => Math.Abs(item.BestDistance)).First();
+            IReadOnlyList<int> associatedIndexes = subjectResults
+                .SelectMany(item => new[] { item.Subject.Index, item.Reference.Index })
+                .Distinct()
+                .ToArray();
+            string associationSummary = $"最佳匹配: subject #{bestPair.Subject.Index} {bestPair.Subject.Label} / reference #{bestPair.Reference.Index} {bestPair.Reference.Label}，间距 {bestPair.BestDistance:F1}px";
 
             return Result(
                 rule,
@@ -279,7 +310,9 @@ namespace ClearFrost.Core.Rules
                 actualText,
                 isMatch
                     ? $"位置规则 OK：期望 {RelativeExpected(rule)}，{actualText}"
-                    : $"位置规则 NG：期望 {RelativeExpected(rule)}，{actualText}");
+                    : $"位置规则 NG：期望 {RelativeExpected(rule)}，{actualText}",
+                associatedIndexes,
+                associationSummary);
         }
 
         internal static List<YoloResult> SortDetections(
@@ -311,6 +344,35 @@ namespace ClearFrost.Core.Rules
             return ordered.ToList();
         }
 
+        private static List<IndexedDetection> SortIndexedDetections(
+            IEnumerable<IndexedDetection> detections,
+            string? sortBy,
+            string? direction)
+        {
+            string normalizedSortBy = NormalizeSortBy(sortBy, direction);
+            bool descending = IsDescending(direction);
+            IEnumerable<IndexedDetection> ordered = normalizedSortBy switch
+            {
+                "TopY" => descending
+                    ? detections.OrderByDescending(d => d.Detection.Top).ThenBy(d => d.Detection.CenterX)
+                    : detections.OrderBy(d => d.Detection.Top).ThenBy(d => d.Detection.CenterX),
+                "CenterY" => descending
+                    ? detections.OrderByDescending(d => d.Detection.CenterY).ThenBy(d => d.Detection.CenterX)
+                    : detections.OrderBy(d => d.Detection.CenterY).ThenBy(d => d.Detection.CenterX),
+                "Confidence" => descending
+                    ? detections.OrderByDescending(d => d.Detection.Confidence).ThenBy(d => d.Detection.CenterX)
+                    : detections.OrderBy(d => d.Detection.Confidence).ThenBy(d => d.Detection.CenterX),
+                "Area" => descending
+                    ? detections.OrderByDescending(d => d.Detection.Area).ThenBy(d => d.Detection.CenterX)
+                    : detections.OrderBy(d => d.Detection.Area).ThenBy(d => d.Detection.CenterX),
+                _ => descending
+                    ? detections.OrderByDescending(d => d.Detection.CenterX).ThenBy(d => d.Detection.CenterY)
+                    : detections.OrderBy(d => d.Detection.CenterX).ThenBy(d => d.Detection.CenterY)
+            };
+
+            return ordered.ToList();
+        }
+
         private static string ResolveLabel(YoloResult detection, IReadOnlyList<string> labels)
         {
             if (detection.ClassId >= 0 && detection.ClassId < labels.Count)
@@ -333,6 +395,22 @@ namespace ClearFrost.Core.Rules
                     string.Equals(ResolveLabel(detection, labels), targetLabel, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(detection => detection.Confidence)
                 .ThenByDescending(detection => detection.Area)
+                .ToList();
+        }
+
+        private static List<IndexedDetection> FindIndexedDetections(
+            IReadOnlyList<YoloResult> detections,
+            IReadOnlyList<string> labels,
+            string targetLabel,
+            double minConfidence)
+        {
+            return detections
+                .Select((detection, index) => new IndexedDetection(index + 1, detection, ResolveLabel(detection, labels)))
+                .Where(item =>
+                    item.Detection.Confidence >= minConfidence &&
+                    string.Equals(item.Label, targetLabel, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(item => item.Detection.Confidence)
+                .ThenByDescending(item => item.Detection.Area)
                 .ToList();
         }
 
@@ -574,6 +652,14 @@ namespace ClearFrost.Core.Rules
         private static string FormatLabelsForMessage(IReadOnlyCollection<string> labels) =>
             labels.Count == 0 ? "未检测到" : string.Join(" -> ", labels);
 
+        private static string FormatIndexes(IReadOnlyCollection<int> indexes) =>
+            indexes.Count == 0 ? "无" : string.Join(", ", indexes.Select(index => $"#{index}"));
+
+        private static string FormatIndexedLabels(IReadOnlyCollection<IndexedDetection> detections) =>
+            detections.Count == 0
+                ? "无"
+                : string.Join(" -> ", detections.Select(item => $"#{item.Index} {item.Label}"));
+
         private static string DisplayName(InspectionRuleResult result) =>
             string.IsNullOrWhiteSpace(result.RuleName) ? result.RuleType : result.RuleName;
 
@@ -627,7 +713,9 @@ namespace ClearFrost.Core.Rules
             bool isMatch,
             string expected,
             string actual,
-            string message)
+            string message,
+            IReadOnlyList<int>? associatedBoxIndexes = null,
+            string? associationSummary = null)
         {
             return new InspectionRuleResult
             {
@@ -638,7 +726,9 @@ namespace ClearFrost.Core.Rules
                 Expected = expected,
                 Actual = actual,
                 Reason = message,
-                Message = message
+                Message = message,
+                AssociatedBoxIndexes = associatedBoxIndexes ?? Array.Empty<int>(),
+                AssociationSummary = associationSummary ?? string.Empty
             };
         }
 
@@ -647,6 +737,20 @@ namespace ClearFrost.Core.Rules
             if (IsType(rule, InspectionRuleTypes.OrderedLabels)) return "顺序规则";
             if (IsType(rule, InspectionRuleTypes.RelativePosition)) return "位置规则";
             return "数量规则";
+        }
+
+        private sealed class IndexedDetection
+        {
+            public IndexedDetection(int index, YoloResult detection, string label)
+            {
+                Index = index;
+                Detection = detection;
+                Label = label ?? string.Empty;
+            }
+
+            public int Index { get; }
+            public YoloResult Detection { get; }
+            public string Label { get; }
         }
     }
 }

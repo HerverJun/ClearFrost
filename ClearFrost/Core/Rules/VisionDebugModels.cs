@@ -35,6 +35,9 @@ namespace ClearFrost.Core.Rules
         public string PrimaryFailureReason { get; set; } = string.Empty;
         public long ElapsedMs { get; set; }
         public VisionDebugComparison? Comparison { get; set; }
+        public VisionDebugParameterComparison? ParameterComparison { get; set; }
+        public string ImageSourceKind { get; set; } = "Original";
+        public string ImageSourceWarning { get; set; } = string.Empty;
 
         public static VisionDebugSnapshot From(
             InspectionDecisionRequest request,
@@ -70,7 +73,7 @@ namespace ClearFrost.Core.Rules
                 RoiExcludedDetections = allBoxes.Where(box => excludedKeys.Contains(box.SourceKey)).ToList(),
                 CategoryStats = BuildCategoryStats(allBoxes),
                 JudgeResult = judgeResult,
-                RuleResults = BuildRuleResults(judgeResult),
+                RuleResults = BuildRuleResults(judgeResult, allBoxes, roiIncluded),
                 FinalOk = succeeded && judgeResult.IsQualified,
                 PrimaryFailureReason = ResolvePrimaryFailureReason(succeeded, message ?? string.Empty, judgeResult),
                 ElapsedMs = request.ElapsedMs
@@ -116,8 +119,20 @@ namespace ClearFrost.Core.Rules
                 .ToList();
         }
 
-        private static List<VisionDebugRuleResult> BuildRuleResults(InspectionJudgeResult judgeResult)
+        private static List<VisionDebugRuleResult> BuildRuleResults(
+            InspectionJudgeResult judgeResult,
+            IReadOnlyList<VisionDebugDetectionBox> allBoxes,
+            IReadOnlyList<YoloResult> roiIncluded)
         {
+            Dictionary<string, int> allBoxIndexes = allBoxes
+                .GroupBy(box => box.SourceKey, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First().Index, StringComparer.Ordinal);
+            List<int> includedIndexes = roiIncluded
+                .Select(BoxKey)
+                .Where(key => allBoxIndexes.ContainsKey(key))
+                .Select(key => allBoxIndexes[key])
+                .ToList();
+
             return (judgeResult.RuleResults ?? Array.Empty<InspectionRuleResult>())
                 .Select(result => new VisionDebugRuleResult
                 {
@@ -128,9 +143,43 @@ namespace ClearFrost.Core.Rules
                     Expected = result.Expected,
                     Actual = result.Actual,
                     Reason = result.Reason,
-                    Message = result.Message
+                    Message = result.Message,
+                    AssociatedBoxIndexes = MapAssociatedIndexes(result.AssociatedBoxIndexes, includedIndexes),
+                    AssociationSummary = BuildAssociationSummary(result.AssociationSummary, result.AssociatedBoxIndexes, includedIndexes)
                 })
                 .ToList();
+        }
+
+        private static List<int> MapAssociatedIndexes(
+            IReadOnlyList<int> filteredIndexes,
+            IReadOnlyList<int> includedIndexes)
+        {
+            if (filteredIndexes == null || filteredIndexes.Count == 0)
+            {
+                return new List<int>();
+            }
+
+            return filteredIndexes
+                .Select(index => index > 0 && index <= includedIndexes.Count ? includedIndexes[index - 1] : index)
+                .Distinct()
+                .ToList();
+        }
+
+        private static string BuildAssociationSummary(
+            string associationSummary,
+            IReadOnlyList<int> filteredIndexes,
+            IReadOnlyList<int> includedIndexes)
+        {
+            List<int> mapped = MapAssociatedIndexes(filteredIndexes, includedIndexes);
+            if (mapped.Count == 0)
+            {
+                return string.IsNullOrWhiteSpace(associationSummary) ? "关联目标框: 无" : associationSummary;
+            }
+
+            string mappedText = $"关联目标框: {string.Join(", ", mapped.Select(index => $"#{index}"))}";
+            return string.IsNullOrWhiteSpace(associationSummary)
+                ? mappedText
+                : $"{associationSummary}；{mappedText}";
         }
 
         private static string ResolvePrimaryFailureReason(bool succeeded, string message, InspectionJudgeResult judgeResult)
@@ -243,6 +292,8 @@ namespace ClearFrost.Core.Rules
         public string Actual { get; set; } = string.Empty;
         public string Reason { get; set; } = string.Empty;
         public string Message { get; set; } = string.Empty;
+        public List<int> AssociatedBoxIndexes { get; set; } = new List<int>();
+        public string AssociationSummary { get; set; } = string.Empty;
     }
 
     public sealed class VisionDebugComparison
@@ -256,5 +307,63 @@ namespace ClearFrost.Core.Rules
         public string OldPrimaryReason { get; set; } = string.Empty;
         public string NewPrimaryReason { get; set; } = string.Empty;
         public string ImagePath { get; set; } = string.Empty;
+        public bool UsedRenderedImage { get; set; }
+        public string ImageSourceKind { get; set; } = "Original";
+        public string ImageWarning { get; set; } = string.Empty;
+    }
+
+    public sealed class VisionDebugParameterComparison
+    {
+        public bool HasDifferences => Items.Any(item => item.IsDifferent);
+        public List<VisionDebugParameterDiff> Items { get; set; } = new List<VisionDebugParameterDiff>();
+    }
+
+    public sealed class VisionDebugParameterDiff
+    {
+        public string Field { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public string ProductionValue { get; set; } = string.Empty;
+        public string TrialValue { get; set; } = string.Empty;
+        public bool IsDifferent { get; set; }
+    }
+
+    public sealed class VisionDebugBatchReplayItem
+    {
+        public long RecordId { get; set; }
+        public string InspectionId { get; set; } = string.Empty;
+        public string Timestamp { get; set; } = string.Empty;
+        public bool? OldIsQualified { get; set; }
+        public bool? NewIsQualified { get; set; }
+        public string OldResult => OldIsQualified.HasValue ? (OldIsQualified.Value ? "OK" : "NG") : string.Empty;
+        public string NewResult => NewIsQualified.HasValue ? (NewIsQualified.Value ? "OK" : "NG") : string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public string FailureReason { get; set; } = string.Empty;
+        public string OldPrimaryReason { get; set; } = string.Empty;
+        public string NewPrimaryReason { get; set; } = string.Empty;
+        public string ImagePath { get; set; } = string.Empty;
+        public bool ImageMissing { get; set; }
+        public bool UsedRenderedImage { get; set; }
+        public string ImageSourceKind { get; set; } = "Original";
+        public string ImageWarning { get; set; } = string.Empty;
+    }
+
+    public sealed class VisionDebugBatchReplaySummary
+    {
+        public int RequestedLimit { get; set; }
+        public int EffectiveLimit { get; set; }
+        public int TotalRecords { get; set; }
+        public int CompletedCount { get; set; }
+        public int OldOkCount { get; set; }
+        public int OldNgCount { get; set; }
+        public int NewOkCount { get; set; }
+        public int NewNgCount { get; set; }
+        public int ChangedCount { get; set; }
+        public int NgToOkCount { get; set; }
+        public int OkToNgCount { get; set; }
+        public int MissingImageCount { get; set; }
+        public int FailedCount { get; set; }
+        public int RenderedFallbackCount { get; set; }
+        public Dictionary<string, int> FailureReasonStats { get; set; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        public List<VisionDebugBatchReplayItem> Items { get; set; } = new List<VisionDebugBatchReplayItem>();
     }
 }

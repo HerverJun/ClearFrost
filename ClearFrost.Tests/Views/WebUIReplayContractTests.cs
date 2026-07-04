@@ -94,6 +94,7 @@ public class WebUIReplayContractTests
         {
             "bridge.js",
             "state.js",
+            "coordinate-mapping.js",
             "render-main.js",
             "settings.js",
             "camera.js",

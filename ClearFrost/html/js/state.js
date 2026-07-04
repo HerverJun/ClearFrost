@@ -43,6 +43,7 @@
         diagnosticPackage: {},
         metrics: {},
         previewFrameId: 0,
+        previewFrame: {},
     };
 
     state.stats = state.stats || { total: 0, ok: 0, ng: 0 };
@@ -63,6 +64,7 @@
     state.fieldDebug = state.fieldDebug || {};
     state.visionDebug = state.visionDebug || {};
     state.diagnosticPackage = state.diagnosticPackage || {};
+    state.previewFrame = state.previewFrame || {};
     window.CF_STATE = state;
 
     function pickValue(source, ...keys) {
