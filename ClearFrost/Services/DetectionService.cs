@@ -20,6 +20,7 @@ using System.Threading.Tasks;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 using ClearFrost.Core.Rules;
+using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
 using ClearFrost.Yolo;
 
@@ -153,7 +154,7 @@ namespace ClearFrost.Services
                 }
                 catch (Exception ex)
                 {
-                    string reason = ex.Message;
+                    string reason = ExceptionMessageFormatter.FormatForLog(ex);
                     Debug.WriteLine($"[DetectionService] DirectML GPU 加载失败，回退 CPU: {ex}");
 
                     try
@@ -173,7 +174,7 @@ namespace ClearFrost.Services
                     catch (Exception cpuEx)
                     {
                         _runtimeStatus = CreateRuntimeStatus(true, false, gpuDeviceId, reason);
-                        ErrorOccurred?.Invoke($"CPU 回退加载模型失败: {cpuEx.Message}");
+                        ErrorOccurred?.Invoke($"CPU 回退加载模型失败: {ExceptionMessageFormatter.FormatForLog(cpuEx)}");
                         return false;
                     }
                 }
@@ -187,7 +188,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"加载模型失败: {ex.Message}");
+                ErrorOccurred?.Invoke($"加载模型失败: {ExceptionMessageFormatter.FormatForLog(ex)}");
                 return false;
             }
             }
@@ -355,7 +356,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"扫描模型失败: {ex.Message}");
+                ErrorOccurred?.Invoke($"扫描模型失败: {ExceptionMessageFormatter.FormatForLog(ex)}");
                 return false;
             }
         }
@@ -402,7 +403,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"切换模型失败: {ex.Message}");
+                ErrorOccurred?.Invoke($"切换模型失败: {ExceptionMessageFormatter.FormatForLog(ex)}");
                 return false;
             }
         }
@@ -880,7 +881,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"加载辅助模型{modelIndex}失败: {ex.Message}");
+                ErrorOccurred?.Invoke($"加载辅助模型{modelIndex}失败: {ExceptionMessageFormatter.FormatForLog(ex)}");
                 return false;
             }
         }

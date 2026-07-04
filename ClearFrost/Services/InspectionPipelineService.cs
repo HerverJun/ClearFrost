@@ -162,6 +162,8 @@ namespace ClearFrost.Services
         private readonly Action<string>? _diagLog;
         private const int RuntimeCameraRecoverySettleMs = 150;
         private const int RuntimeCameraReconnectSettleMs = 250;
+        private const int ShortFrameQuickRetryCount = 2;
+        private const int ShortFrameQuickRetryDelayMs = 30;
 
         public InspectionPipelineService(
             AppConfig appConfig,
@@ -489,11 +491,33 @@ namespace ClearFrost.Services
                         break;
                     }
 
+                    CameraCaptureFailureKind failureKind = GetCameraCaptureFailureKind();
+                    if (failureKind == CameraCaptureFailureKind.ShortFrame)
+                    {
+                        frameToProcess = await TryQuickRetryShortFrameAsync(
+                            request,
+                            context,
+                            progressAsync,
+                            cancellationToken).ConfigureAwait(false);
+                        if (frameToProcess != null)
+                        {
+                            break;
+                        }
+
+                        failureKind = GetCameraCaptureFailureKind();
+                    }
+
+                    bool forceReconnect = failureKind == CameraCaptureFailureKind.ShortFrame;
+                    string? recoveryReason = forceReconnect
+                        ? GetCameraErrorOrDefault("连续短帧")
+                        : null;
                     var recovery = await TryRecoverCameraForCaptureAsync(
                         request,
                         context,
                         progressAsync,
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken,
+                        forceReconnect,
+                        recoveryReason).ConfigureAwait(false);
                     if (recovery)
                     {
                         frameToProcess = _cameraService.CaptureFrame(3000);
@@ -587,27 +611,81 @@ namespace ClearFrost.Services
             return null;
         }
 
-        private async Task<bool> TryRecoverCameraForCaptureAsync(
+        private async Task<Mat?> TryQuickRetryShortFrameAsync(
             InspectionPipelineRequest request,
             InspectionContext context,
             Func<InspectionPipelineProgress, Task>? progressAsync,
             CancellationToken cancellationToken)
         {
-            string firstError = GetCameraErrorOrDefault("取图失败");
-            DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机取图失败，尝试运行期恢复: {firstError}");
+            string firstError = GetCameraErrorOrDefault("SDK 返回短帧");
+            DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机短帧已丢弃，准备快速补拍: {firstError}");
             await PublishLogAsync(
                 progressAsync,
                 context,
-                $"相机取图失败，正在自动恢复: {firstError}",
+                $"相机返回短帧，已丢弃并快速补拍: {firstError}",
                 "warning").ConfigureAwait(false);
 
-            if (TryRestartCameraCapture(out string restartError))
+            for (int quickAttempt = 1; quickAttempt <= ShortFrameQuickRetryCount; quickAttempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (ShortFrameQuickRetryDelayMs > 0)
+                {
+                    await Task.Delay(ShortFrameQuickRetryDelayMs, cancellationToken).ConfigureAwait(false);
+                }
+
+                Mat? frame = _cameraService.CaptureFrame(3000);
+                CameraCaptureFailureKind failureKind = GetCameraCaptureFailureKind();
+                DiagLog(
+                    $"[{request.TriggerSource}] [{request.InspectionId}] 短帧快速补拍 {quickAttempt}/{ShortFrameQuickRetryCount}: {(frame != null ? "OK" : $"FAIL ({failureKind})")}");
+
+                if (frame != null)
+                {
+                    await PublishLogAsync(
+                        progressAsync,
+                        context,
+                        "短帧已丢弃，快速补拍成功",
+                        "info").ConfigureAwait(false);
+                    return frame;
+                }
+
+                if (failureKind != CameraCaptureFailureKind.ShortFrame)
+                {
+                    return null;
+                }
+            }
+
+            return null;
+        }
+
+        private async Task<bool> TryRecoverCameraForCaptureAsync(
+            InspectionPipelineRequest request,
+            InspectionContext context,
+            Func<InspectionPipelineProgress, Task>? progressAsync,
+            CancellationToken cancellationToken,
+            bool forceReconnect = false,
+            string? recoveryReason = null)
+        {
+            string firstError = string.IsNullOrWhiteSpace(recoveryReason)
+                ? GetCameraErrorOrDefault("取图失败")
+                : recoveryReason!;
+            string recoveryMessage = forceReconnect
+                ? $"相机连续返回短帧，正在重连相机: {firstError}"
+                : $"相机取图失败，正在自动恢复: {firstError}";
+            DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] {recoveryMessage}");
+            await PublishLogAsync(
+                progressAsync,
+                context,
+                recoveryMessage,
+                "warning").ConfigureAwait(false);
+
+            string restartError = string.Empty;
+            if (!forceReconnect && TryRestartCameraCapture(out restartError))
             {
                 await Task.Delay(RuntimeCameraRecoverySettleMs, cancellationToken).ConfigureAwait(false);
                 return true;
             }
 
-            if (!string.IsNullOrWhiteSpace(restartError))
+            if (!forceReconnect && !string.IsNullOrWhiteSpace(restartError))
             {
                 DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 恢复采集失败: {restartError}");
             }
@@ -624,7 +702,9 @@ namespace ClearFrost.Services
                 await PublishLogAsync(
                     progressAsync,
                     context,
-                    "相机采集未恢复，正在尝试重连相机",
+                    forceReconnect
+                        ? "连续短帧，正在尝试重连相机"
+                        : "相机采集未恢复，正在尝试重连相机",
                     "warning").ConfigureAwait(false);
 
                 if (_cameraService is CameraService concreteCameraService)
@@ -687,6 +767,24 @@ namespace ClearFrost.Services
                 error = ex.Message;
                 return false;
             }
+        }
+
+        private CameraCaptureFailureKind GetCameraCaptureFailureKind()
+        {
+            if (_cameraService is ICameraCaptureDiagnostics diagnostics)
+            {
+                return diagnostics.LastCaptureFailureKind;
+            }
+
+            return IsShortFrameError(_cameraService.LastError)
+                ? CameraCaptureFailureKind.ShortFrame
+                : CameraCaptureFailureKind.None;
+        }
+
+        private static bool IsShortFrameError(string? message)
+        {
+            return !string.IsNullOrWhiteSpace(message) &&
+                message.TrimStart().StartsWith("SDK 帧长度不足", StringComparison.Ordinal);
         }
 
         private string GetCameraErrorOrDefault(string fallback)
@@ -1918,33 +2016,7 @@ namespace ClearFrost.Services
             return (short)value;
         }
 
-        private string BaseStoragePath
-        {
-            get
-            {
-                string? path = _appConfig.StoragePath;
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    return @"C:\GreeVisionData";
-                }
-
-                try
-                {
-                    string? root = Path.GetPathRoot(path);
-                    if (!string.IsNullOrEmpty(root) && !Directory.Exists(root))
-                    {
-                        return @"C:\GreeVisionData";
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Error checking drive: {ex.Message}");
-                    return @"C:\GreeVisionData";
-                }
-
-                return path;
-            }
-        }
+        private string BaseStoragePath => _storageService.BaseStoragePath;
 
         private string Path_Images => Path.Combine(BaseStoragePath, "Images");
 

@@ -4022,6 +4022,19 @@
         return Number.isFinite(numberValue) ? numberValue : null;
     }
 
+    const TRACE_DATE_ITEM_CLASS = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
+    const TRACE_DATE_ITEM_ACTIVE_CLASS = "p-2.5 bg-celadon-50 text-celadon-700 cursor-pointer rounded-xl text-[11px] font-black transition-[background-color,border-color,color,box-shadow] shadow-sm border border-celadon-200 mb-1";
+    const TRACE_HOUR_ITEM_CLASS = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group";
+    const TRACE_HOUR_ITEM_ACTIVE_CLASS = "px-4 py-2 bg-celadon-600 border-celadon-600 text-white rounded-xl text-[11px] cursor-pointer transition-[background-color,border-color,color,box-shadow] font-bold shadow-md flex items-center justify-between";
+
+    function traceDateItemClass(isActive = false) {
+        return isActive ? TRACE_DATE_ITEM_ACTIVE_CLASS : TRACE_DATE_ITEM_CLASS;
+    }
+
+    function traceHourItemClass(isActive = false) {
+        return isActive ? TRACE_HOUR_ITEM_ACTIVE_CLASS : TRACE_HOUR_ITEM_CLASS;
+    }
+
     function setTraceLoadingState(isLoading) {
         const grid = byId("ng-image-grid");
         const prevButton = byId("trace-prev-page");
@@ -4146,7 +4159,8 @@
     function requestTracePage(direction = "initial") {
         syncTraceControls();
         const date = byId("gallery-date-picker")?.value || window.currentNGDate;
-        const hour = byId("trace-hour-select")?.value || window.currentNGHour || "";
+        const hourSelect = byId("trace-hour-select");
+        const hour = hourSelect ? hourSelect.value : (window.currentNGHour || "");
         if (!date) return;
 
         window.currentNGDate = date;
@@ -4209,6 +4223,38 @@
         }
     }
 
+    function setTraceDateSelection(date) {
+        const selectedDate = date || "";
+        window.currentNGDate = selectedDate;
+        const dateInput = byId("gallery-date-picker");
+        if (dateInput && dateInput.value !== selectedDate) {
+            dateInput.value = selectedDate;
+        }
+
+        const list = byId("ng-date-list");
+        if (!list) return;
+        Array.from(list.children).forEach((child) => {
+            if (!child.dataset?.traceDate) return;
+            child.className = traceDateItemClass(child.dataset.traceDate === selectedDate);
+        });
+    }
+
+    function setTraceHourSelection(hour) {
+        const selectedHour = hour ?? "";
+        window.currentNGHour = selectedHour;
+        const hourSelect = byId("trace-hour-select");
+        if (hourSelect && hourSelect.value !== selectedHour) {
+            hourSelect.value = selectedHour;
+        }
+
+        const list = byId("ng-hour-list");
+        if (!list) return;
+        Array.from(list.children).forEach((child) => {
+            if (!child.dataset?.traceHour) return;
+            child.className = traceHourItemClass(child.dataset.traceHour === selectedHour);
+        });
+    }
+
     function closeLogHistoryModal() {
         byId("log-history-modal")?.classList.add("hidden");
     }
@@ -4218,7 +4264,7 @@
         syncTraceControls();
         resetTracePagerState();
         const badge = byId("gallery-count");
-        if (badge) badge.textContent = "0 张";
+        if (badge) badge.textContent = "0 条";
         bridge.sendCommand("get_ng_dates");
     }
 
@@ -4406,7 +4452,17 @@
 
     function updateNGDates(data) {
         if (data === undefined) {
-            bridge.sendCommand("get_ng_dates");
+            const selectedDate = byId("gallery-date-picker")?.value || "";
+            if (selectedDate) {
+                setTraceDateSelection(selectedDate);
+                setTraceHourSelection("");
+                resetTracePagerState();
+                if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
+                if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
+                bridge.sendCommand("get_ng_hours", selectedDate);
+            } else {
+                bridge.sendCommand("get_ng_dates");
+            }
             return;
         }
         const dates = Array.isArray(data) ? data : (data?.dates || data?.Dates || []);
@@ -4424,24 +4480,35 @@
 
         dates.forEach((date) => {
             const div = document.createElement("div");
-            div.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
+            div.className = traceDateItemClass();
+            div.dataset.traceDate = date;
+            div.tabIndex = 0;
             div.innerText = date;
-            div.onclick = () => {
-                Array.from(list.children).forEach((child) => {
-                    child.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
-                });
-                div.className = "p-2.5 bg-celadon-50 text-celadon-700 cursor-pointer rounded-xl text-[11px] font-black transition-[background-color,border-color,color,box-shadow] shadow-sm border border-celadon-200 mb-1";
-                window.currentNGDate = date;
-                window.currentNGHour = "";
+            const selectDate = () => {
+                setTraceDateSelection(date);
+                setTraceHourSelection("");
                 resetTracePagerState();
                 if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
                 if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
                 bridge.sendCommand("get_ng_hours", date);
             };
+            div.onclick = selectDate;
+            div.onkeydown = (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectDate();
+                }
+            };
             list.appendChild(div);
         });
 
-        list.firstElementChild?.click?.();
+        const selectedInputDate = byId("gallery-date-picker")?.value || "";
+        const preferredDate = dates.includes(window.currentNGDate)
+            ? window.currentNGDate
+            : (dates.includes(selectedInputDate) ? selectedInputDate : dates[0]);
+        Array.from(list.children)
+            .find((child) => child.dataset?.traceDate === preferredDate)
+            ?.click?.();
     }
 
     function updateNGHours(data) {
@@ -4471,38 +4538,51 @@
                 hourSelect.appendChild(option);
             }
             const div = document.createElement("div");
-            div.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group";
+            div.className = traceHourItemClass();
+            div.dataset.traceHour = hour;
+            div.tabIndex = 0;
             div.innerHTML = `<span>${escapeHtml(hour)}:00 时段</span><span class="opacity-0 group-hover:opacity-100">›</span>`;
-            div.onclick = () => {
-                Array.from(list.children).forEach((child) => {
-                    child.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group";
-                });
-                div.className = "px-4 py-2 bg-celadon-600 border-celadon-600 text-white rounded-xl text-[11px] cursor-pointer transition-[background-color,border-color,color,box-shadow] font-bold shadow-md flex items-center justify-between";
-                window.currentNGHour = hour;
+            const selectHour = () => {
+                setTraceHourSelection(hour);
                 resetTracePagerState();
                 if (byId("ng-image-grid")) {
                     byId("ng-image-grid").innerHTML = '<div class="col-span-full h-full flex flex-col items-center justify-center py-20 text-ink-300 opacity-50"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-celadon-500 mb-4"></div><span class="text-xs font-serif italic">正在索引影像档案...</span></div>';
                 }
                 requestTracePage("initial");
             };
+            div.onclick = selectHour;
+            div.onkeydown = (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectHour();
+                }
+            };
             list.appendChild(div);
         });
 
-        if (!window.currentNGHour) {
-            list.firstElementChild?.click?.();
-        }
+        const preferredHour = hours.includes(window.currentNGHour) ? window.currentNGHour : hours[0];
+        Array.from(list.children)
+            .find((child) => child.dataset?.traceHour === preferredHour)
+            ?.click?.();
     }
 
     function selectTraceHour(hour) {
-        window.currentNGHour = hour || byId("trace-hour-select")?.value || window.currentNGHour;
+        const selectedHour = hour ?? byId("trace-hour-select")?.value ?? "";
+        setTraceHourSelection(selectedHour);
+        resetTracePagerState();
+        if (byId("ng-image-grid")) {
+            byId("ng-image-grid").innerHTML = '<div class="col-span-full h-full flex flex-col items-center justify-center py-20 text-ink-300 opacity-50"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-celadon-500 mb-4"></div><span class="text-xs font-serif italic">正在索引影像档案...</span></div>';
+        }
+        requestTracePage("initial");
     }
 
     function searchTraceImages() {
         syncTraceControls();
         const date = byId("gallery-date-picker")?.value || window.currentNGDate;
-        const hour = byId("trace-hour-select")?.value || window.currentNGHour || "";
-        if (date) window.currentNGDate = date;
-        window.currentNGHour = hour;
+        const hourSelect = byId("trace-hour-select");
+        const hour = hourSelect ? hourSelect.value : (window.currentNGHour || "");
+        if (date) setTraceDateSelection(date);
+        setTraceHourSelection(hour);
         resetTracePagerState();
         requestTracePage("initial");
     }

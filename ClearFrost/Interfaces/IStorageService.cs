@@ -35,6 +35,11 @@ namespace ClearFrost.Interfaces
         /// </summary>
         string SystemPath { get; }
 
+        /// <summary>
+        /// 已解析的存储根路径（进行驱动器/盘符校验后的实际路径）
+        /// </summary>
+        string BaseStoragePath { get; }
+
         #endregion
 
         #region 图像保存
@@ -95,6 +100,11 @@ namespace ClearFrost.Interfaces
         /// 确保目录存在
         /// </summary>
         void EnsureDirectoriesExist();
+
+        /// <summary>
+        /// 刷新运行时存储根目录。
+        /// </summary>
+        void UpdateStoragePath(string storagePath);
 
         #endregion
     }

@@ -409,6 +409,11 @@ public class PlcHandshakeV1CoordinatorTests
         public void Disconnect() { }
         public bool StartMonitoring(string triggerAddress, int pollingIntervalMs = 500, int triggerDelayMs = 800, PlcMonitoringOptions? options = null) => true;
         public void StopMonitoring() { }
+        public Task StopMonitoringAsync(System.Threading.CancellationToken cancellationToken = default)
+        {
+            StopMonitoring();
+            return Task.CompletedTask;
+        }
         public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => WriteResultAsync(resultAddress, (short)(isQualified ? 1 : 0));
         public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite)
         {

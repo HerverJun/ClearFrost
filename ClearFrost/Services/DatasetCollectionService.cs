@@ -70,11 +70,19 @@ namespace ClearFrost.Services
                     .Where(r => !string.IsNullOrWhiteSpace(r.EffectiveImagePath) && File.Exists(r.EffectiveImagePath))
                     .ToList();
 
-                // 若数据库路径全部失效，尝试根据 Timestamp 在标准目录中自动查找
-                if (validRecords.Count == 0)
+                // 若有部分记录路径失效，尝试根据时间戳在标准目录中进行增量匹配并补充
+                if (validRecords.Count < allRecords.Count)
                 {
-                    progress?.Report("数据库中图片路径为空，尝试根据时间戳自动匹配...");
-                    validRecords = TryResolvePathsFromStandardDirectories(allRecords);
+                    progress?.Report("检测到部分图片路径失效，尝试根据时间戳在标准目录中进行增量匹配...");
+                    var invalidRecords = allRecords
+                        .Where(r => string.IsNullOrWhiteSpace(r.EffectiveImagePath) || !File.Exists(r.EffectiveImagePath))
+                        .ToList();
+                    var resolvedIncremental = TryResolvePathsFromStandardDirectories(invalidRecords);
+                    validRecords = validRecords
+                        .Concat(resolvedIncremental)
+                        .GroupBy(r => r.Id)
+                        .Select(g => g.First())
+                        .ToList();
                 }
 
                 // 若仍无有效记录，回退到直接扫描图片文件夹
@@ -195,14 +203,33 @@ namespace ClearFrost.Services
                 }
             }, cancellationToken);
 
-            string message = $"成功复制 {failCopied + passCopied} 张图片（NG {failCopied} / OK {passCopied}）";
+            int totalCopied = failCopied + passCopied;
+            if (totalCopied == 0 && selected.Count > 0)
+            {
+                string errDetail = copyErrors.Count > 0 ? string.Join("; ", copyErrors.Take(3)) : "无可用文件";
+                try
+                {
+                    if (Directory.Exists(outputDir))
+                    {
+                        Directory.Delete(outputDir, true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    copyErrors.Add($"清理空数据集目录失败 {outputDir}: {ex.Message}");
+                }
+
+                return DatasetCollectionResult.Failed($"数据集图片复制失败: 未成功复制任何图片。详情: {errDetail}");
+            }
+
+            string message = $"成功复制 {totalCopied} 张图片（NG {failCopied} / OK {passCopied}）";
             if (copyErrors.Count > 0)
             {
                 message += $"，{copyErrors.Count} 张复制失败。";
             }
-            if (failCopied + passCopied < totalCount)
+            if (totalCopied < totalCount)
             {
-                message += $" 因可用图片不足，目标从 {totalCount} 张调整为实际 {failCopied + passCopied} 张。";
+                message += $" 因可用图片不足，目标从 {totalCount} 张调整为实际 {totalCopied} 张。";
             }
 
             return new DatasetCollectionResult

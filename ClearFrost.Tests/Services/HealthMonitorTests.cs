@@ -241,6 +241,11 @@ public class HealthMonitorTests
             int triggerDelayMs = 800,
             PlcMonitoringOptions? options = null) => true;
         public void StopMonitoring() { }
+        public Task StopMonitoringAsync(System.Threading.CancellationToken cancellationToken = default)
+        {
+            StopMonitoring();
+            return Task.CompletedTask;
+        }
         public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
         public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite) => Task.FromResult(true);
         public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
@@ -307,6 +312,7 @@ public class HealthMonitorTests
         public string ImageBasePath { get; }
         public string LogBasePath { get; }
         public string SystemPath { get; }
+        public string BaseStoragePath => Directory.GetParent(ImageBasePath)?.FullName ?? ImageBasePath;
 
         public void SaveDetectionImage(Bitmap bitmap, bool isQualified) { }
         public void SaveDetectionImageAsync(Bitmap bitmap, bool isQualified) { }
@@ -322,6 +328,7 @@ public class HealthMonitorTests
             Directory.CreateDirectory(LogBasePath);
             Directory.CreateDirectory(SystemPath);
         }
+        public void UpdateStoragePath(string storagePath) { }
         public void Dispose() { }
     }
 

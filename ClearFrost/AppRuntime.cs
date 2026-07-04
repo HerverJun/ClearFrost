@@ -66,7 +66,7 @@ namespace ClearFrost
             PlcService = plcService ?? new PlcService();
             DetectionService = detectionService ?? new DetectionService(appConfig.EnableGpu, appConfig.GpuIndex);
             StorageService = storageService ?? new StorageService(appConfig.StoragePath);
-            StatisticsService = statisticsService ?? new StatisticsService(StorageService.SystemPath.Replace("\\System", ""));
+            StatisticsService = statisticsService ?? new StatisticsService(StorageService.BaseStoragePath);
             DatabaseService = databaseService ?? new SqliteDatabaseService();
             ImageSaveQueue = imageSaveQueue ?? new ImageSaveQueue();
             DetectionRecordQueue = detectionRecordQueue ?? new DetectionRecordQueue(DatabaseService);
@@ -234,7 +234,26 @@ namespace ClearFrost
 
         public IReadOnlyList<ModelRegistryEntry> RefreshModelRegistry()
         {
-            return ModelRegistry.Scan(CreateModelRegistryScanOptions(AppConfig));
+            try
+            {
+                return ModelRegistry.Scan(CreateModelRegistryScanOptions(AppConfig));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AppRuntime] 刷新模型注册表失败（可能是文件占用等原因）: {ex.Message}");
+                return ModelRegistry?.Entries ?? Array.Empty<ModelRegistryEntry>();
+            }
+        }
+
+        public void RefreshStoragePath()
+        {
+            StorageService.UpdateStoragePath(AppConfig.StoragePath);
+            StatisticsService.UpdateStoragePath(StorageService.BaseStoragePath);
+            StartupDiagnostics.Run(
+                AppConfig,
+                StorageService,
+                ModelRegistry,
+                (role, entry, reference) => ReplayProductionGate.Validate(role, entry, reference));
         }
 
         public async Task<string> ExportDiagnosticPackageAsync(
@@ -279,7 +298,7 @@ namespace ClearFrost
 
             try
             {
-                PlcService.StopMonitoring();
+                await PlcService.StopMonitoringAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -654,11 +673,14 @@ namespace ClearFrost
             string packageDirectory = Path.IsPathRooted(appConfig.ModelPackageDirectory)
                 ? appConfig.ModelPackageDirectory
                 : Path.Combine(baseDirectory, appConfig.ModelPackageDirectory);
+            string onnxDirectory = Path.IsPathRooted(appConfig.OnnxModelDirectory)
+                ? appConfig.OnnxModelDirectory
+                : Path.Combine(baseDirectory, appConfig.OnnxModelDirectory);
 
             return new ModelRegistryScanOptions
             {
                 PackageDirectory = packageDirectory,
-                OnnxDirectory = Path.Combine(baseDirectory, "ONNX"),
+                OnnxDirectory = onnxDirectory,
                 StrictPackageMode = appConfig.StrictModelPackageMode,
                 RequireProductionApproval = appConfig.RequireApprovedModelsForProduction
             };

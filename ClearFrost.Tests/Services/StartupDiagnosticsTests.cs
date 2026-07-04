@@ -453,6 +453,7 @@ public class StartupDiagnosticsTests
         public string ImageBasePath => Path.Combine(_basePath, "Images");
         public string LogBasePath => Path.Combine(_basePath, "Logs");
         public string SystemPath => Path.Combine(_basePath, "System");
+        public string BaseStoragePath => _basePath;
 
         public void SaveDetectionImage(Bitmap bitmap, bool isQualified) { }
         public void SaveDetectionImageAsync(Bitmap bitmap, bool isQualified) { }
@@ -463,6 +464,7 @@ public class StartupDiagnosticsTests
         public double GetDiskFreeSpaceGb() => 10;
         public double PerformEmergencyCleanup() => 10;
         public void EnsureDirectoriesExist() { }
+        public void UpdateStoragePath(string storagePath) { }
         public void Dispose() { }
     }
 }

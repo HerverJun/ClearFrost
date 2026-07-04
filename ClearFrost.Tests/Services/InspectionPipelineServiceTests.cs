@@ -794,6 +794,11 @@ public class InspectionPipelineServiceTests
         }
 
         public void StopMonitoring() { }
+        public Task StopMonitoringAsync(System.Threading.CancellationToken cancellationToken = default)
+        {
+            StopMonitoring();
+            return Task.CompletedTask;
+        }
         public Task<bool> WriteResultAsync(string resultAddress, bool isQualified)
             => WriteResultAsync(resultAddress, (short)(isQualified ? 1 : 0));
 
@@ -926,6 +931,7 @@ public class InspectionPipelineServiceTests
         public void SaveAll() { }
         public void ClearHistory() { }
         public void LoadAll() { }
+        public void UpdateStoragePath(string basePath) { }
         public (StatisticsHistory history, DetectionStatistics stats) GetStatisticsData() => (_history, _stats);
         public void Dispose() { }
     }
@@ -937,6 +943,7 @@ public class InspectionPipelineServiceTests
             ImageBasePath = Path.Combine(basePath, "Images");
             LogBasePath = Path.Combine(basePath, "Logs");
             SystemPath = Path.Combine(basePath, "System");
+            BaseStoragePath = basePath;
             Directory.CreateDirectory(ImageBasePath);
             Directory.CreateDirectory(LogBasePath);
             Directory.CreateDirectory(SystemPath);
@@ -945,6 +952,7 @@ public class InspectionPipelineServiceTests
         public string ImageBasePath { get; }
         public string LogBasePath { get; }
         public string SystemPath { get; }
+        public string BaseStoragePath { get; private set; }
         public List<string> DetectionLogs { get; } = new List<string>();
         public List<string> ErrorLogs { get; } = new List<string>();
 
@@ -957,6 +965,7 @@ public class InspectionPipelineServiceTests
         public double GetDiskFreeSpaceGb() => 100.0;
         public double PerformEmergencyCleanup() => 100.0;
         public void EnsureDirectoriesExist() { }
+        public void UpdateStoragePath(string storagePath) => BaseStoragePath = storagePath;
         public void Dispose() { }
     }
 

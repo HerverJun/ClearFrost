@@ -445,6 +445,11 @@ namespace ClearFrost.Tests
                 return true;
             }
             public void StopMonitoring() => _order.Add("plc-stop-monitoring");
+            public Task StopMonitoringAsync(System.Threading.CancellationToken cancellationToken = default)
+            {
+                StopMonitoring();
+                return Task.CompletedTask;
+            }
             public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
             public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite) => Task.FromResult(true);
             public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
@@ -512,11 +517,13 @@ namespace ClearFrost.Tests
                 ImageBasePath = Path.Combine(basePath, "Images");
                 LogBasePath = Path.Combine(basePath, "Logs");
                 SystemPath = Path.Combine(basePath, "System");
+                BaseStoragePath = basePath;
             }
 
             public string ImageBasePath { get; }
             public string LogBasePath { get; }
             public string SystemPath { get; }
+            public string BaseStoragePath { get; private set; }
 
             public void SaveDetectionImage(Bitmap bitmap, bool isQualified) { }
             public void SaveDetectionImageAsync(Bitmap bitmap, bool isQualified) { }
@@ -527,6 +534,7 @@ namespace ClearFrost.Tests
             public double GetDiskFreeSpaceGb() => 100.0;
             public double PerformEmergencyCleanup() => 100.0;
             public void EnsureDirectoriesExist() { }
+            public void UpdateStoragePath(string storagePath) => BaseStoragePath = storagePath;
             public void Dispose() => _order.Add("storage-dispose");
         }
 
@@ -559,6 +567,7 @@ namespace ClearFrost.Tests
             public void SaveAll() => _order.Add("statistics-save-all");
             public void ClearHistory() { }
             public void LoadAll() { }
+            public void UpdateStoragePath(string basePath) { }
             public (StatisticsHistory history, DetectionStatistics stats) GetStatisticsData() => (_history, _stats);
             public void Dispose() => _order.Add("statistics-dispose");
         }

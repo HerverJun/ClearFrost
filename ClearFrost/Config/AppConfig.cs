@@ -164,6 +164,7 @@ namespace ClearFrost.Config
         /// 当前使用的主模型文件名（含扩展名，如 "model_v1.onnx"）
         /// </summary>
         public string CurrentModelFileName { get; set; } = "";
+        public string OnnxModelDirectory { get; set; } = "ONNX";
         public ProductionModelReference CurrentModelReference { get; set; } = ProductionModelReference.Empty();
         public int TaskType { get; set; } = 1;
         public bool EnablePreprocessing { get; set; } = true;

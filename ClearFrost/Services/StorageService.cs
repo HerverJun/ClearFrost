@@ -29,7 +29,7 @@ namespace ClearFrost.Services
     {
         #region 私有字段
 
-        private readonly string _baseStoragePath;
+        private string _baseStoragePath;
         private bool _disposed;
 
         #endregion
@@ -39,6 +39,11 @@ namespace ClearFrost.Services
         public string ImageBasePath => Path.Combine(_baseStoragePath, "Images");
         public string LogBasePath => Path.Combine(_baseStoragePath, "Logs");
         public string SystemPath => Path.Combine(_baseStoragePath, "System");
+
+        /// <summary>
+        /// 已解析的存储根路径（进行驱动器/盘符校验后的实际路径）
+        /// </summary>
+        public string BaseStoragePath => _baseStoragePath;
 
         /// <summary>
         /// 启动日志路径
@@ -77,6 +82,20 @@ namespace ClearFrost.Services
             }
 
             return path;
+        }
+
+        public void UpdateStoragePath(string storagePath)
+        {
+            string resolved = ResolveStoragePath(storagePath);
+            if (string.Equals(_baseStoragePath, resolved, StringComparison.OrdinalIgnoreCase))
+            {
+                EnsureDirectoriesExist();
+                return;
+            }
+
+            _baseStoragePath = resolved;
+            EnsureDirectoriesExist();
+            Debug.WriteLine($"[StorageService] 存储路径已刷新: {_baseStoragePath}");
         }
 
         #endregion
