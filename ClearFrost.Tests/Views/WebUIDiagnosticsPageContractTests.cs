@@ -23,6 +23,7 @@ public class WebUIDiagnosticsPageContractTests
             "现场体检面板",
             "diag-camera-status",
             "diag-plc-status",
+            "diag-trigger-source",
             "diag-current-model",
             "diag-storage-status",
             "diag-production-readiness",
@@ -66,6 +67,10 @@ public class WebUIDiagnosticsPageContractTests
             "audit-chain-badge",
             "audit-chain-last-hash",
             "verifyAuditChain",
+            "status-trigger-source",
+            "status-trigger-source-text",
+            "status-trigger-source-dot",
+            "copyFaultSummary",
             "copyDiagnosticPackageSummary",
             "requestDiagnosticPackageHistory",
             "export_diagnostic_package",
@@ -108,6 +113,14 @@ public class WebUIDiagnosticsPageContractTests
         renderMainJs.Should().Contain("diag-package-sha");
         renderMainJs.Should().Contain("integrityStatus");
         renderMainJs.Should().Contain("buildDiagnosticPackageSummaryText");
+        renderMainJs.Should().Contain("buildFaultSummaryText");
+        renderMainJs.Should().Contain("copyFaultSummary");
+        renderMainJs.Should().Contain("updateTriggerSourceStatus");
+        renderMainJs.Should().Contain("getVisibleMaintenanceAdvice");
+        renderMainJs.Should().Contain("可进行手动检测；自动生产触发未启用。");
+        renderMainJs.Should().Contain("需要连接串口光电触发器后才能自动生产。");
+        renderMainJs.Should().Contain("需要连接 PLC 后才能自动生产。");
+        renderMainJs.Should().Contain("当前暂无待处理问题，设备状态可以继续生产。");
         renderMainJs.Should().Contain("copyDiagnosticPackageSummary");
         renderMainJs.Should().Contain("renderDiagnosticPackageHistory");
         renderMainJs.Should().Contain("verifyDiagnosticPackage");
@@ -148,6 +161,14 @@ public class WebUIDiagnosticsPageContractTests
         bundleJs.Should().Contain("diag-package-sha");
         bundleJs.Should().Contain("diag-integrity-status");
         bundleJs.Should().Contain("buildDiagnosticPackageSummaryText");
+        bundleJs.Should().Contain("buildFaultSummaryText");
+        bundleJs.Should().Contain("copyFaultSummary");
+        bundleJs.Should().Contain("updateTriggerSourceStatus");
+        bundleJs.Should().Contain("getVisibleMaintenanceAdvice");
+        bundleJs.Should().Contain("可进行手动检测；自动生产触发未启用。");
+        bundleJs.Should().Contain("需要连接串口光电触发器后才能自动生产。");
+        bundleJs.Should().Contain("需要连接 PLC 后才能自动生产。");
+        bundleJs.Should().Contain("当前暂无待处理问题，设备状态可以继续生产。");
         bundleJs.Should().Contain("copyDiagnosticPackageSummary");
         bundleJs.Should().Contain("renderDiagnosticPackageHistory");
         bundleJs.Should().Contain("verifyDiagnosticPackage");

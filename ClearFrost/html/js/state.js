@@ -18,6 +18,7 @@
         modelList: [],
         modelLabels: [],
         cameraList: [],
+        connections: {},
         activeCameraId: "",
         history: {
             dates: [],
@@ -54,6 +55,7 @@
     state.inspection = state.inspection || {};
     state.health = state.health || {};
     state.recentInspections = state.recentInspections || [];
+    state.connections = state.connections || {};
     state.history = state.history || {};
     state.replay = state.replay || { dataset: {}, runs: {}, approval: {} };
     state.replay.dataset = state.replay.dataset || {};

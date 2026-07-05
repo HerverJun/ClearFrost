@@ -77,6 +77,13 @@
                     </span>
                     <strong id="status-plc-text">未连接</strong>
                 </div>
+                <div id="status-trigger-source" class="stitch-status-light" title="当前触发源: PLC触发" aria-label="当前触发源: PLC触发">
+                    <span class="stitch-status-label">
+                        <span id="status-trigger-source-dot" class="status-dot status-on" aria-hidden="true"></span>
+                        <span>触发源</span>
+                    </span>
+                    <strong id="status-trigger-source-text">PLC触发</strong>
+                </div>
                 <div id="status-plc-trigger" class="stitch-status-light" title="触发拍照待触发" aria-label="触发拍照: 待触发">
                     <span class="stitch-status-label">
                         <span id="status-plc-trigger-dot" class="status-dot status-off" aria-hidden="true"></span>
@@ -319,6 +326,10 @@
                             <strong id="diag-plc-status">未连接</strong>
                         </div>
                         <div class="cf-diagnostic-tile">
+                            <span>触发源</span>
+                            <strong id="diag-trigger-source">PLC触发</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
                             <span>模型</span>
                             <strong id="diag-current-model">未加载</strong>
                         </div>
@@ -359,7 +370,7 @@
                         <button data-action="openSettingsModal">
                             <span>打开设置</span>
                         </button>
-                        <button data-action="copyDiagnosticPackageSummary">
+                        <button data-action="copyFaultSummary">
                             <span>复制故障摘要</span>
                         </button>
                     </div>
@@ -619,7 +630,7 @@
                             <span>从历史记录选择</span>
                         </button>
                         <button data-action="showVisionDebugLocalImageNotice">
-                            <span>从本地选择图片</span>
+                            <span>本地图片导入暂未开放，请先使用当前相机或历史样本。</span>
                         </button>
                     </div>
                     <div class="cf-vision-history-row cf-vision-batch-row">
@@ -800,7 +811,7 @@
                         <button type="button" class="cf-settings-tab" data-settings-tab="sequence"
                             data-action="activateSettingsTab" data-value="sequence">判定规则</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="preset"
-                            data-action="activateSettingsTab" data-value="preset">预设与收集</button>
+                            data-action="activateSettingsTab" data-value="preset">工位模板与配置迁移</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="camera"
                             data-action="activateSettingsTab" data-value="camera">相机参数配置</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="trigger"
@@ -811,7 +822,7 @@
                     <div class="cf-settings-content">
                         <div class="space-y-4 hidden" data-settings-section="preset">
                             <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
-                                预设与收集
+                                工位模板与配置迁移
                             </h3>
                             <!-- 项目快速切换 (仅填充现有字段，不锁定修改) -->
                             <div class="p-4 bg-gradient-to-r from-celadon-50 to-porcelain-50 rounded-xl border border-celadon-200 shadow-sm">
@@ -821,17 +832,18 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
                                     </svg>
-                                    快速切换项目预设
+                                    工位快速配置
                                 </label>
                                 <select id="project-preset-select" data-change-action="loadProjectPreset"
                                     class="w-full tech-input px-4 py-3 rounded-xl text-sm font-bold cursor-pointer border-2 border-celadon-200 focus:border-celadon-500 transition-[background-color,border-color,box-shadow,color]">
-                                    <option value="">-- 选择预设项目（可选）--</option>
-                                    <option value="N5_remote">N5遥控器漏装视觉检测</option>
-                                    <option value="N5_screw">N5螺钉视觉检测</option>
-                                    <option value="N6_remote">N6遥控器漏装视觉检测</option>
-                                    <option value="N6_screw">N6螺钉视觉检测</option>
-                                    <option value="W5_screw">W5螺钉视觉检测</option>
-                                    <option value="W6_screw">W6螺钉视觉检测</option>
+                                    <option value="">-- 选择工位模板（可选）--</option>
+                                    <option value="N5_remote">N5 遥控器漏装</option>
+                                    <option value="N5_screw">N5 螺钉检测</option>
+                                    <option value="N6_remote">N6 遥控器漏装</option>
+                                    <option value="N6_screw">N6 螺钉检测</option>
+                                    <option value="W5_screw">W5 螺钉检测</option>
+                                    <option value="W6_screw">W6 螺钉检测</option>
+                                    <option value="electric_heating_screw">电加热螺钉检测</option>
                                 </select>
                                 <div class="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] gap-2">
                                     <input id="project-preset-name" type="text" class="tech-input px-3 py-2 rounded-lg text-xs"
@@ -850,7 +862,9 @@
                                     </button>
                                 </div>
                                 <p id="project-preset-path" class="text-[9px] text-ink-400 mt-2 truncate"></p>
-                                <p class="text-[9px] text-ink-400 mt-2 italic">选择后自动填充下方配置项，填充后仍可手动修改各参数</p>
+                                <p id="project-preset-load-hint" class="text-[9px] text-ink-400 mt-2 italic">
+                                    选择后只载入模板，不会自动保存；请确认相机序列号、PLC IP 和模型后再保存。
+                                </p>
                             </div>
 
                             <!-- 配置迁移 -->
@@ -1060,6 +1074,7 @@
                                         class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
                                         <option value="PLC">PLC</option>
                                         <option value="SerialPhotoelectric">串口光电</option>
+                                        <option value="Manual">手动检测</option>
                                     </select>
                                 </div>
                             </div>

@@ -63,6 +63,7 @@ public class TriggerSourceRuntimeCoordinatorTests
     [Theory]
     [InlineData(TriggerSource.PLC, true)]
     [InlineData(TriggerSource.SerialPhotoelectric, false)]
+    [InlineData(TriggerSource.Manual, false)]
     public void CanWriteManualRelease_仅Plc触发源允许写放行(TriggerSource triggerSource, bool expected)
     {
         bool actual = TriggerSourceRuntimeCoordinator.CanWriteManualRelease(triggerSource);

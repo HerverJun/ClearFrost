@@ -1945,6 +1945,14 @@ namespace ClearFrost
         /// </summary>
         private async Task<bool> StartTriggerSourceAsync()
         {
+            if (_appConfig.TriggerSource == TriggerSource.Manual)
+            {
+                _plcService.StopMonitoring();
+                _serialTriggerService.Stop();
+                await _uiController.LogToFrontend("手动检测模式已启用：自动生产触发未启动，可使用手动拍照检测", "info");
+                return true;
+            }
+
             if (_appConfig.TriggerSource == TriggerSource.SerialPhotoelectric)
             {
                 _plcService.StopMonitoring();
@@ -1986,11 +1994,9 @@ namespace ClearFrost
                 await _uiController.LogToFrontend("串口光电触发模式已跳过 PLC 连接、监听和写回", "info");
                 return true;
             }
-            else
-            {
-                _serialTriggerService.Stop();
-                return await StartPlcTriggerMonitoringIfReadyAsync();
-            }
+
+            _serialTriggerService.Stop();
+            return await StartPlcTriggerMonitoringIfReadyAsync();
         }
 
         /// <summary>

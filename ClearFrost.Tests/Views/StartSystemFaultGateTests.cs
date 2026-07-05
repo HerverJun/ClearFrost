@@ -20,6 +20,27 @@ public class StartSystemFaultGateTests
         source.Should().Contain("生产模型未就绪");
     }
 
+    [Fact]
+    public void StartTriggerSourceAsync_手动检测不会启动自动生产触发源()
+    {
+        string root = FindRepositoryRoot();
+        string source = File.ReadAllText(Path.Combine(root, "ClearFrost", "Views", "主窗口.Init.cs"));
+        int methodIndex = source.IndexOf("private async Task<bool> StartTriggerSourceAsync()", StringComparison.Ordinal);
+        methodIndex.Should().BeGreaterThanOrEqualTo(0);
+        string method = source[methodIndex..];
+
+        int manualIndex = method.IndexOf("TriggerSource.Manual", StringComparison.Ordinal);
+        int serialIndex = method.IndexOf("TriggerSource.SerialPhotoelectric", StringComparison.Ordinal);
+        int plcIndex = method.IndexOf("StartPlcTriggerMonitoringIfReadyAsync", StringComparison.Ordinal);
+
+        manualIndex.Should().BeGreaterThanOrEqualTo(0);
+        serialIndex.Should().BeGreaterThan(manualIndex);
+        plcIndex.Should().BeGreaterThan(manualIndex);
+        method.Should().Contain("手动检测模式已启用：自动生产触发未启动");
+        method.Should().Contain("_plcService.StopMonitoring();");
+        method.Should().Contain("_serialTriggerService.Stop();");
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);

@@ -61,6 +61,31 @@ public class WebUICommandDiagnosticsContractTests
         frontendCommands.Where(command => !backendCommands.Contains(command)).Should().BeEmpty();
     }
 
+    [Fact]
+    public void WebUi命令桥_Html声明的Action均有前端实现()
+    {
+        string root = FindRepositoryRoot();
+        string indexHtml = File.ReadAllText(Path.Combine(root, "ClearFrost", "html", "index.html"));
+        string jsRoot = Path.Combine(root, "ClearFrost", "html", "js");
+        string source = string.Join(
+            Environment.NewLine,
+            Directory.GetFiles(jsRoot, "*.js")
+                .Where(file => !file.EndsWith("bundle.js", StringComparison.OrdinalIgnoreCase))
+                .Select(File.ReadAllText));
+
+        var actions = new SortedSet<string>(
+            Regex.Matches(indexHtml, "data-action=[\"']([A-Za-z0-9_]+)[\"']")
+                .Select(match => match.Groups[1].Value),
+            StringComparer.Ordinal);
+
+        actions.Should().NotBeEmpty();
+        actions.Where(action =>
+                !Regex.IsMatch(source, $@"\bfunction\s+{Regex.Escape(action)}\b") &&
+                !Regex.IsMatch(source, $@"\b{Regex.Escape(action)}\s*[,=:]"))
+            .Should()
+            .BeEmpty();
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);

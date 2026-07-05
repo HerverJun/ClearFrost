@@ -3833,7 +3833,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page #settings-modal [data-settings-section="preset"] > h3::after {
-    content: "维护现场项目预设，并按历史记录收集训练数据集。";
+    content: "按工位模板载入相机、PLC、触发源和检测目标；确认后再手动保存到生产配置。";
 }
 
 .cf-stitch-page #settings-modal [data-settings-section="camera"] > h3::after {

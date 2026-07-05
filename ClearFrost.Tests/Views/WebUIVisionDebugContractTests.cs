@@ -22,6 +22,7 @@ public class WebUIVisionDebugContractTests
         index.Should().Contain("第二步：获取图片");
         index.Should().Contain("第三步：运行验证");
         index.Should().Contain("还没有可调试图片。请先启动相机并获取一帧，或从历史记录选择样本。");
+        index.Should().Contain("本地图片导入暂未开放，请先使用当前相机或历史样本。");
         index.Should().Contain("规则摘要");
         index.Should().Contain("高级：查看/编辑规则 JSON");
         index.Should().Contain("id=\"vision-debug-run-current\"");
@@ -61,6 +62,8 @@ public class WebUIVisionDebugContractTests
         renderMain.Should().Contain("function runVisionDebugCurrent");
         renderMain.Should().Contain("function runVisionDebugBatch");
         renderMain.Should().Contain("projectDefaultTemplates");
+        renderMain.Should().Contain("规则 JSON 无效");
+        renderMain.Should().Contain("本地图片导入暂未开放，请先使用当前相机或历史样本。");
         renderMain.Should().Contain("renderVisionDebugParameterComparison");
         renderMain.Should().Contain("renderVisionDebugBatchReplay");
         renderMain.Should().Contain("关联目标框");
@@ -72,6 +75,8 @@ public class WebUIVisionDebugContractTests
         bundle.Should().Contain("registerMessageHandler(\"visionDebugResult\"");
         bundle.Should().Contain("calculateImageContentMapping");
         bundle.Should().Contain("vision_debug_run_batch");
+        bundle.Should().Contain("规则 JSON 无效");
+        bundle.Should().Contain("本地图片导入暂未开放，请先使用当前相机或历史样本。");
     }
 
     private static string FindRepositoryRoot()

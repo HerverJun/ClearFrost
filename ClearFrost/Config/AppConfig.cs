@@ -99,7 +99,7 @@ namespace ClearFrost.Config
 
         // ================== Trigger Source Settings ==================
         /// <summary>
-        /// 触发源: PLC 或 SerialPhotoelectric
+        /// 触发源: PLC、SerialPhotoelectric 或 Manual
         /// </summary>
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public TriggerSource TriggerSource { get; set; } = TriggerSource.PLC;

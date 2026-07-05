@@ -119,6 +119,7 @@
         modelList: [],
         modelLabels: [],
         cameraList: [],
+        connections: {},
         activeCameraId: "",
         history: {
             dates: [],
@@ -155,6 +156,7 @@
     state.inspection = state.inspection || {};
     state.health = state.health || {};
     state.recentInspections = state.recentInspections || [];
+    state.connections = state.connections || {};
     state.history = state.history || {};
     state.replay = state.replay || { dataset: {}, runs: {}, approval: {} };
     state.replay.dataset = state.replay.dataset || {};
@@ -1579,6 +1581,81 @@
         ].join("\n");
     }
 
+    function getCurrentStationName() {
+        const settings = store.state.settings || {};
+        return String(
+            el("cfg-cam-name")?.value ||
+            settings.StationName ||
+            settings.stationName ||
+            settings.CameraName ||
+            settings.cameraName ||
+            settings.name ||
+            "").trim();
+    }
+
+    function getFaultAdviceItems(health) {
+        const triggerSource = getCurrentTriggerSource(health);
+        const items = getVisibleMaintenanceAdvice(health).map((item) => ({
+            title: item.title || item.Title || "待处理问题",
+            advice: item.advice || item.Advice || "请工程师查看现场诊断中心。",
+            code: item.code || item.Code || "",
+        }));
+
+        if (triggerSource === "SerialPhotoelectric" && !isSerialTriggerConnected()) {
+            items.push({
+                title: "串口光电触发器未连接",
+                advice: "请确认 COM 口、光电触发器供电和串口线后重新启动系统。",
+                code: "SerialTriggerNotConnected",
+            });
+        }
+
+        return items;
+    }
+
+    function buildFaultSummaryText(state = store.state) {
+        const health = state?.health || {};
+        const modelProbe = health.modelProbe || health.ModelProbe || {};
+        const currentModel = getFieldValue(health, "currentModelName", "CurrentModelName") ||
+            modelProbe.currentModelName || modelProbe.CurrentModelName ||
+            getFieldValue(health, "modelStatus", "ModelStatus");
+        const triggerSource = getCurrentTriggerSource(health);
+        const triggerLabel = formatTriggerSourceLabel(triggerSource);
+        const faultItems = getFaultAdviceItems(health);
+        const stationName = getCurrentStationName() || "未设置";
+        const cameraStatus = formatFieldCameraStatus(getFieldValue(health, "cameraStatus", "CameraStatus"));
+        const plcStatus = formatFieldPlcStatus(getFieldValue(health, "plcStatus", "PlcStatus"), triggerSource);
+        const modelStatus = isModelReady(modelProbe, currentModel) ? "已加载" : "未加载";
+        const storageStatus = formatFieldStorageStatus(health);
+        const conclusion = faultItems.length > 0 ? "需要处理" : "暂无待处理";
+
+        const lines = [
+            "【ClearFrost现场故障摘要】",
+            `时间：${new Date().toLocaleString()}`,
+            `工位：${stationName}`,
+            `触发源：${triggerLabel}`,
+            `当前结论：${conclusion}`,
+            `相机：${cameraStatus}`,
+            `PLC：${plcStatus}`,
+            `模型：${modelStatus}`,
+            `存储：${storageStatus}`,
+            "待处理：",
+        ];
+
+        if (faultItems.length === 0) {
+            lines.push("当前暂无待处理问题，设备状态可以继续生产。");
+            lines.push("下一步：继续按当前工位配置生产；如需排查历史问题，可导出诊断包给工程师。");
+            return lines.join("\n");
+        }
+
+        faultItems.slice(0, 6).forEach((item, index) => {
+            const title = String(item.title || "待处理问题").trim();
+            const advice = String(item.advice || "请工程师查看现场诊断中心。").trim();
+            lines.push(`${index + 1}. ${title}：${advice}`);
+        });
+        lines.push("下一步：请工程师检查相机连接、模型选择和触发源通讯。");
+        return lines.join("\n");
+    }
+
     async function writeClipboardText(text) {
         if (navigator.clipboard?.writeText) {
             await navigator.clipboard.writeText(text);
@@ -1596,6 +1673,17 @@
         document.body.removeChild(textarea);
         if (!copied) {
             throw new Error("ClipboardUnavailable");
+        }
+    }
+
+    async function copyFaultSummary() {
+        try {
+            await writeClipboardText(buildFaultSummaryText(store.state));
+            showToast("故障摘要已复制", "success", 1600);
+            addLog("故障摘要已复制", "success");
+        } catch {
+            showToast("复制失败，请手动记录故障摘要", "error", 1800);
+            addLog("故障摘要复制失败", "error");
         }
     }
 
@@ -1730,6 +1818,7 @@
         if (plcStatus) {
             updateConnection("plc", /^Connected/i.test(String(plcStatus)));
         }
+        updateTriggerSourceStatus(getCurrentTriggerSource(health));
         logQueuePressureAdvice(health);
         renderFieldDiagnostics(state);
     }
@@ -1784,6 +1873,72 @@
         const nested = getNestedHealthSnapshot(health);
         const value = health?.[camelName] ?? health?.[pascalName] ?? nested?.[camelName] ?? nested?.[pascalName];
         return value && typeof value === "object" ? value : {};
+    }
+
+    function normalizeTriggerSource(value) {
+        const raw = String(value || "").trim();
+        const lower = raw.toLowerCase();
+        if (!raw || lower === "plc") return "PLC";
+        if (lower === "serialphotoelectric" || lower.includes("serial") || lower.includes("串口")) {
+            return "SerialPhotoelectric";
+        }
+        if (lower === "manual" || lower.includes("手动")) return "Manual";
+        return raw;
+    }
+
+    function getCurrentTriggerSource(health = null) {
+        const settings = store.state.settings || {};
+        const selectValue = el("cfg-trigger-source")?.value || "";
+        const healthValue = health
+            ? getFieldValue(health, "triggerSource", "TriggerSource", "")
+            : "";
+        return normalizeTriggerSource(
+            healthValue ||
+            settings.TriggerSource ||
+            settings.triggerSource ||
+            selectValue ||
+            "PLC");
+    }
+
+    function formatTriggerSourceLabel(triggerSource) {
+        const normalized = normalizeTriggerSource(triggerSource);
+        if (normalized === "PLC") return "PLC触发";
+        if (normalized === "SerialPhotoelectric") return "串口光电";
+        if (normalized === "Manual") return "手动检测";
+        return normalized || "PLC触发";
+    }
+
+    function isSerialTriggerConnected() {
+        return Boolean(store.state.connections?.serialTrigger);
+    }
+
+    function updateTriggerSourceStatus(triggerSource = null) {
+        const normalized = normalizeTriggerSource(triggerSource || getCurrentTriggerSource());
+        const label = formatTriggerSourceLabel(normalized);
+        setText("status-trigger-source-text", label, "PLC触发");
+        setText("diag-trigger-source", label, "PLC触发");
+        setDotState("status-trigger-source-dot", normalized === "Manual" ? "status-warning" : "status-on");
+
+        const root = el("status-trigger-source");
+        if (root) {
+            root.setAttribute("aria-label", `当前触发源: ${label}`);
+            root.title = `当前触发源: ${label}`;
+        }
+    }
+
+    function isPlcNotConnectedAdvice(item) {
+        const code = String(item.code || item.Code || "").trim();
+        const source = String(item.source || item.Source || "").trim();
+        const title = String(item.title || item.Title || "").trim();
+        return code === "PlcNotConnected" ||
+            (source.toLowerCase() === "plc" && title.includes("PLC") && title.includes("未连接"));
+    }
+
+    function getVisibleMaintenanceAdvice(health) {
+        const triggerSource = getCurrentTriggerSource(health);
+        const advice = getFieldArray(health, "maintenanceAdvice", "MaintenanceAdvice");
+        if (triggerSource === "PLC") return advice;
+        return advice.filter((item) => !isPlcNotConnectedAdvice(item));
     }
 
     function isStartupFailStatus(status) {
@@ -1915,7 +2070,7 @@
     }
 
     function renderMaintenanceAdviceList(health) {
-        const advice = getFieldArray(health, "maintenanceAdvice", "MaintenanceAdvice");
+        const advice = getVisibleMaintenanceAdvice(health);
         if (advice.length === 0) {
             setHtml(
                 "diag-maintenance-advice",
@@ -2167,9 +2322,10 @@
         return "异常";
     }
 
-    function formatFieldPlcStatus(status) {
+    function formatFieldPlcStatus(status, triggerSource = getCurrentTriggerSource()) {
         const value = String(status || "").trim();
         if (isPlcReadyStatus(value)) return "正常";
+        if (normalizeTriggerSource(triggerSource) !== "PLC") return "未使用";
         if (!value || value === "Disconnected" || value === "NotConnected") return "未连接";
         return "异常";
     }
@@ -2191,8 +2347,9 @@
     }
 
     function renderProductionReadiness(health, modelProbe, currentModel) {
+        const triggerSource = getCurrentTriggerSource(health);
         const blockers = getStartupBlockingItems(health);
-        const advice = getFieldArray(health, "maintenanceAdvice", "MaintenanceAdvice");
+        const advice = getVisibleMaintenanceAdvice(health);
         const hasIssues = blockers.length > 0 || advice.some((item) => {
             const level = String(item.level || item.Level || "").toLowerCase();
             return level === "critical" || level === "warning";
@@ -2201,11 +2358,12 @@
             const text = `${item.title || item.Title || ""} ${item.advice || item.Advice || ""} ${item.code || item.Code || ""}`;
             return text.includes("严格模型验证") || text.includes("模型未完成上线验证") || text.includes("StartupBlocked");
         });
-        const deviceReady =
-            isCameraReadyStatus(getFieldValue(health, "cameraStatus", "CameraStatus")) &&
-            isPlcReadyStatus(getFieldValue(health, "plcStatus", "PlcStatus")) &&
-            isModelReady(modelProbe, currentModel) &&
-            formatFieldStorageStatus(health) === "正常";
+        const cameraReady = isCameraReadyStatus(getFieldValue(health, "cameraStatus", "CameraStatus"));
+        const plcReady = isPlcReadyStatus(getFieldValue(health, "plcStatus", "PlcStatus"));
+        const serialReady = isSerialTriggerConnected();
+        const modelReady = isModelReady(modelProbe, currentModel);
+        const storageReady = formatFieldStorageStatus(health) === "正常";
+        const commonReady = cameraReady && modelReady && storageReady;
 
         if (needsEngineer) {
             setText("diag-production-readiness", "工程师检查");
@@ -2213,14 +2371,36 @@
             return;
         }
 
-        if (hasIssues || !deviceReady) {
+        if (triggerSource === "Manual") {
+            setText("diag-production-readiness", commonReady && !hasIssues ? "可手动检测" : "需要处理");
+            setText("diag-production-guidance", "可进行手动检测；自动生产触发未启用。");
+            return;
+        }
+
+        if (triggerSource === "SerialPhotoelectric" && !serialReady) {
+            setText("diag-production-readiness", "需要处理");
+            setText("diag-production-guidance", "需要连接串口光电触发器后才能自动生产。");
+            return;
+        }
+
+        if (triggerSource === "PLC" && !plcReady) {
+            setText("diag-production-readiness", "需要处理");
+            setText("diag-production-guidance", "需要连接 PLC 后才能自动生产。");
+            return;
+        }
+
+        if (hasIssues || !commonReady) {
             setText("diag-production-readiness", "需要处理");
             setText("diag-production-guidance", "请先查看待处理问题，并按下一步建议处理。");
             return;
         }
 
         setText("diag-production-readiness", "可以生产");
-        setText("diag-production-guidance", "设备、模型和存储状态正常。");
+        setText(
+            "diag-production-guidance",
+            triggerSource === "SerialPhotoelectric"
+                ? "串口光电触发器已连接，设备、模型和存储状态正常。"
+                : "设备、模型和存储状态正常。");
     }
 
     function renderFieldDiagnostics(state) {
@@ -2231,7 +2411,9 @@
             getFieldValue(health, "modelStatus", "ModelStatus");
 
         setText("diag-camera-status", formatFieldCameraStatus(getFieldValue(health, "cameraStatus", "CameraStatus")), "未连接");
-        setText("diag-plc-status", formatFieldPlcStatus(getFieldValue(health, "plcStatus", "PlcStatus")), "未连接");
+        const triggerSource = getCurrentTriggerSource(health);
+        updateTriggerSourceStatus(triggerSource);
+        setText("diag-plc-status", formatFieldPlcStatus(getFieldValue(health, "plcStatus", "PlcStatus"), triggerSource), "未连接");
         setText("diag-current-model", isModelReady(modelProbe, currentModel) ? "已加载" : "未加载", "未加载");
         setText("diag-storage-status", formatFieldStorageStatus(health), "正常");
         renderProductionReadiness(health, modelProbe, currentModel);
@@ -2306,6 +2488,7 @@
         const modal = el("field-diagnostics-modal");
         if (!modal) return;
         modal.classList.remove("hidden");
+        updateTriggerSourceStatus();
         window.sendCommand("request_health_snapshot");
         requestDiagnosticPackageHistory();
         requestFieldHandoffReportHistory();
@@ -2522,7 +2705,7 @@
     }
 
     function showVisionDebugLocalImageNotice() {
-        showToast("本地图片验证入口已保留，请优先从历史记录选择样本。", "info", 1800);
+        showToast("本地图片导入暂未开放，请先使用当前相机或历史样本。", "info", 1800);
     }
 
     function runVisionDebugCurrent() {
@@ -3100,6 +3283,14 @@
 
     function updateConnection(type, isConnected) {
         const normalizedType = String(type || "").toLowerCase();
+        store.state.connections = store.state.connections || {};
+        if (normalizedType === "serialtrigger" || normalizedType === "serialphotoelectric" || normalizedType === "serial") {
+            store.state.connections.serialTrigger = Boolean(isConnected);
+            updateTriggerSourceStatus();
+            renderFieldDiagnostics(store.state);
+            return;
+        }
+
         const indicator =
             normalizedType === "cam" || normalizedType === "camera"
                 ? { root: "status-cam", dot: "status-cam-dot", text: "status-cam-text", label: "相机" }
@@ -3573,6 +3764,7 @@
         closeFieldDiagnosticsPanel,
         copyDiagnosticPackageSummary,
         copyFieldHandoffReportSummary,
+        copyFaultSummary,
         escapeHtml,
         exportFieldHandoffReport,
         flashPlcTrigger,
@@ -3610,6 +3802,7 @@
         showToast,
         updateCameraName,
         updateConnection,
+        updateTriggerSourceStatus,
         updateImage,
         updateImageUrl,
         updateInferenceMetrics,
@@ -3717,17 +3910,26 @@
 
     let PROJECT_PRESETS = {
         N5_remote: {
-            name: "N5遥控器漏装视觉检测",
+            name: "N5 遥控器漏装",
+            StationName: "N5 遥控器漏装",
+            DetectionType: "遥控器漏装",
             PlcIp: "10.182.82.19",
             PlcPort: 2700,
             PlcTriggerAddress: "D100",
             PlcResultAddress: "D102",
             CameraSerialNumber: "5G087BAGAK00018",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_Binary",
+            TriggerSource: "PLC",
             TargetLabel: "remote",
+            TargetLabels: ["remote"],
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -3745,6 +3947,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -3757,20 +3960,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         N5_screw: {
-            name: "N5螺钉视觉检测",
+            name: "N5 螺钉检测",
+            StationName: "N5 螺钉检测",
+            DetectionType: "螺钉检测",
             PlcIp: "10.182.82.19",
             PlcPort: 3000,
             PlcTriggerAddress: "D90",
             PlcResultAddress: "D92",
             CameraSerialNumber: "EF59601AAK00030",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_Binary",
+            TriggerSource: "PLC",
             TargetLabel: "screw",
+            TargetLabels: ["screw"],
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -3788,6 +4000,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -3800,20 +4013,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         N6_remote: {
-            name: "N6遥控器漏装视觉检测",
+            name: "N6 遥控器漏装",
+            StationName: "N6 遥控器漏装",
+            DetectionType: "遥控器漏装",
             PlcIp: "192.168.100.122",
             PlcPort: 5777,
             PlcTriggerAddress: "D6607",
             PlcResultAddress: "D6608",
             CameraSerialNumber: "AM01040AAK00040",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_Binary",
+            TriggerSource: "PLC",
             TargetLabel: "remote",
+            TargetLabels: ["remote"],
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -3831,6 +4053,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -3843,20 +4066,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         N6_screw: {
-            name: "N6螺钉视觉检测",
+            name: "N6 螺钉检测",
+            StationName: "N6 螺钉检测",
+            DetectionType: "螺钉检测",
             PlcIp: "10.182.82.3",
             PlcPort: 4300,
             PlcTriggerAddress: "D100",
             PlcResultAddress: "D102",
             CameraSerialNumber: "",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_Binary",
+            TriggerSource: "PLC",
             TargetLabel: "screw",
+            TargetLabels: ["screw"],
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -3874,6 +4106,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -3886,20 +4119,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         W5_screw: {
-            name: "W5螺钉视觉检测",
+            name: "W5 螺钉检测",
+            StationName: "W5 螺钉检测",
+            DetectionType: "螺钉检测",
             PlcIp: "192.168.22.44",
             PlcPort: 4999,
             PlcTriggerAddress: "D555",
             PlcResultAddress: "D556",
             CameraSerialNumber: "EF59632AAK00291",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_ASCII",
+            TriggerSource: "PLC",
             TargetLabel: "screw",
+            TargetLabels: ["screw"],
             TargetCount: 4,
             ExposureTime: 50000,
             Gain: 1.1,
+            GainRaw: 1.1,
+            RecommendedExposureTime: 50000,
+            RecommendedGainRaw: 1.1,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -3917,6 +4159,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -3929,20 +4172,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         W6_screw: {
-            name: "W6螺钉视觉检测",
+            name: "W6 螺钉检测",
+            StationName: "W6 螺钉检测",
+            DetectionType: "螺钉检测",
             PlcIp: "192.168.250.1",
             PlcPort: 5999,
             PlcTriggerAddress: "D555",
             PlcResultAddress: "D556",
             CameraSerialNumber: "EF59632AAK00291",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_ASCII",
+            TriggerSource: "PLC",
             TargetLabel: "screw",
+            TargetLabels: ["screw"],
             TargetCount: 4,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -3960,6 +4212,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -3972,7 +4225,60 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
+            DefaultStoragePath: "C:\\GreeVisionData",
+        },
+        electric_heating_screw: {
+            name: "电加热螺钉检测",
+            StationName: "电加热螺钉检测",
+            DetectionType: "螺钉检测",
+            PlcIp: "",
+            PlcPort: 0,
+            PlcTriggerAddress: "D555",
+            PlcResultAddress: "D556",
+            CameraSerialNumber: "",
             CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
+            PlcProtocol: "Mitsubishi_MC_ASCII",
+            TriggerSource: "PLC",
+            TargetLabel: "screw",
+            TargetLabels: ["screw"],
+            TargetCount: 4,
+            ExposureTime: 3500,
+            Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
+            PlcDriverProvider: "HaoCommunication",
+            PlcProtocolMode: "Legacy",
+            PlcTriggerDelayMs: 800,
+            PlcPollingIntervalMs: 500,
+            PlcOkValue: 1,
+            PlcNgValue: 0,
+            PlcTriggerSeqAddress: "D557",
+            PlcResultSeqAddress: "D558",
+            PlcVisionOnlineAddress: "D559",
+            PlcVisionReadyAddress: "D560",
+            PlcVisionBusyAddress: "D561",
+            PlcInspectionDoneAddress: "D562",
+            PlcErrorCodeAddress: "D563",
+            PlcTraceSavedAddress: "D564",
+            PlcHeartbeatAddress: "D565",
+            PlcResetFaultAddress: "D566",
+            BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
+            BarcodeAddress: "D570",
+            BarcodeWordLength: 16,
+            BarcodeEncoding: "ASCII",
+            BarcodeRequired: false,
+            PlcSiemensCpuModel: "S1200",
+            PlcSiemensRack: 0,
+            PlcSiemensSlot: 2,
+            EnableGpu: false,
+            IndustrialRenderMode: true,
+            MaxRetryCount: 1,
+            RetryIntervalMs: 2000,
+            StoragePath: "C:\\GreeVisionData",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
     };
 
@@ -4469,6 +4775,8 @@
         const triggerSource = byId("cfg-trigger-source")?.value || "PLC";
         const serialSection = byId("cfg-serial-trigger-section");
         if (serialSection) serialSection.classList.toggle("hidden", triggerSource !== "SerialPhotoelectric");
+        store.state.settings = { ...(store.state.settings || {}), TriggerSource: triggerSource };
+        window.updateTriggerSourceStatus?.(triggerSource);
     }
 
     function normalizeSerialPortName(value) {
@@ -4902,7 +5210,7 @@
 
         const emptyOption = document.createElement("option");
         emptyOption.value = "";
-        emptyOption.text = "-- 选择预设项目（可选）--";
+        emptyOption.text = "-- 选择工位模板（可选）--";
         select.add(emptyOption);
 
         Object.entries(PROJECT_PRESETS)
@@ -4916,6 +5224,13 @@
 
         if (currentValue && PROJECT_PRESETS[currentValue]) {
             select.value = currentValue;
+        }
+    }
+
+    function setProjectPresetLoadHint(message) {
+        const hint = byId("project-preset-load-hint");
+        if (hint) {
+            hint.textContent = message || "选择后只载入模板，不会自动保存；请确认相机序列号、PLC IP 和模型后再保存。";
         }
     }
 
@@ -5324,6 +5639,7 @@
     function loadProjectPreset(presetId) {
         if (!presetId) {
             syncProjectPresetName();
+            setProjectPresetLoadHint("");
             return;
         }
 
@@ -5404,8 +5720,15 @@
         updateTriggerSourceUi();
         store.state.inspectionRuleSet = normalizeInspectionRuleSet(preset.InspectionRuleSetJson, preset);
         renderInspectionRules();
+        if (preset.EnableMultiModelFallback !== undefined) {
+            applyMultiModelUiState(!!preset.EnableMultiModelFallback);
+        }
         syncProjectPresetName();
-        window.addLog?.(`已加载预设: ${getPresetDisplayName(presetId, preset)}`, "success");
+        const templateName = getPresetDisplayName(presetId, preset);
+        const message = `已载入 ${templateName}模板，请确认相机序列号、PLC IP 和模型后保存。`;
+        setProjectPresetLoadHint(message);
+        window.showToast?.(message, "success", 1800);
+        window.addLog?.(message, "success");
     }
 
     function handleConfigSnapshot(data) {
