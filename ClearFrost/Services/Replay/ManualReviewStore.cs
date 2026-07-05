@@ -118,6 +118,8 @@ namespace ClearFrost.Services.Replay
             _operatorRoleProvider = operatorRoleProvider;
         }
 
+        internal string DbPath => Path.GetFullPath(_dbPath);
+
         public async Task<IReadOnlyList<ManualReviewTraceItem>> QueryAsync(
             ManualReviewQuery query,
             CancellationToken cancellationToken = default)

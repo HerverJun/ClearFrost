@@ -80,6 +80,7 @@ namespace ClearFrost
         private const string DiagnosticPackageRetentionPattern = "ClearFrost_Diagnostics_*.zip";
         private const string FieldHandoffReportRetentionPattern = "handoff-*.md";
 
+        private readonly object _storageRefreshLock = new object();
         private readonly object _auditChainStatusLock = new object();
         private FieldAuditChainStatus _lastAuditChainStatus = new FieldAuditChainStatus();
         private bool _stopRequested;
@@ -134,73 +135,20 @@ namespace ClearFrost
             ModelRegistry = modelRegistry ?? new ModelRegistry();
             RefreshModelRegistry();
             OperationAuditService = new OperationAuditService(Path.Combine(StorageService.LogBasePath, "Outbox"));
-            MaintenanceAdviceResolutionStore = new MaintenanceAdviceResolutionStore(
-                Path.Combine(StorageService.SystemPath, "maintenance-advice-resolution.json"));
             DecisionEvaluator = new InspectionDecisionEvaluator();
             ReplayPolicy = new ReplayAcceptancePolicy();
-            ManualReviewStore = new SqliteManualReviewStore(
-                DatabaseService,
-                Path.Combine(StorageService.SystemPath, "manual-review.db"),
-                OperationAuditService,
-                () => AppConfig.CurrentOperatorId,
-                () => AppConfig.CurrentOperatorRole);
-            ReplayDatasetStore = new FileReplayDatasetStore(
-                DatabaseService,
-                Path.Combine(StorageService.SystemPath, "ReplayDatasets"));
-            ReplayRunStore = new SqliteReplayRunStore(
-                Path.Combine(StorageService.SystemPath, "replay-runs.db"),
-                Path.Combine(StorageService.SystemPath, "ReplayReports"));
-            ReplayRunStore.MarkNonTerminalRunsInterruptedAsync("default").GetAwaiter().GetResult();
-            ModelApprovalEvidenceStore = new FileModelApprovalEvidenceStore(
-                Path.Combine(StorageService.SystemPath, "ReplayEvidence"),
-                ReplayPolicy);
             ReplayAssetCoordinator = new ReplayAssetChangeCoordinator();
-            TryMigrateLegacyReplayApproval();
-            ReplayProductionGate = new ReplayApprovalEvidenceProductionGate(
-                ModelApprovalEvidenceStore,
-                ReplayDatasetStore,
-                ReplayRunStore);
-            ReplayIntegrityScanner = new ReplayIntegrityScanner(
-                ModelRegistry,
-                ReplayProductionGate,
-                ReplayDatasetStore,
-                ReplayRunStore,
-                ModelApprovalEvidenceStore,
-                OperationAuditService);
             ReplayModelValidator = new ReplayModelValidator();
             ReplayInferenceRunner = new ProductionReplayInferenceRunner(
                 detectionServiceFactory: () => new DetectionService(appConfig.EnableGpu, appConfig.GpuIndex),
                 decisionEvaluator: DecisionEvaluator,
                 useGpu: appConfig.EnableGpu,
                 gpuIndex: appConfig.GpuIndex);
-            ReplayApplicationService = new ReplayApplicationService(
-                ReplayDatasetStore,
-                ReplayInferenceRunner,
-                ReplayModelValidator,
-                ReplayRunStore,
-                ReplayPolicy);
-            ReplayCoordinator = new ReplayRunCoordinator(ReplayApplicationService);
-            ReplayDatasetLifecycleService = new ReplayDatasetLifecycleService(
-                ReplayDatasetStore,
-                ReplayRunStore,
-                ModelApprovalEvidenceStore,
-                ReplayAssetCoordinator,
-                OperationAuditService,
-                () => AppConfig.CurrentOperatorId,
-                () => AppConfig.CurrentOperatorRole,
-                datasetId => ReplayCoordinator.IsDatasetActive(datasetId));
-            ReplayApprovalApplicationService = new ReplayApprovalApplicationService(
-                ModelRegistry,
-                () => RefreshModelRegistry(),
-                ReplayRunStore,
-                ReplayDatasetStore,
-                ModelApprovalEvidenceStore,
-                ReplayProductionGate,
-                ReplayPolicy,
-                OperationAuditService,
-                () => AppConfig.CurrentOperatorId,
-                () => AppConfig.CurrentOperatorRole,
-                ReplayAssetCoordinator);
+            TryMigrateLegacyReplayApproval();
+            ApplyStorageBoundProductionServices(
+                CreateStorageBoundProductionServiceGraph(
+                    StorageBoundProductionServicePaths.FromBasePath(StorageService.BaseStoragePath),
+                    markNonTerminalRunsInterrupted: true));
             HealthMonitor = new HealthMonitor(
                 CameraService,
                 PlcService,
@@ -245,37 +193,37 @@ namespace ClearFrost
 
         public OperationAuditService OperationAuditService { get; }
 
-        public MaintenanceAdviceResolutionStore MaintenanceAdviceResolutionStore { get; }
+        public MaintenanceAdviceResolutionStore MaintenanceAdviceResolutionStore { get; private set; } = null!;
 
         public IInspectionDecisionEvaluator DecisionEvaluator { get; }
 
         public ReplayAcceptancePolicy ReplayPolicy { get; }
 
-        public IManualReviewStore ManualReviewStore { get; }
+        public IManualReviewStore ManualReviewStore { get; private set; } = null!;
 
-        public IReplayDatasetStore ReplayDatasetStore { get; }
+        public IReplayDatasetStore ReplayDatasetStore { get; private set; } = null!;
 
-        public IReplayRunStore ReplayRunStore { get; }
+        public IReplayRunStore ReplayRunStore { get; private set; } = null!;
 
         public IReplayInferenceRunner ReplayInferenceRunner { get; }
 
         public IReplayModelValidator ReplayModelValidator { get; }
 
-        public ReplayApplicationService ReplayApplicationService { get; }
+        public ReplayApplicationService ReplayApplicationService { get; private set; } = null!;
 
-        public ReplayRunCoordinator ReplayCoordinator { get; }
+        public ReplayRunCoordinator ReplayCoordinator { get; private set; } = null!;
 
         internal ReplayAssetChangeCoordinator ReplayAssetCoordinator { get; }
 
-        internal ReplayDatasetLifecycleService ReplayDatasetLifecycleService { get; }
+        internal ReplayDatasetLifecycleService ReplayDatasetLifecycleService { get; private set; } = null!;
 
-        public IModelApprovalEvidenceStore ModelApprovalEvidenceStore { get; }
+        public IModelApprovalEvidenceStore ModelApprovalEvidenceStore { get; private set; } = null!;
 
-        public ReplayApprovalEvidenceProductionGate ReplayProductionGate { get; }
+        public ReplayApprovalEvidenceProductionGate ReplayProductionGate { get; private set; } = null!;
 
-        public ReplayIntegrityScanner ReplayIntegrityScanner { get; }
+        public ReplayIntegrityScanner ReplayIntegrityScanner { get; private set; } = null!;
 
-        internal ReplayApprovalApplicationService ReplayApprovalApplicationService { get; }
+        internal ReplayApprovalApplicationService ReplayApprovalApplicationService { get; private set; } = null!;
 
         public HealthMonitor HealthMonitor { get; }
 
@@ -313,15 +261,420 @@ namespace ClearFrost
 
         public void RefreshStoragePath()
         {
-            StorageService.UpdateStoragePath(AppConfig.StoragePath);
-            StatisticsService.UpdateStoragePath(StorageService.BaseStoragePath);
-            MaintenanceAdviceResolutionStore.UpdateStorePath(
-                Path.Combine(StorageService.SystemPath, "maintenance-advice-resolution.json"));
-            StartupDiagnostics.Run(
-                AppConfig,
-                StorageService,
+            lock (_storageRefreshLock)
+            {
+                string requestedStoragePath = AppConfig.StoragePath ?? string.Empty;
+                string oldStoragePath = StorageService.BaseStoragePath;
+                string oldAuditOutbox = OperationAuditService.OutboxDirectory;
+                StorageBoundProductionServiceGraph oldGraph = CaptureStorageBoundProductionServices(
+                    StorageBoundProductionServicePaths.FromBasePath(oldStoragePath));
+                StorageBoundProductionServiceGraph? newGraph = null;
+                ReplayRunCoordinator? coordinatorToDispose = null;
+                bool newGraphApplied = false;
+
+                try
+                {
+                    if (ReplayCoordinator.IsReplayRunning || ReplayCoordinator.IsProductionRunning)
+                    {
+                        throw new InvalidOperationException("StoragePath refresh is blocked while production or Replay is running.");
+                    }
+
+                    StorageBoundProductionServicePaths newPaths =
+                        ResolveStorageRefreshPaths(requestedStoragePath);
+                    EnsureStorageRefreshPathsSafeForWrite(newPaths);
+                    newGraph = CreateStorageBoundProductionServiceGraph(
+                        newPaths,
+                        markNonTerminalRunsInterrupted: false);
+
+                    StorageService.UpdateStoragePath(newPaths.BaseStoragePath);
+                    if (!IsSamePath(StorageService.BaseStoragePath, newPaths.BaseStoragePath))
+                    {
+                        throw new InvalidOperationException(
+                            $"StorageService resolved a different path. Expected={newPaths.BaseStoragePath}; Actual={StorageService.BaseStoragePath}");
+                    }
+
+                    StatisticsService.UpdateStoragePath(StorageService.BaseStoragePath);
+                    OperationAuditService.UpdateOutboxDirectory(newPaths.AuditOutboxPath);
+                    ApplyStorageBoundProductionServices(newGraph);
+                    newGraphApplied = true;
+
+                    StartupDiagnostics.Run(
+                        AppConfig,
+                        StorageService,
+                        ModelRegistry,
+                        (role, entry, reference) => ReplayProductionGate.Validate(role, entry, reference));
+
+                    if (!AppendStoragePathRefreshAudit(
+                            OperationAuditStatus.Succeeded,
+                            oldStoragePath,
+                            newPaths.BaseStoragePath,
+                            string.Empty))
+                    {
+                        throw new InvalidOperationException("StoragePath refresh succeeded but audit evidence could not be written.");
+                    }
+
+                    coordinatorToDispose = oldGraph.ReplayCoordinator;
+                }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        StorageService.UpdateStoragePath(oldStoragePath);
+                        StatisticsService.UpdateStoragePath(StorageService.BaseStoragePath);
+                        OperationAuditService.UpdateOutboxDirectory(oldAuditOutbox);
+                        ApplyStorageBoundProductionServices(oldGraph);
+                        StartupDiagnostics.Run(
+                            AppConfig,
+                            StorageService,
+                            ModelRegistry,
+                            (role, entry, reference) => ReplayProductionGate.Validate(role, entry, reference));
+                        StartupDiagnostics.ReportStoragePathRefreshFailure(
+                            requestedStoragePath,
+                            StorageService.BaseStoragePath,
+                            ex.Message);
+                    }
+                    catch (Exception rollbackEx)
+                    {
+                        Debug.WriteLine($"[AppRuntime] StoragePath refresh rollback failed: {rollbackEx.Message}");
+                        StartupDiagnostics.ReportStoragePathRefreshFailure(
+                            requestedStoragePath,
+                            oldStoragePath,
+                            $"Refresh failed: {ex.Message}; rollback failed: {rollbackEx.Message}");
+                    }
+
+                    AppendStoragePathRefreshAudit(
+                        OperationAuditStatus.Failed,
+                        oldStoragePath,
+                        requestedStoragePath,
+                        ex.Message);
+                    StorageService.WriteErrorLog(
+                        $"StoragePathRefresh failed. Requested={requestedStoragePath}; Active={StorageService.BaseStoragePath}; Error={ex.Message}");
+
+                    if (newGraphApplied && newGraph != null && !ReferenceEquals(newGraph.ReplayCoordinator, oldGraph.ReplayCoordinator))
+                    {
+                        try
+                        {
+                            newGraph.ReplayCoordinator.Dispose();
+                        }
+                        catch (Exception disposeEx)
+                        {
+                            Debug.WriteLine($"[AppRuntime] 释放失败的 ReplayCoordinator 失败: {disposeEx.Message}");
+                        }
+                    }
+
+                    throw new InvalidOperationException(
+                        $"StoragePath refresh failed; runtime storage-bound services remain on {StorageService.BaseStoragePath}.",
+                        ex);
+                }
+                finally
+                {
+                    if (coordinatorToDispose != null && !ReferenceEquals(coordinatorToDispose, ReplayCoordinator))
+                    {
+                        try
+                        {
+                            coordinatorToDispose.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[AppRuntime] 释放旧 ReplayCoordinator 失败: {ex.Message}");
+                        }
+                    }
+                }
+            }
+        }
+
+        private StorageBoundProductionServiceGraph CaptureStorageBoundProductionServices(
+            StorageBoundProductionServicePaths paths)
+        {
+            return new StorageBoundProductionServiceGraph(
+                paths,
+                MaintenanceAdviceResolutionStore,
+                ManualReviewStore,
+                ReplayDatasetStore,
+                ReplayRunStore,
+                ModelApprovalEvidenceStore,
+                ReplayProductionGate,
+                ReplayIntegrityScanner,
+                ReplayApplicationService,
+                ReplayCoordinator,
+                ReplayDatasetLifecycleService,
+                ReplayApprovalApplicationService);
+        }
+
+        private StorageBoundProductionServiceGraph CreateStorageBoundProductionServiceGraph(
+            StorageBoundProductionServicePaths paths,
+            bool markNonTerminalRunsInterrupted)
+        {
+            var maintenanceAdviceResolutionStore =
+                new MaintenanceAdviceResolutionStore(paths.MaintenanceAdviceResolutionPath);
+            var manualReviewStore = new SqliteManualReviewStore(
+                DatabaseService,
+                paths.ManualReviewDbPath,
+                OperationAuditService,
+                () => AppConfig.CurrentOperatorId,
+                () => AppConfig.CurrentOperatorRole);
+            var replayDatasetStore = new FileReplayDatasetStore(
+                DatabaseService,
+                paths.ReplayDatasetRoot);
+            var replayRunStore = new SqliteReplayRunStore(
+                paths.ReplayRunDbPath,
+                paths.ReplayReportRoot);
+            if (markNonTerminalRunsInterrupted)
+            {
+                replayRunStore.MarkNonTerminalRunsInterruptedAsync("default").GetAwaiter().GetResult();
+            }
+
+            var modelApprovalEvidenceStore = new FileModelApprovalEvidenceStore(
+                paths.ReplayEvidenceRoot,
+                ReplayPolicy);
+            var replayProductionGate = new ReplayApprovalEvidenceProductionGate(
+                modelApprovalEvidenceStore,
+                replayDatasetStore,
+                replayRunStore);
+            var replayIntegrityScanner = new ReplayIntegrityScanner(
                 ModelRegistry,
-                (role, entry, reference) => ReplayProductionGate.Validate(role, entry, reference));
+                replayProductionGate,
+                replayDatasetStore,
+                replayRunStore,
+                modelApprovalEvidenceStore,
+                OperationAuditService);
+            var replayApplicationService = new ReplayApplicationService(
+                replayDatasetStore,
+                ReplayInferenceRunner,
+                ReplayModelValidator,
+                replayRunStore,
+                ReplayPolicy);
+            var replayCoordinator = new ReplayRunCoordinator(replayApplicationService);
+            var replayDatasetLifecycleService = new ReplayDatasetLifecycleService(
+                replayDatasetStore,
+                replayRunStore,
+                modelApprovalEvidenceStore,
+                ReplayAssetCoordinator,
+                OperationAuditService,
+                () => AppConfig.CurrentOperatorId,
+                () => AppConfig.CurrentOperatorRole,
+                datasetId => replayCoordinator.IsDatasetActive(datasetId));
+            var replayApprovalApplicationService = new ReplayApprovalApplicationService(
+                ModelRegistry,
+                () => RefreshModelRegistry(),
+                replayRunStore,
+                replayDatasetStore,
+                modelApprovalEvidenceStore,
+                replayProductionGate,
+                ReplayPolicy,
+                OperationAuditService,
+                () => AppConfig.CurrentOperatorId,
+                () => AppConfig.CurrentOperatorRole,
+                ReplayAssetCoordinator);
+
+            return new StorageBoundProductionServiceGraph(
+                paths,
+                maintenanceAdviceResolutionStore,
+                manualReviewStore,
+                replayDatasetStore,
+                replayRunStore,
+                modelApprovalEvidenceStore,
+                replayProductionGate,
+                replayIntegrityScanner,
+                replayApplicationService,
+                replayCoordinator,
+                replayDatasetLifecycleService,
+                replayApprovalApplicationService);
+        }
+
+        private void ApplyStorageBoundProductionServices(StorageBoundProductionServiceGraph graph)
+        {
+            MaintenanceAdviceResolutionStore = graph.MaintenanceAdviceResolutionStore;
+            ManualReviewStore = graph.ManualReviewStore;
+            ReplayDatasetStore = graph.ReplayDatasetStore;
+            ReplayRunStore = graph.ReplayRunStore;
+            ModelApprovalEvidenceStore = graph.ModelApprovalEvidenceStore;
+            ReplayProductionGate = graph.ReplayProductionGate;
+            ReplayIntegrityScanner = graph.ReplayIntegrityScanner;
+            ReplayApplicationService = graph.ReplayApplicationService;
+            ReplayCoordinator = graph.ReplayCoordinator;
+            ReplayDatasetLifecycleService = graph.ReplayDatasetLifecycleService;
+            ReplayApprovalApplicationService = graph.ReplayApprovalApplicationService;
+        }
+
+        private StorageBoundProductionServicePaths ResolveStorageRefreshPaths(string storagePath)
+        {
+            string requestedPath = string.IsNullOrWhiteSpace(storagePath)
+                ? @"C:\GreeVisionData"
+                : storagePath.Trim();
+            string fullPath = Path.GetFullPath(requestedPath);
+            string root = Path.GetPathRoot(fullPath) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+            {
+                throw new DirectoryNotFoundException($"StoragePath root is not available: {root}");
+            }
+
+            return StorageBoundProductionServicePaths.FromBasePath(fullPath);
+        }
+
+        private static void EnsureStorageRefreshPathsSafeForWrite(StorageBoundProductionServicePaths paths)
+        {
+            EnsureEvidenceDirectorySafeForWrite(paths.BaseStoragePath, "存储根目录");
+            EnsureEvidenceDirectorySafeForWrite(paths.ImageBasePath, "图像目录");
+            EnsureEvidenceDirectorySafeForWrite(paths.LogBasePath, "日志目录");
+            EnsureEvidenceDirectorySafeForWrite(paths.SystemPath, "系统证据目录");
+            EnsureEvidenceDirectorySafeForWrite(paths.AuditOutboxPath, "审计 outbox 目录");
+            EnsureEvidenceDirectorySafeForWrite(paths.DiagnosticPackagePath, "诊断包目录");
+            EnsureEvidenceDirectorySafeForWrite(paths.HandoffReportPath, "交接报告目录");
+            EnsureEvidenceDirectorySafeForWrite(paths.ReplayDatasetRoot, "Replay dataset 目录");
+            EnsureEvidenceDirectorySafeForWrite(paths.ReplayReportRoot, "Replay report 目录");
+            EnsureEvidenceDirectorySafeForWrite(paths.ReplayEvidenceRoot, "Replay approval evidence 目录");
+            EnsureProbeFile(paths.SystemPath, "系统证据目录");
+            EnsureProbeFile(paths.AuditOutboxPath, "审计 outbox 目录");
+            EnsureProbeFile(paths.ReplayDatasetRoot, "Replay dataset 目录");
+            EnsureProbeFile(paths.ReplayReportRoot, "Replay report 目录");
+            EnsureProbeFile(paths.ReplayEvidenceRoot, "Replay approval evidence 目录");
+        }
+
+        private static void EnsureProbeFile(string directory, string displayName)
+        {
+            string probePath = Path.Combine(directory, $".storage-refresh-{Guid.NewGuid():N}.tmp");
+            try
+            {
+                using (var stream = new FileStream(probePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                using (var writer = new StreamWriter(stream, Encoding.UTF8))
+                {
+                    writer.Write("ok");
+                }
+
+                var probe = new FileInfo(probePath);
+                probe.Refresh();
+                if (probe.Exists && HasReparsePoint(probe))
+                {
+                    throw new IOException($"{displayName}探针文件是链接文件: {probePath}");
+                }
+            }
+            finally
+            {
+                if (File.Exists(probePath))
+                {
+                    File.Delete(probePath);
+                }
+            }
+        }
+
+        private bool AppendStoragePathRefreshAudit(
+            OperationAuditStatus status,
+            string oldPath,
+            string newPath,
+            string failure)
+        {
+            try
+            {
+                return OperationAuditService.AppendAsync(new OperationAuditRecord
+                {
+                    Operation = "StoragePathRefresh",
+                    Status = status,
+                    OperatorId = ResolveCurrentOperatorId(),
+                    Role = AppConfig.CurrentOperatorRole,
+                    Details = $"OldPath={oldPath}; NewPath={newPath}",
+                    FailureBlocker = status == OperationAuditStatus.Failed
+                        ? failure ?? string.Empty
+                        : string.Empty
+                }).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[AppRuntime] StoragePathRefresh 审计写入失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool IsSamePath(string left, string right)
+        {
+            string normalizedLeft = Path.GetFullPath(left)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string normalizedRight = Path.GetFullPath(right)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private sealed class StorageBoundProductionServicePaths
+        {
+            private StorageBoundProductionServicePaths(string baseStoragePath)
+            {
+                BaseStoragePath = Path.GetFullPath(baseStoragePath);
+                ImageBasePath = Path.Combine(BaseStoragePath, "Images");
+                LogBasePath = Path.Combine(BaseStoragePath, "Logs");
+                SystemPath = Path.Combine(BaseStoragePath, "System");
+                AuditOutboxPath = Path.Combine(LogBasePath, "Outbox");
+                DiagnosticPackagePath = Path.Combine(LogBasePath, "Diagnostics");
+                HandoffReportPath = Path.Combine(LogBasePath, "HandoffReports");
+                MaintenanceAdviceResolutionPath = Path.Combine(SystemPath, "maintenance-advice-resolution.json");
+                ManualReviewDbPath = Path.Combine(SystemPath, "manual-review.db");
+                ReplayDatasetRoot = Path.Combine(SystemPath, "ReplayDatasets");
+                ReplayRunDbPath = Path.Combine(SystemPath, "replay-runs.db");
+                ReplayReportRoot = Path.Combine(SystemPath, "ReplayReports");
+                ReplayEvidenceRoot = Path.Combine(SystemPath, "ReplayEvidence");
+            }
+
+            public string BaseStoragePath { get; }
+            public string ImageBasePath { get; }
+            public string LogBasePath { get; }
+            public string SystemPath { get; }
+            public string AuditOutboxPath { get; }
+            public string DiagnosticPackagePath { get; }
+            public string HandoffReportPath { get; }
+            public string MaintenanceAdviceResolutionPath { get; }
+            public string ManualReviewDbPath { get; }
+            public string ReplayDatasetRoot { get; }
+            public string ReplayRunDbPath { get; }
+            public string ReplayReportRoot { get; }
+            public string ReplayEvidenceRoot { get; }
+
+            public static StorageBoundProductionServicePaths FromBasePath(string baseStoragePath)
+            {
+                return new StorageBoundProductionServicePaths(baseStoragePath);
+            }
+        }
+
+        private sealed class StorageBoundProductionServiceGraph
+        {
+            public StorageBoundProductionServiceGraph(
+                StorageBoundProductionServicePaths paths,
+                MaintenanceAdviceResolutionStore maintenanceAdviceResolutionStore,
+                IManualReviewStore manualReviewStore,
+                IReplayDatasetStore replayDatasetStore,
+                IReplayRunStore replayRunStore,
+                IModelApprovalEvidenceStore modelApprovalEvidenceStore,
+                ReplayApprovalEvidenceProductionGate replayProductionGate,
+                ReplayIntegrityScanner replayIntegrityScanner,
+                ReplayApplicationService replayApplicationService,
+                ReplayRunCoordinator replayCoordinator,
+                ReplayDatasetLifecycleService replayDatasetLifecycleService,
+                ReplayApprovalApplicationService replayApprovalApplicationService)
+            {
+                Paths = paths;
+                MaintenanceAdviceResolutionStore = maintenanceAdviceResolutionStore;
+                ManualReviewStore = manualReviewStore;
+                ReplayDatasetStore = replayDatasetStore;
+                ReplayRunStore = replayRunStore;
+                ModelApprovalEvidenceStore = modelApprovalEvidenceStore;
+                ReplayProductionGate = replayProductionGate;
+                ReplayIntegrityScanner = replayIntegrityScanner;
+                ReplayApplicationService = replayApplicationService;
+                ReplayCoordinator = replayCoordinator;
+                ReplayDatasetLifecycleService = replayDatasetLifecycleService;
+                ReplayApprovalApplicationService = replayApprovalApplicationService;
+            }
+
+            public StorageBoundProductionServicePaths Paths { get; }
+            public MaintenanceAdviceResolutionStore MaintenanceAdviceResolutionStore { get; }
+            public IManualReviewStore ManualReviewStore { get; }
+            public IReplayDatasetStore ReplayDatasetStore { get; }
+            public IReplayRunStore ReplayRunStore { get; }
+            public IModelApprovalEvidenceStore ModelApprovalEvidenceStore { get; }
+            public ReplayApprovalEvidenceProductionGate ReplayProductionGate { get; }
+            public ReplayIntegrityScanner ReplayIntegrityScanner { get; }
+            public ReplayApplicationService ReplayApplicationService { get; }
+            public ReplayRunCoordinator ReplayCoordinator { get; }
+            public ReplayDatasetLifecycleService ReplayDatasetLifecycleService { get; }
+            public ReplayApprovalApplicationService ReplayApprovalApplicationService { get; }
         }
 
         public async Task<DiagnosticPackageExportSummary> ExportDiagnosticPackageAsync(

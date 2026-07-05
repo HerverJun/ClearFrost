@@ -886,6 +886,10 @@ namespace ClearFrost.Services.Replay
                 : reportRoot;
         }
 
+        internal string DbPath => Path.GetFullPath(_dbPath);
+
+        internal string ReportRoot => Path.GetFullPath(_reportRoot);
+
         public async Task RecordRunStartedAsync(
             ReplayRunReport report,
             CancellationToken cancellationToken = default)

@@ -85,6 +85,28 @@ namespace ClearFrost.Services
             return CurrentReport;
         }
 
+        public StartupDiagnosticReport ReportStoragePathRefreshFailure(
+            string requestedStoragePath,
+            string activeStoragePath,
+            string errorMessage)
+        {
+            var items = CurrentReport.Items
+                .Where(item => !string.Equals(item.Name, "Storage path refresh", StringComparison.Ordinal))
+                .ToList();
+            items.Add(Fail(
+                "Storage path refresh",
+                "StoragePath refresh failed; runtime storage-bound evidence services remain on the previous path.",
+                $"Requested={requestedStoragePath ?? string.Empty}; Active={activeStoragePath ?? string.Empty}; Error={errorMessage ?? string.Empty}",
+                isBlocking: true));
+
+            CurrentReport = new StartupDiagnosticReport
+            {
+                Items = items,
+                UpdatedAt = DateTimeOffset.Now
+            };
+            return CurrentReport;
+        }
+
         private static StartupDiagnosticItem CheckWebView2Runtime()
         {
             try

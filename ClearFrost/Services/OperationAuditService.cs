@@ -106,13 +106,29 @@ namespace ClearFrost.Services
             WriteIndented = false
         };
 
-        private readonly string _outboxDirectory;
+        private string _outboxDirectory;
 
         public OperationAuditService(string? outboxDirectory = null)
         {
             _outboxDirectory = string.IsNullOrWhiteSpace(outboxDirectory)
                 ? Path.Combine(RuntimePaths.DataDirectory, "outbox")
                 : outboxDirectory;
+        }
+
+        internal string OutboxDirectory => Path.GetFullPath(_outboxDirectory);
+
+        internal void UpdateOutboxDirectory(string outboxDirectory)
+        {
+            string fullDirectory = CreateSafeDirectory(outboxDirectory, "审计 outbox 目录");
+            _writeLock.Wait();
+            try
+            {
+                _outboxDirectory = fullDirectory;
+            }
+            finally
+            {
+                _writeLock.Release();
+            }
         }
 
         public async Task<bool> AppendAsync(OperationAuditRecord record, CancellationToken cancellationToken = default)
@@ -124,12 +140,11 @@ namespace ClearFrost.Services
 
             try
             {
-                string outboxDirectory = EnsureOutboxDirectorySafeForWrite();
-                string path = Path.Combine(outboxDirectory, $"operation-audit-{DateTime.Now:yyyyMMdd}.ndjson");
-
                 await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
+                    string outboxDirectory = EnsureOutboxDirectorySafeForWrite();
+                    string path = Path.Combine(outboxDirectory, $"operation-audit-{DateTime.Now:yyyyMMdd}.ndjson");
                     EnsureAuditFileSafeForAppend(path, outboxDirectory);
                     string previousHash = ResolveLatestRecordHash();
                     OperationAuditRecord sealedRecord = SealRecord(record, previousHash);

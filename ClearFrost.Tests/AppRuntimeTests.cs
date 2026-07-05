@@ -201,6 +201,379 @@ namespace ClearFrost.Tests
         }
 
         [Fact]
+        public async Task RefreshStoragePath_运行时生产闭环服务全部切换到新存储路径()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            string oldStorage = Path.Combine(tempDir, "old-storage");
+            string newStorage = Path.Combine(tempDir, "new-storage");
+            Directory.CreateDirectory(oldStorage);
+            Directory.CreateDirectory(newStorage);
+
+            try
+            {
+                string sourceImage = CreateReplaySourceImage(tempDir, "rebind-source.png");
+                DetectionRecord record = CreateReplayDetectionRecord(1, "INS-REBIND-001", sourceImage);
+                var order = new List<string>();
+                var appConfig = new AppConfig
+                {
+                    StoragePath = oldStorage,
+                    CurrentOperatorId = "qa-rebind",
+                    CurrentOperatorRole = ProductionRole.Engineer,
+                    RequireApprovedModelsForProduction = false
+                };
+                using var cameraManager = new CameraManager(true);
+                var databaseService = new FakeDatabaseService(order, new[] { record });
+                var runtime = new AppRuntime(
+                    appConfig,
+                    cameraManager,
+                    new FakeCameraService(order),
+                    new FakePlcService(order),
+                    new FakeDetectionService(order),
+                    new FakeStorageService(oldStorage, order),
+                    new FakeStatisticsService(order),
+                    databaseService,
+                    new ImageSaveQueue(),
+                    new DetectionRecordQueue(databaseService),
+                    new WebUIController());
+
+                try
+                {
+                    bool beforeAudit = await runtime.OperationAuditService.AppendAsync(new OperationAuditRecord
+                    {
+                        Operation = "BeforeStorageRefresh",
+                        Status = OperationAuditStatus.Succeeded,
+                        OperatorId = "qa-rebind",
+                        Role = ProductionRole.Engineer
+                    });
+                    beforeAudit.Should().BeTrue();
+                    int oldAuditLinesBeforeRefresh = CountAuditLines(oldStorage);
+
+                    appConfig.StoragePath = newStorage;
+                    runtime.RefreshStoragePath();
+
+                    runtime.StorageService.BaseStoragePath.Should().Be(Path.GetFullPath(newStorage));
+                    runtime.OperationAuditService.OutboxDirectory.Should().StartWith(Path.GetFullPath(newStorage));
+                    runtime.MaintenanceAdviceResolutionStore.StorePath.Should().StartWith(Path.GetFullPath(newStorage));
+                    ((SqliteManualReviewStore)runtime.ManualReviewStore).DbPath.Should().StartWith(Path.GetFullPath(newStorage));
+                    ((FileReplayDatasetStore)runtime.ReplayDatasetStore).RootDirectory.Should().StartWith(Path.GetFullPath(newStorage));
+                    ((SqliteReplayRunStore)runtime.ReplayRunStore).DbPath.Should().StartWith(Path.GetFullPath(newStorage));
+                    ((SqliteReplayRunStore)runtime.ReplayRunStore).ReportRoot.Should().StartWith(Path.GetFullPath(newStorage));
+                    ((FileModelApprovalEvidenceStore)runtime.ModelApprovalEvidenceStore).RootDirectory.Should().StartWith(Path.GetFullPath(newStorage));
+
+                    bool afterAudit = await runtime.OperationAuditService.AppendAsync(new OperationAuditRecord
+                    {
+                        Operation = "AfterStorageRefresh",
+                        Status = OperationAuditStatus.Succeeded,
+                        OperatorId = "qa-rebind",
+                        Role = ProductionRole.Engineer
+                    });
+                    afterAudit.Should().BeTrue();
+
+                    ManualReviewSaveResult review = await runtime.ManualReviewStore.SaveReviewAsync(new ManualReviewSaveRequest
+                    {
+                        DetectionRecordId = record.Id,
+                        InspectionId = record.InspectionId!,
+                        SampleId = "S1",
+                        GroundTruth = ReplayDecisions.OK,
+                        Disposition = ReplayReviewDispositions.Confirmed,
+                        ReviewerId = "qa-rebind",
+                        ReviewerRole = ProductionRole.Engineer.ToString()
+                    });
+                    review.Succeeded.Should().BeTrue(review.Message);
+
+                    ReplayModelIdentity baseline = CreateReplayModelIdentity("baseline-rebind", "1", new string('a', 64));
+                    ReplayModelIdentity candidate = CreateReplayModelIdentity("candidate-rebind", "2", new string('b', 64));
+                    ReplayDatasetSnapshot dataset = await runtime.ReplayDatasetStore.CreateSnapshotAsync(new ReplayDatasetCreateRequest
+                    {
+                        DatasetId = "dataset-rebind",
+                        Query = new DetectionReplayQuery { Limit = 1 },
+                        Recipe = CreateReplayRecipeSnapshot(),
+                        BaselineModel = baseline,
+                        CandidateModel = candidate,
+                        ManualReviewsByDetectionRecordId = new Dictionary<long, ReplayManualReviewRecord>
+                        {
+                            [record.Id] = review.Record!
+                        }
+                    });
+                    dataset.RootDirectory.Should().StartWith(Path.GetFullPath(newStorage));
+
+                    ReplayRunReport report = CreateCompletedReplayRunReport("run-rebind", dataset, baseline, candidate, runtime.ReplayPolicy);
+                    await runtime.ReplayRunStore.RecordRunStartedAsync(report);
+                    report = await runtime.ReplayRunStore.SaveReportAsync(report);
+                    report.ReportJsonPath.Should().StartWith(Path.GetFullPath(newStorage));
+
+                    ModelApprovalEvidence evidence = runtime.ModelApprovalEvidenceStore.SaveEvidence(
+                        report,
+                        "qa-rebind",
+                        dataset.RootDirectory,
+                        report.PolicyHash);
+                    string evidencePath = Path.Combine(newStorage, "System", "ReplayEvidence", $"{evidence.EvidenceId}.json");
+                    File.Exists(evidencePath).Should().BeTrue();
+
+                    CountAuditLines(oldStorage).Should().Be(oldAuditLinesBeforeRefresh);
+                    ReadAuditText(oldStorage).Should().NotContain("AfterStorageRefresh");
+                    File.Exists(Path.Combine(oldStorage, "System", "manual-review.db")).Should().BeFalse();
+                    Directory.Exists(Path.Combine(oldStorage, "System", "ReplayDatasets", "dataset-rebind")).Should().BeFalse();
+                    File.Exists(Path.Combine(oldStorage, "System", "ReplayReports", "run-rebind", "report.json")).Should().BeFalse();
+                    File.Exists(Path.Combine(oldStorage, "System", "ReplayEvidence", $"{evidence.EvidenceId}.json")).Should().BeFalse();
+                }
+                finally
+                {
+                    await runtime.DisposeAsync();
+                }
+            }
+            finally
+            {
+                DeleteDirectory(tempDir);
+            }
+        }
+
+        [Fact]
+        public async Task RefreshStoragePath_失败时不产生半切换()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            string oldStorage = Path.Combine(tempDir, "old-storage");
+            string blockedStorage = Path.Combine(tempDir, "blocked-storage");
+            Directory.CreateDirectory(oldStorage);
+            Directory.CreateDirectory(tempDir);
+            File.WriteAllText(blockedStorage, "not a directory");
+
+            try
+            {
+                var order = new List<string>();
+                var appConfig = new AppConfig
+                {
+                    StoragePath = oldStorage,
+                    CurrentOperatorId = "qa-rebind",
+                    CurrentOperatorRole = ProductionRole.Engineer,
+                    RequireApprovedModelsForProduction = false
+                };
+                using var cameraManager = new CameraManager(true);
+                var databaseService = new FakeDatabaseService(order);
+                var runtime = new AppRuntime(
+                    appConfig,
+                    cameraManager,
+                    new FakeCameraService(order),
+                    new FakePlcService(order),
+                    new FakeDetectionService(order),
+                    new FakeStorageService(oldStorage, order),
+                    new FakeStatisticsService(order),
+                    databaseService,
+                    new ImageSaveQueue(),
+                    new DetectionRecordQueue(databaseService),
+                    new WebUIController());
+
+                try
+                {
+                    string oldAuditOutbox = runtime.OperationAuditService.OutboxDirectory;
+                    string oldManualReviewDb = ((SqliteManualReviewStore)runtime.ManualReviewStore).DbPath;
+                    string oldDatasetRoot = ((FileReplayDatasetStore)runtime.ReplayDatasetStore).RootDirectory;
+                    string oldRunDb = ((SqliteReplayRunStore)runtime.ReplayRunStore).DbPath;
+                    string oldReportRoot = ((SqliteReplayRunStore)runtime.ReplayRunStore).ReportRoot;
+                    string oldEvidenceRoot = ((FileModelApprovalEvidenceStore)runtime.ModelApprovalEvidenceStore).RootDirectory;
+
+                    appConfig.StoragePath = blockedStorage;
+                    Action act = () => runtime.RefreshStoragePath();
+                    act.Should().Throw<InvalidOperationException>()
+                        .WithMessage("*runtime storage-bound services remain*");
+
+                    runtime.StorageService.BaseStoragePath.Should().Be(oldStorage);
+                    runtime.OperationAuditService.OutboxDirectory.Should().Be(oldAuditOutbox);
+                    ((SqliteManualReviewStore)runtime.ManualReviewStore).DbPath.Should().Be(oldManualReviewDb);
+                    ((FileReplayDatasetStore)runtime.ReplayDatasetStore).RootDirectory.Should().Be(oldDatasetRoot);
+                    ((SqliteReplayRunStore)runtime.ReplayRunStore).DbPath.Should().Be(oldRunDb);
+                    ((SqliteReplayRunStore)runtime.ReplayRunStore).ReportRoot.Should().Be(oldReportRoot);
+                    ((FileModelApprovalEvidenceStore)runtime.ModelApprovalEvidenceStore).RootDirectory.Should().Be(oldEvidenceRoot);
+                    runtime.StartupDiagnostics.CurrentReport.Items.Should().Contain(item =>
+                        item.Name == "Storage path refresh" &&
+                        item.Status == StartupDiagnosticStatus.Fail &&
+                        item.IsBlocking &&
+                        item.Details.Contains(blockedStorage, StringComparison.OrdinalIgnoreCase));
+                    ReadAuditText(oldStorage).Should().Contain("StoragePathRefresh");
+                    ReadAuditText(oldStorage).Should().Contain("\"Status\":3");
+                    Directory.Exists(Path.Combine(blockedStorage, "System")).Should().BeFalse();
+                }
+                finally
+                {
+                    await runtime.DisposeAsync();
+                }
+            }
+            finally
+            {
+                DeleteDirectory(tempDir);
+            }
+        }
+
+        [Fact]
+        public async Task RefreshStoragePath_切换后Replay批准服务使用新证据并通过ProductionGate()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            string oldStorage = Path.Combine(tempDir, "old-storage");
+            string newStorage = Path.Combine(tempDir, "new-storage");
+            string packageRoot = Path.Combine(tempDir, "models");
+            Directory.CreateDirectory(oldStorage);
+            Directory.CreateDirectory(newStorage);
+
+            try
+            {
+                string baselinePath = CreateModelPackage(packageRoot, "baseline-approval-rebind", "1", ModelApprovalStatuses.Approved);
+                string candidatePath = CreateModelPackage(packageRoot, "candidate-approval-rebind", "2", ModelApprovalStatuses.Pending);
+                string sourceImage = CreateReplaySourceImage(tempDir, "approval-source.png");
+                DetectionRecord record = CreateReplayDetectionRecord(1, "INS-APPROVAL-REBIND-001", sourceImage);
+                var order = new List<string>();
+                var appConfig = new AppConfig
+                {
+                    StoragePath = oldStorage,
+                    ModelPackageDirectory = packageRoot,
+                    CurrentOperatorId = "qa-approval",
+                    CurrentOperatorRole = ProductionRole.Engineer,
+                    RequireApprovedModelsForProduction = false
+                };
+                using var cameraManager = new CameraManager(true);
+                var databaseService = new FakeDatabaseService(order, new[] { record });
+                var runtime = new AppRuntime(
+                    appConfig,
+                    cameraManager,
+                    new FakeCameraService(order),
+                    new FakePlcService(order),
+                    new FakeDetectionService(order),
+                    new FakeStorageService(oldStorage, order),
+                    new FakeStatisticsService(order),
+                    databaseService,
+                    new ImageSaveQueue(),
+                    new DetectionRecordQueue(databaseService),
+                    new WebUIController());
+
+                try
+                {
+                    appConfig.StoragePath = newStorage;
+                    runtime.RefreshStoragePath();
+
+                    ModelRegistryEntry baselineEntry = runtime.ModelRegistry.Resolve(baselinePath)!;
+                    ModelRegistryEntry candidateEntry = runtime.ModelRegistry.Resolve(candidatePath)!;
+                    ManualReviewSaveResult review = await runtime.ManualReviewStore.SaveReviewAsync(new ManualReviewSaveRequest
+                    {
+                        DetectionRecordId = record.Id,
+                        InspectionId = record.InspectionId!,
+                        SampleId = "S1",
+                        GroundTruth = ReplayDecisions.OK,
+                        Disposition = ReplayReviewDispositions.Confirmed
+                    });
+                    review.Succeeded.Should().BeTrue(review.Message);
+
+                    ReplayDatasetSnapshot dataset = await runtime.ReplayDatasetStore.CreateSnapshotAsync(new ReplayDatasetCreateRequest
+                    {
+                        DatasetId = "dataset-approval-rebind",
+                        Query = new DetectionReplayQuery { Limit = 1 },
+                        Recipe = CreateReplayRecipeSnapshot(),
+                        BaselineModel = ReplayModelIdentity.FromRegistryEntry(baselineEntry),
+                        CandidateModel = ReplayModelIdentity.FromRegistryEntry(candidateEntry),
+                        ManualReviewsByDetectionRecordId = new Dictionary<long, ReplayManualReviewRecord>
+                        {
+                            [record.Id] = review.Record!
+                        }
+                    });
+
+                    ReplayRunReport report = CreateCompletedReplayRunReport(
+                        "run-approval-rebind",
+                        dataset,
+                        ReplayModelIdentity.FromRegistryEntry(baselineEntry),
+                        ReplayModelIdentity.FromRegistryEntry(candidateEntry),
+                        runtime.ReplayPolicy);
+                    await runtime.ReplayRunStore.RecordRunStartedAsync(report);
+                    report = await runtime.ReplayRunStore.SaveReportAsync(report);
+
+                    ReplayApprovalResult result = await runtime.ReplayApprovalApplicationService.ApproveCandidateAsync(
+                        new ReplayApprovalRequest { RunId = report.RunId });
+
+                    result.Succeeded.Should().BeTrue(result.Message);
+                    result.Evidence.Should().NotBeNull();
+                    string evidencePath = Path.Combine(newStorage, "System", "ReplayEvidence", $"{result.Evidence!.EvidenceId}.json");
+                    File.Exists(evidencePath).Should().BeTrue();
+                    File.Exists(Path.Combine(oldStorage, "System", "ReplayEvidence", $"{result.Evidence.EvidenceId}.json")).Should().BeFalse();
+
+                    ModelRegistryEntry approvedCandidate = runtime.ModelRegistry.Resolve(candidatePath)!;
+                    ProductionModelReadinessResult gate = runtime.ReplayProductionGate.ValidateEvidenceBacked(approvedCandidate);
+                    gate.Succeeded.Should().BeTrue(gate.Message);
+                }
+                finally
+                {
+                    await runtime.DisposeAsync();
+                }
+            }
+            finally
+            {
+                DeleteDirectory(tempDir);
+            }
+        }
+
+        [Fact]
+        public async Task RefreshStoragePath_切换后诊断包记录新存储路径状态()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
+            string oldStorage = Path.Combine(tempDir, "old-storage");
+            string newStorage = Path.Combine(tempDir, "new-storage");
+            Directory.CreateDirectory(oldStorage);
+            Directory.CreateDirectory(newStorage);
+
+            try
+            {
+                var order = new List<string>();
+                var appConfig = new AppConfig
+                {
+                    StoragePath = oldStorage,
+                    CurrentOperatorId = "qa-diagnostics",
+                    CurrentOperatorRole = ProductionRole.Engineer,
+                    RequireApprovedModelsForProduction = false
+                };
+                using var cameraManager = new CameraManager(true);
+                var databaseService = new FakeDatabaseService(order);
+                var runtime = new AppRuntime(
+                    appConfig,
+                    cameraManager,
+                    new FakeCameraService(order),
+                    new FakePlcService(order),
+                    new FakeDetectionService(order),
+                    new FakeStorageService(oldStorage, order),
+                    new FakeStatisticsService(order),
+                    databaseService,
+                    new ImageSaveQueue(),
+                    new DetectionRecordQueue(databaseService),
+                    new WebUIController());
+
+                try
+                {
+                    appConfig.StoragePath = newStorage;
+                    runtime.RefreshStoragePath();
+
+                    string outputDirectory = Path.Combine(runtime.StorageService.LogBasePath, "Diagnostics");
+                    DiagnosticPackageExportSummary summary = await runtime.ExportDiagnosticPackageAsync(outputDirectory);
+
+                    summary.PackagePath.Should().StartWith(Path.GetFullPath(newStorage));
+                    using ZipArchive zip = ZipFile.OpenRead(summary.PackagePath);
+                    string startupJson = ReadEntry(zip, "startup_diagnostics.json");
+                    using JsonDocument startup = JsonDocument.Parse(startupJson);
+                    string[] details = startup.RootElement
+                        .GetProperty("Items")
+                        .EnumerateArray()
+                        .Select(item => item.GetProperty("Details").GetString() ?? string.Empty)
+                        .ToArray();
+                    details.Should().Contain(Path.GetFullPath(newStorage));
+                    details.Should().NotContain(Path.GetFullPath(oldStorage));
+                    details.Should().Contain(Path.Combine(Path.GetFullPath(newStorage), "Logs", "Outbox"));
+                }
+                finally
+                {
+                    await runtime.DisposeAsync();
+                }
+            }
+            finally
+            {
+                DeleteDirectory(tempDir);
+            }
+        }
+
+        [Fact]
         public async Task Constructor_为当前Primary批准包执行一次性Legacy迁移()
         {
             string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostRuntimeTests", Guid.NewGuid().ToString("N"));
@@ -1790,6 +2163,15 @@ namespace ClearFrost.Tests
 
         private static string CreateApprovedPackage(string packageRoot, string modelId, string version)
         {
+            return CreateModelPackage(packageRoot, modelId, version, ModelApprovalStatuses.Approved);
+        }
+
+        private static string CreateModelPackage(
+            string packageRoot,
+            string modelId,
+            string version,
+            string approvalStatus)
+        {
             string packageDir = Path.Combine(packageRoot, modelId);
             Directory.CreateDirectory(packageDir);
             string modelPath = Path.Combine(packageDir, "model.onnx");
@@ -1809,12 +2191,177 @@ namespace ClearFrost.Tests
                     InputHeight = 640,
                     Approval = new ModelApprovalMetadata
                     {
-                        Status = ModelApprovalStatuses.Approved,
-                        ApprovedBy = "qa",
-                        ApprovedAt = DateTimeOffset.UtcNow
+                        Status = approvalStatus,
+                        ApprovedBy = string.Equals(approvalStatus, ModelApprovalStatuses.Approved, StringComparison.OrdinalIgnoreCase)
+                            ? "qa"
+                            : string.Empty,
+                        ApprovedAt = string.Equals(approvalStatus, ModelApprovalStatuses.Approved, StringComparison.OrdinalIgnoreCase)
+                            ? DateTimeOffset.UtcNow
+                            : null
                     }
                 }));
             return modelPath;
+        }
+
+        private static string CreateReplaySourceImage(string directory, string fileName)
+        {
+            Directory.CreateDirectory(directory);
+            string imagePath = Path.Combine(directory, fileName);
+            using var image = new Mat(24, 24, MatType.CV_8UC3, new Scalar(20, 80, 160));
+            Cv2.Rectangle(image, new Rect(4, 4, 12, 12), new Scalar(240, 240, 240), thickness: 1);
+            Cv2.ImWrite(imagePath, image);
+            return imagePath;
+        }
+
+        private static DetectionRecord CreateReplayDetectionRecord(long id, string inspectionId, string imagePath)
+        {
+            return new DetectionRecord
+            {
+                Id = id,
+                Timestamp = new DateTime(2026, 7, 5, 8, 0, 0).AddMinutes(id),
+                IsQualified = true,
+                InspectionId = inspectionId,
+                ImagePath = imagePath,
+                RecipeId = "recipe-storage-rebind",
+                RecipeVersion = "20260705080000000",
+                ModelId = "baseline-rebind",
+                ModelVersion = "1",
+                ModelName = "baseline-rebind",
+                RuleSummary = "count>=1",
+                RuleSetJson = JsonSerializer.Serialize(CreateRuleSet(), ReplayJson.Options),
+                ResultJson = "{}"
+            };
+        }
+
+        private static ReplayRecipeSnapshot CreateReplayRecipeSnapshot()
+        {
+            InspectionRuleSet rules = CreateRuleSet();
+            return new ReplayRecipeSnapshot
+            {
+                RecipeId = "recipe-storage-rebind",
+                RecipeVersion = "20260705080000000",
+                Confidence = 0.5f,
+                IouThreshold = 0.45f,
+                RuleSet = rules,
+                RuleSetJson = JsonSerializer.Serialize(rules, ReplayJson.Options)
+            };
+        }
+
+        private static InspectionRuleSet CreateRuleSet()
+        {
+            return new InspectionRuleSet
+            {
+                Rules = new List<InspectionRule>
+                {
+                    new InspectionRule
+                    {
+                        Name = "storage-rebind-count",
+                        Type = InspectionRuleTypes.Count,
+                        Label = "part",
+                        Operator = InspectionRuleOperators.GreaterThanOrEqual,
+                        Count = 1
+                    }
+                }
+            };
+        }
+
+        private static ReplayModelIdentity CreateReplayModelIdentity(string modelId, string version, string sha256)
+        {
+            return new ReplayModelIdentity
+            {
+                ModelId = modelId,
+                Version = version,
+                Sha256 = sha256,
+                ModelPath = $"models/{modelId}/model.onnx",
+                ManifestPath = $"models/{modelId}/manifest.json",
+                Labels = new[] { "part" },
+                TaskType = "Detect",
+                InputWidth = 640,
+                InputHeight = 640,
+                ApprovalStatus = ModelApprovalStatuses.Approved,
+                IsPackage = true
+            };
+        }
+
+        private static ReplayRunReport CreateCompletedReplayRunReport(
+            string runId,
+            ReplayDatasetSnapshot dataset,
+            ReplayModelIdentity baseline,
+            ReplayModelIdentity candidate,
+            ReplayAcceptancePolicy policy)
+        {
+            ReplayAcceptancePolicyOptions policySnapshot = policy.Options.Clone();
+            return new ReplayRunReport
+            {
+                RunId = runId,
+                Status = ReplayRunStatuses.Completed,
+                DatasetId = dataset.DatasetId,
+                DatasetHash = dataset.DatasetHash,
+                BaselineModel = baseline,
+                CandidateModel = candidate,
+                StartedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+                CompletedAt = DateTimeOffset.UtcNow,
+                Metrics = new ReplayComparisonMetrics
+                {
+                    SampleCount = 1,
+                    TotalSampleCount = 1,
+                    ValidSampleCount = 1,
+                    CandidateCorrectCount = 1,
+                    BaselineCorrectCount = 1,
+                    BaselineAccuracy = 1,
+                    CandidateAccuracy = 1
+                },
+                Samples = new[]
+                {
+                    new ReplaySampleComparison
+                    {
+                        SampleId = "S1",
+                        InspectionId = dataset.Samples.FirstOrDefault()?.InspectionId ?? "INS-REBIND-001",
+                        GroundTruth = ReplayDecisions.OK,
+                        BaselineDecision = ReplayDecisions.OK,
+                        CandidateDecision = ReplayDecisions.OK,
+                        Classification = "BothCorrect",
+                        IsValid = true
+                    }
+                },
+                PolicyVersion = policySnapshot.Version,
+                PolicySnapshot = policySnapshot,
+                PolicyHash = policy.PolicyHash,
+                RecipeHash = FileReplayDatasetStore.ComputeRecipeHash(dataset.Recipe),
+                RuleSetHash = FileReplayDatasetStore.ComputeRuleSetHash(dataset.Recipe.RuleSetJson),
+                BaselineModelHash = baseline.Sha256,
+                CandidateModelHash = candidate.Sha256
+            };
+        }
+
+        private static int CountAuditLines(string storageRoot)
+        {
+            string outbox = Path.Combine(storageRoot, "Logs", "Outbox");
+            return Directory.Exists(outbox)
+                ? Directory.EnumerateFiles(outbox, "operation-audit-*.ndjson").Sum(path => File.ReadAllLines(path).Length)
+                : 0;
+        }
+
+        private static string ReadAuditText(string storageRoot)
+        {
+            string outbox = Path.Combine(storageRoot, "Logs", "Outbox");
+            return Directory.Exists(outbox)
+                ? string.Join(Environment.NewLine, Directory.EnumerateFiles(outbox, "operation-audit-*.ndjson").Select(File.ReadAllText))
+                : string.Empty;
+        }
+
+        private static string ReadEntry(ZipArchive archive, string entryName)
+        {
+            return System.Text.Encoding.UTF8.GetString(ReadEntryBytes(archive, entryName)).TrimStart('\uFEFF');
+        }
+
+        private static void DeleteDirectory(string path)
+        {
+            if (Directory.Exists(path))
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                Directory.Delete(path, recursive: true);
+            }
         }
 
         private static (bool Succeeded, string SkipReason) InvokeLegacyMigrationAssetValidation(ModelRegistryEntry entry)
@@ -2114,25 +2661,40 @@ namespace ClearFrost.Tests
         private sealed class FakeDatabaseService : IDatabaseService
         {
             private readonly List<string> _order;
+            private readonly List<DetectionRecord> _records;
 
-            public FakeDatabaseService(List<string> order) => _order = order;
+            public FakeDatabaseService(List<string> order, IEnumerable<DetectionRecord>? records = null)
+            {
+                _order = order;
+                _records = records?.Select(CloneRecord).ToList() ?? new List<DetectionRecord>();
+            }
 
             public Task InitializeAsync() => Task.CompletedTask;
 
             public async Task SaveDetectionRecordAsync(DetectionRecord record)
             {
                 await Task.Delay(30);
+                if (record != null)
+                {
+                    _records.Add(CloneRecord(record));
+                }
+
                 _order.Add("db-save");
             }
 
             public Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100)
-                => Task.FromResult(new List<DetectionRecord>());
+                => Task.FromResult(_records.Take(Math.Max(0, limit)).Select(CloneRecord).ToList());
 
             public Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
-                => Task.FromResult<DetectionRecord?>(null);
+                => Task.FromResult(_records.FirstOrDefault(record => record.Id == id) is { } record
+                    ? CloneRecord(record)
+                    : null);
 
             public Task<List<DetectionRecord>> GetDetectionRecordsByInspectionIdAsync(string inspectionId)
-                => Task.FromResult(new List<DetectionRecord>());
+                => Task.FromResult(_records
+                    .Where(record => string.Equals(record.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase))
+                    .Select(CloneRecord)
+                    .ToList());
 
             public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
                 => Task.FromResult(new List<DetectionTraceRecord>());
@@ -2141,7 +2703,26 @@ namespace ClearFrost.Tests
                 => Task.FromResult(new DetectionTracePage());
 
             public Task<List<DetectionRecord>> GetReplayRecordsAsync(DetectionReplayQuery query)
-                => Task.FromResult(new List<DetectionRecord>());
+            {
+                query ??= new DetectionReplayQuery();
+                IEnumerable<DetectionRecord> records = _records;
+                if (query.IsQualified.HasValue)
+                {
+                    records = records.Where(record => record.IsQualified == query.IsQualified.Value);
+                }
+
+                if (!string.IsNullOrWhiteSpace(query.RecipeVersion))
+                {
+                    records = records.Where(record =>
+                        string.Equals(record.RecipeVersion, query.RecipeVersion, StringComparison.OrdinalIgnoreCase));
+                }
+
+                return Task.FromResult(records
+                    .OrderBy(record => record.Timestamp)
+                    .Take(Math.Clamp(query.Limit <= 0 ? 100 : query.Limit, 1, 1000))
+                    .Select(CloneRecord)
+                    .ToList());
+            }
 
             public Task<List<string>> GetTraceDateKeysAsync(bool? isQualified = null, int limit = 60)
                 => Task.FromResult(new List<string>());
@@ -2156,6 +2737,63 @@ namespace ClearFrost.Tests
                 => Task.FromResult(0);
 
             public void Dispose() => _order.Add("db-dispose");
+
+            private static DetectionRecord CloneRecord(DetectionRecord record)
+            {
+                return new DetectionRecord
+                {
+                    Id = record.Id,
+                    Timestamp = record.Timestamp,
+                    IsQualified = record.IsQualified,
+                    ImagePath = record.ImagePath,
+                    InspectionId = record.InspectionId,
+                    TriggerSource = record.TriggerSource,
+                    TriggerSeq = record.TriggerSeq,
+                    PlcTriggerSeq = record.PlcTriggerSeq,
+                    ResultSeq = record.ResultSeq,
+                    TerminalHandshakeAttempted = record.TerminalHandshakeAttempted,
+                    TerminalHandshakeSucceeded = record.TerminalHandshakeSucceeded,
+                    TerminalHandshakeErrorCode = record.TerminalHandshakeErrorCode,
+                    TerminalHandshakeSignalName = record.TerminalHandshakeSignalName,
+                    TerminalHandshakeAddress = record.TerminalHandshakeAddress,
+                    TerminalHandshakeMessage = record.TerminalHandshakeMessage,
+                    CycleSucceeded = record.CycleSucceeded,
+                    ProductBarcode = record.ProductBarcode,
+                    Barcode = record.Barcode,
+                    BarcodeReadSucceeded = record.BarcodeReadSucceeded,
+                    BarcodeError = record.BarcodeError,
+                    QueueStatus = record.QueueStatus,
+                    TraceStatus = record.TraceStatus,
+                    RenderedImagePath = record.RenderedImagePath,
+                    TraceImagePath = record.TraceImagePath,
+                    ErrorStage = record.ErrorStage,
+                    ErrorCode = record.ErrorCode,
+                    ErrorMessage = record.ErrorMessage,
+                    TotalMs = record.TotalMs,
+                    CaptureMs = record.CaptureMs,
+                    RoiMs = record.RoiMs,
+                    PlcWriteMs = record.PlcWriteMs,
+                    SaveImageMs = record.SaveImageMs,
+                    SaveRecordMs = record.SaveRecordMs,
+                    RecipeId = record.RecipeId,
+                    RecipeVersion = record.RecipeVersion,
+                    ModelId = record.ModelId,
+                    ModelVersion = record.ModelVersion,
+                    ModelHash = record.ModelHash,
+                    WasFallback = record.WasFallback,
+                    UsedModelName = record.UsedModelName,
+                    TargetLabel = record.TargetLabel,
+                    ExpectedCount = record.ExpectedCount,
+                    ActualCount = record.ActualCount,
+                    InferenceMs = record.InferenceMs,
+                    ModelName = record.ModelName,
+                    CameraId = record.CameraId,
+                    RuleSummary = record.RuleSummary,
+                    RuleResultJson = record.RuleResultJson,
+                    RuleSetJson = record.RuleSetJson,
+                    ResultJson = record.ResultJson
+                };
+            }
         }
     }
 #pragma warning restore CS0067

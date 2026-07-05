@@ -93,6 +93,8 @@ namespace ClearFrost.Services
 
         internal string FirstSeenPath => _firstSeenPath;
 
+        internal string StorePath => _storePath;
+
         public void UpdateStorePath(string storePath)
         {
             if (string.IsNullOrWhiteSpace(storePath))
