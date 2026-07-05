@@ -213,6 +213,12 @@ namespace ClearFrost.Core.Rules
             var outside = new List<YoloResult>();
             foreach (YoloResult result in results)
             {
+                if (result.DataKind == YoloResultDataKind.Classification)
+                {
+                    inside.Add(result);
+                    continue;
+                }
+
                 float centerX = result.CenterX;
                 float centerY = result.CenterY;
                 bool inRoi = centerX >= roiX && centerX <= roiX + roiW &&

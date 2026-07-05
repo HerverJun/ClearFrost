@@ -168,6 +168,18 @@ public class VisionDebugTests
             rule.Label == "screw" &&
             rule.Count == 4);
 
+        InspectionRuleSet classification = InspectionRuleSetTemplates.Create(InspectionRuleSetTemplateIds.ClassificationJudge, new[] { "OK", "NG" });
+        classification.Rules.Should().ContainSingle(rule =>
+            rule.Type == InspectionRuleTypes.Classification &&
+            rule.ExpectedLabel == "OK" &&
+            rule.MinConfidence == 0.8);
+
+        InspectionRuleSet segmentation = InspectionRuleSetTemplates.Create(InspectionRuleSetTemplateIds.SegmentationArea, new[] { "glue" });
+        segmentation.Rules.Should().ContainSingle(rule =>
+            rule.Type == InspectionRuleTypes.SegmentationArea &&
+            rule.Label == "glue" &&
+            rule.MinArea > 0);
+
         InspectionRuleSet remote = InspectionRuleSetTemplates.Create(InspectionRuleSetTemplateIds.RemoteMissingPart);
         remote.Rules.Should().OnlyContain(rule =>
             rule.Type == InspectionRuleTypes.Count &&

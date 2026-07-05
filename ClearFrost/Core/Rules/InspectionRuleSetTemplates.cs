@@ -11,6 +11,11 @@ namespace ClearFrost.Core.Rules
 {
     public static class InspectionRuleSetTemplateIds
     {
+        public const string TargetCount = "target_count";
+        public const string ClassificationJudge = "classification_judge";
+        public const string SegmentationArea = "segmentation_area";
+        public const string ObbAngle = "obb_angle";
+        public const string PoseKeypoints = "pose_keypoints";
         public const string ScrewCount = "screw_count";
         public const string RemoteMissingPart = "remote_missing_part";
         public const string WireSequence = "wire_sequence";
@@ -34,6 +39,11 @@ namespace ClearFrost.Core.Rules
             List<string> normalizedLabels = NormalizeLabels(labels);
             InspectionRuleSet ruleSet = id switch
             {
+                InspectionRuleSetTemplateIds.TargetCount => CreateScrewCount(targetLabel, targetCount, "目标数量检测"),
+                InspectionRuleSetTemplateIds.ClassificationJudge => CreateClassificationJudge(normalizedLabels, targetLabel),
+                InspectionRuleSetTemplateIds.SegmentationArea => CreateSegmentationArea(normalizedLabels, targetLabel),
+                InspectionRuleSetTemplateIds.ObbAngle => CreateObbAngle(normalizedLabels, targetLabel),
+                InspectionRuleSetTemplateIds.PoseKeypoints => CreatePoseKeypoints(normalizedLabels, targetLabel),
                 InspectionRuleSetTemplateIds.RemoteMissingPart => CreateRemoteMissingPart(normalizedLabels),
                 InspectionRuleSetTemplateIds.N5RemoteMissingPart => CreateRemoteMissingPart(normalizedLabels, targetLabel),
                 InspectionRuleSetTemplateIds.N6RemoteMissingPart => CreateRemoteMissingPart(normalizedLabels, targetLabel),
@@ -53,6 +63,11 @@ namespace ClearFrost.Core.Rules
         {
             return new object[]
             {
+                new { id = InspectionRuleSetTemplateIds.TargetCount, name = "目标数量检测" },
+                new { id = InspectionRuleSetTemplateIds.ClassificationJudge, name = "分类判定" },
+                new { id = InspectionRuleSetTemplateIds.SegmentationArea, name = "分割面积判定" },
+                new { id = InspectionRuleSetTemplateIds.ObbAngle, name = "OBB 角度判定（预留）" },
+                new { id = InspectionRuleSetTemplateIds.PoseKeypoints, name = "姿态关键点判定（预留）" },
                 new { id = InspectionRuleSetTemplateIds.ScrewCount, name = "螺钉数量检测" },
                 new { id = InspectionRuleSetTemplateIds.RemoteMissingPart, name = "遥控器漏装检测" },
                 new { id = InspectionRuleSetTemplateIds.W5ScrewCount, name = "W5 螺钉数量检测" },
@@ -62,6 +77,105 @@ namespace ClearFrost.Core.Rules
                 new { id = InspectionRuleSetTemplateIds.ElectricHeatingScrewCount, name = "电加热螺钉检测" },
                 new { id = InspectionRuleSetTemplateIds.WireSequence, name = "线序顺序检测" },
                 new { id = InspectionRuleSetTemplateIds.RelativePosition, name = "相对位置检测" }
+            };
+        }
+
+        private static InspectionRuleSet CreateClassificationJudge(IReadOnlyList<string> labels, string? targetLabel)
+        {
+            string expected = !string.IsNullOrWhiteSpace(targetLabel)
+                ? targetLabel.Trim()
+                : labels.FirstOrDefault(label => string.Equals(label, "OK", StringComparison.OrdinalIgnoreCase))
+                  ?? labels.FirstOrDefault()
+                  ?? "OK";
+            return new InspectionRuleSet
+            {
+                FallbackTargetLabel = expected,
+                FallbackTargetCount = 1,
+                Rules = new List<InspectionRule>
+                {
+                    new InspectionRule
+                    {
+                        Name = "分类判定",
+                        Type = InspectionRuleTypes.Classification,
+                        ExpectedLabel = expected,
+                        AllowedLabels = new List<string> { expected },
+                        MinConfidence = 0.8
+                    }
+                }
+            };
+        }
+
+        private static InspectionRuleSet CreateSegmentationArea(IReadOnlyList<string> labels, string? targetLabel)
+        {
+            string label = !string.IsNullOrWhiteSpace(targetLabel)
+                ? targetLabel.Trim()
+                : labels.FirstOrDefault() ?? "glue";
+            return new InspectionRuleSet
+            {
+                FallbackTargetLabel = label,
+                FallbackTargetCount = 1,
+                Rules = new List<InspectionRule>
+                {
+                    new InspectionRule
+                    {
+                        Name = "分割面积判定",
+                        Type = InspectionRuleTypes.SegmentationArea,
+                        Label = label,
+                        Operator = InspectionRuleOperators.GreaterThanOrEqual,
+                        Count = 1,
+                        MinConfidence = 0.5,
+                        MinArea = 1,
+                        MinCoverage = 0.01
+                    }
+                }
+            };
+        }
+
+        private static InspectionRuleSet CreateObbAngle(IReadOnlyList<string> labels, string? targetLabel)
+        {
+            string label = !string.IsNullOrWhiteSpace(targetLabel)
+                ? targetLabel.Trim()
+                : labels.FirstOrDefault() ?? "screw";
+            return new InspectionRuleSet
+            {
+                FallbackTargetLabel = label,
+                FallbackTargetCount = 1,
+                Rules = new List<InspectionRule>
+                {
+                    new InspectionRule
+                    {
+                        Name = "OBB 角度判定（预留）",
+                        Type = InspectionRuleTypes.ObbAngle,
+                        Label = label,
+                        MinConfidence = 0.5,
+                        MinAngle = -180,
+                        MaxAngle = 180
+                    }
+                }
+            };
+        }
+
+        private static InspectionRuleSet CreatePoseKeypoints(IReadOnlyList<string> labels, string? targetLabel)
+        {
+            string label = !string.IsNullOrWhiteSpace(targetLabel)
+                ? targetLabel.Trim()
+                : labels.FirstOrDefault() ?? "person";
+            return new InspectionRuleSet
+            {
+                FallbackTargetLabel = label,
+                FallbackTargetCount = 1,
+                Rules = new List<InspectionRule>
+                {
+                    new InspectionRule
+                    {
+                        Name = "姿态关键点判定（预留）",
+                        Type = InspectionRuleTypes.PoseKeypoints,
+                        Label = label,
+                        ExpectedCount = 1,
+                        MinConfidence = 0.5,
+                        MinKeyPointConfidence = 0.3
+                    }
+                }
             };
         }
 
@@ -170,6 +284,11 @@ namespace ClearFrost.Core.Rules
         {
             string value = templateId?.Trim() ?? string.Empty;
             if (string.Equals(value, "ScrewCount", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.ScrewCount;
+            if (string.Equals(value, "TargetCount", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.TargetCount;
+            if (string.Equals(value, "ClassificationJudge", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.ClassificationJudge;
+            if (string.Equals(value, "SegmentationArea", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.SegmentationArea;
+            if (string.Equals(value, "ObbAngle", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.ObbAngle;
+            if (string.Equals(value, "PoseKeypoints", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.PoseKeypoints;
             if (string.Equals(value, "RemoteMissingPart", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.RemoteMissingPart;
             if (string.Equals(value, "WireSequence", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.WireSequence;
             if (string.Equals(value, "RelativePosition", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.RelativePosition;
@@ -180,6 +299,11 @@ namespace ClearFrost.Core.Rules
             if (string.Equals(value, "ElectricHeatingScrewCount", StringComparison.OrdinalIgnoreCase)) return InspectionRuleSetTemplateIds.ElectricHeatingScrewCount;
             return value.ToLowerInvariant() switch
             {
+                InspectionRuleSetTemplateIds.TargetCount => InspectionRuleSetTemplateIds.TargetCount,
+                InspectionRuleSetTemplateIds.ClassificationJudge => InspectionRuleSetTemplateIds.ClassificationJudge,
+                InspectionRuleSetTemplateIds.SegmentationArea => InspectionRuleSetTemplateIds.SegmentationArea,
+                InspectionRuleSetTemplateIds.ObbAngle => InspectionRuleSetTemplateIds.ObbAngle,
+                InspectionRuleSetTemplateIds.PoseKeypoints => InspectionRuleSetTemplateIds.PoseKeypoints,
                 InspectionRuleSetTemplateIds.RemoteMissingPart => InspectionRuleSetTemplateIds.RemoteMissingPart,
                 InspectionRuleSetTemplateIds.WireSequence => InspectionRuleSetTemplateIds.WireSequence,
                 InspectionRuleSetTemplateIds.RelativePosition => InspectionRuleSetTemplateIds.RelativePosition,

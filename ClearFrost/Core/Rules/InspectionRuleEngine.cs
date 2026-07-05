@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using ClearFrost.Core.DeepLearning;
 using ClearFrost.Yolo;
 
 namespace ClearFrost.Core.Rules
@@ -104,6 +105,28 @@ namespace ClearFrost.Core.Rules
             if (IsType(rule, InspectionRuleTypes.RelativePosition))
             {
                 return EvaluateRelativePosition(rule, detections, labels);
+            }
+
+            if (IsType(rule, InspectionRuleTypes.Classification))
+            {
+                ClassificationResultSummary summary = DeepLearningResultSummarizer.CreateClassificationSummary(detections, labels);
+                return ClassificationRuleEvaluator.EvaluateRule(rule, summary);
+            }
+
+            if (IsType(rule, InspectionRuleTypes.SegmentationArea))
+            {
+                SegmentationResultSummary summary = DeepLearningResultSummarizer.CreateSegmentationSummary(detections, labels);
+                return SegmentationRuleEvaluator.EvaluateRule(rule, summary);
+            }
+
+            if (IsType(rule, InspectionRuleTypes.ObbAngle))
+            {
+                return EvaluateObbAngle(rule, detections, labels);
+            }
+
+            if (IsType(rule, InspectionRuleTypes.PoseKeypoints))
+            {
+                return EvaluatePoseKeypoints(rule, detections, labels);
             }
 
             return EvaluateCount(rule, detections, labels);
@@ -313,6 +336,124 @@ namespace ClearFrost.Core.Rules
                     : $"位置规则 NG：期望 {RelativeExpected(rule)}，{actualText}",
                 associatedIndexes,
                 associationSummary);
+        }
+
+        private static InspectionRuleResult EvaluateObbAngle(
+            InspectionRule rule,
+            IReadOnlyList<YoloResult> detections,
+            IReadOnlyList<string> labels)
+        {
+            ObbResultSummary summary = DeepLearningResultSummarizer.CreateObbSummary(detections, labels);
+            string targetLabel = rule.Label?.Trim() ?? string.Empty;
+            double minConfidence = NormalizeConfidence(rule.MinConfidence);
+            List<ObbInstanceSummary> matched = summary.Instances
+                .Where(instance =>
+                    instance.Confidence >= minConfidence &&
+                    (string.IsNullOrWhiteSpace(targetLabel) ||
+                     string.Equals(instance.Label, targetLabel, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            bool hasAngleRange = Math.Abs(rule.MinAngle) > 0.0001 || Math.Abs(rule.MaxAngle) > 0.0001;
+            var reasons = new List<string>();
+            if (matched.Count == 0)
+            {
+                reasons.Add(string.IsNullOrWhiteSpace(targetLabel)
+                    ? "未找到旋转框结果"
+                    : $"未找到旋转框类别 {targetLabel}");
+            }
+
+            foreach (ObbInstanceSummary instance in matched)
+            {
+                if (!instance.Angle.HasValue)
+                {
+                    reasons.Add($"#{instance.Index} {instance.Label} 缺少 angle");
+                    continue;
+                }
+
+                if (hasAngleRange &&
+                    (instance.Angle.Value < rule.MinAngle || instance.Angle.Value > rule.MaxAngle))
+                {
+                    reasons.Add($"#{instance.Index} 角度超限：{instance.Angle.Value:0.###} 不在 [{rule.MinAngle:0.###}, {rule.MaxAngle:0.###}]");
+                }
+            }
+
+            bool isMatch = reasons.Count == 0;
+            string labelText = targetLabelOrAll(targetLabel);
+            string expected = hasAngleRange
+                ? $"{labelText} 角度 [{rule.MinAngle:0.###}, {rule.MaxAngle:0.###}]"
+                : $"{labelText} 角度可见";
+            string actual = matched.Count == 0
+                ? "无匹配旋转框"
+                : string.Join("; ", matched.Select(instance => $"#{instance.Index} {instance.Label} angle={instance.Angle?.ToString("0.###", CultureInfo.InvariantCulture) ?? "NA"}"));
+
+            return Result(
+                rule,
+                isMatch,
+                expected,
+                actual,
+                isMatch ? $"OBB 角度规则 OK：{actual}" : $"OBB 角度规则 NG：{string.Join("；", reasons)}",
+                matched.Select(instance => instance.Index).ToArray(),
+                matched.Count == 0 ? "关联旋转框: 无" : $"关联旋转框: {FormatIndexes(matched.Select(instance => instance.Index).ToArray())}");
+        }
+
+        private static InspectionRuleResult EvaluatePoseKeypoints(
+            InspectionRule rule,
+            IReadOnlyList<YoloResult> detections,
+            IReadOnlyList<string> labels)
+        {
+            PoseResultSummary summary = DeepLearningResultSummarizer.CreatePoseSummary(detections, labels, (float)rule.MinKeyPointConfidence);
+            string targetLabel = rule.Label?.Trim() ?? string.Empty;
+            double minConfidence = NormalizeConfidence(rule.MinConfidence);
+            List<PoseInstanceSummary> matched = summary.Instances
+                .Where(instance =>
+                    instance.Confidence >= minConfidence &&
+                    (string.IsNullOrWhiteSpace(targetLabel) ||
+                     string.Equals(instance.Label, targetLabel, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            var reasons = new List<string>();
+            if (matched.Count == 0)
+            {
+                reasons.Add(string.IsNullOrWhiteSpace(targetLabel)
+                    ? "未找到姿态关键点结果"
+                    : $"未找到姿态类别 {targetLabel}");
+            }
+
+            int expectedCount = rule.ExpectedCount > 0 ? rule.ExpectedCount : rule.Count;
+            if (expectedCount > 0 && !Compare(matched.Count, expectedCount, NormalizeOperator(rule.Operator)))
+            {
+                reasons.Add($"姿态目标数量不符：期望 {OperatorText(rule.Operator)} {expectedCount}，实际 {matched.Count}");
+            }
+
+            foreach (PoseInstanceSummary instance in matched)
+            {
+                if (instance.KeyPointCount == 0)
+                {
+                    reasons.Add($"#{instance.Index} {instance.Label} 缺少关键点");
+                    continue;
+                }
+
+                if (rule.MinKeyPointConfidence > 0 && instance.MinKeyPointConfidence < rule.MinKeyPointConfidence)
+                {
+                    reasons.Add($"#{instance.Index} 关键点置信度不足：{instance.MinKeyPointConfidence:0.00} < {rule.MinKeyPointConfidence:0.00}");
+                }
+            }
+
+            bool isMatch = reasons.Count == 0;
+            string labelText = targetLabelOrAll(targetLabel);
+            string expected = expectedCount > 0
+                ? $"{labelText} 数量 {OperatorText(rule.Operator)} {expectedCount}"
+                : $"{labelText} 关键点可见";
+            string actual = matched.Count == 0
+                ? "无匹配姿态目标"
+                : string.Join("; ", matched.Select(instance => $"#{instance.Index} {instance.Label} keypoints={instance.KeyPointCount} min={instance.MinKeyPointConfidence:0.00}"));
+
+            return Result(
+                rule,
+                isMatch,
+                expected,
+                actual,
+                isMatch ? $"姿态关键点规则 OK：{actual}" : $"姿态关键点规则 NG：{string.Join("；", reasons)}",
+                matched.Select(instance => instance.Index).ToArray(),
+                matched.Count == 0 ? "关联姿态目标: 无" : $"关联姿态目标: {FormatIndexes(matched.Select(instance => instance.Index).ToArray())}");
         }
 
         internal static List<YoloResult> SortDetections(
@@ -736,6 +877,10 @@ namespace ClearFrost.Core.Rules
         {
             if (IsType(rule, InspectionRuleTypes.OrderedLabels)) return "顺序规则";
             if (IsType(rule, InspectionRuleTypes.RelativePosition)) return "位置规则";
+            if (IsType(rule, InspectionRuleTypes.Classification)) return "分类规则";
+            if (IsType(rule, InspectionRuleTypes.SegmentationArea)) return "分割面积规则";
+            if (IsType(rule, InspectionRuleTypes.ObbAngle)) return "OBB 角度规则";
+            if (IsType(rule, InspectionRuleTypes.PoseKeypoints)) return "姿态关键点规则";
             return "数量规则";
         }
 

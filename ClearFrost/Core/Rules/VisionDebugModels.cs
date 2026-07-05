@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using ClearFrost.Core.DeepLearning;
 using ClearFrost.Yolo;
 
 namespace ClearFrost.Core.Rules
@@ -30,6 +31,11 @@ namespace ClearFrost.Core.Rules
         public List<VisionDebugCategoryStat> CategoryStats { get; set; } = new List<VisionDebugCategoryStat>();
         public InspectionJudgeResult JudgeResult { get; set; } = new InspectionJudgeResult();
         public List<VisionDebugRuleResult> RuleResults { get; set; } = new List<VisionDebugRuleResult>();
+        public DeepLearningTraceSummary DeepLearningSummary { get; set; } = new DeepLearningTraceSummary();
+        public ClassificationResultSummary ClassificationSummary { get; set; } = new ClassificationResultSummary();
+        public SegmentationResultSummary SegmentationSummary { get; set; } = new SegmentationResultSummary();
+        public ObbResultSummary ObbSummary { get; set; } = new ObbResultSummary();
+        public PoseResultSummary PoseSummary { get; set; } = new PoseResultSummary();
         public bool FinalOk { get; set; }
         public string FinalResult => FinalOk ? "OK" : "NG";
         public string PrimaryFailureReason { get; set; } = string.Empty;
@@ -55,6 +61,7 @@ namespace ClearFrost.Core.Rules
             List<VisionDebugDetectionBox> allBoxes = BuildBoxes(allDetections, labels, roiIncluded, roiExcluded);
             var includedKeys = new HashSet<string>(roiIncluded.Select(BoxKey), StringComparer.Ordinal);
             var excludedKeys = new HashSet<string>(roiExcluded.Select(BoxKey), StringComparer.Ordinal);
+            DeepLearningTraceSummary deepLearningSummary = DeepLearningResultSummarizer.CreateTraceSummary(allDetections, labels);
 
             return new VisionDebugSnapshot
             {
@@ -74,6 +81,11 @@ namespace ClearFrost.Core.Rules
                 CategoryStats = BuildCategoryStats(allBoxes),
                 JudgeResult = judgeResult,
                 RuleResults = BuildRuleResults(judgeResult, allBoxes, roiIncluded),
+                DeepLearningSummary = deepLearningSummary,
+                ClassificationSummary = deepLearningSummary.Classification,
+                SegmentationSummary = deepLearningSummary.Segmentation,
+                ObbSummary = deepLearningSummary.Obb,
+                PoseSummary = deepLearningSummary.Pose,
                 FinalOk = succeeded && judgeResult.IsQualified,
                 PrimaryFailureReason = ResolvePrimaryFailureReason(succeeded, message ?? string.Empty, judgeResult),
                 ElapsedMs = request.ElapsedMs
@@ -240,6 +252,13 @@ namespace ClearFrost.Core.Rules
         public float Height { get; set; }
         public float? Angle { get; set; }
         public string DataKind { get; set; } = string.Empty;
+        public bool HasMask { get; set; }
+        public double MaskArea { get; set; }
+        public double MaskCoverage { get; set; }
+        public int KeyPointCount { get; set; }
+        public float MaxKeyPointConfidence { get; set; }
+        public float MinKeyPointConfidence { get; set; }
+        public int LowConfidenceKeyPointCount { get; set; }
         public bool InRoi { get; set; }
         public bool FilteredOutByRoi { get; set; }
         public string SourceKey { get; set; } = string.Empty;
@@ -252,6 +271,8 @@ namespace ClearFrost.Core.Rules
             bool filteredOutByRoi,
             string sourceKey)
         {
+            MaskMeasurement mask = DeepLearningResultSummarizer.MeasureMask(result.MaskData);
+            PosePoint[] keyPoints = result.KeyPoints ?? Array.Empty<PosePoint>();
             return new VisionDebugDetectionBox
             {
                 Index = index,
@@ -266,6 +287,13 @@ namespace ClearFrost.Core.Rules
                 Height = result.Height,
                 Angle = result.Angle,
                 DataKind = result.DataKind.ToString(),
+                HasMask = mask.HasMask,
+                MaskArea = mask.Area,
+                MaskCoverage = mask.Coverage,
+                KeyPointCount = keyPoints.Length,
+                MaxKeyPointConfidence = keyPoints.Select(point => point.Score).DefaultIfEmpty(0f).Max(),
+                MinKeyPointConfidence = keyPoints.Select(point => point.Score).DefaultIfEmpty(0f).Min(),
+                LowConfidenceKeyPointCount = keyPoints.Count(point => point.Score < DeepLearningResultSummarizer.DefaultLowKeyPointConfidence),
                 InRoi = inRoi,
                 FilteredOutByRoi = filteredOutByRoi,
                 SourceKey = sourceKey ?? string.Empty

@@ -27,6 +27,10 @@ public class WebUIVisionDebugContractTests
         index.Should().Contain("高级：查看/编辑规则 JSON");
         index.Should().Contain("id=\"vision-debug-run-current\"");
         index.Should().Contain("id=\"vision-debug-template-select\"");
+        index.Should().Contain("value=\"classification_judge\"");
+        index.Should().Contain("value=\"segmentation_area\"");
+        index.Should().Contain("value=\"obb_angle\"");
+        index.Should().Contain("value=\"pose_keypoints\"");
         index.Should().Contain("id=\"vision-debug-confidence\"");
         index.Should().Contain("id=\"vision-debug-iou\"");
         index.Should().Contain("id=\"vision-debug-target-label\"");
@@ -42,9 +46,17 @@ public class WebUIVisionDebugContractTests
         index.Should().Contain("id=\"vision-debug-run-batch\"");
         index.Should().Contain("id=\"vision-debug-param-diff\"");
         index.Should().Contain("id=\"vision-debug-batch-summary\"");
+        index.Should().Contain("id=\"vision-debug-task-summary\"");
+        index.Should().Contain("分类 Top1");
+        index.Should().Contain("分割面积/覆盖率");
+        index.Should().Contain("OBB 角度");
+        index.Should().Contain("姿态关键点");
         index.Should().Contain("id=\"vision-debug-box-list\"");
         index.Should().Contain("id=\"vision-debug-rule-details\"");
         index.Should().Contain("id=\"vision-debug-overlay\"");
+        index.Should().NotContain("Blob 检测");
+        index.Should().NotContain("圆检测");
+        index.Should().NotContain("模板匹配");
 
         controller.Should().Contain("OnVisionDebugCommand");
         controller.Should().Contain("case \"vision_debug_run_current\"");
@@ -66,6 +78,11 @@ public class WebUIVisionDebugContractTests
         renderMain.Should().Contain("本地图片导入暂未开放，请先使用当前相机或历史样本。");
         renderMain.Should().Contain("renderVisionDebugParameterComparison");
         renderMain.Should().Contain("renderVisionDebugBatchReplay");
+        renderMain.Should().Contain("function renderVisionDebugDeepLearning");
+        renderMain.Should().Contain("分类判定");
+        renderMain.Should().Contain("分割面积");
+        renderMain.Should().Contain("OBB 角度");
+        renderMain.Should().Contain("姿态关键点");
         renderMain.Should().Contain("关联目标框");
         renderMain.Should().Contain("function redrawVisionDebugOverlay");
         renderMain.Should().Contain("registerMessageHandler(\"visionDebugResult\"");

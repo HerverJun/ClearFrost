@@ -18,6 +18,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Config;
+using ClearFrost.Core.DeepLearning;
 using ClearFrost.Core.Inspection;
 using ClearFrost.Core.Models;
 using ClearFrost.Core.Recipes;
@@ -1429,7 +1430,7 @@ namespace ClearFrost.Services
                 RuleSummary = result?.JudgeResult?.Summary ?? string.Empty,
                 RuleResultJson = SerializeRuleResults(result?.JudgeResult),
                 RuleSetJson = ruleSetJson,
-                ResultJson = resultJsonOverride ?? SerializeDetectionResults(results)
+                ResultJson = resultJsonOverride ?? SerializeDetectionResults(results, result?.UsedModelLabels)
             };
         }
 
@@ -1944,7 +1945,7 @@ namespace ClearFrost.Services
             return (int)value;
         }
 
-        private static string SerializeDetectionResults(IEnumerable<YoloResult> results)
+        private static string SerializeDetectionResults(IEnumerable<YoloResult> results, IReadOnlyList<string>? labels)
         {
             List<YoloResult> resultList = results?.ToList() ?? new List<YoloResult>();
             if (resultList.Count == 0)
@@ -1952,18 +1953,27 @@ namespace ClearFrost.Services
                 return string.Empty;
             }
 
-            return JsonSerializer.Serialize(resultList.Select(r => new
+            return JsonSerializer.Serialize(new
             {
-                r.ClassId,
-                r.Confidence,
-                BoundingBox = new
+                Results = resultList.Select(r => new
                 {
-                    X = r.BoundingBox.X,
-                    Y = r.BoundingBox.Y,
-                    Width = r.BoundingBox.Width,
-                    Height = r.BoundingBox.Height
-                }
-            }));
+                    DataKind = r.DataKind.ToString(),
+                    r.ClassId,
+                    Label = DeepLearningResultSummarizer.ResolveLabel(r.ClassId, labels),
+                    r.Confidence,
+                    r.Angle,
+                    HasMask = r.MaskData != null && !r.MaskData.Empty(),
+                    KeyPointCount = r.KeyPoints?.Length ?? 0,
+                    BoundingBox = new
+                    {
+                        X = r.BoundingBox.X,
+                        Y = r.BoundingBox.Y,
+                        Width = r.BoundingBox.Width,
+                        Height = r.BoundingBox.Height
+                    }
+                }),
+                DeepLearningSummary = DeepLearningResultSummarizer.CreateTraceSummary(resultList, labels)
+            });
         }
 
         private static string SerializeRuleResults(InspectionJudgeResult? judgeResult)

@@ -1638,6 +1638,34 @@
             const count = rule.Count ?? rule.count ?? rule.ExpectedCount ?? rule.expectedCount ?? fallbackCount;
             const minConfidence = rule.MinConfidence ?? rule.minConfidence ?? 0;
             const expectedLabels = rule.ExpectedLabels || rule.expectedLabels || [];
+            if (type === "Classification") {
+                const expectedLabel = rule.ExpectedLabel || rule.expectedLabel || label || "OK";
+                const allowedLabels = rule.AllowedLabels || rule.allowedLabels || [];
+                const allowedText = Array.isArray(allowedLabels) && allowedLabels.length
+                    ? `，允许：${allowedLabels.join(", ")}`
+                    : "";
+                return `分类判定：期望 ${expectedLabel}，最低置信度：${minConfidence}${allowedText}`;
+            }
+
+            if (type === "SegmentationArea") {
+                const minArea = rule.MinArea ?? rule.minArea ?? 0;
+                const maxArea = rule.MaxArea ?? rule.maxArea ?? 0;
+                const minCoverage = rule.MinCoverage ?? rule.minCoverage ?? 0;
+                const maxCoverage = rule.MaxCoverage ?? rule.maxCoverage ?? 0;
+                return `分割面积：${label}，数量：${count ?? 0}，面积 ${minArea || "-"}~${maxArea || "-"}，覆盖率 ${minCoverage || "-"}~${maxCoverage || "-"}`;
+            }
+
+            if (type === "ObbAngle") {
+                const minAngle = rule.MinAngle ?? rule.minAngle ?? -180;
+                const maxAngle = rule.MaxAngle ?? rule.maxAngle ?? 180;
+                return `OBB 角度：${label}，范围 ${minAngle}°~${maxAngle}°`;
+            }
+
+            if (type === "PoseKeypoints") {
+                const minKeyPointConfidence = rule.MinKeyPointConfidence ?? rule.minKeyPointConfidence ?? 0;
+                return `姿态关键点：${label}，目标数：${count ?? 0}，关键点最低置信度：${minKeyPointConfidence}`;
+            }
+
             if (type === "OrderedLabels" || expectedLabels.length > 0) {
                 const labels = Array.isArray(expectedLabels)
                     ? expectedLabels.join(" → ")
@@ -1892,6 +1920,7 @@
         const imageWarning = snapshot.imageSourceWarning || snapshot.ImageSourceWarning || snapshot.comparison?.imageWarning || snapshot.Comparison?.ImageWarning || "";
         setText("vision-debug-image-warning", imageWarning, "");
         renderVisionDebugParameterComparison(snapshot);
+        renderVisionDebugDeepLearning(snapshot);
         renderVisionDebugBoxes(snapshot);
         renderVisionDebugRules(snapshot);
         renderVisionDebugComparison(snapshot);
@@ -1930,11 +1959,77 @@
             const centerX = Number(box.centerX ?? box.CenterX ?? 0);
             const centerY = Number(box.centerY ?? box.CenterY ?? 0);
             const index = box.index ?? box.Index ?? "-";
+            const angle = box.angle ?? box.Angle;
+            const maskArea = Number(box.maskArea ?? box.MaskArea ?? 0);
+            const maskCoverage = Number(box.maskCoverage ?? box.MaskCoverage ?? 0);
+            const keyPointCount = Number(box.keyPointCount ?? box.KeyPointCount ?? 0);
+            const extra = [
+                angle !== null && angle !== undefined ? `角度 ${Number(angle).toFixed(1)}°` : "",
+                maskArea > 0 ? `mask面积 ${maskArea.toFixed(0)}` : "",
+                maskCoverage > 0 ? `覆盖率 ${(maskCoverage * 100).toFixed(1)}%` : "",
+                keyPointCount > 0 ? `关键点 ${keyPointCount}` : "",
+            ].filter(Boolean).join(" · ");
             return `<div class="${filtered ? "cf-vision-debug-box-muted" : ""}">
                 <strong>#${index} ${escapeHtml(label)}</strong>
-                <span>${confidence.toFixed(2)} · 中心(${centerX.toFixed(0)}, ${centerY.toFixed(0)})${filtered ? " · ROI外过滤" : ""}</span>
+                <span>${confidence.toFixed(2)} · 中心(${centerX.toFixed(0)}, ${centerY.toFixed(0)})${extra ? ` · ${escapeHtml(extra)}` : ""}${filtered ? " · ROI外过滤" : ""}</span>
             </div>`;
         }).join("");
+    }
+
+    function renderVisionDebugDeepLearning(snapshot) {
+        const list = el("vision-debug-task-summary");
+        if (!list) return;
+        const classification = snapshot.classificationSummary || snapshot.ClassificationSummary || snapshot.deepLearningSummary?.classification || snapshot.DeepLearningSummary?.Classification || {};
+        const segmentation = snapshot.segmentationSummary || snapshot.SegmentationSummary || snapshot.deepLearningSummary?.segmentation || snapshot.DeepLearningSummary?.Segmentation || {};
+        const obb = snapshot.obbSummary || snapshot.ObbSummary || snapshot.deepLearningSummary?.obb || snapshot.DeepLearningSummary?.Obb || {};
+        const pose = snapshot.poseSummary || snapshot.PoseSummary || snapshot.deepLearningSummary?.pose || snapshot.DeepLearningSummary?.Pose || {};
+        const rows = [];
+        const topK = classification.topK || classification.TopK || [];
+        if (topK.length) {
+            const top1Label = classification.top1Label || classification.Top1Label || "-";
+            const top1Confidence = Number(classification.top1Confidence ?? classification.Top1Confidence ?? 0);
+            const topKText = topK.map((item) => {
+                const label = item.label || item.Label || `Class_${item.classId ?? item.ClassId ?? ""}`;
+                const confidence = Number(item.confidence ?? item.Confidence ?? 0);
+                return `${label} ${confidence.toFixed(2)}`;
+            }).join(", ");
+            rows.push(`<div><strong>分类 Top1</strong><span>${escapeHtml(top1Label)} ${top1Confidence.toFixed(2)}；TopK ${escapeHtml(topKText)}</span></div>`);
+        }
+
+        const segmentInstances = segmentation.instances || segmentation.Instances || [];
+        if (segmentInstances.length) {
+            const preview = segmentInstances.slice(0, 4).map((item) => {
+                const label = item.label || item.Label || `Class_${item.classId ?? item.ClassId ?? ""}`;
+                const area = Number(item.maskArea ?? item.MaskArea ?? 0);
+                const coverage = Number(item.maskCoverage ?? item.MaskCoverage ?? 0);
+                return `${label} area=${area.toFixed(0)} coverage=${(coverage * 100).toFixed(1)}%`;
+            }).join("；");
+            rows.push(`<div><strong>分割</strong><span>实例 ${segmentInstances.length}；${escapeHtml(preview)}</span></div>`);
+        }
+
+        const obbInstances = obb.instances || obb.Instances || [];
+        if (obbInstances.length) {
+            const angles = obbInstances.slice(0, 5).map((item) => {
+                const label = item.label || item.Label || `Class_${item.classId ?? item.ClassId ?? ""}`;
+                const angle = item.angle ?? item.Angle;
+                return `${label} ${angle === null || angle === undefined ? "NA" : `${Number(angle).toFixed(1)}°`}`;
+            }).join(", ");
+            rows.push(`<div><strong>OBB</strong><span>旋转框 ${obbInstances.length}；${escapeHtml(angles)}</span></div>`);
+        }
+
+        const poseInstances = pose.instances || pose.Instances || [];
+        if (poseInstances.length) {
+            const totalKeyPoints = Number(pose.totalKeyPointCount ?? pose.TotalKeyPointCount ?? 0);
+            const lowCount = Number(pose.lowConfidenceKeyPointCount ?? pose.LowConfidenceKeyPointCount ?? 0);
+            rows.push(`<div><strong>姿态</strong><span>目标 ${poseInstances.length}；关键点 ${totalKeyPoints}；低置信度 ${lowCount}</span></div>`);
+        }
+
+        if (!rows.length) {
+            const message = classification.message || classification.Message || segmentation.message || segmentation.Message || "暂无分类、分割、OBB 或姿态摘要";
+            rows.push(`<div>${escapeHtml(message)}</div>`);
+        }
+
+        list.innerHTML = rows.join("");
     }
 
     function renderVisionDebugRules(snapshot) {

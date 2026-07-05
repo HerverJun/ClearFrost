@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
@@ -598,6 +598,11 @@
                     <label class="cf-vision-debug-field">
                         <span>场景</span>
                         <select id="vision-debug-template-select">
+                            <option value="target_count">目标数量检测</option>
+                            <option value="classification_judge">分类判定</option>
+                            <option value="segmentation_area">分割面积判定</option>
+                            <option value="obb_angle">OBB 角度判定（预留）</option>
+                            <option value="pose_keypoints">姿态关键点判定（预留）</option>
                             <option value="screw_count">螺钉数量检测</option>
                             <option value="remote_missing_part">遥控器漏装检测</option>
                             <option value="wire_sequence">线序顺序检测</option>
@@ -720,6 +725,13 @@
                         <span>耗时 <b id="vision-debug-elapsed">0ms</b></span>
                     </div>
                     <div id="vision-debug-image-warning" class="cf-vision-debug-status"></div>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>深度学习任务摘要</h3>
+                    <div id="vision-debug-task-summary" class="cf-vision-debug-list">
+                        <div>分类 Top1、分割面积/覆盖率、OBB 角度、姿态关键点将在运行后显示。</div>
+                    </div>
                 </section>
 
                 <section class="cf-vision-debug-section">
