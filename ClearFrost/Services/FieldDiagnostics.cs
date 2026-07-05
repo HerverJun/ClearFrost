@@ -588,13 +588,16 @@ namespace ClearFrost.Services
             foreach (StartupDiagnosticItem item in startupDiagnostics.Items
                 .Where(item => item.Status == StartupDiagnosticStatus.Fail && item.IsBlocking))
             {
+                string adviceText = OperatorFaultMessages.ForStartupItem(item);
                 advice.Add(new FieldMaintenanceAdvice
                 {
                     Source = "StartupDiagnostics",
                     Level = "critical",
-                    Title = $"启动阻断: {item.Name}",
-                    Evidence = CombineEvidence(item.Message, item.Details),
-                    Advice = ResolveStartupAdvice(item),
+                    Title = adviceText == OperatorFaultMessages.StrictModelGateBlocked
+                        ? "严格模型验证未通过"
+                        : "启动前需要处理",
+                    Evidence = item.Message,
+                    Advice = adviceText,
                     Code = "StartupBlocked"
                 });
             }
@@ -611,9 +614,9 @@ namespace ClearFrost.Services
                 {
                     Source = "Camera",
                     Level = "warning",
-                    Title = "相机未进入采集状态",
+                    Title = "相机未启动",
                     Evidence = health.CameraStatus,
-                    Advice = "检查相机连接、SDK 驱动、序列号配置和曝光触发线；确认相机状态为 Open 或 Grabbing。",
+                    Advice = OperatorFaultMessages.ForCode("CameraNotReady"),
                     Code = "CameraNotReady"
                 });
             }
@@ -626,7 +629,7 @@ namespace ClearFrost.Services
                     Level = "warning",
                     Title = "PLC 未连接",
                     Evidence = health.PlcStatus,
-                    Advice = "检查 PLC IP/端口、协议类型、网线和驱动提供方；连接恢复后重新启动监听。",
+                    Advice = OperatorFaultMessages.ForCode("PlcNotConnected"),
                     Code = "PlcNotConnected"
                 });
             }
@@ -639,7 +642,7 @@ namespace ClearFrost.Services
                     Level = "critical",
                     Title = "模型未加载",
                     Evidence = string.IsNullOrWhiteSpace(modelProbe.CurrentModelName) ? "未加载" : modelProbe.CurrentModelName,
-                    Advice = "检查当前模型选择、ONNX 文件是否存在、模型包审批状态和启动诊断中的模型注册表信息。",
+                    Advice = OperatorFaultMessages.ForCode("ModelNotLoaded"),
                     Code = "ModelNotLoaded"
                 });
             }
@@ -681,7 +684,7 @@ namespace ClearFrost.Services
                     Level = "warning",
                     Title = "模型注册表存在阻断项",
                     Evidence = $"Blocked={modelProbe.BlockedEntryCount}",
-                    Advice = "打开诊断包中的 model_registry_diagnostics.json，修复模型包 manifest、哈希或审批凭证后重新扫描。",
+                    Advice = "请联系工程师打开诊断包，修复模型包 manifest、模型哈希或验证记录后重新扫描。",
                     Code = "ModelRegistryBlocked"
                 });
             }
@@ -777,7 +780,7 @@ namespace ClearFrost.Services
 
             if (ContainsAny(text, "Replay evidence", "Approved model", "审批", "凭证"))
             {
-                return "重新选择已审批模型或补齐回放验证凭证；生产模式下不要使用未审批模型。";
+                return OperatorFaultMessages.StrictModelGateBlocked;
             }
 
             if (ContainsAny(text, "Camera", "相机"))

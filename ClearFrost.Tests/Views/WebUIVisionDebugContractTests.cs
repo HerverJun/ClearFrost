@@ -15,8 +15,17 @@ public class WebUIVisionDebugContractTests
         string bundle = File.ReadAllText(Path.Combine(root, "ClearFrost", "html", "js", "bundle.js"));
 
         index.Should().Contain("id=\"vision-debug-modal\"");
-        index.Should().Contain("算法调试/视觉调试");
+        index.Should().Contain("视觉调试（工程师）");
+        index.Should().Contain("用于工程师验证模型、规则和当前相机画面；一线生产无需操作。");
+        index.Should().Contain("这是工程师调试工具，生产操作无需进入。");
+        index.Should().Contain("第一步：选择场景");
+        index.Should().Contain("第二步：获取图片");
+        index.Should().Contain("第三步：运行验证");
+        index.Should().Contain("还没有可调试图片。请先启动相机并获取一帧，或从历史记录选择样本。");
+        index.Should().Contain("规则摘要");
+        index.Should().Contain("高级：查看/编辑规则 JSON");
         index.Should().Contain("id=\"vision-debug-run-current\"");
+        index.Should().Contain("id=\"vision-debug-template-select\"");
         index.Should().Contain("id=\"vision-debug-confidence\"");
         index.Should().Contain("id=\"vision-debug-iou\"");
         index.Should().Contain("id=\"vision-debug-target-label\"");
@@ -46,6 +55,9 @@ public class WebUIVisionDebugContractTests
 
         renderMain.Should().Contain("CF_COORDINATE_MAPPING");
         renderMain.Should().Contain("function openVisionDebugPanel");
+        renderMain.Should().Contain("function applySelectedVisionDebugTemplate");
+        renderMain.Should().Contain("validateVisionDebugRuleJson");
+        renderMain.Should().Contain("updateVisionDebugRuleSummary");
         renderMain.Should().Contain("function runVisionDebugCurrent");
         renderMain.Should().Contain("function runVisionDebugBatch");
         renderMain.Should().Contain("projectDefaultTemplates");

@@ -199,12 +199,18 @@
         CaptureFrameFailed: "检查相机连接/曝光/触发线",
         NoBarcode: "检查 PLC 条码地址或扫码枪",
         BarcodeReadFailed: "检查 PLC 通讯、条码地址或扫码枪",
-        PlcNotConnected: "检查 PLC 网络/IP/端口及通讯线",
+        PlcNotConnected: "PLC 未连接：请检查 PLC IP、端口和网线。",
         PlcWriteFailed: "检查 PLC 结果地址、写入权限或握手时序",
         PlcWriteException: "检查 PLC 通讯、地址配置或驱动状态",
         DetectionServiceError: "检查模型文件、GPU 推理环境或输入图像",
         DetectionCycleException: "检查检测规则、ROI、模型配置或运行日志",
         UnhandledDetectionException: "查看系统日志并联系维护人员",
+        ReplayEvidenceGateMissing: "当前模型未完成上线验证，请联系工程师完成模型验证，或切换回已验证模型。",
+        ReplayEvidencePackageRequired: "当前模型未完成上线验证，请联系工程师完成模型验证，或切换回已验证模型。",
+        PrimaryModelReferenceEmpty: "模型未加载：请先在左侧选择主模型。",
+        ModelNotLoaded: "模型未加载：请先在左侧选择主模型。",
+        CameraNotReady: "相机未启动：请点击右下角“启动系统”，或检查相机网线/电源。",
+        StartupBlocked: "当前还不能生产：请先处理诊断中心列出的待处理问题。",
     });
 
     const StageFallbackAdviceMap = Object.freeze({
@@ -986,7 +992,7 @@
         Failed: "已失败",
         Canceled: "已取消",
         Interrupted: "已中断",
-        Frozen: "已固化",
+        Frozen: "已生成验证样本集",
         Invalid: "无效",
     });
     const ApprovalStatusLabels = Object.freeze({
@@ -1921,7 +1927,6 @@
         const html = advice.slice(0, 4).map((item) => {
             const levelClass = getAdviceLevelClass(item.level || item.Level);
             const title = item.title || item.Title || "维护建议";
-            const evidence = item.evidence || item.Evidence || "";
             const action = item.advice || item.Advice || "";
             const code = item.code || item.Code || "";
             const adviceId = item.adviceId || item.AdviceId || "";
@@ -1940,10 +1945,9 @@
                     </button>
                 </div>`
                 : "";
-            return `<div class="cf-maintenance-advice-item ${levelClass}">
-                <strong>${escapeHtml(title)}${code ? ` · ${escapeHtml(code)}` : ""} ${statusBadge}</strong>
-                ${evidence ? `<span>${escapeHtml(evidence)}</span>` : ""}
-                <em>${escapeHtml(action)}</em>
+            return `<div class="cf-maintenance-advice-item ${levelClass}" data-code="${escapeHtml(code)}">
+                <strong>${escapeHtml(title)} ${statusBadge}</strong>
+                <em>下一步：${escapeHtml(action || "请打开工程师详情查看诊断信息。")}</em>
                 ${lastActionMessage ? `<span>${escapeHtml(lastActionMessage)}</span>` : ""}
                 ${actionHtml}
             </div>`;
@@ -2137,6 +2141,88 @@
         setHtml("diag-handoff-report-history", html);
     }
 
+    function getStartupBlockingItems(health) {
+        const startup = getFieldObject(health, "startupDiagnostics", "StartupDiagnostics");
+        const items = Array.isArray(startup.items) ? startup.items :
+            Array.isArray(startup.Items) ? startup.Items : [];
+        return items.filter((item) => {
+            const isBlocking = (item.isBlocking ?? item.IsBlocking) === true;
+            return isBlocking && isStartupFailStatus(item.status ?? item.Status);
+        });
+    }
+
+    function isCameraReadyStatus(status) {
+        const value = String(status || "").trim().toLowerCase();
+        return value === "open" || value === "grabbing" || value === "connected";
+    }
+
+    function isPlcReadyStatus(status) {
+        return String(status || "").trim().toLowerCase().startsWith("connected");
+    }
+
+    function formatFieldCameraStatus(status) {
+        const value = String(status || "").trim();
+        if (isCameraReadyStatus(value)) return "正常";
+        if (!value || value === "Closed" || value === "Disconnected") return "未连接";
+        return "异常";
+    }
+
+    function formatFieldPlcStatus(status) {
+        const value = String(status || "").trim();
+        if (isPlcReadyStatus(value)) return "正常";
+        if (!value || value === "Disconnected" || value === "NotConnected") return "未连接";
+        return "异常";
+    }
+
+    function formatFieldStorageStatus(health) {
+        const status = String(getFieldValue(health, "storageStatus", "StorageStatus", "") || "").trim();
+        const freeDisk = Number(getFieldValue(health, "freeDiskGb", "FreeDiskGb", 0));
+        if (Number.isFinite(freeDisk) && freeDisk > 0 && freeDisk < 2) return "空间不足";
+        if (status.toLowerCase() === "writable" || status === "正常") return "正常";
+        if (!status) return "正常";
+        return "异常";
+    }
+
+    function isModelReady(modelProbe, currentModel) {
+        const loaded = modelProbe.isModelLoaded ?? modelProbe.IsModelLoaded;
+        if (loaded !== undefined) return Boolean(loaded);
+        const name = String(currentModel || "").trim();
+        return Boolean(name) && name !== "未加载";
+    }
+
+    function renderProductionReadiness(health, modelProbe, currentModel) {
+        const blockers = getStartupBlockingItems(health);
+        const advice = getFieldArray(health, "maintenanceAdvice", "MaintenanceAdvice");
+        const hasIssues = blockers.length > 0 || advice.some((item) => {
+            const level = String(item.level || item.Level || "").toLowerCase();
+            return level === "critical" || level === "warning";
+        });
+        const needsEngineer = advice.some((item) => {
+            const text = `${item.title || item.Title || ""} ${item.advice || item.Advice || ""} ${item.code || item.Code || ""}`;
+            return text.includes("严格模型验证") || text.includes("模型未完成上线验证") || text.includes("StartupBlocked");
+        });
+        const deviceReady =
+            isCameraReadyStatus(getFieldValue(health, "cameraStatus", "CameraStatus")) &&
+            isPlcReadyStatus(getFieldValue(health, "plcStatus", "PlcStatus")) &&
+            isModelReady(modelProbe, currentModel) &&
+            formatFieldStorageStatus(health) === "正常";
+
+        if (needsEngineer) {
+            setText("diag-production-readiness", "工程师检查");
+            setText("diag-production-guidance", "模型上线验证或启动诊断需要工程师处理。");
+            return;
+        }
+
+        if (hasIssues || !deviceReady) {
+            setText("diag-production-readiness", "需要处理");
+            setText("diag-production-guidance", "请先查看待处理问题，并按下一步建议处理。");
+            return;
+        }
+
+        setText("diag-production-readiness", "可以生产");
+        setText("diag-production-guidance", "设备、模型和存储状态正常。");
+    }
+
     function renderFieldDiagnostics(state) {
         const health = state?.health || {};
         const modelProbe = health.modelProbe || health.ModelProbe || {};
@@ -2144,9 +2230,11 @@
             modelProbe.currentModelName || modelProbe.CurrentModelName ||
             getFieldValue(health, "modelStatus", "ModelStatus");
 
-        setText("diag-camera-status", getFieldValue(health, "cameraStatus", "CameraStatus"), "未连接");
-        setText("diag-plc-status", getFieldValue(health, "plcStatus", "PlcStatus"), "未连接");
-        setText("diag-current-model", currentModel, "未加载");
+        setText("diag-camera-status", formatFieldCameraStatus(getFieldValue(health, "cameraStatus", "CameraStatus")), "未连接");
+        setText("diag-plc-status", formatFieldPlcStatus(getFieldValue(health, "plcStatus", "PlcStatus")), "未连接");
+        setText("diag-current-model", isModelReady(modelProbe, currentModel) ? "已加载" : "未加载", "未加载");
+        setText("diag-storage-status", formatFieldStorageStatus(health), "正常");
+        renderProductionReadiness(health, modelProbe, currentModel);
         setText("diag-last-inspection-id", getFieldValue(health, "lastInspectionId", "LastInspectionId"), "-");
         setText("diag-p95", `${getFieldValue(health, "recentInspectionP95Ms", "RecentInspectionP95Ms", 0)}ms`, "0ms");
         setText("diag-p99", `${getFieldValue(health, "recentInspectionP99Ms", "RecentInspectionP99Ms", 0)}ms`, "0ms");
@@ -2249,6 +2337,87 @@
     function setVisionDebugRuleSetJson(value) {
         const node = el("vision-debug-rule-set");
         if (node && node.value !== value) node.value = value || "";
+        updateVisionDebugRuleSummary();
+        validateVisionDebugRuleJson(false);
+    }
+
+    function getVisionDebugTemplateId() {
+        return String(el("vision-debug-template-select")?.value || "screw_count");
+    }
+
+    function setVisionDebugImageEmptyVisible(visible) {
+        const node = el("vision-debug-image-empty");
+        if (node) node.classList.toggle("hidden", !visible);
+    }
+
+    function parseVisionDebugRuleSet() {
+        const raw = getVisionDebugRuleSetJson();
+        if (!raw) return null;
+        return JSON.parse(raw);
+    }
+
+    function validateVisionDebugRuleJson(showToastOnError = true) {
+        const status = el("vision-debug-rule-json-status");
+        try {
+            parseVisionDebugRuleSet();
+            if (status) {
+                status.textContent = "规则 JSON 格式正确。";
+                status.classList.remove("error");
+            }
+            return true;
+        } catch (ex) {
+            const message = `规则 JSON 无效：${ex.message}`;
+            if (status) {
+                status.textContent = message;
+                status.classList.add("error");
+            }
+            if (showToastOnError) showToast(message, "error", 1800);
+            return false;
+        }
+    }
+
+    function formatVisionDebugRuleSummary(ruleSet) {
+        const settings = getVisionDebugSettings();
+        const fallbackLabel = String(settings.TargetLabel ?? settings.targetLabel ?? "screw");
+        const fallbackCount = Number(settings.TargetCount ?? settings.targetCount ?? 4);
+        const rules = ruleSet?.Rules || ruleSet?.rules || [];
+        if (!Array.isArray(rules) || rules.length === 0) {
+            return [`目标：${fallbackLabel || "screw"}，数量：${Number.isFinite(fallbackCount) ? fallbackCount : 4}，最低置信度：0.0`];
+        }
+
+        return rules.slice(0, 4).map((rule) => {
+            const type = String(rule.Type || rule.type || "");
+            const label = rule.Label || rule.label || rule.TargetLabel || rule.targetLabel || fallbackLabel || "screw";
+            const count = rule.Count ?? rule.count ?? rule.ExpectedCount ?? rule.expectedCount ?? fallbackCount;
+            const minConfidence = rule.MinConfidence ?? rule.minConfidence ?? 0;
+            const expectedLabels = rule.ExpectedLabels || rule.expectedLabels || [];
+            if (type === "OrderedLabels" || expectedLabels.length > 0) {
+                const labels = Array.isArray(expectedLabels)
+                    ? expectedLabels.join(" → ")
+                    : String(expectedLabels).split(",").map((item) => item.trim()).filter(Boolean).join(" → ");
+                return `顺序：${labels || "未配置"}`;
+            }
+
+            if (type === "RelativePosition") {
+                const primary = rule.PrimaryLabel || rule.primaryLabel || label;
+                const reference = rule.ReferenceLabel || rule.referenceLabel || "参考目标";
+                return `相对位置：${primary} 对 ${reference}`;
+            }
+
+            return `目标：${label}，数量：${count ?? 0}，最低置信度：${minConfidence}`;
+        });
+    }
+
+    function updateVisionDebugRuleSummary() {
+        const list = el("vision-debug-rule-summary");
+        if (!list) return;
+        let lines;
+        try {
+            lines = formatVisionDebugRuleSummary(parseVisionDebugRuleSet());
+        } catch {
+            lines = ["规则 JSON 无效，请展开高级区域修正后再保存。"];
+        }
+        list.innerHTML = lines.map((line) => `<div>${escapeHtml(line)}</div>`).join("");
     }
 
     function populateVisionDebugControls() {
@@ -2280,6 +2449,7 @@
             targetSelect.value = targetLabel;
         }
         if (!getVisionDebugRuleSetJson()) setVisionDebugRuleSetJson(ruleSetJson);
+        updateVisionDebugRuleSummary();
         updateVisionDebugSliderLabels();
         updateVisionDebugPreprocessHint();
     }
@@ -2307,8 +2477,15 @@
 
     function openVisionDebugPanel() {
         populateVisionDebugControls();
+        const role = String(getVisionDebugSettings().CurrentOperatorRole || getVisionDebugSettings().currentOperatorRole || "Operator");
+        const note = el("vision-debug-operator-note");
+        if (note) note.classList.toggle("hidden", role !== "Operator");
+        if (role === "Operator") {
+            showToast("这是工程师调试工具，生产操作无需进入。", "info", 1800);
+        }
         el("vision-debug-modal")?.classList.remove("hidden");
         requestVisionDebugRecentRecords();
+        setVisionDebugImageEmptyVisible(true);
         redrawVisionDebugOverlay();
     }
 
@@ -2333,7 +2510,23 @@
         window.sendCommand("vision_debug_query_recent", {});
     }
 
+    function applySelectedVisionDebugTemplate() {
+        const templateId = getVisionDebugTemplateId();
+        if (templateId === "custom_rule") {
+            showToast("自定义规则可在高级区域编辑 JSON。", "info", 1400);
+            updateVisionDebugRuleSummary();
+            return;
+        }
+
+        applyVisionDebugTemplate(templateId);
+    }
+
+    function showVisionDebugLocalImageNotice() {
+        showToast("本地图片验证入口已保留，请优先从历史记录选择样本。", "info", 1800);
+    }
+
     function runVisionDebugCurrent() {
+        if (!validateVisionDebugRuleJson()) return;
         setText("vision-debug-primary-reason", "正在重跑当前帧...");
         window.sendCommand("vision_debug_run_current", collectVisionDebugParams());
         window.handleCommandDispatched?.("vision_debug_run_current");
@@ -2345,12 +2538,14 @@
             showToast("请选择历史样本", "warning", 1200);
             return;
         }
+        if (!validateVisionDebugRuleJson()) return;
         setText("vision-debug-history-status", "正在用当前调试参数重跑历史样本...");
         window.sendCommand("vision_debug_run_history", collectVisionDebugParams({ recordId }));
         window.handleCommandDispatched?.("vision_debug_run_history");
     }
 
     function runVisionDebugBatch() {
+        if (!validateVisionDebugRuleJson()) return;
         const rawLimit = Number(el("vision-debug-batch-limit")?.value || 20);
         const batchLimit = Math.max(1, Math.min(50, Math.trunc(rawLimit || 20)));
         const batchResult = String(el("vision-debug-batch-result")?.value || "All");
@@ -2360,11 +2555,16 @@
     }
 
     function saveVisionDebugParams() {
+        if (!validateVisionDebugRuleJson()) return;
         window.sendCommand("vision_debug_save_params", collectVisionDebugParams());
         window.handleCommandDispatched?.("vision_debug_save_params");
     }
 
     function applyVisionDebugTemplate(templateId) {
+        const templateSelect = el("vision-debug-template-select");
+        if (templateSelect && Array.from(templateSelect.options || []).some((option) => option.value === templateId)) {
+            templateSelect.value = templateId;
+        }
         const projectDefaultTemplates = new Set([
             "w5_screw_count",
             "w6_screw_count",
@@ -2387,6 +2587,7 @@
         if (!Array.isArray(records) || records.length === 0) {
             select.innerHTML = `<option value="">暂无历史记录</option>`;
             setText("vision-debug-history-status", "未查询到可回放样本");
+            setVisionDebugImageEmptyVisible(true);
             return;
         }
         select.innerHTML = records.map((record) => {
@@ -2397,6 +2598,7 @@
             return `<option value="${escapeHtml(id)}">${escapeHtml(time)} · ${escapeHtml(result)} · ${escapeHtml(inspectionId)}</option>`;
         }).join("");
         setText("vision-debug-history-status", `${records.length} 条最近样本，使用当前调试参数重跑`);
+        setVisionDebugImageEmptyVisible(false);
     }
 
     function renderVisionDebugResult(state) {
@@ -2420,12 +2622,14 @@
         }
         if (debug.status === "failed") {
             const message = debug.message || debug.Message || "算法调试失败";
-            renderVisionDebugFailure(message);
+            const code = debug.errorCode || debug.ErrorCode || "";
+            renderVisionDebugFailure(message, code);
             addLog(message, "error");
             return;
         }
         const snapshot = debug.snapshot || debug.Snapshot;
         if (!snapshot) return;
+        setVisionDebugImageEmptyVisible(false);
         const finalOk = Boolean(snapshot.finalOk ?? snapshot.FinalOk);
         const pill = el("vision-debug-final-result");
         if (pill) {
@@ -2448,15 +2652,20 @@
         redrawVisionDebugOverlay();
     }
 
-    function renderVisionDebugFailure(message) {
+    function renderVisionDebugFailure(message, errorCode = "") {
+        const emptyFrame = String(errorCode || "").toLowerCase() === "nocurrentframe";
+        const displayMessage = emptyFrame
+            ? "还没有可调试图片。请先启动相机并获取一帧，或从历史记录选择样本。"
+            : message || "算法调试失败";
         const pill = el("vision-debug-final-result");
         if (pill) {
-            pill.textContent = "错误";
+            pill.textContent = emptyFrame ? "等待" : "错误";
             pill.classList.remove("ok", "ng", "error");
-            pill.classList.add("error");
+            if (!emptyFrame) pill.classList.add("error");
         }
-        setText("vision-debug-primary-reason", message || "算法调试失败");
-        updateVisionDebugPreprocessHint({ succeeded: false, message });
+        setVisionDebugImageEmptyVisible(emptyFrame);
+        setText("vision-debug-primary-reason", displayMessage);
+        updateVisionDebugPreprocessHint({ succeeded: false, message: displayMessage });
     }
 
     function renderVisionDebugBoxes(snapshot) {
@@ -3390,7 +3599,9 @@
         runVisionDebugBatch,
         verifyDiagnosticPackage,
         saveVisionDebugParams,
+        applySelectedVisionDebugTemplate,
         applyVisionDebugTemplate,
+        showVisionDebugLocalImageNotice,
         startSystem,
         handleCommandDispatched,
         setStartSystemButtonState,
@@ -3457,6 +3668,10 @@
         }
         if (target?.id === "vision-debug-preprocess-mode") {
             updateVisionDebugPreprocessHint();
+        }
+        if (target?.id === "vision-debug-rule-set") {
+            updateVisionDebugRuleSummary();
+            validateVisionDebugRuleJson(false);
         }
     });
 
@@ -5687,12 +5902,12 @@
         create_replay_dataset: "创建回放数据集",
         preview_replay_dataset: "预览回放数据集",
         query_replay_datasets: "查询回放数据集",
-        run_replay_comparison: "运行回放对比",
+        run_replay_comparison: "对比新旧模型",
         cancel_replay_run: "取消回放运行",
         query_replay_runs: "查询回放运行",
         query_replay_report: "查询回放报告",
-        query_model_approval_evidence: "查询模型审批凭证",
-        run_replay_integrity_scan: "运行回放完整性扫描",
+        query_model_approval_evidence: "查询模型验证记录",
+        run_replay_integrity_scan: "运行验证记录扫描",
         approve_replay_candidate: "审批候选模型",
         query_manual_review_records: "查询人工复核记录",
         save_manual_review: "保存人工复核",
@@ -6701,7 +6916,7 @@
     function createReplayDataset() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("create_replay_dataset", payload);
-        setReplayPanelStatus("replay-run-status", `固化中 ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `生成验证样本集 ${requestId}`);
     }
 
     function previewReplayDataset() {
@@ -6723,7 +6938,7 @@
     function runReplayComparison() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("run_replay_comparison", payload);
-        setReplayPanelStatus("replay-run-status", `回放中 ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `对比新旧模型 ${requestId}`);
     }
 
     function cancelReplayRun() {
@@ -6743,7 +6958,7 @@
 
     function queryModelApprovalEvidence() {
         const requestId = bridge.sendCommand("query_model_approval_evidence", getReplayPanelPayload());
-        setReplayPanelStatus("replay-approval-status", `查询凭证 ${requestId}`);
+        setReplayPanelStatus("replay-approval-status", `查询验证记录 ${requestId}`);
     }
 
     function runReplayIntegrityScan() {
@@ -6754,7 +6969,7 @@
     function approveReplayCandidate() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("approve_replay_candidate", payload);
-        setReplayPanelStatus("replay-approval-status", `审批中 ${requestId}`);
+        setReplayPanelStatus("replay-approval-status", `确认上线 ${requestId}`);
     }
 
     Object.assign(window, {
@@ -7075,7 +7290,7 @@
 
     function updateOperatorStatus() {
         const settings = getCurrentSettings();
-        const operatorId = String(settings.CurrentOperatorId || "").trim() || "未设置";
+        const operatorId = String(settings.CurrentOperatorId || "").trim() || "本机操作";
         const role = String(settings.CurrentOperatorRole || "Operator");
         const roleLabel = getRoleLabel(role);
 
@@ -7092,7 +7307,7 @@
         const modal = document.getElementById("manual-release-modal");
         if (!modal) return;
 
-        const operatorId = String(settings.CurrentOperatorId || "").trim() || "未设置";
+        const operatorId = String(settings.CurrentOperatorId || "").trim() || "本机操作";
         const role = String(settings.CurrentOperatorRole || "Operator");
         const inspectionId = String(inspection.inspectionId || inspection.InspectionId || "").trim() || "-";
         const requestId = `manual-release-${Date.now().toString(36)}`;

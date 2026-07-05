@@ -435,7 +435,7 @@ public class DiagnosticPackageExporterTests
             advice.RootElement.GetArrayLength().Should().BeGreaterThan(0);
             advice.RootElement.EnumerateArray().Should().Contain(item =>
                 item.GetProperty("Code").GetString() == "StartupBlocked" &&
-                item.GetProperty("Advice").GetString()!.Contains("审批", StringComparison.OrdinalIgnoreCase));
+                item.GetProperty("Advice").GetString()!.Contains("模型验证", StringComparison.OrdinalIgnoreCase));
 
             string report = ReadEntry(zip, "field_report.md");
             report.Should().Contain("package-model@2#bbbbbbbbbbbb");

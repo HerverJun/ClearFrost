@@ -75,6 +75,14 @@ namespace ClearFrost.Services
                 {
                     items.Add(CheckReplayEvidenceGate(config, modelRegistry, approvalEvidenceValidator));
                 }
+                else
+                {
+                    items.Add(Pass(
+                        "Model approval mode",
+                        OperatorFaultMessages.FieldLightweightModeSummary,
+                        "RequireApprovedModelsForProduction=false",
+                        isBlocking: false));
+                }
             }
 
             CurrentReport = new StartupDiagnosticReport
@@ -367,7 +375,7 @@ namespace ClearFrost.Services
             {
                 return Fail(
                     "Replay evidence gate",
-                    "Replay evidence gate is not configured.",
+                    OperatorFaultMessages.StrictModelGateBlocked,
                     "RequireApprovedModelsForProduction=true",
                     isBlocking: true);
             }
@@ -386,7 +394,7 @@ namespace ClearFrost.Services
                     {
                         return Fail(
                             "Replay evidence gate",
-                            "Primary model reference is empty.",
+                            OperatorFaultMessages.ForCode("PrimaryModelReferenceEmpty"),
                             "RequireApprovedModelsForProduction=true",
                             isBlocking: true);
                     }
@@ -401,7 +409,7 @@ namespace ClearFrost.Services
                 {
                     return Fail(
                         "Replay evidence gate",
-                        "Configured model reference cannot be resolved.",
+                        OperatorFaultMessages.StrictModelGateBlocked,
                         $"{slot.Role}: {resolved.ErrorCode} {resolved.Message}",
                         isBlocking: true);
                 }
@@ -411,7 +419,7 @@ namespace ClearFrost.Services
                 {
                     return Fail(
                         "Replay evidence gate",
-                        "Approved model evidence validation failed.",
+                        OperatorFaultMessages.StrictModelGateBlocked,
                         $"{slot.Role} {resolved.Entry.ModelId}/{resolved.Entry.Version}: {result.ErrorCode} {result.Message}",
                         isBlocking: true);
                 }

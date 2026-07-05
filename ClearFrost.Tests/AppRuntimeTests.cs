@@ -187,7 +187,7 @@ namespace ClearFrost.Tests
                     item.Name == "Replay evidence gate" &&
                     item.Status == StartupDiagnosticStatus.Fail &&
                     item.IsBlocking &&
-                    item.Message.Contains("Primary model reference is empty", StringComparison.OrdinalIgnoreCase));
+                    item.Message.Contains("模型未加载", StringComparison.OrdinalIgnoreCase));
 
                 await runtime.DisposeAsync();
             }

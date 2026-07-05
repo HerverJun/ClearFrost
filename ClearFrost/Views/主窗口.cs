@@ -120,6 +120,10 @@ namespace ClearFrost
                 int warningCount = report.Items.Count(i => i.Status == StartupDiagnosticStatus.Warning);
                 _storageService.WriteStartupLog(
                     $"StartupDiagnostics Ready={report.IsReady}, Fail={failCount}, Warning={warningCount}");
+                if (!_appConfig.RequireApprovedModelsForProduction)
+                {
+                    _storageService.WriteStartupLog(OperatorFaultMessages.FieldLightweightModeSummary);
+                }
 
                 foreach (StartupDiagnosticItem item in report.Items)
                 {
@@ -168,13 +172,7 @@ namespace ClearFrost
                 return true;
             }
 
-            string summary = _appRuntime.StartupBlockingSummary;
-            if (string.IsNullOrWhiteSpace(summary))
-            {
-                summary = "启动诊断存在阻塞项";
-            }
-
-            string message = $"启动诊断未通过，已阻止{operation}: {summary}";
+            string message = OperatorFaultMessages.ForStartupReport(refreshedReport, operation);
             RecordHealthError("StartupDiagnostics", message, inspectionId);
             await _uiController.LogToFrontend(message, "error");
             return false;

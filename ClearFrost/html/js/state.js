@@ -98,12 +98,18 @@
         CaptureFrameFailed: "检查相机连接/曝光/触发线",
         NoBarcode: "检查 PLC 条码地址或扫码枪",
         BarcodeReadFailed: "检查 PLC 通讯、条码地址或扫码枪",
-        PlcNotConnected: "检查 PLC 网络/IP/端口及通讯线",
+        PlcNotConnected: "PLC 未连接：请检查 PLC IP、端口和网线。",
         PlcWriteFailed: "检查 PLC 结果地址、写入权限或握手时序",
         PlcWriteException: "检查 PLC 通讯、地址配置或驱动状态",
         DetectionServiceError: "检查模型文件、GPU 推理环境或输入图像",
         DetectionCycleException: "检查检测规则、ROI、模型配置或运行日志",
         UnhandledDetectionException: "查看系统日志并联系维护人员",
+        ReplayEvidenceGateMissing: "当前模型未完成上线验证，请联系工程师完成模型验证，或切换回已验证模型。",
+        ReplayEvidencePackageRequired: "当前模型未完成上线验证，请联系工程师完成模型验证，或切换回已验证模型。",
+        PrimaryModelReferenceEmpty: "模型未加载：请先在左侧选择主模型。",
+        ModelNotLoaded: "模型未加载：请先在左侧选择主模型。",
+        CameraNotReady: "相机未启动：请点击右下角“启动系统”，或检查相机网线/电源。",
+        StartupBlocked: "当前还不能生产：请先处理诊断中心列出的待处理问题。",
     });
 
     const StageFallbackAdviceMap = Object.freeze({

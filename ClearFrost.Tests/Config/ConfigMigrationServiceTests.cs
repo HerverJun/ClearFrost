@@ -246,6 +246,54 @@ public class ConfigMigrationServiceTests
     }
 
     [Fact]
+    public void Import_V5风格Config缺少审批字段时不会自动开启审批()
+    {
+        WithRuntimeRoot(root =>
+        {
+            string configPath = Path.Combine(root, "v5-config.json");
+            File.WriteAllText(configPath, """
+                {
+                  "PlcIp": "192.168.10.30",
+                  "CurrentModelFileName": "legacy.onnx",
+                  "StoragePath": "C:\\GreeVisionData"
+                }
+                """);
+            var current = CreateFieldConfig(plcNgValue: 0, serialNumber: "SN-OLD", exposure: 1000);
+            current.RequireApprovedModelsForProduction = true;
+
+            ConfigMigrationImportResult result = ConfigMigrationService.ImportFromFile(configPath, current);
+
+            result.Kind.Should().Be(ConfigMigrationImportKind.AppConfig);
+            current.RequireApprovedModelsForProduction.Should().BeFalse();
+            AppConfig.Load().RequireApprovedModelsForProduction.Should().BeFalse();
+        });
+    }
+
+    [Fact]
+    public void Import_V6Config显式开启审批时保留用户选择()
+    {
+        WithRuntimeRoot(root =>
+        {
+            string configPath = Path.Combine(root, "v6-config.json");
+            File.WriteAllText(configPath, """
+                {
+                  "PlcIp": "192.168.10.31",
+                  "RequireApprovedModelsForProduction": true,
+                  "StrictModelPackageMode": false
+                }
+                """);
+            var current = CreateFieldConfig(plcNgValue: 0, serialNumber: "SN-OLD", exposure: 1000);
+            current.RequireApprovedModelsForProduction = false;
+
+            ConfigMigrationService.ImportFromFile(configPath, current);
+
+            current.RequireApprovedModelsForProduction.Should().BeTrue();
+            current.StrictModelPackageMode.Should().BeFalse();
+            AppConfig.Load().RequireApprovedModelsForProduction.Should().BeTrue();
+        });
+    }
+
+    [Fact]
     public void Import_拒绝链接运行配置且不修改外部配置()
     {
         WithRuntimeRoot(root =>

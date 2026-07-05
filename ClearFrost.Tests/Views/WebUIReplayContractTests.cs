@@ -60,6 +60,12 @@ public class WebUIReplayContractTests
         historyJs.Should().Contain("approve_replay_candidate");
         historyJs.Should().Contain("requestId");
         indexHtml.Should().Contain("replay-acceptance-panel");
+        indexHtml.Should().Contain("工程师：模型回放验证");
+        indexHtml.Should().Contain("模型上线验证");
+        indexHtml.Should().Contain("生成验证样本集");
+        indexHtml.Should().Contain("对比新旧模型");
+        indexHtml.Should().Contain("确认新模型可上线");
+        indexHtml.Should().Contain("验证记录");
         indexHtml.Should().Contain("manual-review-ground-truth-input");
         indexHtml.Should().Contain("replay-baseline-model");
         indexHtml.Should().Contain("replay-candidate-model");

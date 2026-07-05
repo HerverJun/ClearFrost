@@ -206,7 +206,11 @@ public class StartupDiagnosticsTests
         string tempDir = CreateTempDirectory();
         try
         {
-            var config = new AppConfig { StoragePath = tempDir };
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = true
+            };
             using var storage = new StorageService(tempDir);
 
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
@@ -219,6 +223,38 @@ public class StartupDiagnosticsTests
                 i.Status == StartupDiagnosticStatus.Fail &&
                 i.IsBlocking);
             report.IsReady.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_轻量模式写入非阻塞诊断摘要()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry(),
+                PassGate);
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Model approval mode" &&
+                i.Status == StartupDiagnosticStatus.Pass &&
+                !i.IsBlocking &&
+                i.Message == OperatorFaultMessages.FieldLightweightModeSummary);
+            report.IsReady.Should().BeTrue();
         }
         finally
         {

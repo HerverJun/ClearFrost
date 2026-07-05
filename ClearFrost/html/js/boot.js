@@ -103,7 +103,7 @@
 
     function updateOperatorStatus() {
         const settings = getCurrentSettings();
-        const operatorId = String(settings.CurrentOperatorId || "").trim() || "未设置";
+        const operatorId = String(settings.CurrentOperatorId || "").trim() || "本机操作";
         const role = String(settings.CurrentOperatorRole || "Operator");
         const roleLabel = getRoleLabel(role);
 
@@ -120,7 +120,7 @@
         const modal = document.getElementById("manual-release-modal");
         if (!modal) return;
 
-        const operatorId = String(settings.CurrentOperatorId || "").trim() || "未设置";
+        const operatorId = String(settings.CurrentOperatorId || "").trim() || "本机操作";
         const role = String(settings.CurrentOperatorRole || "Operator");
         const inspectionId = String(inspection.inspectionId || inspection.InspectionId || "").trim() || "-";
         const requestId = `manual-release-${Date.now().toString(36)}`;

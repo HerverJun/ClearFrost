@@ -25,12 +25,12 @@
         create_replay_dataset: "创建回放数据集",
         preview_replay_dataset: "预览回放数据集",
         query_replay_datasets: "查询回放数据集",
-        run_replay_comparison: "运行回放对比",
+        run_replay_comparison: "对比新旧模型",
         cancel_replay_run: "取消回放运行",
         query_replay_runs: "查询回放运行",
         query_replay_report: "查询回放报告",
-        query_model_approval_evidence: "查询模型审批凭证",
-        run_replay_integrity_scan: "运行回放完整性扫描",
+        query_model_approval_evidence: "查询模型验证记录",
+        run_replay_integrity_scan: "运行验证记录扫描",
         approve_replay_candidate: "审批候选模型",
         query_manual_review_records: "查询人工复核记录",
         save_manual_review: "保存人工复核",
@@ -1039,7 +1039,7 @@
     function createReplayDataset() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("create_replay_dataset", payload);
-        setReplayPanelStatus("replay-run-status", `固化中 ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `生成验证样本集 ${requestId}`);
     }
 
     function previewReplayDataset() {
@@ -1061,7 +1061,7 @@
     function runReplayComparison() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("run_replay_comparison", payload);
-        setReplayPanelStatus("replay-run-status", `回放中 ${requestId}`);
+        setReplayPanelStatus("replay-run-status", `对比新旧模型 ${requestId}`);
     }
 
     function cancelReplayRun() {
@@ -1081,7 +1081,7 @@
 
     function queryModelApprovalEvidence() {
         const requestId = bridge.sendCommand("query_model_approval_evidence", getReplayPanelPayload());
-        setReplayPanelStatus("replay-approval-status", `查询凭证 ${requestId}`);
+        setReplayPanelStatus("replay-approval-status", `查询验证记录 ${requestId}`);
     }
 
     function runReplayIntegrityScan() {
@@ -1092,7 +1092,7 @@
     function approveReplayCandidate() {
         const payload = getReplayPanelPayload();
         const requestId = bridge.sendCommand("approve_replay_candidate", payload);
-        setReplayPanelStatus("replay-approval-status", `审批中 ${requestId}`);
+        setReplayPanelStatus("replay-approval-status", `确认上线 ${requestId}`);
     }
 
     Object.assign(window, {

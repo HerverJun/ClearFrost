@@ -574,6 +574,109 @@ public class ProductionModelActivationServiceTests
     }
 
     [Fact]
+    public async Task ActivatePrimaryAsync_轻量模式LegacyOnnx缺少EvidenceGate仍可上线()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string onnxDir = Path.Combine(tempDir, "ONNX");
+            Directory.CreateDirectory(onnxDir);
+            string modelPath = Path.Combine(onnxDir, "legacy-field.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 8, 6, 7, 5, 3, 0, 9 });
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false
+            };
+            var registry = new ModelRegistry();
+            var recipeManager = new RecipeManager(Path.Combine(tempDir, "recipe.json"));
+            recipeManager.LoadOrCreateDefault(config);
+            var detection = new FakeDetectionService();
+            ProductionModelActivationService service = CreateService(
+                config,
+                registry,
+                recipeManager,
+                detection,
+                Path.Combine(tempDir, "packages"),
+                refreshRegistry: () => registry.Scan(new ModelRegistryScanOptions
+                {
+                    OnnxDirectory = onnxDir,
+                    RequireProductionApproval = false
+                }),
+                omitApprovalEvidenceValidator: true);
+
+            IReadOnlyList<ProductionModelSelectionOption> options = service.GetSelectionOptions();
+            options.Should().ContainSingle();
+            ProductionModelSelectionOption option = options[0];
+
+            ProductionModelActivationResult activation = await service.ActivatePrimaryAsync(
+                option.Value,
+                "field lightweight",
+                useGpu: false,
+                gpuIndex: 0);
+
+            activation.Succeeded.Should().BeTrue();
+            activation.ErrorCode.Should().BeEmpty();
+            detection.RuntimeModelSnapshot.Primary.ModelPath.Should().Be(Path.GetFullPath(modelPath));
+            service.EnsureReadyForProduction().Succeeded.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ActivatePrimaryAsync_严格模式LegacyOnnx仍被拒绝()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string onnxDir = Path.Combine(tempDir, "ONNX");
+            Directory.CreateDirectory(onnxDir);
+            string modelPath = Path.Combine(onnxDir, "legacy-strict.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 1, 1, 2, 3, 5, 8 });
+            string modelHash = ComputeSha256(modelPath);
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = true
+            };
+            var registry = new ModelRegistry();
+            var recipeManager = new RecipeManager(Path.Combine(tempDir, "recipe.json"));
+            recipeManager.LoadOrCreateDefault(config);
+            var detection = new FakeDetectionService();
+            ProductionModelActivationService service = CreateService(
+                config,
+                registry,
+                recipeManager,
+                detection,
+                Path.Combine(tempDir, "packages"),
+                refreshRegistry: () => registry.Scan(new ModelRegistryScanOptions
+                {
+                    OnnxDirectory = onnxDir,
+                    RequireProductionApproval = true
+                }));
+            service.GetSelectionOptions().Should().BeEmpty();
+            ProductionModelReference legacyReference = ProductionModelReference.FromLegacyOnnx("legacy-strict.onnx", modelHash);
+
+            ProductionModelActivationResult activation = await service.ActivatePrimaryAsync(
+                legacyReference.ToSelectionValue(),
+                "strict legacy",
+                useGpu: false,
+                gpuIndex: 0);
+
+            activation.Succeeded.Should().BeFalse();
+            activation.ErrorCode.Should().Be("LegacyModelNotAllowed");
+            detection.RuntimeModelSnapshot.Primary.IsLoaded.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task EnsureReadyForProduction_持久化配方为链接文件时阻断生产()
     {
         string tempDir = CreateTempDirectory();

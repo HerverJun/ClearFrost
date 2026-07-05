@@ -69,7 +69,7 @@ namespace ClearFrost
                 }
 
                 await _uiController.LogToFrontend(
-                    $"模型加载失败: [{result.ErrorCode}] {result.Message}{FormatCompensationFailures(result)}",
+                    $"{OperatorFaultMessages.ForActivationFailure(result.ErrorCode, result.Message)}{FormatCompensationFailures(result)}",
                     result.IsFaulted ? "error" : "warning");
             }
             catch (Exception ex)
@@ -88,7 +88,7 @@ namespace ClearFrost
             if (!result.Succeeded)
             {
                 await _uiController.LogToFrontend(
-                    $"辅助模型恢复失败: [{result.ErrorCode}] {result.Message}{FormatCompensationFailures(result)}",
+                    $"{OperatorFaultMessages.ForActivationFailure(result.ErrorCode, result.Message)}{FormatCompensationFailures(result)}",
                     result.IsFaulted ? "error" : "warning");
             }
         }
@@ -1066,7 +1066,7 @@ namespace ClearFrost
                 else
                 {
                     await _uiController.LogToFrontend(
-                        $"模型切换失败: [{activation.ErrorCode}] {activation.Message}{FormatCompensationFailures(activation)}",
+                        $"{OperatorFaultMessages.ForActivationFailure(activation.ErrorCode, activation.Message)}{FormatCompensationFailures(activation)}",
                         "error");
                 }
             }

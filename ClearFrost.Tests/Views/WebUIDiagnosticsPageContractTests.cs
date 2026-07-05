@@ -19,10 +19,19 @@ public class WebUIDiagnosticsPageContractTests
         foreach (string htmlToken in new[]
         {
             "field-diagnostics-modal",
-            "诊断/调试",
+            "现场诊断",
+            "现场体检面板",
             "diag-camera-status",
             "diag-plc-status",
             "diag-current-model",
+            "diag-storage-status",
+            "diag-production-readiness",
+            "diag-production-guidance",
+            "当前是否可以生产",
+            "待处理问题",
+            "常用操作",
+            "工程师详情（高级）",
+            "供视觉/设备工程师排查使用，一线操作无需关注。",
             "diag-last-inspection-id",
             "diag-p95",
             "diag-p99",
@@ -75,6 +84,8 @@ public class WebUIDiagnosticsPageContractTests
         renderMainJs.Should().Contain("renderModelSlotChecklist");
         renderMainJs.Should().Contain("renderAuditChainChecklist");
         renderMainJs.Should().Contain("renderMaintenanceAdviceList");
+        renderMainJs.Should().Contain("下一步：");
+        renderMainJs.Should().NotContain("const evidence = item.evidence || item.Evidence");
         renderMainJs.Should().Contain("renderMaintenanceAdviceHistory");
         renderMainJs.Should().Contain("renderShiftTaskBoard");
         renderMainJs.Should().Contain("acknowledgeShiftTask");
@@ -108,6 +119,8 @@ public class WebUIDiagnosticsPageContractTests
         bundleJs.Should().Contain("renderFieldAcceptanceChecklist");
         bundleJs.Should().Contain("renderAuditChainChecklist");
         bundleJs.Should().Contain("renderMaintenanceAdviceList");
+        bundleJs.Should().Contain("下一步：");
+        bundleJs.Should().NotContain("const evidence = item.evidence || item.Evidence");
         bundleJs.Should().Contain("renderMaintenanceAdviceHistory");
         bundleJs.Should().Contain("renderShiftTaskBoard");
         bundleJs.Should().Contain("acknowledgeShiftTask");

@@ -48,6 +48,7 @@ public class AppConfigTests
         config.IouThreshold.Should().BeApproximately(0.3f, 0.001f);
         config.ModelPackageDirectory.Should().Be("models");
         config.StrictModelPackageMode.Should().BeFalse();
+        config.RequireApprovedModelsForProduction.Should().BeFalse();
         config.IsDebugMode.Should().BeFalse();
         config.TargetCount.Should().Be(4);
         config.VisionMode.Should().Be(0);
@@ -96,6 +97,7 @@ public class AppConfigTests
         config!.OnDeserialized();
 
         config.PlcProtocolMode.Should().Be(PlcProtocolMode.Legacy);
+        config.RequireApprovedModelsForProduction.Should().BeFalse();
         config.PlcTriggerSeqAddress.Should().Be("D557");
         config.PlcVisionBusyAddress.Should().Be("D561");
         config.BarcodeAddress.Should().Be("D570");
@@ -500,6 +502,39 @@ public class AppConfigTests
             .Throw<TargetInvocationException>()
             .WithInnerException<InvalidOperationException>()
             .WithMessage("*判定规则配置 JSON 无效*");
+    }
+
+    [Fact]
+    public void 严格模型审批_旧配置缺失字段时默认不自动开启()
+    {
+        const string json = """
+        {
+          "PlcIp": "192.168.1.20",
+          "CurrentModelFileName": "legacy.onnx"
+        }
+        """;
+
+        AppConfig config = AppConfig.FromJson(json);
+
+        config.RequireApprovedModelsForProduction.Should().BeFalse();
+        config.StrictModelPackageMode.Should().BeFalse();
+    }
+
+    [Fact]
+    public void 严格模型审批_已有V6显式开启时保留用户选择()
+    {
+        const string json = """
+        {
+          "RequireApprovedModelsForProduction": true,
+          "StrictModelPackageMode": false,
+          "CurrentModelFileName": "approved.onnx"
+        }
+        """;
+
+        AppConfig config = AppConfig.FromJson(json);
+
+        config.RequireApprovedModelsForProduction.Should().BeTrue();
+        config.StrictModelPackageMode.Should().BeFalse();
     }
 
     [Fact]
