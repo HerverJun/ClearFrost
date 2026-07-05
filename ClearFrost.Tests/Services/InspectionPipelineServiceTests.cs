@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using ClearFrost.Config;
 using ClearFrost.Core.Inspection;
@@ -145,6 +146,103 @@ public class InspectionPipelineServiceTests
             database.SavedRecords[0].IsQualified.Should().BeFalse();
             database.SavedRecords[0].ErrorCode.Should().Be("NoBarcode");
             database.SavedRecords[0].TraceStatus.Should().Be(TraceStatus.Partial);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_模型追溯优先按运行时路径解析()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "packages");
+            string packageDir = Path.Combine(packageRoot, "packaged-model");
+            string bareOnnxDir = Path.Combine(tempDir, "onnx");
+            Directory.CreateDirectory(packageDir);
+            Directory.CreateDirectory(bareOnnxDir);
+
+            string packageModelPath = Path.Combine(packageDir, "model.onnx");
+            string bareModelPath = Path.Combine(bareOnnxDir, "model.onnx");
+            File.WriteAllBytes(packageModelPath, new byte[] { 1, 2, 3, 4 });
+            File.WriteAllBytes(bareModelPath, new byte[] { 9, 8, 7, 6 });
+            string packageHash = ComputeSha256(packageModelPath);
+            string bareHash = ComputeSha256(bareModelPath);
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                System.Text.Json.JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "packaged-model",
+                    Version = "2026.07",
+                    ModelFileName = "model.onnx",
+                    ModelHash = packageHash,
+                    Labels = new List<string> { "part" },
+                    TaskType = "Detect",
+                    InputWidth = 640,
+                    InputHeight = 640
+                }));
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                OnnxDirectory = bareOnnxDir
+            });
+            registry.Resolve("model.onnx")!.ModelId.Should().Be("packaged-model");
+
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            var camera = new FakeCameraService(new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService();
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
+                    UsedModelName = "model.onnx",
+                    UsedModelLabels = new[] { "part" }
+                },
+                RuntimeModelSnapshot = new DetectionRuntimeModelSnapshot
+                {
+                    Primary = new DetectionModelSlotSnapshot
+                    {
+                        Role = ModelRole.Primary,
+                        IsLoaded = true,
+                        ModelPath = bareModelPath
+                    }
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue,
+                modelRegistry: registry);
+            InspectionContext context = CreateContext("CF-MODEL-TRACE", triggerSeq: null);
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("手动", context.InspectionId, context.TriggerSeq, context),
+                default);
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeTrue();
+            database.SavedRecords.Should().ContainSingle();
+            DetectionRecord record = database.SavedRecords[0];
+            record.UsedModelName.Should().Be("model.onnx");
+            record.ModelId.Should().Be("model");
+            record.ModelVersion.Should().Be("legacy");
+            record.ModelHash.Should().Be(bareHash);
         }
         finally
         {
@@ -585,12 +683,13 @@ public class InspectionPipelineServiceTests
         RecordingDatabaseService database,
         ImageSaveQueue imageQueue,
         DetectionRecordQueue recordQueue,
-        float[]? roiSnapshot = null)
+        float[]? roiSnapshot = null,
+        ModelRegistry? modelRegistry = null)
     {
         var storage = new FakeStorageService(config.StoragePath);
         var recipeManager = new RecipeManager(Path.Combine(config.StoragePath, "default_recipe.json"));
         recipeManager.LoadOrCreateDefault(config);
-        var modelRegistry = new ModelRegistry();
+        modelRegistry ??= new ModelRegistry();
         var healthMonitor = new HealthMonitor(
             camera,
             plc,
@@ -662,6 +761,13 @@ public class InspectionPipelineServiceTests
         var result = new YoloResult();
         result.SetDetectionData(centerX, centerY, width, height, confidence, classId);
         return result;
+    }
+
+    private static string ComputeSha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var sha256 = SHA256.Create();
+        return Convert.ToHexString(sha256.ComputeHash(stream)).ToLowerInvariant();
     }
 
     private static string CreateTempDirectory()
@@ -847,7 +953,7 @@ public class InspectionPipelineServiceTests
         public IReadOnlyList<string> AvailableModels => Array.Empty<string>();
         public long LastInferenceMs => 0;
         public DetectionRuntimeStatus RuntimeStatus { get; } = new DetectionRuntimeStatus();
-        public DetectionRuntimeModelSnapshot RuntimeModelSnapshot { get; } = new DetectionRuntimeModelSnapshot();
+        public DetectionRuntimeModelSnapshot RuntimeModelSnapshot { get; init; } = new DetectionRuntimeModelSnapshot();
 
         public Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
         public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);

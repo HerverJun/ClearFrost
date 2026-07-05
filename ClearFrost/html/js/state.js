@@ -40,7 +40,11 @@
         },
         fieldDebug: {},
         visionDebug: {},
+        maintenanceAdviceHistory: [],
         diagnosticPackage: {},
+        diagnosticPackageHistory: [],
+        fieldHandoffReport: {},
+        fieldHandoffReportHistory: [],
         metrics: {},
         previewFrameId: 0,
         previewFrame: {},
@@ -63,7 +67,11 @@
     state.manualReview.lastResponse = state.manualReview.lastResponse || {};
     state.fieldDebug = state.fieldDebug || {};
     state.visionDebug = state.visionDebug || {};
+    state.maintenanceAdviceHistory = state.maintenanceAdviceHistory || [];
     state.diagnosticPackage = state.diagnosticPackage || {};
+    state.diagnosticPackageHistory = state.diagnosticPackageHistory || [];
+    state.fieldHandoffReport = state.fieldHandoffReport || {};
+    state.fieldHandoffReportHistory = state.fieldHandoffReportHistory || [];
     state.previewFrame = state.previewFrame || {};
     window.CF_STATE = state;
 
@@ -408,6 +416,10 @@
     function applyHealthSnapshot(snapshot) {
         if (!snapshot) return;
         state.health = snapshot;
+        const adviceHistory = pickValue(snapshot, "maintenanceAdviceHistory", "MaintenanceAdviceHistory");
+        if (Array.isArray(adviceHistory)) {
+            state.maintenanceAdviceHistory = adviceHistory;
+        }
         notify("health");
     }
 
@@ -440,6 +452,138 @@
         state.diagnosticPackage = {
             ...(state.diagnosticPackage || {}),
             ...payload,
+        };
+        notify("fieldDebug");
+    }
+
+    function applyDiagnosticPackageHistoryResult(payload) {
+        if (!payload) return;
+        const packages = pickValue(payload, "packages", "Packages");
+        state.diagnosticPackageHistory = Array.isArray(packages) ? packages : [];
+        state.diagnosticPackageHistoryStatus = {
+            succeeded: pickValue(payload, "succeeded", "Succeeded"),
+            message: pickValue(payload, "message", "Message") || "",
+            updatedAt: new Date().toISOString(),
+        };
+        notify("fieldDebug");
+    }
+
+    function applyDiagnosticPackageVerificationResult(payload) {
+        if (!payload) return;
+        state.diagnosticPackage = {
+            ...(state.diagnosticPackage || {}),
+            ...payload,
+        };
+
+        const verifiedPath = String(pickValue(payload, "path", "Path") || "");
+        if (verifiedPath && Array.isArray(state.diagnosticPackageHistory)) {
+            state.diagnosticPackageHistory = state.diagnosticPackageHistory.map((item) => {
+                const itemPath = String(pickValue(item, "packagePath", "PackagePath", "path", "Path") || "");
+                if (itemPath.toLowerCase() !== verifiedPath.toLowerCase()) return item;
+                return {
+                    ...item,
+                    integrityStatus: pickValue(payload, "integrityStatus", "IntegrityStatus") || item.integrityStatus || item.IntegrityStatus,
+                    verifiedEntryCount: pickValue(payload, "verifiedEntryCount", "VerifiedEntryCount"),
+                    integrityEntryCount: pickValue(payload, "integrityEntryCount", "IntegrityEntryCount"),
+                    integrityFindingCount: pickValue(payload, "integrityFindingCount", "IntegrityFindingCount"),
+                    verifiedAt: pickValue(payload, "verifiedAt", "VerifiedAt"),
+                    packageSha256: pickValue(payload, "packageSha256", "PackageSha256"),
+                    indexSha256: pickValue(payload, "indexSha256", "IndexSha256"),
+                };
+            });
+        }
+
+        notify("fieldDebug");
+    }
+
+    function applyMaintenanceAdviceActionResult(payload) {
+        if (!payload) return;
+        const history = pickValue(payload, "history", "History");
+        if (Array.isArray(history)) {
+            state.maintenanceAdviceHistory = history;
+        }
+
+        state.maintenanceAdviceAction = {
+            succeeded: pickValue(payload, "succeeded", "Succeeded"),
+            cleared: pickValue(payload, "cleared", "Cleared"),
+            adviceId: pickValue(payload, "adviceId", "AdviceId"),
+            status: pickValue(payload, "status", "Status"),
+            message: pickValue(payload, "message", "Message") || "",
+            record: pickValue(payload, "record", "Record") || null,
+            updatedAt: new Date().toISOString(),
+        };
+        notify("fieldDebug");
+    }
+
+    function applyShiftTaskActionResult(payload) {
+        if (!payload) return;
+        const history = pickValue(payload, "history", "History");
+        if (Array.isArray(history)) {
+            state.maintenanceAdviceHistory = history;
+        }
+
+        const tasks = pickValue(payload, "tasks", "Tasks");
+        if (Array.isArray(tasks)) {
+            state.health = {
+                ...(state.health || {}),
+                shiftTasks: tasks,
+                ShiftTasks: tasks,
+            };
+        }
+
+        state.shiftTaskAction = {
+            succeeded: pickValue(payload, "succeeded", "Succeeded"),
+            cleared: pickValue(payload, "cleared", "Cleared"),
+            taskId: pickValue(payload, "taskId", "TaskId"),
+            linkedAdviceId: pickValue(payload, "linkedAdviceId", "LinkedAdviceId"),
+            status: pickValue(payload, "status", "Status"),
+            message: pickValue(payload, "message", "Message") || "",
+            record: pickValue(payload, "record", "Record") || null,
+            updatedAt: new Date().toISOString(),
+        };
+        notify("fieldDebug");
+    }
+
+    function applyFieldHandoffReportResult(payload) {
+        if (!payload) return;
+        state.fieldHandoffReport = {
+            ...(state.fieldHandoffReport || {}),
+            ...payload,
+            updatedAt: new Date().toISOString(),
+        };
+
+        const succeeded = pickValue(payload, "succeeded", "Succeeded") !== false;
+        const path = pickValue(payload, "path", "Path", "reportPath", "ReportPath") || "";
+        if (succeeded && path) {
+            const report = {
+                reportPath: path,
+                fileName: pickValue(payload, "fileName", "FileName") || String(path).split(/[\\/]/).pop() || "",
+                sizeBytes: pickValue(payload, "sizeBytes", "SizeBytes") || 0,
+                generatedAt: pickValue(payload, "generatedAt", "GeneratedAt") || "",
+                lastWriteTime: pickValue(payload, "generatedAt", "GeneratedAt") || "",
+                overallStatus: pickValue(payload, "overallStatus", "OverallStatus") || "Pending",
+                shiftTaskCount: pickValue(payload, "shiftTaskCount", "ShiftTaskCount") || 0,
+            };
+            const normalizedPath = String(path).toLowerCase();
+            state.fieldHandoffReportHistory = [
+                report,
+                ...(state.fieldHandoffReportHistory || []).filter((item) => {
+                    const itemPath = String(pickValue(item, "reportPath", "ReportPath", "path", "Path") || "").toLowerCase();
+                    return itemPath !== normalizedPath;
+                }),
+            ].slice(0, 8);
+        }
+        notify("fieldDebug");
+    }
+
+    function applyFieldHandoffReportHistoryResult(payload) {
+        if (!payload) return;
+        const reports = pickValue(payload, "reports", "Reports");
+        state.fieldHandoffReportHistory = Array.isArray(reports) ? reports : [];
+        state.fieldHandoffReportHistoryStatus = {
+            succeeded: pickValue(payload, "succeeded", "Succeeded"),
+            message: pickValue(payload, "message", "Message") || "",
+            updatedAt: new Date().toISOString(),
         };
         notify("fieldDebug");
     }
@@ -499,6 +643,12 @@
         applyFieldDebugResult,
         applyVisionDebugResult,
         applyDiagnosticPackageExportResult,
+        applyDiagnosticPackageHistoryResult,
+        applyDiagnosticPackageVerificationResult,
+        applyMaintenanceAdviceActionResult,
+        applyShiftTaskActionResult,
+        applyFieldHandoffReportResult,
+        applyFieldHandoffReportHistoryResult,
         applyBootstrapSnapshot,
     };
 })();

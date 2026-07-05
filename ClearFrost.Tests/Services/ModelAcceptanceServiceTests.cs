@@ -121,6 +121,124 @@ public class ModelAcceptanceServiceTests
         }
     }
 
+    [Fact]
+    public void LoadState_拒绝链接生产状态文件且不加载外部内容()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string statePath = Path.Combine(tempDir, "state.json");
+        try
+        {
+            string externalStatePath = Path.Combine(externalDir, "external-state.json");
+            File.WriteAllText(
+                externalStatePath,
+                JsonSerializer.Serialize(new ModelProductionState
+                {
+                    CurrentModelId = "external-model",
+                    CurrentVersion = "external-v1",
+                    CurrentModelPath = Path.Combine(externalDir, "external.onnx")
+                }));
+            if (!TryCreateFileSymbolicLink(statePath, externalStatePath))
+            {
+                return;
+            }
+
+            var service = new ModelAcceptanceService(statePath);
+
+            ModelProductionState state = service.LoadState();
+
+            state.CurrentModelId.Should().BeEmpty();
+            state.CurrentVersion.Should().BeEmpty();
+            state.CurrentModelPath.Should().BeEmpty();
+            File.ReadAllText(externalStatePath).Should().Contain("external-model");
+        }
+        finally
+        {
+            TryDeleteFileLink(statePath);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
+    public void LoadState_拒绝链接父目录下的生产状态文件()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string linkedStateDir = Path.Combine(tempDir, "linked-state");
+        try
+        {
+            string externalStatePath = Path.Combine(externalDir, "state.json");
+            File.WriteAllText(
+                externalStatePath,
+                JsonSerializer.Serialize(new ModelProductionState
+                {
+                    CurrentModelId = "external-parent",
+                    CurrentVersion = "external-v2",
+                    CurrentModelPath = Path.Combine(externalDir, "external.onnx")
+                }));
+            if (!TryCreateDirectorySymbolicLink(linkedStateDir, externalDir))
+            {
+                return;
+            }
+
+            var service = new ModelAcceptanceService(Path.Combine(linkedStateDir, "state.json"));
+
+            ModelProductionState state = service.LoadState();
+
+            state.CurrentModelId.Should().BeEmpty();
+            state.CurrentVersion.Should().BeEmpty();
+            state.CurrentModelPath.Should().BeEmpty();
+            File.ReadAllText(externalStatePath).Should().Contain("external-parent");
+        }
+        finally
+        {
+            TryDeleteDirectoryLink(linkedStateDir);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
+    public void EnableApprovedModel_扫描后模型文件被替换为链接时拒绝()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = CreatePackage(packageRoot, "pkg-linked-after-scan", approved: true);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+            ModelRegistryEntry entry = registry.Resolve("pkg-linked-after-scan")!;
+            string externalModel = Path.Combine(externalDir, "external-model.onnx");
+            File.Copy(modelPath, externalModel);
+            File.Delete(modelPath);
+            if (!TryCreateFileSymbolicLink(modelPath, externalModel))
+            {
+                return;
+            }
+
+            var service = new ModelAcceptanceService(Path.Combine(tempDir, "state.json"));
+            ModelAcceptanceResult result = service.EnableApprovedModel(entry);
+
+            result.Succeeded.Should().BeFalse();
+            result.Message.Should().Contain("链接");
+            File.Exists(externalModel).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
     private static string CreatePackage(string packageRoot, string modelId, bool approved)
     {
         string packageDir = Path.Combine(packageRoot, modelId);
@@ -162,10 +280,88 @@ public class ModelAcceptanceServiceTests
         return path;
     }
 
+    private static bool TryCreateFileSymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = File.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteFileLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new FileInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
+    private static void TryDeleteDirectoryLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new DirectoryInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
     private static void DeleteDirectory(string path)
     {
         if (Directory.Exists(path))
         {
+            var info = new DirectoryInfo(path);
+            info.Refresh();
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+                return;
+            }
+
             Directory.Delete(path, recursive: true);
         }
     }

@@ -2,6 +2,8 @@
 using ClearFrost.Core.Recipes;
 using FluentAssertions;
 
+using System.Text.Json;
+
 namespace ClearFrost.Tests.Core.Recipes;
 
 public class RecipeManagerTests
@@ -152,6 +154,43 @@ public class RecipeManagerTests
     }
 
     [Fact]
+    public void LoadOrCreateDefault_拒绝链接当前配方文件且不加载外部内容()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string recipePath = Path.Combine(tempDir, "default_recipe.json");
+        try
+        {
+            string externalRecipe = Path.Combine(externalDir, "external-recipe.json");
+            File.WriteAllText(externalRecipe, """
+            {
+              "RecipeId": "default",
+              "Version": "external-v1",
+              "TargetLabel": "external"
+            }
+            """);
+            if (!TryCreateFileSymbolicLink(recipePath, externalRecipe))
+            {
+                return;
+            }
+
+            var manager = new RecipeManager(recipePath);
+
+            Action act = () => manager.LoadOrCreateDefault(new AppConfig { TargetLabel = "local" });
+
+            act.Should().Throw<IOException>().WithMessage("*当前配方文件*链接文件*");
+            manager.CurrentRecipe.TargetLabel.Should().BeEmpty();
+            File.ReadAllText(externalRecipe).Should().Contain("external");
+        }
+        finally
+        {
+            TryDeleteFileLink(recipePath);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
     public void Save_会原子备份且Rollback恢复上一版本()
     {
         string tempDir = CreateTempDirectory();
@@ -172,6 +211,79 @@ public class RecipeManagerTests
         finally
         {
             DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void RollbackLastVersion_拒绝链接备份文件且不修改当前配方()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            var manager = new RecipeManager(recipePath);
+            manager.Save(new Recipe { RecipeId = "default", Version = "v1", TargetLabel = "old" });
+            manager.Save(new Recipe { RecipeId = "default", Version = "v2", TargetLabel = "new" });
+
+            string externalBackup = Path.Combine(externalDir, "external-backup.json");
+            File.WriteAllText(externalBackup, """
+            {
+              "RecipeId": "default",
+              "Version": "external",
+              "TargetLabel": "external"
+            }
+            """);
+            File.Delete(manager.BackupPath);
+            if (!TryCreateFileSymbolicLink(manager.BackupPath, externalBackup))
+            {
+                return;
+            }
+
+            Action act = () => manager.RollbackLastVersion();
+
+            act.Should().Throw<IOException>().WithMessage("*配方备份文件*链接文件*");
+            manager.CurrentRecipe.Version.Should().Be("v2");
+            File.ReadAllText(recipePath).Should().Contain("\"v2\"").And.NotContain("external");
+            File.ReadAllText(externalBackup).Should().Contain("external");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
+    public void RollbackLastVersion_拒绝链接当前配方文件且不修改外部文件()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            var manager = new RecipeManager(recipePath);
+            manager.Save(new Recipe { RecipeId = "default", Version = "v1", TargetLabel = "old" });
+            manager.Save(new Recipe { RecipeId = "default", Version = "v2", TargetLabel = "new" });
+
+            string externalRecipe = Path.Combine(externalDir, "external-current.json");
+            File.WriteAllText(externalRecipe, "external current");
+            File.Delete(recipePath);
+            if (!TryCreateFileSymbolicLink(recipePath, externalRecipe))
+            {
+                return;
+            }
+
+            Action act = () => manager.RollbackLastVersion();
+
+            act.Should().Throw<IOException>().WithMessage("*链接文件*");
+            manager.CurrentRecipe.Version.Should().Be("v2");
+            File.ReadAllText(externalRecipe).Should().Be("external current");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
         }
     }
 
@@ -212,6 +324,105 @@ public class RecipeManagerTests
         finally
         {
             DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void TryLoadVersion_拒绝历史指向目录外快照()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            var manager = new RecipeManager(recipePath);
+            manager.SaveNewVersion(new AppConfig { TargetLabel = "local" }, null, "op", "Engineer", "local");
+
+            string externalSnapshot = Path.Combine(externalDir, "external-snapshot.json");
+            File.WriteAllText(externalSnapshot, """
+            {
+              "RecipeId": "default",
+              "Version": "external-v1",
+              "TargetLabel": "external"
+            }
+            """);
+            File.WriteAllText(manager.HistoryPath, $$"""
+            [
+              {
+                "RecipeId": "default",
+                "Version": "external-v1",
+                "CreatedAt": "2026-07-05T00:00:00+00:00",
+                "OperatorId": "attacker",
+                "OperatorRole": "Engineer",
+                "ChangeSummary": "escape",
+                "SnapshotPath": {{JsonSerializer.Serialize(externalSnapshot)}}
+              }
+            ]
+            """);
+
+            bool loaded = manager.TryLoadVersion("default", "external-v1", out Recipe recipe, out string error);
+
+            loaded.Should().BeFalse();
+            error.Should().Contain("outside Versions directory");
+            recipe.TargetLabel.Should().BeEmpty();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
+    public void TryLoadVersion_拒绝链接版本快照文件()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            var manager = new RecipeManager(recipePath);
+            manager.SaveNewVersion(new AppConfig { TargetLabel = "local" }, null, "op", "Engineer", "local");
+
+            string externalSnapshot = Path.Combine(externalDir, "external-snapshot.json");
+            File.WriteAllText(externalSnapshot, """
+            {
+              "RecipeId": "default",
+              "Version": "linked-v1",
+              "TargetLabel": "external"
+            }
+            """);
+            string linkedSnapshot = Path.Combine(manager.VersionsDirectory, "linked-v1.json");
+            if (!TryCreateFileSymbolicLink(linkedSnapshot, externalSnapshot))
+            {
+                return;
+            }
+
+            File.WriteAllText(manager.HistoryPath, $$"""
+            [
+              {
+                "RecipeId": "default",
+                "Version": "linked-v1",
+                "CreatedAt": "2026-07-05T00:00:00+00:00",
+                "OperatorId": "attacker",
+                "OperatorRole": "Engineer",
+                "ChangeSummary": "linked",
+                "SnapshotPath": {{JsonSerializer.Serialize(linkedSnapshot)}}
+              }
+            ]
+            """);
+
+            bool loaded = manager.TryLoadVersion("default", "linked-v1", out Recipe recipe, out string error);
+
+            loaded.Should().BeFalse();
+            error.Should().Contain("链接文件");
+            recipe.TargetLabel.Should().BeEmpty();
+            File.ReadAllText(externalSnapshot).Should().Contain("external");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
         }
     }
 
@@ -391,6 +602,79 @@ public class RecipeManagerTests
         }
     }
 
+    [Fact]
+    public void CaptureTransactionSnapshot_跳过链接版本子目录且不捕获外部快照()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string linkedDirectory = string.Empty;
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            var manager = new RecipeManager(recipePath);
+            manager.SaveNewVersion(new AppConfig { TargetLabel = "local" }, null, "op", "Engineer", "local");
+
+            string externalSnapshot = Path.Combine(externalDir, "external-v1.json");
+            File.WriteAllText(externalSnapshot, """
+            {
+              "RecipeId": "default",
+              "Version": "external-v1",
+              "TargetLabel": "external"
+            }
+            """);
+            linkedDirectory = Path.Combine(manager.VersionsDirectory, "linked-external");
+            if (!TryCreateDirectorySymbolicLink(linkedDirectory, externalDir))
+            {
+                return;
+            }
+
+            RecipeTransactionSnapshot snapshot = manager.CaptureTransactionSnapshot();
+
+            snapshot.VersionFiles.Keys.Should().Contain(key => key.EndsWith(".json", StringComparison.OrdinalIgnoreCase));
+            snapshot.VersionFiles.Keys.Should().NotContain(key => key.Contains("linked-external", StringComparison.OrdinalIgnoreCase));
+            snapshot.VersionFiles.Keys.Should().NotContain(key => key.EndsWith("external-v1.json", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            TryDeleteDirectoryLink(linkedDirectory);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
+    public void CaptureTransactionSnapshot_忽略Versions目录下链接恢复产物()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string linkedDirectory = string.Empty;
+        try
+        {
+            string recipePath = Path.Combine(tempDir, "default_recipe.json");
+            var manager = new RecipeManager(recipePath);
+            manager.SaveNewVersion(new AppConfig { TargetLabel = "local" }, null, "op", "Engineer", "local");
+
+            string externalArtifact = Path.Combine(externalDir, "evil.tmp");
+            File.WriteAllText(externalArtifact, "external artifact");
+            linkedDirectory = Path.Combine(manager.VersionsDirectory, "linked-artifacts");
+            if (!TryCreateDirectorySymbolicLink(linkedDirectory, externalDir))
+            {
+                return;
+            }
+
+            RecipeTransactionSnapshot snapshot = manager.CaptureTransactionSnapshot();
+
+            snapshot.RecoveryArtifactRelativePaths.Should().NotContain(path => path.Contains("linked-artifacts", StringComparison.OrdinalIgnoreCase));
+            snapshot.RecoveryArtifactRelativePaths.Should().NotContain(path => path.EndsWith("evil.tmp", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            TryDeleteDirectoryLink(linkedDirectory);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(RecipeManagerTests), Guid.NewGuid().ToString("N"));
@@ -398,10 +682,88 @@ public class RecipeManagerTests
         return path;
     }
 
+    private static bool TryCreateFileSymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = File.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteDirectoryLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new DirectoryInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
+    private static void TryDeleteFileLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new FileInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
     private static void DeleteDirectory(string path)
     {
         if (Directory.Exists(path))
         {
+            var info = new DirectoryInfo(path);
+            info.Refresh();
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+                return;
+            }
+
             Directory.Delete(path, true);
         }
     }

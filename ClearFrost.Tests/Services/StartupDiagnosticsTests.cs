@@ -354,6 +354,98 @@ public class StartupDiagnosticsTests
     }
 
     [Fact]
+    public void Run_拒绝链接存储目录且不写入外部目标()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string linkedStoragePath = string.Empty;
+        try
+        {
+            linkedStoragePath = Path.Combine(tempDir, "linked-storage");
+            if (!TryCreateDirectorySymbolicLink(linkedStoragePath, externalDir))
+            {
+                return;
+            }
+
+            var config = new AppConfig
+            {
+                StoragePath = linkedStoragePath,
+                RequireApprovedModelsForProduction = false
+            };
+            using var storage = new FakeStorageService(linkedStoragePath);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry(),
+                PassGate);
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Storage directory" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking &&
+                i.Details.Contains("linked", StringComparison.OrdinalIgnoreCase));
+            report.IsReady.Should().BeFalse();
+            Directory.EnumerateFileSystemEntries(externalDir).Should().BeEmpty();
+        }
+        finally
+        {
+            TryDeleteDirectoryLink(linkedStoragePath);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
+    public void Run_会检查关键证据目录可写性()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry(),
+                PassGate);
+
+            report.Items.Should().Contain(i =>
+                i.Name == "System evidence directory" &&
+                i.Status == StartupDiagnosticStatus.Pass &&
+                i.IsBlocking &&
+                i.Details.Contains(storage.SystemPath, StringComparison.OrdinalIgnoreCase));
+            report.Items.Should().Contain(i =>
+                i.Name == "Audit outbox directory" &&
+                i.Status == StartupDiagnosticStatus.Pass &&
+                i.IsBlocking &&
+                i.Details.Contains(Path.Combine(storage.LogBasePath, "Outbox"), StringComparison.OrdinalIgnoreCase));
+            report.Items.Should().Contain(i =>
+                i.Name == "Diagnostic package directory" &&
+                i.Status == StartupDiagnosticStatus.Pass &&
+                !i.IsBlocking &&
+                i.Details.Contains(Path.Combine(storage.LogBasePath, "Diagnostics"), StringComparison.OrdinalIgnoreCase));
+            report.Items.Should().Contain(i =>
+                i.Name == "Handoff report directory" &&
+                i.Status == StartupDiagnosticStatus.Pass &&
+                !i.IsBlocking &&
+                i.Details.Contains(Path.Combine(storage.LogBasePath, "HandoffReports"), StringComparison.OrdinalIgnoreCase));
+            Directory.Exists(Path.Combine(storage.LogBasePath, "Outbox")).Should().BeTrue();
+            Directory.Exists(Path.Combine(storage.LogBasePath, "Diagnostics")).Should().BeTrue();
+            Directory.Exists(Path.Combine(storage.LogBasePath, "HandoffReports")).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void Run_McpX三菱非D区地址会产生阻塞失败()
     {
         string tempDir = CreateTempDirectory();
@@ -433,10 +525,53 @@ public class StartupDiagnosticsTests
         return ProductionModelReadinessResult.Ok();
     }
 
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteDirectoryLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new DirectoryInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
     private static void DeleteDirectory(string path)
     {
         if (Directory.Exists(path))
         {
+            var info = new DirectoryInfo(path);
+            info.Refresh();
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+                return;
+            }
+
             Directory.Delete(path, true);
         }
     }

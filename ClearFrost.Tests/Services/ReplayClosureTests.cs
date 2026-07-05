@@ -10,6 +10,7 @@ using ClearFrost.Services;
 using ClearFrost.Services.Replay;
 using ClearFrost.Yolo;
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using OpenCvSharp;
 
 namespace ClearFrost.Tests.Services;
@@ -354,6 +355,123 @@ public class ReplayClosureTests
             moved.DatasetHash.Should().Be(fixture.Dataset.DatasetHash);
             moved.RootDirectory.Should().Be(Path.GetFullPath(movedDirectory));
             moved.Samples.Should().OnlyContain(sample => Path.IsPathRooted(sample.ImagePath) && File.Exists(sample.ImagePath));
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayDataset_拒绝Manifest文件路径和根目录外归档()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            string manifestPath = Path.Combine(fixture.Dataset.RootDirectory, "manifest.json");
+
+            Func<Task> loadManifestFile = () => fixture.DatasetStore.LoadSnapshotAsync(manifestPath);
+            await loadManifestFile.Should().ThrowAsync<ArgumentException>()
+                .WithMessage("*not a manifest file path*");
+
+            string movedRoot = Path.Combine(tempDir, "moved-outside-root");
+            Directory.CreateDirectory(movedRoot);
+            string movedDirectory = Path.Combine(movedRoot, fixture.Dataset.DatasetId);
+            Directory.Move(fixture.Dataset.RootDirectory, movedDirectory);
+
+            ReplayDatasetSnapshot moved = await fixture.DatasetStore.LoadSnapshotAsync(movedDirectory);
+            moved.DatasetHash.Should().Be(fixture.Dataset.DatasetHash);
+
+            ReplayDatasetArchiveResult archiveOutsideRoot =
+                await fixture.DatasetStore.ArchiveSnapshotAsync(movedDirectory);
+            archiveOutsideRoot.Succeeded.Should().BeFalse();
+            archiveOutsideRoot.ErrorCode.Should().Be("ReplayDatasetPathOutsideRoot");
+            Directory.Exists(movedDirectory).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayDataset_拒绝根外样本路径和链接数据集目录()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture pathFixture = await ReplayFixture.CreateAsync(
+                Path.Combine(tempDir, "path-escape"),
+                CandidateMatrixWithoutRegressions());
+            string externalRoot = Path.Combine(tempDir, "external-images");
+            Directory.CreateDirectory(externalRoot);
+            string externalImage = Path.Combine(externalRoot, "external.png");
+            File.Copy(pathFixture.Dataset.Samples[0].ImagePath, externalImage);
+
+            string manifestPath = Path.Combine(pathFixture.Dataset.RootDirectory, "manifest.json");
+            ReplayDatasetSnapshot manifest = JsonSerializer.Deserialize<ReplayDatasetSnapshot>(
+                await File.ReadAllTextAsync(manifestPath),
+                ReplayJson.Options) ?? throw new InvalidOperationException("Manifest parse failed.");
+            manifest.Samples[0].ImagePath = externalImage;
+            manifest.Samples[0].ImageHash = ComputeSha256(externalImage);
+            await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(manifest, ReplayJson.Options));
+
+            Func<Task> loadExternalSample = () => pathFixture.DatasetStore.LoadSnapshotAsync(pathFixture.Dataset.DatasetId);
+            await loadExternalSample.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*leaves the dataset root*");
+
+            ReplayFixture linkedFixture = await ReplayFixture.CreateAsync(
+                Path.Combine(tempDir, "linked-dataset"),
+                CandidateMatrixWithoutRegressions());
+            string originalDatasetDirectory = linkedFixture.Dataset.RootDirectory;
+            string movedDatasetDirectory = Path.Combine(tempDir, "moved-linked-dataset");
+            Directory.Move(originalDatasetDirectory, movedDatasetDirectory);
+            bool datasetLinkCreated = TryCreateDirectorySymbolicLink(originalDatasetDirectory, movedDatasetDirectory);
+            if (datasetLinkCreated)
+            {
+                Func<Task> loadLinkedDataset = () => linkedFixture.DatasetStore.LoadSnapshotAsync(linkedFixture.Dataset.DatasetId);
+                await loadLinkedDataset.Should().ThrowAsync<InvalidOperationException>()
+                    .WithMessage("*reparse point*");
+
+                IReadOnlyList<ReplayDatasetSummary> summaries = await linkedFixture.DatasetStore.ListSnapshotsAsync();
+                summaries.Should().Contain(summary =>
+                    summary.DatasetId == linkedFixture.Dataset.DatasetId &&
+                    summary.Status == "Invalid");
+
+                ReplayDatasetArchiveResult archiveLinked =
+                    await linkedFixture.DatasetStore.ArchiveSnapshotAsync(linkedFixture.Dataset.DatasetId);
+                archiveLinked.Succeeded.Should().BeFalse();
+                archiveLinked.ErrorCode.Should().Be("ReplayDatasetReparsePoint");
+                Directory.Exists(movedDatasetDirectory).Should().BeTrue();
+            }
+
+            string linkedRoot = Path.Combine(tempDir, "linked-dataset-root");
+            string externalDatasetRoot = Path.Combine(tempDir, "external-dataset-root");
+            Directory.CreateDirectory(externalDatasetRoot);
+            bool rootLinkCreated = TryCreateDirectorySymbolicLink(linkedRoot, externalDatasetRoot);
+            if (rootLinkCreated)
+            {
+                var linkedRootStore = new FileReplayDatasetStore(
+                    new FakeDatabaseService(new List<DetectionRecord>()),
+                    linkedRoot);
+
+                Func<Task> listLinkedRoot = () => linkedRootStore.ListSnapshotsAsync();
+                await listLinkedRoot.Should().ThrowAsync<InvalidOperationException>()
+                    .WithMessage("*reparse point*");
+
+                Action hasStagingLinkedRoot = () => linkedRootStore.HasStagingDirectory("root-linked-dataset");
+                hasStagingLinkedRoot.Should().Throw<InvalidOperationException>()
+                    .WithMessage("*reparse point*");
+
+                Func<Task> createLinkedRoot = () => linkedRootStore.CreateSnapshotAsync(new ReplayDatasetCreateRequest
+                {
+                    DatasetId = "root-linked-dataset"
+                });
+                await createLinkedRoot.Should().ThrowAsync<InvalidOperationException>()
+                    .WithMessage("*reparse point*");
+                Directory.EnumerateFileSystemEntries(externalDatasetRoot).Should().BeEmpty();
+            }
         }
         finally
         {
@@ -722,6 +840,106 @@ public class ReplayClosureTests
     }
 
     [Fact]
+    public void ReplayEvidence_拒绝路径型EvidenceId()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string evidenceRoot = Path.Combine(tempDir, "evidence");
+            string externalRoot = Path.Combine(tempDir, "external");
+            Directory.CreateDirectory(evidenceRoot);
+            Directory.CreateDirectory(externalRoot);
+            string externalEvidence = Path.Combine(externalRoot, "evil.json");
+            File.WriteAllText(externalEvidence, "{}");
+
+            var evidenceStore = new FileModelApprovalEvidenceStore(evidenceRoot);
+            string relativeEscapeId = Path.Combine("..", "external", "evil");
+
+            Action resolveRelativeEscape = () => evidenceStore.ResolvePath(relativeEscapeId);
+            resolveRelativeEscape.Should().Throw<ArgumentException>()
+                .WithMessage("*must be a file name*");
+
+            Action resolveAbsolute = () => evidenceStore.ResolvePath(externalEvidence);
+            resolveAbsolute.Should().Throw<ArgumentException>()
+                .WithMessage("*must be a file name*");
+
+            Action loadRelativeEscape = () => evidenceStore.LoadEvidence(relativeEscapeId);
+            loadRelativeEscape.Should().Throw<ArgumentException>()
+                .WithMessage("*must be a file name*");
+
+            ModelApprovalEvidenceValidationResult validation = evidenceStore.ValidateEvidence(
+                new ReplayModelIdentity(),
+                relativeEscapeId,
+                string.Empty,
+                new MissingDatasetStore(),
+                new MissingRunStore());
+            validation.Succeeded.Should().BeFalse();
+            validation.ErrorCode.Should().Be("ReplayEvidenceParseFailed");
+            validation.Message.Should().Contain("must be a file name");
+
+            evidenceStore.TryDeleteUnpublishedEvidence(relativeEscapeId, out string deleteError).Should().BeFalse();
+            deleteError.Should().Contain("must be a file name");
+            File.Exists(externalEvidence).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void ReplayEvidence_拒绝链接Evidence文件()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string evidenceRoot = Path.Combine(tempDir, "evidence");
+            string externalRoot = Path.Combine(tempDir, "external");
+            Directory.CreateDirectory(evidenceRoot);
+            Directory.CreateDirectory(externalRoot);
+            string externalEvidence = Path.Combine(externalRoot, "evil.json");
+            File.WriteAllText(externalEvidence, "{}");
+
+            string linkedEvidenceRoot = Path.Combine(tempDir, "evidence-linked-root");
+            bool rootLinkCreated = TryCreateDirectorySymbolicLink(linkedEvidenceRoot, externalRoot);
+            if (rootLinkCreated)
+            {
+                var linkedRootStore = new FileModelApprovalEvidenceStore(linkedEvidenceRoot);
+
+                Action loadRootLinkedEvidence = () => linkedRootStore.LoadEvidence("evil");
+                loadRootLinkedEvidence.Should().Throw<InvalidOperationException>()
+                    .WithMessage("*reparse point*");
+
+                linkedRootStore.ListEvidence().Should().BeEmpty();
+                linkedRootStore.TryDeleteUnpublishedEvidence("evil", out string rootDeleteError).Should().BeFalse();
+                rootDeleteError.Should().Contain("reparse point");
+                File.Exists(externalEvidence).Should().BeTrue();
+            }
+
+            string linkedEvidence = Path.Combine(evidenceRoot, "evil.json");
+
+            bool linkCreated = TryCreateFileSymbolicLink(linkedEvidence, externalEvidence);
+            if (linkCreated)
+            {
+                var evidenceStore = new FileModelApprovalEvidenceStore(evidenceRoot);
+
+                Action loadLinkedEvidence = () => evidenceStore.LoadEvidence("evil");
+                loadLinkedEvidence.Should().Throw<InvalidOperationException>()
+                    .WithMessage("*reparse point*");
+
+                evidenceStore.ListEvidence().Should().BeEmpty();
+                evidenceStore.TryDeleteUnpublishedEvidence("evil", out string deleteError).Should().BeFalse();
+                deleteError.Should().Contain("reparse point");
+                File.Exists(externalEvidence).Should().BeTrue();
+            }
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task ReplayApproval_Gate失败会恢复Manifest并清理未发布Evidence()
     {
         string tempDir = CreateTempDirectory();
@@ -831,6 +1049,319 @@ public class ReplayClosureTests
             result.Succeeded.Should().BeFalse();
             result.ErrorCode.Should().Be("ReplayApprovalRunMissing");
             Directory.Exists(Path.Combine(tempDir, "evidence-fabricated")).Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayApproval_拒绝Registry阻断的候选包且不写Evidence()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            var policy = new ReplayAcceptancePolicy();
+            var service = new ReplayApplicationService(
+                fixture.DatasetStore,
+                new DeterministicReplayRunner(fixture.Decisions),
+                new PassingReplayModelValidator(),
+                fixture.RunStore,
+                policy);
+            ReplayRunReport report = await service.RunComparisonAsync(new ReplayComparisonRequest
+            {
+                RunId = "run-registry-blocked-candidate",
+                DatasetId = fixture.Dataset.DatasetId,
+                BaselineModel = fixture.BaselineModel,
+                CandidateModel = fixture.CandidateModel
+            });
+
+            var registry = new ModelRegistry();
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: false));
+            ModelRegistryEntry candidate = registry.Resolve(fixture.CandidateModel.ModelPath)!;
+            byte[] originalManifestBytes = await File.ReadAllBytesAsync(candidate.ManifestPath);
+            ModelPackageManifest manifest = JsonSerializer.Deserialize<ModelPackageManifest>(
+                File.ReadAllText(candidate.ManifestPath),
+                ReplayJson.Options) ?? throw new InvalidOperationException("Manifest parse failed.");
+            manifest.Labels = new List<string>();
+            File.WriteAllText(candidate.ManifestPath, JsonSerializer.Serialize(manifest, ReplayJson.Options));
+            byte[] blockedManifestBytes = await File.ReadAllBytesAsync(candidate.ManifestPath);
+
+            string evidenceRoot = Path.Combine(tempDir, "evidence-registry-blocked");
+            var evidenceStore = new FileModelApprovalEvidenceStore(evidenceRoot, policy);
+            var gate = new ReplayApprovalEvidenceProductionGate(evidenceStore, fixture.DatasetStore, fixture.RunStore);
+            var approval = new ReplayApprovalApplicationService(
+                registry,
+                () => registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true)),
+                fixture.RunStore,
+                fixture.DatasetStore,
+                evidenceStore,
+                gate,
+                policy,
+                null,
+                () => "qa01",
+                () => ProductionRole.Engineer);
+
+            ReplayApprovalResult result = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
+            {
+                RunId = report.RunId,
+                CandidateEntry = candidate
+            });
+
+            result.Succeeded.Should().BeFalse();
+            result.IsFaulted.Should().BeFalse();
+            result.ErrorCode.Should().Be("ReplayApprovalCandidateRegistryBlocked");
+            result.Message.Should().Contain("Labels");
+            Directory.Exists(evidenceRoot).Should().BeFalse();
+            (await File.ReadAllBytesAsync(candidate.ManifestPath)).Should().Equal(blockedManifestBytes);
+
+            await File.WriteAllBytesAsync(candidate.ManifestPath, originalManifestBytes);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayApproval_拒绝扫描后Manifest模型路径被篡改且不写Evidence()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            var policy = new ReplayAcceptancePolicy();
+            var service = new ReplayApplicationService(
+                fixture.DatasetStore,
+                new DeterministicReplayRunner(fixture.Decisions),
+                new PassingReplayModelValidator(),
+                fixture.RunStore,
+                policy);
+            ReplayRunReport report = await service.RunComparisonAsync(new ReplayComparisonRequest
+            {
+                RunId = "run-manifest-path-tampered-after-scan",
+                DatasetId = fixture.Dataset.DatasetId,
+                BaselineModel = fixture.BaselineModel,
+                CandidateModel = fixture.CandidateModel
+            });
+
+            var registry = new ModelRegistry();
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: false));
+            ModelRegistryEntry candidate = registry.Resolve(fixture.CandidateModel.ModelPath)!;
+            string evidenceRoot = Path.Combine(tempDir, "evidence-manifest-path-tampered");
+            var evidenceStore = new FileModelApprovalEvidenceStore(evidenceRoot, policy);
+            var gate = new ReplayApprovalEvidenceProductionGate(evidenceStore, fixture.DatasetStore, fixture.RunStore);
+            bool tampered = false;
+            IReadOnlyList<ModelRegistryEntry> RefreshThenTamperManifest()
+            {
+                IReadOnlyList<ModelRegistryEntry> entries = registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
+                if (!tampered)
+                {
+                    ModelPackageManifest manifest = JsonSerializer.Deserialize<ModelPackageManifest>(
+                        File.ReadAllText(candidate.ManifestPath),
+                        ReplayJson.Options) ?? throw new InvalidOperationException("Manifest parse failed.");
+                    manifest.ModelFileName = Path.Combine("..", "outside.onnx");
+                    File.WriteAllText(candidate.ManifestPath, JsonSerializer.Serialize(manifest, ReplayJson.Options));
+                    tampered = true;
+                }
+
+                return entries;
+            }
+
+            var approval = new ReplayApprovalApplicationService(
+                registry,
+                RefreshThenTamperManifest,
+                fixture.RunStore,
+                fixture.DatasetStore,
+                evidenceStore,
+                gate,
+                policy,
+                null,
+                () => "qa01",
+                () => ProductionRole.Engineer);
+
+            ReplayApprovalResult result = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
+            {
+                RunId = report.RunId,
+                CandidateEntry = candidate
+            });
+
+            result.Succeeded.Should().BeFalse();
+            result.IsFaulted.Should().BeFalse();
+            result.ErrorCode.Should().Be("ReplayApprovalManifestModelPathInvalid");
+            Directory.Exists(evidenceRoot).Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayApproval_拒绝扫描后模型文件被替换为链接且不写Evidence()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string probeTarget = Path.Combine(tempDir, "probe-target.txt");
+            string probeLink = Path.Combine(tempDir, "probe-link.txt");
+            File.WriteAllText(probeTarget, "probe");
+            if (!TryCreateFileSymbolicLink(probeLink, probeTarget))
+            {
+                return;
+            }
+
+            File.Delete(probeLink);
+            File.Delete(probeTarget);
+
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            var policy = new ReplayAcceptancePolicy();
+            var service = new ReplayApplicationService(
+                fixture.DatasetStore,
+                new DeterministicReplayRunner(fixture.Decisions),
+                new PassingReplayModelValidator(),
+                fixture.RunStore,
+                policy);
+            ReplayRunReport report = await service.RunComparisonAsync(new ReplayComparisonRequest
+            {
+                RunId = "run-model-link-after-scan",
+                DatasetId = fixture.Dataset.DatasetId,
+                BaselineModel = fixture.BaselineModel,
+                CandidateModel = fixture.CandidateModel
+            });
+
+            var registry = new ModelRegistry();
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: false));
+            ModelRegistryEntry candidate = registry.Resolve(fixture.CandidateModel.ModelPath)!;
+            string externalModel = Path.Combine(tempDir, "external-candidate.onnx");
+            File.Copy(candidate.ModelPath, externalModel);
+            string evidenceRoot = Path.Combine(tempDir, "evidence-model-link-after-scan");
+            var evidenceStore = new FileModelApprovalEvidenceStore(evidenceRoot, policy);
+            var gate = new ReplayApprovalEvidenceProductionGate(evidenceStore, fixture.DatasetStore, fixture.RunStore);
+            bool linked = false;
+            IReadOnlyList<ModelRegistryEntry> RefreshThenLinkModel()
+            {
+                IReadOnlyList<ModelRegistryEntry> entries = registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
+                if (!linked)
+                {
+                    File.Delete(candidate.ModelPath);
+                    TryCreateFileSymbolicLink(candidate.ModelPath, externalModel).Should().BeTrue();
+                    linked = true;
+                }
+
+                return entries;
+            }
+
+            var approval = new ReplayApprovalApplicationService(
+                registry,
+                RefreshThenLinkModel,
+                fixture.RunStore,
+                fixture.DatasetStore,
+                evidenceStore,
+                gate,
+                policy,
+                null,
+                () => "qa01",
+                () => ProductionRole.Engineer);
+
+            ReplayApprovalResult result = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
+            {
+                RunId = report.RunId,
+                CandidateEntry = candidate
+            });
+
+            result.Succeeded.Should().BeFalse();
+            result.IsFaulted.Should().BeFalse();
+            result.ErrorCode.Should().Be("ReplayApprovalModelReparsePoint");
+            Directory.Exists(evidenceRoot).Should().BeFalse();
+            File.Exists(externalModel).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayApproval_拒绝扫描后Manifest文件被替换为链接且不写Evidence()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string probeTarget = Path.Combine(tempDir, "probe-target.txt");
+            string probeLink = Path.Combine(tempDir, "probe-link.txt");
+            File.WriteAllText(probeTarget, "probe");
+            if (!TryCreateFileSymbolicLink(probeLink, probeTarget))
+            {
+                return;
+            }
+
+            File.Delete(probeLink);
+            File.Delete(probeTarget);
+
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            var policy = new ReplayAcceptancePolicy();
+            var service = new ReplayApplicationService(
+                fixture.DatasetStore,
+                new DeterministicReplayRunner(fixture.Decisions),
+                new PassingReplayModelValidator(),
+                fixture.RunStore,
+                policy);
+            ReplayRunReport report = await service.RunComparisonAsync(new ReplayComparisonRequest
+            {
+                RunId = "run-manifest-link-after-scan",
+                DatasetId = fixture.Dataset.DatasetId,
+                BaselineModel = fixture.BaselineModel,
+                CandidateModel = fixture.CandidateModel
+            });
+
+            var registry = new ModelRegistry();
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: false));
+            ModelRegistryEntry candidate = registry.Resolve(fixture.CandidateModel.ModelPath)!;
+            string externalManifest = Path.Combine(tempDir, "external-candidate-manifest.json");
+            File.Copy(candidate.ManifestPath, externalManifest);
+            string evidenceRoot = Path.Combine(tempDir, "evidence-manifest-link-after-scan");
+            var evidenceStore = new FileModelApprovalEvidenceStore(evidenceRoot, policy);
+            var gate = new ReplayApprovalEvidenceProductionGate(evidenceStore, fixture.DatasetStore, fixture.RunStore);
+            bool linked = false;
+            IReadOnlyList<ModelRegistryEntry> RefreshThenLinkManifest()
+            {
+                IReadOnlyList<ModelRegistryEntry> entries = registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
+                if (!linked)
+                {
+                    File.Delete(candidate.ManifestPath);
+                    TryCreateFileSymbolicLink(candidate.ManifestPath, externalManifest).Should().BeTrue();
+                    linked = true;
+                }
+
+                return entries;
+            }
+
+            var approval = new ReplayApprovalApplicationService(
+                registry,
+                RefreshThenLinkManifest,
+                fixture.RunStore,
+                fixture.DatasetStore,
+                evidenceStore,
+                gate,
+                policy,
+                null,
+                () => "qa01",
+                () => ProductionRole.Engineer);
+
+            ReplayApprovalResult result = await approval.ApproveCandidateAsync(new ReplayApprovalRequest
+            {
+                RunId = report.RunId,
+                CandidateEntry = candidate
+            });
+
+            result.Succeeded.Should().BeFalse();
+            result.IsFaulted.Should().BeFalse();
+            result.ErrorCode.Should().Be("ReplayApprovalManifestReparsePoint");
+            Directory.Exists(evidenceRoot).Should().BeFalse();
+            File.Exists(externalManifest).Should().BeTrue();
         }
         finally
         {
@@ -1047,6 +1578,150 @@ public class ReplayClosureTests
                 gpuIndex: 0);
             tamperedActivation.Succeeded.Should().BeFalse();
             tamperedActivation.ErrorCode.Should().Be("ReplayEvidenceReportHashMismatch");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayRunStore_拒绝路径型RunId和根目录外ReportPath()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "replay.db");
+            string reportRoot = Path.Combine(tempDir, "reports");
+            string externalRoot = Path.Combine(tempDir, "external");
+            var store = new SqliteReplayRunStore(dbPath, reportRoot);
+
+            string escapedRunId = Path.Combine("..", "external", "run-escape");
+            Func<Task> saveEscaped = () => store.SaveReportAsync(CreateMinimalReplayRunReport(escapedRunId));
+
+            await saveEscaped.Should().ThrowAsync<ArgumentException>()
+                .WithMessage("*directory name*");
+            Directory.Exists(externalRoot).Should().BeFalse();
+
+            ReplayRunReport safeReport = CreateMinimalReplayRunReport("run-safe");
+            await store.RecordRunStartedAsync(safeReport);
+            ReplayRunReport saved = await store.SaveReportAsync(safeReport);
+
+            File.Exists(saved.ReportJsonPath).Should().BeTrue();
+            saved.ReportJsonPath
+                .StartsWith(Path.GetFullPath(reportRoot), StringComparison.OrdinalIgnoreCase)
+                .Should()
+                .BeTrue();
+
+            Directory.CreateDirectory(externalRoot);
+            string externalReport = Path.Combine(externalRoot, "report.json");
+            await File.WriteAllTextAsync(externalReport, "{}");
+            await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+            {
+                await connection.OpenAsync();
+                await using SqliteCommand command = connection.CreateCommand();
+                command.CommandText = "UPDATE ReplayRuns SET ReportJsonPath = $path WHERE RunId = $runId;";
+                command.Parameters.AddWithValue("$path", externalReport);
+                command.Parameters.AddWithValue("$runId", safeReport.RunId);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            Func<Task> loadTampered = () => store.LoadReportAsync(safeReport.RunId);
+            await loadTampered.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*outside the report root*");
+            File.Exists(externalReport).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayRunStore_拒绝链接报告目录和链接ReportPath()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "replay.db");
+            string reportRoot = Path.Combine(tempDir, "reports");
+            string externalRoot = Path.Combine(tempDir, "external");
+            Directory.CreateDirectory(reportRoot);
+            Directory.CreateDirectory(externalRoot);
+            var store = new SqliteReplayRunStore(dbPath, reportRoot);
+
+            string linkedReportRoot = Path.Combine(tempDir, "reports-linked-root");
+            bool rootLinkCreated = TryCreateDirectorySymbolicLink(linkedReportRoot, externalRoot);
+            if (rootLinkCreated)
+            {
+                var linkedRootStore = new SqliteReplayRunStore(
+                    Path.Combine(tempDir, "replay-root-link.db"),
+                    linkedReportRoot);
+                Func<Task> saveLinkedRoot = () => linkedRootStore.SaveReportAsync(
+                    CreateMinimalReplayRunReport("run-root-linked"));
+
+                await saveLinkedRoot.Should().ThrowAsync<InvalidOperationException>()
+                    .WithMessage("*reparse point*");
+                Directory.Exists(Path.Combine(externalRoot, "run-root-linked")).Should().BeFalse();
+            }
+
+            string linkedRunDirectory = Path.Combine(reportRoot, "run-linked");
+            bool directoryLinkCreated = TryCreateDirectorySymbolicLink(linkedRunDirectory, externalRoot);
+            if (directoryLinkCreated)
+            {
+                Func<Task> saveLinkedDirectory = () => store.SaveReportAsync(CreateMinimalReplayRunReport("run-linked"));
+
+                await saveLinkedDirectory.Should().ThrowAsync<InvalidOperationException>()
+                    .WithMessage("*reparse point*");
+                File.Exists(Path.Combine(externalRoot, "report.json")).Should().BeFalse();
+            }
+
+            ReplayRunReport safeReport = CreateMinimalReplayRunReport("run-safe-link");
+            await store.RecordRunStartedAsync(safeReport);
+            ReplayRunReport saved = await store.SaveReportAsync(safeReport);
+
+            string externalReport = Path.Combine(externalRoot, "report.json");
+            await File.WriteAllTextAsync(externalReport, "{}");
+            string linkedReport = Path.Combine(Path.GetDirectoryName(saved.ReportJsonPath)!, "linked-report.json");
+            bool fileLinkCreated = TryCreateFileSymbolicLink(linkedReport, externalReport);
+            if (fileLinkCreated)
+            {
+                await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+                {
+                    await connection.OpenAsync();
+                    await using SqliteCommand command = connection.CreateCommand();
+                    command.CommandText = "UPDATE ReplayRuns SET ReportJsonPath = $path WHERE RunId = $runId;";
+                    command.Parameters.AddWithValue("$path", linkedReport);
+                    command.Parameters.AddWithValue("$runId", safeReport.RunId);
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                Func<Task> loadLinkedReport = () => store.LoadReportAsync(safeReport.RunId);
+                await loadLinkedReport.Should().ThrowAsync<InvalidOperationException>()
+                    .WithMessage("*reparse point*");
+                File.Exists(externalReport).Should().BeTrue();
+            }
+
+            string linkedReportDirectory = Path.Combine(reportRoot, "run-linked-load-dir");
+            bool linkedReportDirectoryCreated = TryCreateDirectorySymbolicLink(linkedReportDirectory, externalRoot);
+            if (linkedReportDirectoryCreated)
+            {
+                string linkedParentReport = Path.Combine(linkedReportDirectory, "report.json");
+                await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+                {
+                    await connection.OpenAsync();
+                    await using SqliteCommand command = connection.CreateCommand();
+                    command.CommandText = "UPDATE ReplayRuns SET ReportJsonPath = $path WHERE RunId = $runId;";
+                    command.Parameters.AddWithValue("$path", linkedParentReport);
+                    command.Parameters.AddWithValue("$runId", safeReport.RunId);
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                Func<Task> loadLinkedParentReport = () => store.LoadReportAsync(safeReport.RunId);
+                await loadLinkedParentReport.Should().ThrowAsync<InvalidOperationException>()
+                    .WithMessage("*reparse point*");
+                File.Exists(externalReport).Should().BeTrue();
+            }
         }
         finally
         {
@@ -1275,6 +1950,12 @@ public class ReplayClosureTests
             var evidenceStore = new FileModelApprovalEvidenceStore(Path.Combine(tempDir, "evidence-orphan"), policy);
             evidenceStore.SaveEvidence(report, "qa01", fixture.Dataset.RootDirectory, report.PolicyHash);
             await File.WriteAllTextAsync(Path.Combine(evidenceStore.RootDirectory, "broken.json"), "{");
+            string externalEvidenceRoot = Path.Combine(tempDir, "external-evidence");
+            Directory.CreateDirectory(externalEvidenceRoot);
+            string externalEvidence = Path.Combine(externalEvidenceRoot, "external.json");
+            await File.WriteAllTextAsync(externalEvidence, "{}");
+            string linkedEvidence = Path.Combine(evidenceStore.RootDirectory, "linked.json");
+            bool linkedEvidenceCreated = TryCreateFileSymbolicLink(linkedEvidence, externalEvidence);
 
             var registry = new ModelRegistry();
             registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
@@ -1298,12 +1979,60 @@ public class ReplayClosureTests
             scan.Findings.Should().Contain(finding =>
                 finding.ErrorCode == "ReplayEvidenceParseFailed" &&
                 finding.Scope == "EvidenceStorage");
+            if (linkedEvidenceCreated)
+            {
+                scan.Findings.Should().Contain(finding =>
+                    finding.ErrorCode == "ReplayEvidenceReparsePoint" &&
+                    finding.Scope == "EvidenceStorage" &&
+                    finding.EntityId == "linked.json");
+                File.Exists(externalEvidence).Should().BeTrue();
+            }
+
             scan.Findings.Should().Contain(finding =>
                 finding.ErrorCode == "ReplayRunInterruptedResidue" &&
                 finding.Severity == "Warning");
             scan.Findings.Should().Contain(finding =>
                 finding.ErrorCode == "ReplayRunNonTerminalResidue" &&
                 finding.Severity == "Blocking");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayIntegrityScanner_报告链接Evidence根目录()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string externalRoot = Path.Combine(tempDir, "external-evidence-root");
+            Directory.CreateDirectory(externalRoot);
+            await File.WriteAllTextAsync(Path.Combine(externalRoot, "external.json"), "{}");
+            string linkedRoot = Path.Combine(tempDir, "linked-evidence-root");
+            bool rootLinkCreated = TryCreateDirectorySymbolicLink(linkedRoot, externalRoot);
+            if (rootLinkCreated)
+            {
+                var evidenceStore = new FileModelApprovalEvidenceStore(linkedRoot);
+                var datasetStore = new MissingDatasetStore();
+                var runStore = new MissingRunStore();
+                var gate = new ReplayApprovalEvidenceProductionGate(evidenceStore, datasetStore, runStore);
+                var scanner = new ReplayIntegrityScanner(
+                    new ModelRegistry(),
+                    gate,
+                    datasetStore,
+                    runStore,
+                    evidenceStore);
+
+                ReplayIntegrityScanResult scan = await scanner.ScanApprovedModelsAsync();
+
+                scan.Status.Should().Be("Blocking");
+                scan.Findings.Should().Contain(finding =>
+                    finding.ErrorCode == "ReplayEvidenceStoreReparsePoint" &&
+                    finding.Scope == "EvidenceStorage");
+                File.Exists(Path.Combine(externalRoot, "external.json")).Should().BeTrue();
+            }
         }
         finally
         {
@@ -1385,6 +2114,54 @@ public class ReplayClosureTests
             ProductionModelReadinessResult tampered = originalSlotGate.Validate(ModelRole.Primary, legacyEntry, originalReference);
             tampered.Succeeded.Should().BeFalse();
             tampered.ErrorCode.Should().Be("ReplayLegacyHashMismatch");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayLegacyApproval_Manifest被替换为链接时拒绝()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string probeTarget = Path.Combine(tempDir, "probe-target.txt");
+            string probeLink = Path.Combine(tempDir, "probe-link.txt");
+            File.WriteAllText(probeTarget, "probe");
+            if (!TryCreateFileSymbolicLink(probeLink, probeTarget))
+            {
+                return;
+            }
+
+            File.Delete(probeLink);
+            File.Delete(probeTarget);
+
+            ReplayFixture fixture = await ReplayFixture.CreateAsync(tempDir, CandidateMatrixWithoutRegressions());
+            var registry = new ModelRegistry();
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
+            ModelRegistryEntry legacyEntry = registry.Resolve(fixture.BaselineModel.ModelPath)!;
+            ProductionModelReference originalReference = ProductionModelReference.FromApprovedPackage(legacyEntry);
+            WriteLegacyMigration(legacyEntry, ModelRole.Primary, originalReference);
+
+            registry.Scan(ScanOptions(fixture.PackageRoot, requireProductionApproval: true));
+            legacyEntry = registry.Resolve(fixture.BaselineModel.ModelPath)!;
+            string externalManifest = Path.Combine(tempDir, "external-legacy-manifest.json");
+            File.Copy(legacyEntry.ManifestPath, externalManifest);
+            File.Delete(legacyEntry.ManifestPath);
+            TryCreateFileSymbolicLink(legacyEntry.ManifestPath, externalManifest).Should().BeTrue();
+            var evidenceStore = new FileModelApprovalEvidenceStore(Path.Combine(tempDir, "legacy-link-evidence"));
+            var gate = new ReplayApprovalEvidenceProductionGate(
+                evidenceStore,
+                fixture.DatasetStore,
+                fixture.RunStore);
+
+            ProductionModelReadinessResult result = gate.Validate(ModelRole.Primary, legacyEntry, originalReference);
+
+            result.Succeeded.Should().BeFalse();
+            result.ErrorCode.Should().Be("ReplayLegacyManifestHashUnavailable");
+            File.Exists(externalManifest).Should().BeTrue();
         }
         finally
         {
@@ -1754,6 +2531,38 @@ public class ReplayClosureTests
         File.WriteAllText(reportPath, JsonSerializer.Serialize(tampered, ReplayJson.Options));
     }
 
+    private static ReplayRunReport CreateMinimalReplayRunReport(string runId)
+    {
+        ReplayAcceptancePolicyOptions policy = ReplayAcceptancePolicyOptions.ProductionDefault();
+        return new ReplayRunReport
+        {
+            RunId = runId,
+            Status = ReplayRunStatuses.Completed,
+            DatasetId = "dataset-minimal",
+            DatasetHash = new string('d', 64),
+            StartedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            CompletedAt = DateTimeOffset.UtcNow,
+            BaselineModel = new ReplayModelIdentity
+            {
+                ModelId = "baseline",
+                Version = "1",
+                Sha256 = new string('a', 64)
+            },
+            CandidateModel = new ReplayModelIdentity
+            {
+                ModelId = "candidate",
+                Version = "1",
+                Sha256 = new string('b', 64)
+            },
+            PolicyVersion = policy.Version,
+            PolicySnapshot = policy,
+            RecipeHash = new string('c', 64),
+            RuleSetHash = new string('e', 64),
+            BaselineModelHash = new string('a', 64),
+            CandidateModelHash = new string('b', 64)
+        };
+    }
+
     private static void WriteLegacyMigration(
         ModelRegistryEntry entry,
         ModelRole role,
@@ -1791,6 +2600,34 @@ public class ReplayClosureTests
         string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(ReplayClosureTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCreateFileSymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = File.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
     }
 
     private static void DeleteDirectory(string path)
@@ -2185,6 +3022,102 @@ public class ReplayClosureTests
                 Message = "Hash mismatch fixture does not support archive."
             });
         }
+    }
+
+    private sealed class MissingDatasetStore : IReplayDatasetStore
+    {
+        public Task<ReplayDatasetSnapshot> CreateSnapshotAsync(
+            ReplayDatasetCreateRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<ReplayDatasetSnapshot> LoadSnapshotAsync(
+            string datasetId,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<string> ComputeSnapshotHashAsync(
+            string datasetId,
+            CancellationToken cancellationToken = default)
+        {
+            throw new FileNotFoundException("Missing dataset.");
+        }
+
+        public Task<IReadOnlyList<ReplayDatasetSummary>> ListSnapshotsAsync(
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<ReplayDatasetSummary>>(Array.Empty<ReplayDatasetSummary>());
+        }
+
+        public Task<ReplayDatasetArchiveResult> ArchiveSnapshotAsync(
+            string datasetId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ReplayDatasetArchiveResult
+            {
+                Succeeded = false,
+                ErrorCode = "NotSupported",
+                Message = "Missing dataset fixture does not support archive."
+            });
+        }
+    }
+
+    private sealed class MissingRunStore : IReplayRunStore
+    {
+        public Task RecordRunStartedAsync(
+            ReplayRunReport report,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task RecordRunProgressAsync(
+            ReplayRunProgress progress,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<ReplayRunReport> SaveReportAsync(
+            ReplayRunReport report,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(report);
+
+        public Task<ReplayRunReport> LoadReportAsync(
+            string runId,
+            CancellationToken cancellationToken = default)
+            => throw new FileNotFoundException("Missing replay report.");
+
+        public Task<ReplayRunRecord?> LoadRunRecordAsync(
+            string runId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ReplayRunRecord?>(null);
+
+        public Task<IReadOnlyList<ReplayRunRecord>> ListRunRecordsAsync(
+            int limit = 100,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ReplayRunRecord>>(Array.Empty<ReplayRunRecord>());
+
+        public Task RecordRunFailedAsync(
+            string runId,
+            string message,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task RecordRunCanceledAsync(
+            string runId,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task RecordRunCancelRequestedAsync(
+            ReplayRunProgress progress,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task MarkNonTerminalRunsInterruptedAsync(
+            string stationId,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 }
 #pragma warning restore CS0067

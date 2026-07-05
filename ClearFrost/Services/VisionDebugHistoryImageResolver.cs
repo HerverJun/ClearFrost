@@ -40,6 +40,12 @@ namespace ClearFrost.Services
                     continue;
                 }
 
+                resolved = ResolveExistingImagePathIfSafe(resolved);
+                if (string.IsNullOrWhiteSpace(resolved))
+                {
+                    continue;
+                }
+
                 return new VisionDebugHistoryImageResolution
                 {
                     ImagePath = resolved,
@@ -53,6 +59,37 @@ namespace ClearFrost.Services
             {
                 FailureReason = BuildMissingReason(record)
             };
+        }
+
+        internal static string? ResolveExistingImagePathIfSafe(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            try
+            {
+                string fullPath = Path.GetFullPath(path);
+                if (!File.Exists(fullPath))
+                {
+                    return null;
+                }
+
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(directory) || DirectoryPathHasReparsePoint(directory))
+                {
+                    return null;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                return file.Exists && !HasReparsePoint(file) ? fullPath : null;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static IEnumerable<PathCandidate> BuildCandidates(DetectionRecord record)
@@ -131,6 +168,46 @@ namespace ClearFrost.Services
             }
 
             return "原图、追溯图和渲染图均不存在";
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
         }
 
         private readonly record struct PathCandidate(string? Path, string SourceKind, bool IsRendered);

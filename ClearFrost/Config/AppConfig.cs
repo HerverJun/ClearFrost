@@ -6,7 +6,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -287,6 +286,7 @@ namespace ClearFrost.Config
                         continue;
                     }
 
+                    EnsureConfigFileSafeForRead(loadPath);
                     string json = File.ReadAllText(loadPath);
                     var config = FromJson(json);
                     config.MigrateLegacyCamera();
@@ -731,6 +731,16 @@ namespace ClearFrost.Config
             }
         }
 
+        private static void EnsureConfigFileSafeForRead(string path)
+        {
+            var file = new FileInfo(path);
+            file.Refresh();
+            if (file.Exists && (file.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new IOException($"配置文件是链接文件，拒绝读取: {path}");
+            }
+        }
+
         private static JsonSerializerOptions CreateJsonOptions()
         {
             return new JsonSerializerOptions
@@ -743,43 +753,7 @@ namespace ClearFrost.Config
 
         private static void WriteConfigAtomically(string targetPath, string json)
         {
-            string configDir = Path.GetDirectoryName(targetPath) ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(configDir))
-            {
-                Directory.CreateDirectory(configDir);
-            }
-
-            string tempPath = Path.Combine(
-                string.IsNullOrWhiteSpace(configDir) ? "." : configDir,
-                $"config.{Guid.NewGuid():N}.tmp");
-
-            try
-            {
-                File.WriteAllText(tempPath, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-
-                if (File.Exists(targetPath))
-                {
-                    File.Replace(tempPath, targetPath, ConfigBackupPath, ignoreMetadataErrors: true);
-                }
-                else
-                {
-                    File.Move(tempPath, targetPath);
-                }
-            }
-            finally
-            {
-                try
-                {
-                    if (File.Exists(tempPath))
-                    {
-                        File.Delete(tempPath);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LogError("CleanupTempConfig", ex);
-                }
-            }
+            AtomicFileWriter.WriteAllText(targetPath, json);
         }
 
         private void TrySeedRuntimeConfig()

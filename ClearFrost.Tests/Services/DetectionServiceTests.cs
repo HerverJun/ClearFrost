@@ -89,6 +89,80 @@ public class DetectionServiceTests
     }
 
     [Fact]
+    public async Task LoadModelAsync_拒绝链接Onnx模型文件()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string linkedModel = Path.Combine(tempDir, "linked.onnx");
+        try
+        {
+            string externalModel = CopyModel(GetSampleOnnxPath(), externalDir, "external.onnx");
+            if (!TryCreateFileSymbolicLink(linkedModel, externalModel))
+            {
+                return;
+            }
+
+            using var service = new DetectionService(useGpu: false);
+
+            bool loaded = await service.LoadModelAsync(linkedModel, useGpu: false);
+
+            loaded.Should().BeFalse();
+            service.IsModelLoaded.Should().BeFalse();
+            service.RuntimeModelSnapshot.Primary.IsLoaded.Should().BeFalse();
+        }
+        finally
+        {
+            TryDeleteFileLink(linkedModel);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
+    public async Task ScanAndLoadModelsAsync_拒绝链接模型目录()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string linkedModelsDir = Path.Combine(tempDir, "ONNX");
+        try
+        {
+            CopyModel(GetSampleOnnxPath(), externalDir, "external.onnx");
+            if (!TryCreateDirectorySymbolicLink(linkedModelsDir, externalDir))
+            {
+                return;
+            }
+
+            using var service = new DetectionService(useGpu: false);
+
+            bool loaded = await service.ScanAndLoadModelsAsync(linkedModelsDir, useGpu: false);
+
+            loaded.Should().BeFalse();
+            service.AvailableModels.Should().BeEmpty();
+            service.IsModelLoaded.Should().BeFalse();
+        }
+        finally
+        {
+            TryDeleteDirectoryLink(linkedModelsDir);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
+    public async Task SwitchModelAsync_拒绝包含路径段的模型名称()
+    {
+        using var service = new DetectionService(useGpu: false);
+        string lastError = string.Empty;
+        service.ErrorOccurred += error => lastError = error;
+
+        bool switched = await service.SwitchModelAsync(@"..\outside");
+
+        switched.Should().BeFalse();
+        lastError.Should().Contain("模型名称不能包含路径段");
+        service.IsModelLoaded.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task LoadModelAsync_GpuRebuildAuxFailure_StillRaisesModelLoaded()
     {
         string tempDir = CreateTempDirectory();
@@ -284,10 +358,88 @@ public class DetectionServiceTests
         return path;
     }
 
+    private static bool TryCreateFileSymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = File.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteFileLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new FileInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
+    private static void TryDeleteDirectoryLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new DirectoryInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
     private static void DeleteDirectory(string path)
     {
         if (Directory.Exists(path))
         {
+            var info = new DirectoryInfo(path);
+            info.Refresh();
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+                return;
+            }
+
             Directory.Delete(path, true);
         }
     }

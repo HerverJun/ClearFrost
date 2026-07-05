@@ -66,6 +66,220 @@ public class DatasetCollectionServiceTests
     }
 
     [Fact]
+    public async Task CollectAsync_数据库链接原图_拒绝采集外部文件()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string storagePath = CreateTempDirectory();
+        string? linkPath = null;
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "detection.db");
+            string externalImage = Path.Combine(externalDir, "external-source.jpg");
+            linkPath = Path.Combine(tempDir, "linked-source.jpg");
+            File.WriteAllBytes(externalImage, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+            if (!TryCreateFileSymbolicLink(linkPath, externalImage))
+            {
+                return;
+            }
+
+            CreateDatabaseWithSingleRecord(
+                dbPath,
+                DateTime.Now,
+                isQualified: false,
+                imagePath: linkPath,
+                renderedPath: null,
+                inspectionId: "INS-LINKED-SOURCE");
+            var service = new DatasetCollectionService(dbPath, storagePath);
+
+            var result = await service.CollectAsync(maxDays: 15, totalCount: 1, failRatio: 1.0);
+
+            result.Success.Should().BeFalse();
+            result.Message.Should().Contain("图片文件");
+            File.Exists(externalImage).Should().BeTrue();
+            Directory.Exists(Path.Combine(storagePath, "DatasetCollections")).Should().BeFalse();
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(linkPath) && File.Exists(linkPath))
+            {
+                File.Delete(linkPath);
+            }
+
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+            DeleteDirectory(storagePath);
+        }
+    }
+
+    [Fact]
+    public async Task CollectAsync_直接扫描链接小时目录_拒绝采集外部文件()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string storagePath = CreateTempDirectory();
+        string? linkHourDir = null;
+        try
+        {
+            string dbPath = CreateEmptyDatabase(tempDir);
+            DateTime timestamp = DateTime.Now.Date.AddHours(15).AddMinutes(10).AddSeconds(11);
+            string dateDir = Path.Combine(
+                storagePath,
+                "Images",
+                "Unqualified",
+                timestamp.ToString("yyyy年MM月dd日"));
+            linkHourDir = Path.Combine(dateDir, timestamp.ToString("HH"));
+            Directory.CreateDirectory(dateDir);
+            File.WriteAllBytes(
+                Path.Combine(externalDir, $"FAIL_{timestamp:HHmmss}123.jpg"),
+                new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+            if (!TryCreateDirectorySymbolicLink(linkHourDir, externalDir))
+            {
+                return;
+            }
+
+            var service = new DatasetCollectionService(dbPath, storagePath);
+
+            var result = await service.CollectAsync(maxDays: 15, totalCount: 1, failRatio: 1.0);
+
+            result.Success.Should().BeFalse();
+            result.Message.Should().Contain("未找到任何检测记录或图片文件");
+            Directory.Exists(Path.Combine(storagePath, "DatasetCollections")).Should().BeFalse();
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(linkHourDir))
+            {
+                TryDeleteDirectoryLink(linkHourDir);
+            }
+
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+            DeleteDirectory(storagePath);
+        }
+    }
+
+    [Fact]
+    public async Task CollectAsync_拒绝链接DatasetCollections输出根目录且不写外部目录()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string storagePath = CreateTempDirectory();
+        string? outputRootLink = null;
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "detection.db");
+            string sourceImage = Path.Combine(tempDir, "source.jpg");
+            File.WriteAllBytes(sourceImage, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+            CreateDatabaseWithSingleRecord(
+                dbPath,
+                DateTime.Now,
+                isQualified: false,
+                imagePath: sourceImage,
+                renderedPath: null,
+                inspectionId: "INS-LINKED-OUTPUT");
+
+            outputRootLink = Path.Combine(storagePath, "DatasetCollections");
+            if (!TryCreateDirectorySymbolicLink(outputRootLink, externalDir))
+            {
+                return;
+            }
+
+            var service = new DatasetCollectionService(dbPath, storagePath);
+
+            var result = await service.CollectAsync(maxDays: 15, totalCount: 1, failRatio: 1.0);
+
+            result.Success.Should().BeFalse();
+            result.Message.Should().Contain("输出目录不安全");
+            Directory.EnumerateFileSystemEntries(externalDir).Should().BeEmpty();
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(outputRootLink))
+            {
+                TryDeleteDirectoryLink(outputRootLink);
+            }
+
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+            DeleteDirectory(storagePath);
+        }
+    }
+
+    [Fact]
+    public async Task CollectAsync_复制失败清理遇到链接子目录时保留输出目录()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string storagePath = CreateTempDirectory();
+        string? linkedOutputChild = null;
+        try
+        {
+            string probeTarget = Path.Combine(tempDir, "probe-target");
+            string probeLink = Path.Combine(tempDir, "probe-link");
+            Directory.CreateDirectory(probeTarget);
+            if (!TryCreateDirectorySymbolicLink(probeLink, probeTarget))
+            {
+                return;
+            }
+
+            TryDeleteDirectoryLink(probeLink);
+            DeleteDirectory(probeTarget);
+
+            string dbPath = Path.Combine(tempDir, "detection.db");
+            string sourceImage = Path.Combine(tempDir, "source.jpg");
+            string externalFile = Path.Combine(externalDir, "external.txt");
+            File.WriteAllBytes(sourceImage, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+            File.WriteAllText(externalFile, "external");
+            CreateDatabaseWithSingleRecord(
+                dbPath,
+                DateTime.Now,
+                isQualified: false,
+                imagePath: sourceImage,
+                renderedPath: null,
+                inspectionId: "INS-CLEANUP-LINKED-OUTPUT");
+
+            var service = new DatasetCollectionService(
+                dbPath,
+                storagePath,
+                copyFile: (_, destPath, _) =>
+                {
+                    string destDir = Path.GetDirectoryName(destPath) ??
+                                     throw new InvalidOperationException("dest directory missing");
+                    linkedOutputChild ??= Path.Combine(destDir, "linked-external");
+                    if (!Directory.Exists(linkedOutputChild))
+                    {
+                        TryCreateDirectorySymbolicLink(linkedOutputChild, externalDir).Should().BeTrue();
+                    }
+
+                    throw new IOException("disk full");
+                });
+
+            var result = await service.CollectAsync(maxDays: 15, totalCount: 1, failRatio: 1.0);
+
+            result.Success.Should().BeFalse();
+            result.Message.Should().Contain("未成功复制任何图片");
+            File.Exists(externalFile).Should().BeTrue();
+            linkedOutputChild.Should().NotBeNull();
+            Directory.Exists(linkedOutputChild!).Should().BeTrue();
+            Directory.GetDirectories(Path.Combine(storagePath, "DatasetCollections"))
+                .Should()
+                .ContainSingle();
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(linkedOutputChild))
+            {
+                TryDeleteDirectoryLink(linkedOutputChild);
+            }
+
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+            DeleteDirectory(storagePath);
+        }
+    }
+
+    [Fact]
     public async Task CollectAsync_直接扫描时忽略Rendered子目录()
     {
         string tempDir = CreateTempDirectory();
@@ -203,6 +417,77 @@ public class DatasetCollectionServiceTests
     }
 
     [Fact]
+    public async Task CollectAsync_部分路径失效_增量标准目录补回()
+    {
+        string tempDir = CreateTempDirectory();
+        string storagePath = CreateTempDirectory();
+        string dbPath = CreateEmptyDatabase(tempDir);
+        DateTime timestamp = DateTime.Now.Date.AddHours(11).AddMinutes(12).AddSeconds(13);
+        string validPassPath = Path.Combine(tempDir, "valid-pass.jpg");
+        File.WriteAllBytes(validPassPath, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+
+        string inspectionId = "INS-PARTIAL-FALLBACK";
+        string fallbackDir = Path.Combine(
+            storagePath,
+            "Images",
+            "Unqualified",
+            timestamp.ToString("yyyy年MM月dd日"),
+            timestamp.ToString("HH"));
+        Directory.CreateDirectory(fallbackDir);
+        string fallbackFailPath = Path.Combine(fallbackDir, $"FAIL_{inspectionId}.jpg");
+        File.WriteAllBytes(fallbackFailPath, new byte[] { 0xFF, 0xD8, 0xFF, 0xE1 });
+
+        InsertDetectionRecord(dbPath, timestamp, isQualified: true, validPassPath, renderedPath: null, "INS-VALID-PASS");
+        InsertDetectionRecord(
+            dbPath,
+            timestamp,
+            isQualified: false,
+            imagePath: Path.Combine(tempDir, "missing-fail.jpg"),
+            renderedPath: null,
+            inspectionId);
+        var progressMessages = new List<string>();
+        var progress = new RecordingProgress(progressMessages);
+        var service = new DatasetCollectionService(dbPath, storagePath);
+
+        var result = await service.CollectAsync(maxDays: 15, totalCount: 2, failRatio: 0.5, progress: progress);
+
+        result.Success.Should().BeTrue();
+        result.PassCopied.Should().Be(1);
+        result.FailCopied.Should().Be(1);
+        File.Exists(Path.Combine(result.OutputDirectory, "Pass", Path.GetFileName(validPassPath))).Should().BeTrue();
+        File.Exists(Path.Combine(result.OutputDirectory, "Fail", Path.GetFileName(fallbackFailPath))).Should().BeTrue();
+        progressMessages.Should().Contain(message => message.Contains("部分图片路径失效"));
+    }
+
+    [Fact]
+    public async Task CollectAsync_复制阶段全部失败_返回失败并清理空目录()
+    {
+        string tempDir = CreateTempDirectory();
+        string storagePath = CreateTempDirectory();
+        string dbPath = CreateEmptyDatabase(tempDir);
+        DateTime timestamp = DateTime.Now.Date.AddHours(12).AddMinutes(1);
+        string passPath = Path.Combine(tempDir, "pass-source.jpg");
+        string failPath = Path.Combine(tempDir, "fail-source.jpg");
+        File.WriteAllBytes(passPath, new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+        File.WriteAllBytes(failPath, new byte[] { 0xFF, 0xD8, 0xFF, 0xE1 });
+        InsertDetectionRecord(dbPath, timestamp, isQualified: true, passPath, renderedPath: null, "INS-COPY-PASS");
+        InsertDetectionRecord(dbPath, timestamp, isQualified: false, failPath, renderedPath: null, "INS-COPY-FAIL");
+        var service = new DatasetCollectionService(
+            dbPath,
+            storagePath,
+            copyFile: (_, _, _) => throw new IOException("disk full"));
+
+        var result = await service.CollectAsync(maxDays: 15, totalCount: 2, failRatio: 0.5);
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("未成功复制任何图片");
+        result.Message.Should().Contain("disk full");
+        string collectionRoot = Path.Combine(storagePath, "DatasetCollections");
+        Directory.Exists(collectionRoot).Should().BeTrue();
+        Directory.GetDirectories(collectionRoot).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task CollectAsync_渲染图缺失_回退复制原图()
     {
         string tempDir = CreateTempDirectory();
@@ -301,6 +586,27 @@ public class DatasetCollectionServiceTests
         return path;
     }
 
+    private static void DeleteDirectory(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            SqliteConnection.ClearAllPools();
+            try
+            {
+                Directory.Delete(path, recursive: true);
+            }
+            catch (IOException)
+            {
+                SqliteConnection.ClearAllPools();
+                System.Threading.Thread.Sleep(50);
+                if (Directory.Exists(path))
+                {
+                    Directory.Delete(path, recursive: true);
+                }
+            }
+        }
+    }
+
     private static string CreateEmptyDatabase(string tempDir)
     {
         string dbPath = Path.Combine(tempDir, "detection.db");
@@ -394,6 +700,97 @@ public class DatasetCollectionServiceTests
         insertCommand.Parameters.AddWithValue("$recipeId", "recipe-test");
         insertCommand.Parameters.AddWithValue("$inspectionId", inspectionId);
         insertCommand.ExecuteNonQuery();
+    }
+
+    private static void InsertDetectionRecord(
+        string dbPath,
+        DateTime timestamp,
+        bool isQualified,
+        string? imagePath,
+        string? renderedPath,
+        string inspectionId)
+    {
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+
+        using var insertCommand = connection.CreateCommand();
+        insertCommand.CommandText = @"
+            INSERT INTO DetectionRecords
+            (Timestamp, IsQualified, ImagePath, RenderedImagePath, ModelName, RecipeId, InspectionId)
+            VALUES ($timestamp, $isQualified, $imagePath, $renderedPath, $modelName, $recipeId, $inspectionId);
+        ";
+        insertCommand.Parameters.AddWithValue("$timestamp", timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+        insertCommand.Parameters.AddWithValue("$isQualified", isQualified ? 1 : 0);
+        insertCommand.Parameters.AddWithValue("$imagePath", (object?)imagePath ?? DBNull.Value);
+        insertCommand.Parameters.AddWithValue("$renderedPath", (object?)renderedPath ?? DBNull.Value);
+        insertCommand.Parameters.AddWithValue("$modelName", "model-test");
+        insertCommand.Parameters.AddWithValue("$recipeId", "recipe-test");
+        insertCommand.Parameters.AddWithValue("$inspectionId", inspectionId);
+        insertCommand.ExecuteNonQuery();
+    }
+
+    private static bool TryCreateFileSymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = File.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteDirectoryLink(string path)
+    {
+        try
+        {
+            if (!Directory.Exists(path))
+            {
+                return;
+            }
+
+            var info = new DirectoryInfo(path);
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                Directory.Delete(path);
+            }
+        }
+        catch
+        {
+            // 测试清理失败不应覆盖主体断言。
+        }
+    }
+
+    private sealed class RecordingProgress : IProgress<string>
+    {
+        private readonly List<string> _messages;
+
+        public RecordingProgress(List<string> messages)
+        {
+            _messages = messages;
+        }
+
+        public void Report(string value)
+        {
+            _messages.Add(value);
+        }
     }
 
     private static void CreateDatabaseWithRecords(string dbPath, string? imageDir, List<(DateTime timestamp, bool isQualified, string model)> records)

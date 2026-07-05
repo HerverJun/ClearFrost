@@ -77,6 +77,12 @@
         return text;
     }
 
+    function shortAuditHash(value) {
+        const text = String(value || "").trim();
+        if (!text) return "";
+        return text.length <= 12 ? text : `${text.slice(0, 12)}...`;
+    }
+
     function createTracePagerState() {
         return {
             pages: [],
@@ -465,6 +471,7 @@
     function openAuditModal() {
         byId("audit-modal")?.classList.remove("hidden");
         queryAuditRecords();
+        verifyAuditChain();
     }
 
     function closeAuditModal() {
@@ -482,7 +489,7 @@
         setAuditError("");
         const tbody = byId("audit-table");
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">正在加载审计记录...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">正在加载审计记录...</td></tr>';
         }
         bridge.sendCommand("query_audit_records", buildAuditQuery());
     }
@@ -490,6 +497,57 @@
     function exportAuditRecords() {
         setAuditError("");
         bridge.sendCommand("export_audit_records", buildAuditQuery());
+    }
+
+    function verifyAuditChain() {
+        setAuditError("");
+        const badge = byId("audit-chain-badge");
+        if (badge) {
+            badge.textContent = "校验中";
+            badge.className = "px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-bold";
+        }
+        bridge.sendCommand("verify_audit_chain", {});
+    }
+
+    function updateAuditChainVerification(data) {
+        const error = data?.error || data?.Error || "";
+        const status = String(data?.status || data?.Status || (error ? "Unavailable" : "Unknown"));
+        const totalRecords = data?.totalRecords ?? data?.TotalRecords ?? 0;
+        const verifiedRecords = data?.verifiedRecords ?? data?.VerifiedRecords ?? 0;
+        const findingCount = data?.findingCount ?? data?.FindingCount ?? 0;
+        const lastHash = data?.lastRecordSha256 || data?.LastRecordSha256 || "";
+        const findings = Array.isArray(data?.findings) ? data.findings : (data?.Findings || []);
+        const badge = byId("audit-chain-badge");
+        const countNode = byId("audit-chain-count");
+        const findingNode = byId("audit-chain-findings");
+        const hashNode = byId("audit-chain-last-hash");
+        const messageNode = byId("audit-chain-message");
+
+        const statusClass = status === "Healthy"
+            ? "bg-bamboo-50 text-bamboo-700 border border-bamboo-100"
+            : status === "Warning"
+                ? "bg-amber-50 text-amber-700 border border-amber-100"
+                : "bg-rouge-50 text-rouge-700 border border-rouge-100";
+
+        if (badge) {
+            badge.textContent = status;
+            badge.className = `px-2 py-0.5 rounded-full font-bold ${statusClass}`;
+        }
+        if (countNode) countNode.textContent = `Verified ${verifiedRecords}/${totalRecords}`;
+        if (findingNode) findingNode.textContent = `Findings ${findingCount}`;
+        if (hashNode) {
+            hashNode.textContent = `Last ${shortAuditHash(lastHash) || "-"}`;
+            hashNode.title = lastHash || "";
+        }
+        if (messageNode) {
+            const firstFinding = findings[0] || {};
+            const summary = firstFinding.errorCode || firstFinding.ErrorCode || error || "";
+            const line = firstFinding.lineNumber || firstFinding.LineNumber || "";
+            messageNode.textContent = summary ? `${summary}${line ? ` @${line}` : ""}` : "";
+        }
+        if (error) {
+            setAuditError(error);
+        }
     }
 
     function updateAuditRecords(data) {
@@ -505,7 +563,7 @@
 
         if (badge) badge.textContent = `${records.length} 条`;
         if (!records.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">未匹配到审计记录</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">未匹配到审计记录</td></tr>';
             return;
         }
 
@@ -522,6 +580,7 @@
                     <td class="px-3 py-3">${escapeHtml(record.operatorId || "-")}</td>
                     <td class="px-3 py-3">${escapeHtml(formatProductionRole(record.role) || "-")}</td>
                     <td class="px-3 py-3">${escapeHtml(record.inspectionId || "-")}</td>
+                    <td class="px-3 py-3 max-w-[130px] truncate" title="${escapeHtml(record.recordSha256 || "")}">${escapeHtml(shortAuditHash(record.recordSha256) || "-")}</td>
                     <td class="px-3 py-3 max-w-md whitespace-normal break-words">${escapeHtml(formatAuditText(record.details || record.reason) || "-")}</td>
                     <td class="px-3 py-3 max-w-xs whitespace-normal break-words">${escapeHtml(formatAuditText(record.failureBlocker) || "-")}</td>
                 </tr>
@@ -1043,6 +1102,7 @@
         closeLogHistoryModal,
         closeStatisticsHistoryModal,
         exportAuditRecords,
+        verifyAuditChain,
         openGalleryModal,
         openAuditModal,
         openLogHistoryModal,
@@ -1070,6 +1130,7 @@
         selectTraceHour,
         updateDetectionLogTable,
         updateAuditExport,
+        updateAuditChainVerification,
         updateAuditRecords,
         updateNGDates,
         updateNGHours,
@@ -1081,6 +1142,7 @@
     bridge.registerMessageHandler("detectionLogTable", updateDetectionLogTable);
     bridge.registerMessageHandler("auditRecords", updateAuditRecords);
     bridge.registerMessageHandler("auditExport", updateAuditExport);
+    bridge.registerMessageHandler("auditChainVerification", updateAuditChainVerification);
     bridge.registerMessageHandler("historyDates", updateNGDates);
     bridge.registerMessageHandler("historyHours", updateNGHours);
     bridge.registerMessageHandler("historyImages", updateNGImages);

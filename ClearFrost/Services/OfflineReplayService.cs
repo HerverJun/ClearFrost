@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -131,7 +132,8 @@ namespace ClearFrost.Services
             Mat? image = null;
             try
             {
-                image = Cv2.ImRead(imagePath, ImreadModes.Color);
+                byte[] imageBytes = await File.ReadAllBytesAsync(imagePath, cancellationToken).ConfigureAwait(false);
+                image = Cv2.ImDecode(imageBytes, ImreadModes.Color);
                 if (image == null || image.Empty())
                 {
                     return BuildFailedResult(record, imagePath, "ImageReadFailed", "历史样本图片读取失败");

@@ -69,6 +69,7 @@ namespace ClearFrost
             SafeFireAndForget(_databaseService.InitializeAsync(), "数据库初始化");
             _operationAuditService = _appRuntime.OperationAuditService;
             _uiController.AuditService = _operationAuditService;
+            _uiController.AuditChainVerifier = _appRuntime.VerifyOperationAuditChainAsync;
             _imageSaveQueue = _appRuntime.ImageSaveQueue;
             _detectionRecordQueue = _appRuntime.DetectionRecordQueue;
             _recipeManager = _appRuntime.RecipeManager;

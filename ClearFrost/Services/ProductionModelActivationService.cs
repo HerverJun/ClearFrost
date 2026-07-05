@@ -1048,19 +1048,93 @@ namespace ClearFrost.Services
             error = string.Empty;
             try
             {
-                if (!File.Exists(_recipeManager.RecipePath))
-                {
-                    error = $"Recipe file not found: {_recipeManager.RecipePath}";
-                    return null;
-                }
+                string recipePath = EnsurePersistedRecipeFileSafeForRead(_recipeManager.RecipePath);
+                using var stream = new FileStream(
+                    recipePath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    bufferSize: 4096,
+                    FileOptions.SequentialScan);
 
-                string json = File.ReadAllText(_recipeManager.RecipePath);
-                return JsonSerializer.Deserialize<Recipe>(json);
+                EnsurePersistedRecipeFileSafeForRead(recipePath);
+                Recipe? recipe = JsonSerializer.Deserialize<Recipe>(stream);
+                EnsurePersistedRecipeFileSafeForRead(recipePath);
+                return recipe;
             }
             catch (Exception ex)
             {
                 error = ex.Message;
                 return null;
+            }
+        }
+
+        private static string EnsurePersistedRecipeFileSafeForRead(string path)
+        {
+            string fullPath = Path.GetFullPath(path);
+            string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                throw new IOException($"Recipe directory is invalid: {fullPath}");
+            }
+
+            if (DirectoryPathHasReparsePoint(directory))
+            {
+                throw new IOException($"Recipe directory contains linked path segments: {directory}");
+            }
+
+            var file = new FileInfo(fullPath);
+            file.Refresh();
+            if (!file.Exists)
+            {
+                throw new IOException($"Recipe file not found: {fullPath}");
+            }
+
+            if (HasReparsePoint(file))
+            {
+                throw new IOException($"Recipe file is a linked file: {fullPath}");
+            }
+
+            return fullPath;
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
             }
         }
 

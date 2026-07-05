@@ -59,6 +59,11 @@ namespace ClearFrost
         {
             get
             {
+                if (!string.IsNullOrWhiteSpace(_storageService?.BaseStoragePath))
+                {
+                    return _storageService.BaseStoragePath;
+                }
+
                 string? path = _appConfig?.StoragePath;
                 if (string.IsNullOrWhiteSpace(path))
                 {

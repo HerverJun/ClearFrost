@@ -246,6 +246,34 @@ public class ConfigMigrationServiceTests
     }
 
     [Fact]
+    public void Import_拒绝链接运行配置且不修改外部配置()
+    {
+        WithRuntimeRoot(root =>
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(RuntimePaths.ConfigPath)!);
+            string externalConfig = Path.Combine(root, "external-config.json");
+            string externalJson = CreateFieldConfig(plcNgValue: 5, serialNumber: "SN-EXTERNAL", exposure: 1000).ToPortableJson();
+            File.WriteAllText(externalConfig, externalJson);
+            if (!TryCreateFileSymbolicLink(RuntimePaths.ConfigPath, externalConfig))
+            {
+                return;
+            }
+
+            var source = CreateFieldConfig(plcNgValue: 31, serialNumber: "SN-LINKED-IMPORT", exposure: 54321);
+            string packagePath = Path.Combine(root, "linked-runtime-config.clearfrost-config.json");
+            File.WriteAllText(packagePath, source.ToPortableJson());
+            var current = CreateFieldConfig(plcNgValue: 1, serialNumber: "SN-CURRENT", exposure: 1000);
+
+            Action act = () => ConfigMigrationService.ImportFromFile(packagePath, current);
+
+            act.Should().Throw<IOException>().WithMessage("*链接文件*");
+            File.ReadAllText(externalConfig).Should().Be(externalJson);
+            current.PlcNgValue.Should().Be(1);
+            current.ActiveCamera!.SerialNumber.Should().Be("SN-CURRENT");
+        });
+    }
+
+    [Fact]
     public void Import_缺失Config对象的迁移包不改写运行时配置()
     {
         WithRuntimeRoot(root =>
@@ -315,6 +343,20 @@ public class ConfigMigrationServiceTests
             {
                 Directory.Delete(root, recursive: true);
             }
+        }
+    }
+
+    private static bool TryCreateFileSymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = File.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
         }
     }
 }

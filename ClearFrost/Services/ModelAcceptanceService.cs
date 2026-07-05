@@ -105,8 +105,19 @@ namespace ClearFrost.Services
                     return new ModelProductionState();
                 }
 
-                string json = File.ReadAllText(_productionStatePath);
-                return JsonSerializer.Deserialize<ModelProductionState>(json, JsonOptions) ?? new ModelProductionState();
+                string statePath = EnsureProductionStateFileSafeForRead(_productionStatePath);
+                using var stream = new FileStream(
+                    statePath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    bufferSize: 4096,
+                    FileOptions.SequentialScan);
+
+                EnsureProductionStateFileSafeForRead(statePath);
+                ModelProductionState? state = JsonSerializer.Deserialize<ModelProductionState>(stream, JsonOptions);
+                EnsureProductionStateFileSafeForRead(statePath);
+                return state ?? new ModelProductionState();
             }
             catch
             {
@@ -117,6 +128,65 @@ namespace ClearFrost.Services
         private void SaveState(ModelProductionState state)
         {
             AtomicFileWriter.WriteAllText(_productionStatePath, JsonSerializer.Serialize(state, JsonOptions));
+        }
+
+        private static string EnsureProductionStateFileSafeForRead(string path)
+        {
+            string fullPath = Path.GetFullPath(path);
+            string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(directory) || DirectoryPathHasReparsePoint(directory))
+            {
+                throw new IOException($"模型生产状态目录不安全，拒绝读取: {directory}");
+            }
+
+            var file = new FileInfo(fullPath);
+            file.Refresh();
+            if (!file.Exists || HasReparsePoint(file))
+            {
+                throw new IOException($"模型生产状态文件不安全，拒绝读取: {fullPath}");
+            }
+
+            return fullPath;
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
         }
 
         private static ModelAcceptanceResult ValidateProductionStateEntry(ModelRegistryEntry entry)
@@ -151,11 +221,37 @@ namespace ClearFrost.Services
                 return Fail("模型文件不存在，不能记录为生产状态。", 0);
             }
 
+            if (!IsSafeModelFileForProductionState(entry.ModelPath))
+            {
+                return Fail("模型文件路径包含链接，不能记录为生产状态。", 0);
+            }
+
             return new ModelAcceptanceResult
             {
                 Succeeded = true,
                 Message = "模型生产状态校验通过。"
             };
+        }
+
+        private static bool IsSafeModelFileForProductionState(string path)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(path);
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(directory) || DirectoryPathHasReparsePoint(directory))
+                {
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                return file.Exists && !HasReparsePoint(file);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static ModelAcceptanceResult Fail(string message, double passRate)

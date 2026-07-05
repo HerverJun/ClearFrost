@@ -192,6 +192,48 @@ public class HealthMonitorTests
         }
     }
 
+    [Fact]
+    public void GetSnapshot_链接存储目录判定为Critical且不写入外部目标()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        string externalDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        string linkedStoragePath = string.Empty;
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(externalDir);
+
+        try
+        {
+            linkedStoragePath = Path.Combine(tempDir, "linked-storage");
+            if (!TryCreateDirectorySymbolicLink(linkedStoragePath, externalDir))
+            {
+                return;
+            }
+
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(new RecordingDatabaseService());
+            var monitor = new HealthMonitor(
+                new FakeCameraService(),
+                new FakePlcService(),
+                new FakeDetectionService(),
+                new FakeStorageService(linkedStoragePath, ensureDirectories: false),
+                imageQueue,
+                recordQueue,
+                diskProbeCacheTtl: TimeSpan.Zero);
+
+            HealthSnapshot snapshot = monitor.GetSnapshot();
+
+            snapshot.HealthLevel.Should().Be(HealthLevel.Critical);
+            snapshot.StorageStatus.Should().Be("Error");
+            Directory.EnumerateFileSystemEntries(externalDir).Should().BeEmpty();
+        }
+        finally
+        {
+            TryDeleteDirectoryLink(linkedStoragePath);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
     private static void SetPendingCount(object queue, long value)
     {
         var field = queue.GetType().GetField(
@@ -208,6 +250,59 @@ public class HealthMonitorTests
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
         field.Should().NotBeNull();
         field!.SetValue(queue, value);
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteDirectoryLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new DirectoryInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
+    private static void DeleteDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+
+        var info = new DirectoryInfo(path);
+        info.Refresh();
+        if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            info.Delete();
+            return;
+        }
+
+        Directory.Delete(path, true);
     }
 
     private sealed class FakeCameraService : ICameraService
@@ -312,12 +407,15 @@ public class HealthMonitorTests
 
     private sealed class FakeStorageService : IStorageService
     {
-        public FakeStorageService(string basePath)
+        public FakeStorageService(string basePath, bool ensureDirectories = true)
         {
             ImageBasePath = Path.Combine(basePath, "Images");
             LogBasePath = Path.Combine(basePath, "Logs");
             SystemPath = Path.Combine(basePath, "System");
-            EnsureDirectoriesExist();
+            if (ensureDirectories)
+            {
+                EnsureDirectoriesExist();
+            }
         }
 
         public string ImageBasePath { get; }

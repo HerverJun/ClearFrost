@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
@@ -354,6 +354,58 @@
                 </section>
 
                 <section class="cf-diagnostics-section">
+                    <h3>现场验收清单</h3>
+                    <div class="cf-diagnostics-checklist" id="diag-acceptance-list">
+                        <div>
+                            <span>运行模型</span>
+                            <strong id="diag-model-slot-list">等待模型快照</strong>
+                        </div>
+                        <div>
+                            <span>当前配方</span>
+                            <strong id="diag-recipe-version">未加载</strong>
+                        </div>
+                        <div>
+                            <span>启动阻断</span>
+                            <strong id="diag-startup-blockers">无阻断项</strong>
+                        </div>
+                        <div>
+                            <span>队列风险</span>
+                            <strong id="diag-queue-health">正常</strong>
+                        </div>
+                        <div>
+                            <span>审计链</span>
+                            <strong id="diag-audit-chain">未校验</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="cf-diagnostics-section">
+                    <h3>维护建议</h3>
+                    <div id="diag-maintenance-advice" class="cf-maintenance-advice-list">
+                        <div class="cf-maintenance-advice-item ok">
+                            <strong>暂无建议</strong>
+                            <span>当前没有需要处理的诊断建议</span>
+                        </div>
+                    </div>
+                    <div class="cf-maintenance-history" id="diag-maintenance-history">
+                        <div class="cf-maintenance-history-empty">
+                            <strong>暂无处理记录</strong>
+                            <span>处理或复检维护建议后会出现在这里</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="cf-diagnostics-section">
+                    <h3>班次待办</h3>
+                    <div class="cf-shift-task-list" id="diag-shift-task-list">
+                        <div class="cf-shift-task-empty">
+                            <strong>暂无班次待办</strong>
+                            <span>当前无需要交接跟进的诊断任务</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="cf-diagnostics-section">
                     <h3>最近异常与阶段耗时</h3>
                     <div class="cf-diagnostics-readout">
                         <div>
@@ -363,6 +415,36 @@
                         <div>
                             <span>最近检测阶段耗时</span>
                             <strong id="diag-stage-timing">等待检测</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="cf-diagnostics-section">
+                    <h3>现场交接</h3>
+                    <div class="cf-diagnostics-export-row cf-handoff-report-row">
+                        <button data-action="exportFieldHandoffReport">
+                            <span>导出交接报告</span>
+                        </button>
+                        <button data-action="copyFieldHandoffReportSummary">
+                            <span>复制交接摘要</span>
+                        </button>
+                        <strong id="diag-handoff-report-path">尚未导出</strong>
+                    </div>
+                    <div class="cf-handoff-report-meta" id="diag-handoff-report-meta">
+                        <span>结论 <strong id="diag-handoff-status">-</strong></span>
+                        <span>大小 <strong id="diag-handoff-size">-</strong></span>
+                        <span>生成时间 <strong id="diag-handoff-generated-at">-</strong></span>
+                    </div>
+                    <div class="cf-diagnostics-history-head">
+                        <span>历史交接报告</span>
+                        <button data-action="requestFieldHandoffReportHistory">
+                            <span>刷新</span>
+                        </button>
+                    </div>
+                    <div class="cf-handoff-report-history" id="diag-handoff-report-history">
+                        <div class="cf-handoff-report-empty">
+                            <strong>暂无历史交接报告</strong>
+                            <span>导出交接报告后会出现在这里</span>
                         </div>
                     </div>
                 </section>
@@ -400,7 +482,29 @@
                         <button data-cmd="export_diagnostic_package">
                             <span>一键导出诊断包</span>
                         </button>
+                        <button data-action="copyDiagnosticPackageSummary">
+                            <span>复制核验摘要</span>
+                        </button>
                         <strong id="diag-package-path">尚未导出</strong>
+                    </div>
+                    <div class="cf-diagnostics-package-meta" id="diag-package-integrity">
+                        <span>包 SHA-256 <strong id="diag-package-sha">-</strong></span>
+                        <span>索引 SHA-256 <strong id="diag-index-sha">-</strong></span>
+                        <span>大小 <strong id="diag-package-size">-</strong></span>
+                        <span>校验 <strong id="diag-integrity-status">-</strong></span>
+                        <span>条目 <strong id="diag-index-entry-count">-</strong></span>
+                    </div>
+                    <div class="cf-diagnostics-history-head">
+                        <span>历史诊断包</span>
+                        <button data-action="requestDiagnosticPackageHistory">
+                            <span>刷新</span>
+                        </button>
+                    </div>
+                    <div class="cf-diagnostics-package-history" id="diag-package-history">
+                        <div class="cf-diagnostics-package-empty">
+                            <strong>暂无历史诊断包</strong>
+                            <span>导出诊断包后会出现在这里</span>
+                        </div>
                     </div>
                 </section>
             </div>
@@ -1673,14 +1777,25 @@
                         class="px-3 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">查询</button>
                     <button data-action="exportAuditRecords"
                         class="px-3 py-1.5 text-xs font-bold text-ink-600 bg-white border border-slate-200 hover:border-celadon-300 rounded-lg transition-colors">导出</button>
+                    <button data-action="verifyAuditChain"
+                        class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 hover:border-amber-300 rounded-lg transition-colors">校验链</button>
                     <button data-action="closeAuditModal"
                         class="text-2xl text-ink-400 hover:text-vermilion transition-colors">&times;</button>
                 </div>
             </div>
             <div id="audit-error" class="hidden px-8 py-2 text-xs text-rouge-600 bg-rouge-50 border-b border-rouge-100"></div>
+            <div id="audit-chain-status"
+                class="px-8 py-3 text-[11px] bg-white border-b border-slate-100 flex flex-wrap gap-3 items-center text-ink-500">
+                <span class="font-bold text-ink-700">审计链</span>
+                <span id="audit-chain-badge" class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-bold">未校验</span>
+                <span id="audit-chain-count" class="font-mono">Verified -/-</span>
+                <span id="audit-chain-findings" class="font-mono">Findings -</span>
+                <span id="audit-chain-last-hash" class="font-mono truncate max-w-[320px]">Last -</span>
+                <span id="audit-chain-message" class="text-rouge-600"></span>
+            </div>
             <div class="flex-1 overflow-auto p-6 scroller bg-slate-50/30">
                 <div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-soft">
-                    <table class="w-full text-left border-collapse min-w-[1100px]">
+                    <table class="w-full text-left border-collapse min-w-[1240px]">
                         <thead>
                             <tr class="bg-slate-50/80 border-b border-slate-200">
                                 <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">时间</th>
@@ -1689,13 +1804,14 @@
                                 <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">操作员</th>
                                 <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">角色</th>
                                 <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">检测单号</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">链哈希</th>
                                 <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">详情</th>
                                 <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">失败原因</th>
                             </tr>
                         </thead>
                         <tbody id="audit-table" class="text-[11px] text-ink-600 font-mono divide-y divide-slate-100">
                             <tr>
-                                <td colspan="8" class="px-4 py-10 text-center text-ink-300 italic">尚未加载审计记录</td>
+                                <td colspan="9" class="px-4 py-10 text-center text-ink-300 italic">尚未加载审计记录</td>
                             </tr>
                         </tbody>
                     </table>

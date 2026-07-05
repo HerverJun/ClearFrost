@@ -59,6 +59,10 @@ namespace ClearFrost.Services
                 CheckWritableDirectory("Database directory", Path.GetDirectoryName(RuntimePaths.DatabasePath) ?? RuntimePaths.DataDirectory, isBlocking: true),
                 CheckWritableDirectory("Storage directory", operationalStoragePath, isBlocking: true),
                 CheckWritableDirectory("Log directory", storageService.LogBasePath, isBlocking: true),
+                CheckWritableDirectory("System evidence directory", storageService.SystemPath, isBlocking: true),
+                CheckWritableDirectory("Audit outbox directory", Path.Combine(storageService.LogBasePath, "Outbox"), isBlocking: true),
+                CheckWritableDirectory("Diagnostic package directory", Path.Combine(storageService.LogBasePath, "Diagnostics"), isBlocking: false),
+                CheckWritableDirectory("Handoff report directory", Path.Combine(storageService.LogBasePath, "HandoffReports"), isBlocking: false),
                 CheckPlcAddresses(config),
                 CheckCameraConfig(config),
                 CheckDiskFreeSpace(operationalStoragePath)
@@ -119,15 +123,76 @@ namespace ClearFrost.Services
                     throw new InvalidOperationException("Directory path is empty.");
                 }
 
-                Directory.CreateDirectory(path);
-                string probe = Path.Combine(path, $".startup-diagnostics-{Guid.NewGuid():N}.tmp");
-                File.WriteAllText(probe, "ok");
-                File.Delete(probe);
-                return Pass(name, "Writable.", Path.GetFullPath(path), isBlocking);
+                string fullPath = Path.GetFullPath(path);
+                EnsureProbeDirectorySafe(fullPath);
+                Directory.CreateDirectory(fullPath);
+                EnsureProbeDirectorySafe(fullPath);
+                string probe = Path.Combine(fullPath, $".startup-diagnostics-{Guid.NewGuid():N}.tmp");
+                WriteAndDeleteProbeFile(probe);
+                return Pass(name, "Writable.", fullPath, isBlocking);
             }
             catch (Exception ex)
             {
                 return Fail(name, "Directory is not writable.", ex.Message, isBlocking);
+            }
+        }
+
+        private static void EnsureProbeDirectorySafe(string directory)
+        {
+            if (DirectoryPathHasReparsePoint(directory))
+            {
+                throw new IOException($"Directory contains a linked path segment: {directory}");
+            }
+        }
+
+        private static void WriteAndDeleteProbeFile(string probePath)
+        {
+            using (var stream = new FileStream(probePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(stream))
+            {
+                writer.Write("ok");
+            }
+
+            var probe = new FileInfo(probePath);
+            probe.Refresh();
+            if (probe.Exists && HasReparsePoint(probe))
+            {
+                throw new IOException($"Probe file is a linked file: {probePath}");
+            }
+
+            File.Delete(probePath);
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            var current = new DirectoryInfo(Path.GetFullPath(directory));
+            while (current != null)
+            {
+                current.Refresh();
+                if (current.Exists && HasReparsePoint(current))
+                {
+                    return true;
+                }
+
+                current = current.Parent;
+            }
+
+            return false;
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
             }
         }
 

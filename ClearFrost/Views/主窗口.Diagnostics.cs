@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: 主窗口.Diagnostics.cs
 // 描述:   现场诊断中心与单步调试命令处理
 // ============================================================================
@@ -21,17 +21,27 @@ namespace ClearFrost
             try
             {
                 string outputDirectory = Path.Combine(_storageService.LogBasePath, "Diagnostics");
-                string path = await _appRuntime.ExportDiagnosticPackageAsync(
+                DiagnosticPackageExportSummary summary = await _appRuntime.ExportDiagnosticPackageAsync(
                     outputDirectory,
                     _appShutdownCts.Token).ConfigureAwait(false);
 
                 await _uiController.SendDiagnosticPackageExportResult(new
                 {
                     succeeded = true,
-                    path,
-                    message = $"诊断包已导出: {path}"
+                    path = summary.PackagePath,
+                    sizeBytes = summary.SizeBytes,
+                    packageSha256 = summary.PackageSha256,
+                    indexSha256 = summary.IndexSha256,
+                    integrityEntryCount = summary.IntegrityEntryCount,
+                    verifiedEntryCount = summary.VerifiedEntryCount,
+                    integrityStatus = summary.IntegrityStatus,
+                    integrityFindingCount = summary.IntegrityFindingCount,
+                    exportedAt = summary.ExportedAt,
+                    message = $"诊断包已导出: {summary.PackagePath}"
                 }, args.RequestId).ConfigureAwait(false);
-                await _uiController.LogToFrontend($"诊断包已导出: {path}", "success").ConfigureAwait(false);
+                await _uiController.LogToFrontend(
+                    $"诊断包已导出: {summary.PackagePath} SHA-256={ShortHash(summary.PackageSha256)}",
+                    "success").ConfigureAwait(false);
                 await _uiController.SendUiCommand("toast", new
                 {
                     message = "诊断包已导出",
@@ -53,6 +63,267 @@ namespace ClearFrost
             finally
             {
                 await SendHealthSnapshotToFrontendAsync().ConfigureAwait(false);
+            }
+        }
+
+        private async Task QueryDiagnosticPackagesFromWebAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                string outputDirectory = Path.Combine(_storageService.LogBasePath, "Diagnostics");
+                IReadOnlyList<DiagnosticPackageHistoryItem> packages =
+                    _appRuntime.QueryDiagnosticPackageHistory(outputDirectory);
+
+                await _uiController.SendDiagnosticPackageHistoryResult(new
+                {
+                    succeeded = true,
+                    packages,
+                    message = packages.Count == 0
+                        ? "暂无历史诊断包"
+                        : $"已加载最近 {packages.Count} 个诊断包"
+                }, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                RecordHealthError("Diagnostics.History", $"查询诊断包历史失败: {ex.Message}");
+                await _uiController.SendDiagnosticPackageHistoryResult(new
+                {
+                    succeeded = false,
+                    packages = Array.Empty<DiagnosticPackageHistoryItem>(),
+                    message = $"查询诊断包历史失败: {ex.Message}"
+                }, args.RequestId).ConfigureAwait(false);
+                await _uiController.LogToFrontend($"查询诊断包历史失败: {ex.Message}", "error").ConfigureAwait(false);
+            }
+        }
+
+        private async Task VerifyDiagnosticPackageFromWebAsync(WebUiCommandEventArgs args)
+        {
+            DiagnosticPackageVerifyPayload payload = DiagnosticPackageVerifyPayload.Parse(args.PayloadJson);
+            try
+            {
+                string outputDirectory = Path.Combine(_storageService.LogBasePath, "Diagnostics");
+                DiagnosticPackageExportSummary summary = await _appRuntime.VerifyDiagnosticPackageAsync(
+                    outputDirectory,
+                    payload.Path,
+                    _appShutdownCts.Token).ConfigureAwait(false);
+
+                bool healthy = string.Equals(summary.IntegrityStatus, "Healthy", StringComparison.OrdinalIgnoreCase);
+                await _uiController.SendDiagnosticPackageVerificationResult(new
+                {
+                    succeeded = healthy,
+                    path = summary.PackagePath,
+                    fileName = summary.FileName,
+                    sizeBytes = summary.SizeBytes,
+                    packageSha256 = summary.PackageSha256,
+                    indexSha256 = summary.IndexSha256,
+                    integrityEntryCount = summary.IntegrityEntryCount,
+                    verifiedEntryCount = summary.VerifiedEntryCount,
+                    integrityStatus = summary.IntegrityStatus,
+                    integrityFindingCount = summary.IntegrityFindingCount,
+                    exportedAt = summary.ExportedAt,
+                    verifiedAt = summary.VerifiedAt,
+                    message = healthy
+                        ? $"诊断包复核通过: {summary.FileName}"
+                        : $"诊断包复核异常: {summary.FileName} ({summary.IntegrityStatus})"
+                }, args.RequestId).ConfigureAwait(false);
+
+                await _uiController.LogToFrontend(
+                    healthy
+                        ? $"诊断包复核通过: {summary.FileName} SHA-256={ShortHash(summary.PackageSha256)}"
+                        : $"诊断包复核异常: {summary.FileName} Status={summary.IntegrityStatus}",
+                    healthy ? "success" : "warning").ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                RecordHealthError("Diagnostics.Verify", $"诊断包复核失败: {ex.Message}");
+                await _uiController.SendDiagnosticPackageVerificationResult(new
+                {
+                    succeeded = false,
+                    path = payload.Path,
+                    message = $"诊断包复核失败: {ex.Message}",
+                    integrityStatus = "Blocking",
+                    integrityFindingCount = 1
+                }, args.RequestId).ConfigureAwait(false);
+                await _uiController.LogToFrontend($"诊断包复核失败: {ex.Message}", "error").ConfigureAwait(false);
+            }
+        }
+
+        private async Task HandleMaintenanceAdviceActionFromWebAsync(WebUiCommandEventArgs args)
+        {
+            MaintenanceAdviceActionPayload payload = MaintenanceAdviceActionPayload.Parse(args.PayloadJson);
+            try
+            {
+                MaintenanceAdviceActionResult result = await _appRuntime.HandleMaintenanceAdviceActionAsync(
+                    payload.AdviceId,
+                    payload.Action,
+                    payload.Notes,
+                    _appShutdownCts.Token).ConfigureAwait(false);
+
+                await _uiController.SendMaintenanceAdviceActionResult(new
+                {
+                    succeeded = result.Succeeded,
+                    cleared = result.Cleared,
+                    adviceId = result.AdviceId,
+                    status = result.Status,
+                    message = result.Message,
+                    record = result.Record,
+                    history = result.History
+                }, args.RequestId).ConfigureAwait(false);
+
+                await _uiController.LogToFrontend(
+                    result.Message,
+                    result.Succeeded && result.Cleared ? "success" :
+                    result.Succeeded ? "warning" : "error").ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                RecordHealthError("Diagnostics.MaintenanceAdvice", $"维护建议处理失败: {ex.Message}");
+                await _uiController.SendMaintenanceAdviceActionResult(new
+                {
+                    succeeded = false,
+                    cleared = false,
+                    adviceId = payload.AdviceId,
+                    status = "Failed",
+                    message = $"维护建议处理失败: {ex.Message}"
+                }, args.RequestId).ConfigureAwait(false);
+                await _uiController.LogToFrontend($"维护建议处理失败: {ex.Message}", "error").ConfigureAwait(false);
+            }
+            finally
+            {
+                await SendHealthSnapshotToFrontendAsync().ConfigureAwait(false);
+            }
+        }
+
+        private async Task HandleShiftTaskActionFromWebAsync(WebUiCommandEventArgs args)
+        {
+            ShiftTaskActionPayload payload = ShiftTaskActionPayload.Parse(args.PayloadJson);
+            try
+            {
+                ShiftTaskActionResult result = await _appRuntime.HandleShiftTaskActionAsync(
+                    payload.TaskId,
+                    payload.LinkedAdviceId,
+                    payload.Action,
+                    payload.Notes,
+                    _appShutdownCts.Token).ConfigureAwait(false);
+
+                await _uiController.SendShiftTaskActionResult(new
+                {
+                    succeeded = result.Succeeded,
+                    cleared = result.Cleared,
+                    taskId = result.TaskId,
+                    linkedAdviceId = result.LinkedAdviceId,
+                    status = result.Status,
+                    message = result.Message,
+                    record = result.Record,
+                    tasks = result.Tasks,
+                    history = result.History
+                }, args.RequestId).ConfigureAwait(false);
+
+                await _uiController.LogToFrontend(
+                    result.Message,
+                    result.Succeeded && result.Cleared ? "success" :
+                    result.Succeeded ? "warning" : "error").ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                RecordHealthError("Diagnostics.ShiftTask", $"班次待办处理失败: {ex.Message}");
+                await _uiController.SendShiftTaskActionResult(new
+                {
+                    succeeded = false,
+                    cleared = false,
+                    taskId = payload.TaskId,
+                    linkedAdviceId = payload.LinkedAdviceId,
+                    status = "Failed",
+                    message = $"班次待办处理失败: {ex.Message}"
+                }, args.RequestId).ConfigureAwait(false);
+                await _uiController.LogToFrontend($"班次待办处理失败: {ex.Message}", "error").ConfigureAwait(false);
+            }
+            finally
+            {
+                await SendHealthSnapshotToFrontendAsync().ConfigureAwait(false);
+            }
+        }
+
+        private async Task ExportFieldHandoffReportFromWebAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                string outputDirectory = Path.Combine(_storageService.LogBasePath, "HandoffReports");
+                FieldHandoffReportSummary summary = await _appRuntime.ExportFieldHandoffReportAsync(
+                    outputDirectory,
+                    _appShutdownCts.Token).ConfigureAwait(false);
+
+                await _uiController.SendFieldHandoffReportResult(new
+                {
+                    succeeded = true,
+                    path = summary.ReportPath,
+                    fileName = summary.FileName,
+                    sizeBytes = summary.SizeBytes,
+                    generatedAt = summary.GeneratedAt,
+                    overallStatus = summary.OverallStatus,
+                    activeAdviceCount = summary.ActiveAdviceCount,
+                    shiftTaskCount = summary.ShiftTaskCount,
+                    failedRecheckCount = summary.FailedRecheckCount,
+                    diagnosticPackageCount = summary.DiagnosticPackageCount,
+                    recentAuditCount = summary.RecentAuditCount,
+                    message = summary.Message
+                }, args.RequestId).ConfigureAwait(false);
+
+                await _uiController.LogToFrontend(
+                    $"现场交接报告已导出: {summary.ReportPath}",
+                    "success").ConfigureAwait(false);
+                await _uiController.SendUiCommand("toast", new
+                {
+                    message = "现场交接报告已导出",
+                    type = "success",
+                    durationMs = 1800
+                }).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                RecordHealthError("Diagnostics.HandoffReport", $"现场交接报告导出失败: {ex.Message}");
+                await _uiController.SendFieldHandoffReportResult(new
+                {
+                    succeeded = false,
+                    path = string.Empty,
+                    message = $"现场交接报告导出失败: {ex.Message}",
+                    overallStatus = "Failed"
+                }, args.RequestId).ConfigureAwait(false);
+                await _uiController.LogToFrontend($"现场交接报告导出失败: {ex.Message}", "error").ConfigureAwait(false);
+            }
+            finally
+            {
+                await SendHealthSnapshotToFrontendAsync().ConfigureAwait(false);
+            }
+        }
+
+        private async Task QueryFieldHandoffReportsFromWebAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                string outputDirectory = Path.Combine(_storageService.LogBasePath, "HandoffReports");
+                IReadOnlyList<FieldHandoffReportHistoryItem> reports =
+                    _appRuntime.QueryFieldHandoffReportHistory(outputDirectory);
+
+                await _uiController.SendFieldHandoffReportHistoryResult(new
+                {
+                    succeeded = true,
+                    reports,
+                    message = reports.Count == 0
+                        ? "暂无现场交接报告"
+                        : $"已加载最近 {reports.Count} 份现场交接报告"
+                }, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                RecordHealthError("Diagnostics.HandoffReportHistory", $"查询现场交接报告历史失败: {ex.Message}");
+                await _uiController.SendFieldHandoffReportHistoryResult(new
+                {
+                    succeeded = false,
+                    reports = Array.Empty<FieldHandoffReportHistoryItem>(),
+                    message = $"查询现场交接报告历史失败: {ex.Message}"
+                }, args.RequestId).ConfigureAwait(false);
+                await _uiController.LogToFrontend($"查询现场交接报告历史失败: {ex.Message}", "error").ConfigureAwait(false);
             }
         }
 
@@ -83,6 +354,17 @@ namespace ClearFrost
                         "NotImplemented").ConfigureAwait(false);
                     break;
             }
+        }
+
+        private static string ShortHash(string? hash)
+        {
+            if (string.IsNullOrWhiteSpace(hash))
+            {
+                return string.Empty;
+            }
+
+            string value = hash.Trim();
+            return value.Length <= 12 ? value : value[..12];
         }
 
         private async Task RunFieldDebugStepCaptureAsync(WebUiCommandEventArgs args)
@@ -439,6 +721,147 @@ namespace ClearFrost
                 }
 
                 return null;
+            }
+        }
+
+        private sealed class DiagnosticPackageVerifyPayload
+        {
+            public string Path { get; init; } = string.Empty;
+
+            public static DiagnosticPackageVerifyPayload Parse(string payloadJson)
+            {
+                if (string.IsNullOrWhiteSpace(payloadJson))
+                {
+                    return new DiagnosticPackageVerifyPayload();
+                }
+
+                try
+                {
+                    using JsonDocument document = JsonDocument.Parse(payloadJson);
+                    JsonElement root = document.RootElement;
+                    if (root.ValueKind == JsonValueKind.String)
+                    {
+                        return new DiagnosticPackageVerifyPayload
+                        {
+                            Path = root.GetString() ?? string.Empty
+                        };
+                    }
+
+                    return new DiagnosticPackageVerifyPayload
+                    {
+                        Path = ReadString(root, "path", "Path", "packagePath", "PackagePath")
+                    };
+                }
+                catch
+                {
+                    return new DiagnosticPackageVerifyPayload();
+                }
+            }
+
+            private static string ReadString(JsonElement root, params string[] names)
+            {
+                foreach (string name in names)
+                {
+                    if (root.TryGetProperty(name, out JsonElement element) &&
+                        element.ValueKind == JsonValueKind.String)
+                    {
+                        return element.GetString() ?? string.Empty;
+                    }
+                }
+
+                return string.Empty;
+            }
+        }
+
+        private sealed class MaintenanceAdviceActionPayload
+        {
+            public string AdviceId { get; init; } = string.Empty;
+            public string Action { get; init; } = string.Empty;
+            public string Notes { get; init; } = string.Empty;
+
+            public static MaintenanceAdviceActionPayload Parse(string payloadJson)
+            {
+                if (string.IsNullOrWhiteSpace(payloadJson))
+                {
+                    return new MaintenanceAdviceActionPayload();
+                }
+
+                try
+                {
+                    using JsonDocument document = JsonDocument.Parse(payloadJson);
+                    JsonElement root = document.RootElement;
+                    return new MaintenanceAdviceActionPayload
+                    {
+                        AdviceId = ReadString(root, "adviceId", "AdviceId"),
+                        Action = ReadString(root, "action", "Action"),
+                        Notes = ReadString(root, "notes", "Notes")
+                    };
+                }
+                catch
+                {
+                    return new MaintenanceAdviceActionPayload();
+                }
+            }
+
+            private static string ReadString(JsonElement root, params string[] names)
+            {
+                foreach (string name in names)
+                {
+                    if (root.TryGetProperty(name, out JsonElement element) &&
+                        element.ValueKind == JsonValueKind.String)
+                    {
+                        return element.GetString() ?? string.Empty;
+                    }
+                }
+
+                return string.Empty;
+            }
+        }
+
+        private sealed class ShiftTaskActionPayload
+        {
+            public string TaskId { get; init; } = string.Empty;
+            public string LinkedAdviceId { get; init; } = string.Empty;
+            public string Action { get; init; } = string.Empty;
+            public string Notes { get; init; } = string.Empty;
+
+            public static ShiftTaskActionPayload Parse(string payloadJson)
+            {
+                if (string.IsNullOrWhiteSpace(payloadJson))
+                {
+                    return new ShiftTaskActionPayload();
+                }
+
+                try
+                {
+                    using JsonDocument document = JsonDocument.Parse(payloadJson);
+                    JsonElement root = document.RootElement;
+                    return new ShiftTaskActionPayload
+                    {
+                        TaskId = ReadString(root, "taskId", "TaskId"),
+                        LinkedAdviceId = ReadString(root, "linkedAdviceId", "LinkedAdviceId", "adviceId", "AdviceId"),
+                        Action = ReadString(root, "action", "Action"),
+                        Notes = ReadString(root, "notes", "Notes")
+                    };
+                }
+                catch
+                {
+                    return new ShiftTaskActionPayload();
+                }
+            }
+
+            private static string ReadString(JsonElement root, params string[] names)
+            {
+                foreach (string name in names)
+                {
+                    if (root.TryGetProperty(name, out JsonElement element) &&
+                        element.ValueKind == JsonValueKind.String)
+                    {
+                        return element.GetString() ?? string.Empty;
+                    }
+                }
+
+                return string.Empty;
             }
         }
     }

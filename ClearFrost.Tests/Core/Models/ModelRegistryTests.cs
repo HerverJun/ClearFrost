@@ -172,6 +172,320 @@ public class ModelRegistryTests
     }
 
     [Fact]
+    public void Scan_模型包和裸Onnx链接路径会阻断()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            Directory.CreateDirectory(packageRoot);
+            string externalRoot = Path.Combine(tempDir, "external");
+            Directory.CreateDirectory(externalRoot);
+
+            string externalPackage = Path.Combine(externalRoot, "external-package");
+            Directory.CreateDirectory(externalPackage);
+            string externalPackageModel = Path.Combine(externalPackage, "model.onnx");
+            File.WriteAllBytes(externalPackageModel, new byte[] { 3, 3, 3 });
+            WriteApprovedManifest(externalPackage, "external-package", externalPackageModel);
+
+            string linkedPackage = Path.Combine(packageRoot, "linked-package");
+            bool packageLinkCreated = TryCreateDirectorySymbolicLink(linkedPackage, externalPackage);
+            if (packageLinkCreated)
+            {
+                var registry = new ModelRegistry();
+                registry.Scan(new ModelRegistryScanOptions
+                {
+                    PackageDirectory = packageRoot,
+                    RequireProductionApproval = true,
+                    Warmup = (_, _) => true
+                });
+
+                registry.Entries.Should().Contain(entry =>
+                    entry.ModelId == "linked-package" &&
+                    entry.Status == ModelRegistryStatus.Blocked &&
+                    entry.Message.Contains("reparse point", StringComparison.OrdinalIgnoreCase) &&
+                    !entry.ApprovedForProduction);
+            }
+
+            string manifestLinkedPackage = Path.Combine(packageRoot, "manifest-linked-package");
+            Directory.CreateDirectory(manifestLinkedPackage);
+            string manifestLinkedModel = Path.Combine(manifestLinkedPackage, "model.onnx");
+            File.WriteAllBytes(manifestLinkedModel, new byte[] { 4, 4, 4 });
+            string externalManifest = Path.Combine(externalRoot, "external-manifest.json");
+            File.WriteAllText(
+                externalManifest,
+                JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "manifest-linked-package",
+                    Version = "1",
+                    ModelHash = ComputeSha256(manifestLinkedModel),
+                    Labels = new List<string> { "screw" },
+                    TaskType = "Detect",
+                    InputWidth = 640,
+                    InputHeight = 640,
+                    Approval = new ModelApprovalMetadata { Status = ModelApprovalStatuses.Approved }
+                }));
+            bool manifestLinkCreated = TryCreateFileSymbolicLink(
+                Path.Combine(manifestLinkedPackage, "manifest.json"),
+                externalManifest);
+            if (manifestLinkCreated)
+            {
+                var registry = new ModelRegistry();
+                registry.Scan(new ModelRegistryScanOptions
+                {
+                    PackageDirectory = packageRoot,
+                    RequireProductionApproval = true,
+                    Warmup = (_, _) => true
+                });
+
+                registry.Entries.Should().Contain(entry =>
+                    entry.ModelId == "manifest-linked-package" &&
+                    entry.Status == ModelRegistryStatus.Blocked &&
+                    entry.Message.Contains("Manifest file is a reparse point", StringComparison.OrdinalIgnoreCase) &&
+                    !entry.ApprovedForProduction);
+            }
+
+            string modelLinkedPackage = Path.Combine(packageRoot, "model-linked-package");
+            Directory.CreateDirectory(modelLinkedPackage);
+            string externalModel = Path.Combine(externalRoot, "external-model.onnx");
+            File.WriteAllBytes(externalModel, new byte[] { 5, 5, 5 });
+            bool modelLinkCreated = TryCreateFileSymbolicLink(
+                Path.Combine(modelLinkedPackage, "model.onnx"),
+                externalModel);
+            if (modelLinkCreated)
+            {
+                WriteApprovedManifest(modelLinkedPackage, "model-linked-package", externalModel);
+
+                var registry = new ModelRegistry();
+                registry.Scan(new ModelRegistryScanOptions
+                {
+                    PackageDirectory = packageRoot,
+                    RequireProductionApproval = true,
+                    Warmup = (_, _) => true
+                });
+
+                registry.Entries.Should().Contain(entry =>
+                    entry.ModelId == "model-linked-package" &&
+                    entry.Status == ModelRegistryStatus.Blocked &&
+                    entry.Message.Contains("Model file is a reparse point", StringComparison.OrdinalIgnoreCase) &&
+                    entry.ApprovalStatus == ModelApprovalStatuses.Approved &&
+                    !entry.ApprovedForProduction);
+            }
+
+            string linkedSubdirectoryPackage = Path.Combine(packageRoot, "linked-subdir-package");
+            Directory.CreateDirectory(linkedSubdirectoryPackage);
+            string linkedSubdirectoryTarget = Path.Combine(externalRoot, "linked-subdir-target");
+            Directory.CreateDirectory(linkedSubdirectoryTarget);
+            string linkedSubdirectoryModel = Path.Combine(linkedSubdirectoryTarget, "model.onnx");
+            File.WriteAllBytes(linkedSubdirectoryModel, new byte[] { 8, 8, 8 });
+            bool subdirectoryLinkCreated = TryCreateDirectorySymbolicLink(
+                Path.Combine(linkedSubdirectoryPackage, "weights"),
+                linkedSubdirectoryTarget);
+            if (subdirectoryLinkCreated)
+            {
+                WriteApprovedManifest(
+                    linkedSubdirectoryPackage,
+                    "linked-subdir-package",
+                    linkedSubdirectoryModel,
+                    Path.Combine("weights", "model.onnx"));
+
+                var registry = new ModelRegistry();
+                registry.Scan(new ModelRegistryScanOptions
+                {
+                    PackageDirectory = packageRoot,
+                    RequireProductionApproval = true,
+                    Warmup = (_, _) => true
+                });
+
+                registry.Entries.Should().Contain(entry =>
+                    entry.ModelId == "linked-subdir-package" &&
+                    entry.Status == ModelRegistryStatus.Blocked &&
+                    entry.Message.Contains("reparse point", StringComparison.OrdinalIgnoreCase) &&
+                    entry.ApprovalStatus == ModelApprovalStatuses.Approved &&
+                    !entry.ApprovedForProduction);
+            }
+
+            string onnxRoot = Path.Combine(tempDir, "ONNX");
+            Directory.CreateDirectory(onnxRoot);
+            string externalBareOnnx = Path.Combine(externalRoot, "external-bare.onnx");
+            File.WriteAllBytes(externalBareOnnx, new byte[] { 6, 6, 6 });
+            bool bareLinkCreated = TryCreateFileSymbolicLink(
+                Path.Combine(onnxRoot, "linked-bare.onnx"),
+                externalBareOnnx);
+            if (bareLinkCreated)
+            {
+                var registry = new ModelRegistry();
+                registry.Scan(new ModelRegistryScanOptions { OnnxDirectory = onnxRoot });
+
+                registry.Entries.Should().Contain(entry =>
+                    entry.ModelId == "linked-bare" &&
+                    entry.Status == ModelRegistryStatus.Blocked &&
+                    entry.Message.Contains("reparse point", StringComparison.OrdinalIgnoreCase));
+            }
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Scan_拒绝链接父目录下的模型根()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string externalRoot = Path.Combine(tempDir, "external-root");
+            string externalPackageRoot = Path.Combine(externalRoot, "models");
+            string externalPackage = Path.Combine(externalPackageRoot, "external-package");
+            Directory.CreateDirectory(externalPackage);
+            string externalPackageModel = Path.Combine(externalPackage, "model.onnx");
+            File.WriteAllBytes(externalPackageModel, new byte[] { 1, 9, 9 });
+            WriteApprovedManifest(externalPackage, "external-package", externalPackageModel);
+
+            string externalOnnxRoot = Path.Combine(externalRoot, "ONNX");
+            Directory.CreateDirectory(externalOnnxRoot);
+            File.WriteAllBytes(Path.Combine(externalOnnxRoot, "external-bare.onnx"), new byte[] { 2, 9, 9 });
+
+            string linkedParent = Path.Combine(tempDir, "linked-parent");
+            if (!TryCreateDirectorySymbolicLink(linkedParent, externalRoot))
+            {
+                return;
+            }
+
+            var packageRegistry = new ModelRegistry();
+            packageRegistry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = Path.Combine(linkedParent, "models"),
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            packageRegistry.Entries.Should().ContainSingle(entry =>
+                entry.Status == ModelRegistryStatus.Blocked &&
+                entry.Message.Contains("reparse point", StringComparison.OrdinalIgnoreCase) &&
+                !entry.ApprovedForProduction);
+
+            var bareRegistry = new ModelRegistry();
+            bareRegistry.Scan(new ModelRegistryScanOptions
+            {
+                OnnxDirectory = Path.Combine(linkedParent, "ONNX")
+            });
+
+            bareRegistry.Entries.Should().ContainSingle(entry =>
+                entry.Status == ModelRegistryStatus.Blocked &&
+                entry.Message.Contains("reparse point", StringComparison.OrdinalIgnoreCase) &&
+                !entry.ApprovedForProduction);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void ValidateForProductionActivation_扫描后模型文件被替换为链接会阻断()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-link-after-scan");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 7, 7, 7 });
+            WriteApprovedManifest(packageDir, "pkg-link-after-scan", modelPath);
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+            registry.Entries.Should().ContainSingle(entry => entry.Status == ModelRegistryStatus.Ready);
+
+            string externalModel = Path.Combine(tempDir, "external-model.onnx");
+            File.Copy(modelPath, externalModel);
+            File.Delete(modelPath);
+            if (!TryCreateFileSymbolicLink(modelPath, externalModel))
+            {
+                return;
+            }
+
+            ModelProductionValidationResult result = registry.ValidateForProductionActivation(modelPath);
+
+            result.Succeeded.Should().BeFalse();
+            result.ErrorCode.Should().Be("ProductionModelPathUnsafe");
+            File.Exists(externalModel).Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Scan_模型包ModelFileName逃逸包目录会阻断()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string externalRoot = Path.Combine(tempDir, "external");
+            Directory.CreateDirectory(packageRoot);
+            Directory.CreateDirectory(externalRoot);
+
+            string escapedModel = Path.Combine(externalRoot, "escaped.onnx");
+            string absoluteModel = Path.Combine(externalRoot, "absolute.onnx");
+            File.WriteAllBytes(escapedModel, new byte[] { 1, 2, 3 });
+            File.WriteAllBytes(absoluteModel, new byte[] { 4, 5, 6 });
+
+            string escapedPackage = Path.Combine(packageRoot, "pkg-escaped");
+            Directory.CreateDirectory(escapedPackage);
+            WriteApprovedManifest(
+                escapedPackage,
+                "pkg-escaped",
+                escapedModel,
+                Path.Combine("..", "..", "external", "escaped.onnx"));
+
+            string absolutePackage = Path.Combine(packageRoot, "pkg-absolute");
+            Directory.CreateDirectory(absolutePackage);
+            WriteApprovedManifest(
+                absolutePackage,
+                "pkg-absolute",
+                absoluteModel,
+                absoluteModel);
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            registry.Entries.Should().Contain(entry =>
+                entry.ModelId == "pkg-escaped" &&
+                entry.Status == ModelRegistryStatus.Blocked &&
+                entry.Message.Contains("Model file path", StringComparison.OrdinalIgnoreCase) &&
+                entry.ApprovalStatus == ModelApprovalStatuses.Approved &&
+                !entry.ApprovedForProduction);
+            registry.Entries.Should().Contain(entry =>
+                entry.ModelId == "pkg-absolute" &&
+                entry.Status == ModelRegistryStatus.Blocked &&
+                entry.Message.Contains("relative to package", StringComparison.OrdinalIgnoreCase) &&
+                entry.ApprovalStatus == ModelApprovalStatuses.Approved &&
+                !entry.ApprovedForProduction);
+            registry.GetProductionSelectionOptions(requireProductionApproval: true).Should().BeEmpty();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void Scan_严格模型包默认Warmup会拦截无效Onnx()
     {
         string tempDir = CreateTempDirectory();
@@ -547,6 +861,56 @@ public class ModelRegistryTests
 
             registry.Entries[0].Status.Should().Be(ModelRegistryStatus.Blocked);
             registry.Entries[0].Message.Should().Contain("Labels").And.Contain("input size").And.Contain("task type");
+            registry.Entries[0].ApprovalStatus.Should().Be(ModelApprovalStatuses.Approved);
+            registry.Entries[0].ApprovedForProduction.Should().BeFalse();
+            registry.IsApprovedForProduction("pkg-metadata").Should().BeFalse();
+            registry.ValidateForProductionActivation(modelPath).ErrorCode.Should().Be("ProductionModelRegistryBlocked");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Scan_Manifest批准但RegistryWarning时不视为生产批准()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-hash-warning");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 1, 2, 3 });
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "pkg-hash-warning",
+                    Version = "1",
+                    ModelHash = "bad-hash",
+                    Labels = new List<string> { "screw" },
+                    TaskType = "Detect",
+                    InputWidth = 640,
+                    InputHeight = 640,
+                    Approval = new ModelApprovalMetadata { Status = ModelApprovalStatuses.Approved }
+                }));
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            registry.Entries.Should().ContainSingle();
+            registry.Entries[0].Status.Should().Be(ModelRegistryStatus.Warning);
+            registry.Entries[0].ApprovalStatus.Should().Be(ModelApprovalStatuses.Approved);
+            registry.Entries[0].ApprovedForProduction.Should().BeFalse();
+            registry.IsApprovedForProduction("pkg-hash-warning").Should().BeFalse();
+            registry.ValidateForProductionActivation(modelPath).ErrorCode.Should().Be("ProductionModelRegistryBlocked");
         }
         finally
         {
@@ -642,6 +1006,34 @@ public class ModelRegistryTests
         string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(ModelRegistryTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCreateFileSymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = File.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
     }
 
     private static void DeleteDirectory(string path)

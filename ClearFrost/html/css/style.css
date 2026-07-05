@@ -1,4 +1,4 @@
-/* CSS Fallbacks for critical Tailwind colors */
+﻿/* CSS Fallbacks for critical Tailwind colors */
 .bg-celadon-500 {
     background-color: #06b6d4 !important;
 }
@@ -1709,6 +1709,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 .cf-diagnostics-header span,
 .cf-diagnostics-section h3,
 .cf-diagnostic-tile span,
+.cf-diagnostics-checklist > div > span,
 .cf-diagnostics-readout span,
 .cf-debug-status-line span,
 .cf-diagnostics-export-row span {
@@ -1769,6 +1770,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-diagnostic-tile,
+.cf-diagnostics-checklist > div,
 .cf-diagnostics-readout > div,
 .cf-debug-status-line,
 .cf-diagnostics-export-row {
@@ -1796,6 +1798,382 @@ input[type="range"]::-webkit-slider-runnable-track {
     font-weight: 900;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.cf-diagnostics-checklist {
+    display: grid;
+    grid-template-columns: 1.2fr 0.9fr 1fr 0.9fr;
+    gap: 8px;
+}
+
+.cf-diagnostics-checklist > div {
+    min-height: 82px;
+    padding: 11px 12px;
+}
+
+.cf-diagnostics-checklist strong {
+    display: block;
+    min-width: 0;
+    margin-top: 5px;
+    overflow-wrap: anywhere;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.45;
+    font-weight: 850;
+}
+
+.cf-diagnostics-checklist .cf-diagnostic-line {
+    display: block;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.45;
+    font-weight: 850;
+}
+
+.cf-diagnostics-package-meta,
+.cf-handoff-report-meta {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.cf-handoff-report-meta {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cf-diagnostics-package-meta span,
+.cf-handoff-report-meta span {
+    min-width: 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+    color: #566174;
+    font-size: 10px;
+    line-height: 1.35;
+    font-weight: 800;
+}
+
+.cf-diagnostics-package-meta strong,
+.cf-handoff-report-meta strong {
+    display: block;
+    min-width: 0;
+    margin-top: 3px;
+    overflow: hidden;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.25;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-maintenance-advice-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.cf-shift-task-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.cf-maintenance-advice-item {
+    min-width: 0;
+    min-height: 88px;
+    padding: 11px 12px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.cf-shift-task-item,
+.cf-shift-task-empty {
+    min-width: 0;
+    min-height: 88px;
+    padding: 11px 12px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.cf-maintenance-advice-item strong {
+    display: block;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: #0f172a;
+    font-size: 13px;
+    line-height: 1.35;
+    font-weight: 900;
+}
+
+.cf-shift-task-item strong,
+.cf-shift-task-empty strong {
+    display: block;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: #0f172a;
+    font-size: 13px;
+    line-height: 1.35;
+    font-weight: 900;
+}
+
+.cf-maintenance-advice-item span,
+.cf-maintenance-advice-item em {
+    display: block;
+    min-width: 0;
+    margin-top: 5px;
+    overflow-wrap: anywhere;
+    color: #566174;
+    font-size: 11px;
+    line-height: 1.45;
+    font-style: normal;
+    font-weight: 750;
+}
+
+.cf-shift-task-item span,
+.cf-shift-task-item em,
+.cf-shift-task-empty span {
+    display: block;
+    min-width: 0;
+    margin-top: 5px;
+    overflow-wrap: anywhere;
+    color: #566174;
+    font-size: 11px;
+    line-height: 1.45;
+    font-style: normal;
+    font-weight: 750;
+}
+
+.cf-maintenance-advice-item.warning {
+    border-color: rgba(138, 63, 8, 0.26);
+    background: #fffaf1;
+}
+
+.cf-shift-task-item.warning {
+    border-color: rgba(138, 63, 8, 0.26);
+    background: #fffaf1;
+}
+
+.cf-maintenance-advice-item.critical {
+    border-color: rgba(154, 31, 46, 0.28);
+    background: #fff5f7;
+}
+
+.cf-shift-task-item.critical {
+    border-color: rgba(154, 31, 46, 0.28);
+    background: #fff5f7;
+}
+
+.cf-shift-task-item.overdue {
+    border-color: rgba(154, 31, 46, 0.42);
+    box-shadow: 0 0 0 1px rgba(154, 31, 46, 0.08), 0 6px 14px rgba(154, 31, 46, 0.08);
+}
+
+.cf-maintenance-advice-item.ok {
+    border-color: rgba(49, 95, 76, 0.18);
+    background: #f6fbf8;
+}
+
+.cf-shift-task-item.ok,
+.cf-shift-task-empty {
+    border-color: rgba(49, 95, 76, 0.18);
+    background: #f6fbf8;
+}
+
+.cf-maintenance-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.cf-maintenance-actions button,
+.cf-maintenance-history-item button {
+    min-height: 28px;
+    padding: 0 9px;
+    border-radius: 8px;
+    color: #0d3d9e;
+    background: #eef5ff;
+    border: 1px solid rgba(13, 61, 158, 0.18);
+    font-size: 10px;
+    font-weight: 900;
+}
+
+.cf-maintenance-history {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.cf-maintenance-history-item,
+.cf-maintenance-history-empty {
+    min-width: 0;
+    padding: 9px 10px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+}
+
+.cf-maintenance-history-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 70px;
+    align-items: center;
+    gap: 10px;
+}
+
+.cf-maintenance-history-item strong,
+.cf-maintenance-history-empty strong {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.3;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-maintenance-history-item span,
+.cf-maintenance-history-item em,
+.cf-maintenance-history-empty span {
+    display: block;
+    min-width: 0;
+    margin-top: 3px;
+    overflow-wrap: anywhere;
+    color: #566174;
+    font-size: 10px;
+    line-height: 1.35;
+    font-style: normal;
+    font-weight: 780;
+}
+
+.cf-diagnostic-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 18px;
+    margin: 0 4px 4px 0;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    line-height: 1.2;
+    font-weight: 900;
+    color: #315f4c;
+    background: #e6f6ef;
+    border: 1px solid rgba(49, 95, 76, 0.18);
+}
+
+.cf-diagnostic-badge.warning {
+    color: #8a3f08;
+    background: #fff3df;
+    border-color: rgba(138, 63, 8, 0.22);
+}
+
+.cf-diagnostic-badge.error {
+    color: #9a1f2e;
+    background: #ffe6eb;
+    border-color: rgba(154, 31, 46, 0.22);
+}
+
+.cf-diagnostic-badge.pending {
+    color: #566174;
+    background: #eef2f7;
+    border-color: rgba(86, 97, 116, 0.18);
+}
+
+.cf-diagnostics-history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.cf-diagnostics-history-head span {
+    color: #566174;
+    font-size: 11px;
+    font-weight: 850;
+}
+
+.cf-diagnostics-history-head button,
+.cf-diagnostics-package-history-item button {
+    min-height: 30px;
+    padding: 0 10px;
+    border-radius: 8px;
+    color: #0d3d9e;
+    background: #eef5ff;
+    border: 1px solid rgba(13, 61, 158, 0.18);
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.cf-diagnostics-package-history {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.cf-diagnostics-package-history-item,
+.cf-diagnostics-package-empty,
+.cf-handoff-report-history-item,
+.cf-handoff-report-empty {
+    min-width: 0;
+    padding: 9px 10px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+}
+
+.cf-diagnostics-package-history-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 70px;
+    align-items: center;
+    gap: 10px;
+}
+
+.cf-handoff-report-history {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.cf-handoff-report-history-item {
+    display: block;
+}
+
+.cf-diagnostics-package-history-item strong,
+.cf-diagnostics-package-empty strong,
+.cf-handoff-report-history-item strong,
+.cf-handoff-report-empty strong {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.3;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-diagnostics-package-history-item > div > span,
+.cf-diagnostics-package-empty span,
+.cf-handoff-report-history-item span,
+.cf-handoff-report-empty span {
+    display: block;
+    min-width: 0;
+    margin-top: 3px;
+    overflow-wrap: anywhere;
+    color: #566174;
+    font-size: 10px;
+    line-height: 1.35;
+    font-weight: 780;
 }
 
 .cf-diagnostics-readout {
@@ -1846,18 +2224,29 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .cf-diagnostics-export-row {
     display: grid;
-    grid-template-columns: 180px minmax(0, 1fr);
+    grid-template-columns: 180px 160px minmax(0, 1fr);
     align-items: center;
     gap: 12px;
 }
 
+.cf-handoff-report-row {
+    grid-template-columns: 170px 160px minmax(0, 1fr);
+}
+
 @media (max-width: 980px) {
     .cf-diagnostics-grid,
+    .cf-diagnostics-checklist,
+    .cf-diagnostics-package-meta,
+    .cf-handoff-report-meta,
+    .cf-maintenance-advice-list,
+    .cf-shift-task-list,
     .cf-debug-command-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .cf-diagnostics-readout,
+    .cf-maintenance-history-item,
+    .cf-diagnostics-package-history-item,
     .cf-diagnostics-export-row {
         grid-template-columns: 1fr;
     }
@@ -1875,6 +2264,11 @@ input[type="range"]::-webkit-slider-runnable-track {
     }
 
     .cf-diagnostics-grid,
+    .cf-diagnostics-checklist,
+    .cf-diagnostics-package-meta,
+    .cf-handoff-report-meta,
+    .cf-maintenance-advice-list,
+    .cf-shift-task-list,
     .cf-debug-command-grid {
         grid-template-columns: 1fr;
     }

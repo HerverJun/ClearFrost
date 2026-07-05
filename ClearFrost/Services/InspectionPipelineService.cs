@@ -1363,7 +1363,9 @@ namespace ClearFrost.Services
             string? resultJsonOverride = null)
         {
             string usedModelName = result?.UsedModelName ?? _detectionService.CurrentModelName;
-            ModelRegistryEntry? modelEntry = _modelRegistry.Resolve(usedModelName);
+            ModelRegistryEntry? modelEntry = ResolveRuntimeModelRegistryEntry(
+                usedModelName,
+                result?.WasFallback ?? false);
             string fallbackModelId = string.IsNullOrWhiteSpace(usedModelName)
                 ? string.Empty
                 : Path.GetFileNameWithoutExtension(usedModelName);
@@ -1429,6 +1431,91 @@ namespace ClearFrost.Services
                 RuleSetJson = ruleSetJson,
                 ResultJson = resultJsonOverride ?? SerializeDetectionResults(results)
             };
+        }
+
+        private ModelRegistryEntry? ResolveRuntimeModelRegistryEntry(string? usedModelName, bool wasFallback)
+        {
+            foreach (DetectionModelSlotSnapshot slot in EnumerateRuntimeSlots(wasFallback))
+            {
+                if (!slot.IsLoaded || string.IsNullOrWhiteSpace(slot.ModelPath))
+                {
+                    continue;
+                }
+
+                if (!ModelNameMatchesSlot(usedModelName, slot.ModelPath))
+                {
+                    continue;
+                }
+
+                ModelRegistryEntry? entry = _modelRegistry.Resolve(slot.ModelPath);
+                if (entry != null)
+                {
+                    return entry;
+                }
+            }
+
+            return _modelRegistry.Resolve(usedModelName);
+        }
+
+        private IEnumerable<DetectionModelSlotSnapshot> EnumerateRuntimeSlots(bool wasFallback)
+        {
+            DetectionRuntimeModelSnapshot snapshot = _detectionService.RuntimeModelSnapshot;
+            if (wasFallback)
+            {
+                yield return snapshot.Auxiliary1;
+                yield return snapshot.Auxiliary2;
+                yield return snapshot.Primary;
+            }
+            else
+            {
+                yield return snapshot.Primary;
+                yield return snapshot.Auxiliary1;
+                yield return snapshot.Auxiliary2;
+            }
+        }
+
+        private static bool ModelNameMatchesSlot(string? usedModelName, string modelPath)
+        {
+            if (string.IsNullOrWhiteSpace(usedModelName) || string.IsNullOrWhiteSpace(modelPath))
+            {
+                return false;
+            }
+
+            string used = usedModelName.Trim();
+            if (IsPathLike(used))
+            {
+                return string.Equals(
+                    GetFullPathSafe(used),
+                    GetFullPathSafe(modelPath),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            string usedFileName = Path.GetFileName(used);
+            string slotFileName = Path.GetFileName(modelPath);
+            return string.Equals(usedFileName, slotFileName, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(
+                       Path.GetFileNameWithoutExtension(usedFileName),
+                       Path.GetFileNameWithoutExtension(slotFileName),
+                       StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsPathLike(string value)
+        {
+            return Path.IsPathRooted(value) ||
+                   value.Contains(Path.DirectorySeparatorChar) ||
+                   value.Contains(Path.AltDirectorySeparatorChar);
+        }
+
+        private static string GetFullPathSafe(string value)
+        {
+            try
+            {
+                return Path.GetFullPath(value);
+            }
+            catch
+            {
+                return value;
+            }
         }
 
         private void ApplyTerminalHandshakeResult(

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -111,6 +112,7 @@ namespace ClearFrost.Services.Replay
             _dbPath = string.IsNullOrWhiteSpace(dbPath)
                 ? throw new ArgumentException("Manual review database path is required.", nameof(dbPath))
                 : dbPath;
+            EnsureReviewDatabasePathSafe(_dbPath);
             _auditService = auditService;
             _operatorIdProvider = operatorIdProvider;
             _operatorRoleProvider = operatorRoleProvider;
@@ -387,11 +389,7 @@ namespace ClearFrost.Services.Replay
 
         private async Task EnsureSchemaAsync(CancellationToken cancellationToken)
         {
-            string directory = System.IO.Path.GetDirectoryName(_dbPath) ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(directory))
-            {
-                System.IO.Directory.CreateDirectory(directory);
-            }
+            EnsureReviewDatabasePathSafe(_dbPath);
 
             await using SqliteConnection connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             await using SqliteCommand command = connection.CreateCommand();
@@ -838,6 +836,7 @@ namespace ClearFrost.Services.Replay
 
         private async Task<SqliteConnection> OpenConnectionAsync(CancellationToken cancellationToken)
         {
+            EnsureReviewDatabasePathSafe(_dbPath);
             var connection = new SqliteConnection($"Data Source={_dbPath};Cache=Shared;Pooling=True;Default Timeout={BusyTimeoutMs / 1000}");
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
             await using SqliteCommand command = connection.CreateCommand();
@@ -848,6 +847,73 @@ namespace ClearFrost.Services.Replay
             ";
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             return connection;
+        }
+
+        private static void EnsureReviewDatabasePathSafe(string dbPath)
+        {
+            if (string.IsNullOrWhiteSpace(dbPath))
+            {
+                throw new ArgumentException("人工复核数据库路径为空。", nameof(dbPath));
+            }
+
+            string fullPath = System.IO.Path.GetFullPath(dbPath);
+            string directory = System.IO.Path.GetDirectoryName(fullPath) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                if (DirectoryPathHasReparsePoint(directory))
+                {
+                    throw new IOException($"人工复核数据库目录包含链接目录，拒绝使用: {directory}");
+                }
+
+                System.IO.Directory.CreateDirectory(directory);
+
+                var directoryInfo = new DirectoryInfo(directory);
+                directoryInfo.Refresh();
+                if (directoryInfo.Exists && HasReparsePoint(directoryInfo))
+                {
+                    throw new IOException($"人工复核数据库目录是链接目录，拒绝使用: {directory}");
+                }
+            }
+
+            var file = new FileInfo(fullPath);
+            file.Refresh();
+            if (file.Exists && HasReparsePoint(file))
+            {
+                throw new IOException($"人工复核数据库文件是链接文件，拒绝使用: {fullPath}");
+            }
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            var current = new DirectoryInfo(System.IO.Path.GetFullPath(directory));
+            while (current != null)
+            {
+                current.Refresh();
+                if (current.Exists && HasReparsePoint(current))
+                {
+                    return true;
+                }
+
+                current = current.Parent;
+            }
+
+            return false;
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
         }
 
         private Task AppendAuditAsync(

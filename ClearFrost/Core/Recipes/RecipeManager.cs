@@ -68,10 +68,16 @@ namespace ClearFrost.Core.Recipes
 
             if (File.Exists(_recipePath))
             {
+                EnsureRecipeFileSafeForRead(_recipePath, "当前配方文件");
                 try
                 {
-                    string json = File.ReadAllText(_recipePath);
-                    Recipe loadedRecipe = JsonSerializer.Deserialize<Recipe>(json, JsonOptions) ?? Recipe.FromAppConfig(config);
+                    Recipe loadedRecipe;
+                    using (FileStream stream = OpenRecipeFileForRead(_recipePath, "当前配方文件"))
+                    {
+                        loadedRecipe = JsonSerializer.Deserialize<Recipe>(stream, JsonOptions) ?? Recipe.FromAppConfig(config);
+                    }
+
+                    EnsureRecipeFileSafeForRead(_recipePath, "当前配方文件");
                     Recipe candidate = EnsureProductionSnapshot(loadedRecipe, config, out bool migrated);
                     if (migrated)
                     {
@@ -283,15 +289,11 @@ namespace ClearFrost.Core.Recipes
                 return false;
             }
 
-            string directory = Path.GetDirectoryName(_recipePath) ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            File.Copy(_backupPath, _recipePath, overwrite: true);
-            string json = File.ReadAllText(_recipePath);
-            CurrentRecipe = JsonSerializer.Deserialize<Recipe>(json, JsonOptions) ?? new Recipe();
+            EnsureRecipeFileSafeForRead(_backupPath, "配方备份文件");
+            byte[] backupBytes = ReadRecipeFileBytes(_backupPath, "配方备份文件");
+            _restoreAllBytes(_recipePath, backupBytes);
+            using var reader = new StreamReader(new MemoryStream(backupBytes), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            CurrentRecipe = JsonSerializer.Deserialize<Recipe>(reader.ReadToEnd(), JsonOptions) ?? new Recipe();
             NormalizeNestedSnapshots(CurrentRecipe);
             EnsureVersionInfo(CurrentRecipe);
             return true;
@@ -339,19 +341,23 @@ namespace ClearFrost.Core.Recipes
                 return false;
             }
 
-            string snapshotPath = Path.IsPathRooted(info.SnapshotPath)
-                ? info.SnapshotPath
-                : Path.Combine(Path.GetDirectoryName(_recipePath) ?? string.Empty, info.SnapshotPath);
             try
             {
+                if (!TryResolveVersionSnapshotPath(info.SnapshotPath, out string snapshotPath, out error))
+                {
+                    return false;
+                }
+
                 if (!File.Exists(snapshotPath))
                 {
                     error = $"Recipe snapshot missing: {snapshotPath}.";
                     return false;
                 }
 
-                recipe = JsonSerializer.Deserialize<Recipe>(File.ReadAllText(snapshotPath), JsonOptions)
+                using FileStream stream = OpenRecipeFileForRead(snapshotPath, "配方版本快照");
+                recipe = JsonSerializer.Deserialize<Recipe>(stream, JsonOptions)
                     ?? new Recipe();
+                EnsureRecipeFileSafeForRead(snapshotPath, "配方版本快照");
                 NormalizeNestedSnapshots(recipe);
                 if (!string.Equals(recipe.RecipeId, normalizedRecipeId, StringComparison.OrdinalIgnoreCase) ||
                     !string.Equals(recipe.Version, normalizedVersion, StringComparison.OrdinalIgnoreCase))
@@ -478,7 +484,7 @@ namespace ClearFrost.Core.Recipes
         {
             string fullPath = Path.GetFullPath(path);
             return File.Exists(fullPath)
-                ? new FileContentSnapshot(fullPath, true, File.ReadAllBytes(fullPath))
+                ? new FileContentSnapshot(fullPath, true, ReadRecipeFileBytes(fullPath, "配方事务文件"))
                 : new FileContentSnapshot(fullPath, false, Array.Empty<byte>());
         }
 
@@ -490,8 +496,9 @@ namespace ClearFrost.Core.Recipes
                 return files;
             }
 
-            foreach (string path in Directory.EnumerateFiles(_versionsDirectory, "*", SearchOption.AllDirectories))
+            foreach (string path in EnumerateSafeVersionFiles())
             {
+                EnsureRecipeFileSafeForRead(path, "配方版本文件");
                 string relativePath = GetVersionRelativePath(path);
                 files[relativePath] = new VersionFileSnapshot(relativePath, ComputeFileSha256(path));
             }
@@ -516,7 +523,7 @@ namespace ClearFrost.Core.Recipes
 
             if (Directory.Exists(_versionsDirectory))
             {
-                foreach (string path in Directory.EnumerateFiles(_versionsDirectory, "*", SearchOption.AllDirectories))
+                foreach (string path in EnumerateSafeVersionFiles())
                 {
                     if (IsRecoveryArtifact(path))
                     {
@@ -526,6 +533,66 @@ namespace ClearFrost.Core.Recipes
             }
 
             return artifacts;
+        }
+
+        private IReadOnlyList<string> EnumerateSafeVersionFiles()
+        {
+            if (!Directory.Exists(_versionsDirectory))
+            {
+                return Array.Empty<string>();
+            }
+
+            string versionsRoot = Path.GetFullPath(_versionsDirectory);
+            var root = new DirectoryInfo(versionsRoot);
+            root.Refresh();
+            if (!root.Exists)
+            {
+                return Array.Empty<string>();
+            }
+
+            if (HasReparsePoint(root))
+            {
+                throw new IOException($"配方版本目录是链接目录，拒绝枚举: {versionsRoot}");
+            }
+
+            var options = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = true,
+                AttributesToSkip = FileAttributes.ReparsePoint
+            };
+
+            return Directory
+                .EnumerateFiles(versionsRoot, "*", options)
+                .Where(path => IsSafeVersionFileForRead(versionsRoot, path))
+                .ToList();
+        }
+
+        private static bool IsSafeVersionFileForRead(string versionsRoot, string path)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(path);
+                if (!IsPathUnderDirectory(fullPath, versionsRoot))
+                {
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                if (!file.Exists || HasReparsePoint(file))
+                {
+                    return false;
+                }
+
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                return !string.IsNullOrWhiteSpace(directory) &&
+                       !DirectoryPathHasReparsePointBetween(directory, versionsRoot);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
         }
 
         private void RestoreFile(FileContentSnapshot snapshot, List<string> failures)
@@ -651,7 +718,7 @@ namespace ClearFrost.Core.Recipes
                     return;
                 }
 
-                byte[] actual = File.ReadAllBytes(snapshot.Path);
+                byte[] actual = ReadRecipeFileBytes(snapshot.Path, "配方事务校验文件");
                 if (!actual.SequenceEqual(snapshot.Content))
                 {
                     failures.Add($"File content mismatch after restore: {snapshot.Path}");
@@ -754,7 +821,9 @@ namespace ClearFrost.Core.Recipes
                     return true;
                 }
 
-                Recipe? recipe = JsonSerializer.Deserialize<Recipe>(File.ReadAllText(fullPath), JsonOptions);
+                using FileStream stream = OpenRecipeFileForRead(fullPath, "配方事务版本文件");
+                Recipe? recipe = JsonSerializer.Deserialize<Recipe>(stream, JsonOptions);
+                EnsureRecipeFileSafeForRead(fullPath, "配方事务版本文件");
                 if (recipe != null &&
                     string.Equals(recipe.RecipeId, tracked.RecipeId, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(recipe.Version, tracked.Version, StringComparison.OrdinalIgnoreCase))
@@ -798,6 +867,41 @@ namespace ClearFrost.Core.Recipes
             }
         }
 
+        private bool TryResolveVersionSnapshotPath(string snapshotPath, out string fullPath, out string error)
+        {
+            fullPath = string.Empty;
+            error = string.Empty;
+            try
+            {
+                string candidate = Path.IsPathRooted(snapshotPath)
+                    ? Path.GetFullPath(snapshotPath)
+                    : Path.GetFullPath(Path.Combine(
+                        Path.GetDirectoryName(_recipePath) ?? string.Empty,
+                        snapshotPath));
+                string versionsRoot = Path.GetFullPath(_versionsDirectory);
+                if (!IsPathUnderDirectory(candidate, versionsRoot))
+                {
+                    error = $"Recipe snapshot path is outside Versions directory: {snapshotPath}.";
+                    return false;
+                }
+
+                string directory = Path.GetDirectoryName(candidate) ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(directory) && DirectoryPathHasReparsePoint(directory))
+                {
+                    error = $"Recipe snapshot path traverses a linked directory: {snapshotPath}.";
+                    return false;
+                }
+
+                fullPath = candidate;
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException or UnauthorizedAccessException)
+            {
+                error = $"Invalid recipe snapshot path: {snapshotPath}; {ex.Message}";
+                return false;
+            }
+        }
+
         private string GetVersionRelativePath(string path)
         {
             return NormalizeRelativePath(Path.GetRelativePath(_versionsDirectory, Path.GetFullPath(path)));
@@ -819,6 +923,122 @@ namespace ClearFrost.Core.Recipes
                        StringComparison.OrdinalIgnoreCase);
         }
 
+        private static void EnsureRecipeFileSafeForRead(string path, string displayName)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                throw new ArgumentException($"{displayName}路径为空。", nameof(path));
+            }
+
+            string fullPath = Path.GetFullPath(path);
+            string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(directory) && DirectoryPathHasReparsePoint(directory))
+            {
+                throw new IOException($"{displayName}目录包含链接目录，拒绝读取: {directory}");
+            }
+
+            var file = new FileInfo(fullPath);
+            file.Refresh();
+            if (!file.Exists)
+            {
+                throw new FileNotFoundException($"{displayName}不存在。", fullPath);
+            }
+
+            if (HasReparsePoint(file))
+            {
+                throw new IOException($"{displayName}是链接文件，拒绝读取: {fullPath}");
+            }
+        }
+
+        private static FileStream OpenRecipeFileForRead(string path, string displayName)
+        {
+            EnsureRecipeFileSafeForRead(path, displayName);
+            string fullPath = Path.GetFullPath(path);
+            var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            try
+            {
+                EnsureRecipeFileSafeForRead(fullPath, displayName);
+                return stream;
+            }
+            catch
+            {
+                stream.Dispose();
+                throw;
+            }
+        }
+
+        private static byte[] ReadRecipeFileBytes(string path, string displayName)
+        {
+            using FileStream stream = OpenRecipeFileForRead(path, displayName);
+            using var memory = new MemoryStream();
+            stream.CopyTo(memory);
+            EnsureRecipeFileSafeForRead(path, displayName);
+            return memory.ToArray();
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            var current = new DirectoryInfo(Path.GetFullPath(directory));
+            while (current != null)
+            {
+                current.Refresh();
+                if (current.Exists && HasReparsePoint(current))
+                {
+                    return true;
+                }
+
+                current = current.Parent;
+            }
+
+            return false;
+        }
+
+        private static bool DirectoryPathHasReparsePointBetween(string directory, string rootDirectory)
+        {
+            string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootDirectory));
+            var current = new DirectoryInfo(Path.GetFullPath(directory));
+
+            while (current != null)
+            {
+                string currentPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(current.FullName));
+                if (!IsPathUnderDirectory(currentPath, root))
+                {
+                    return true;
+                }
+
+                current.Refresh();
+                if (current.Exists && HasReparsePoint(current))
+                {
+                    return true;
+                }
+
+                if (string.Equals(currentPath, root, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                current = current.Parent;
+            }
+
+            return true;
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+
         private static string NormalizeRelativePath(string path)
         {
             return path.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/');
@@ -833,7 +1053,7 @@ namespace ClearFrost.Core.Recipes
 
         private static string ComputeFileSha256(string path)
         {
-            using FileStream stream = File.OpenRead(path);
+            using FileStream stream = OpenRecipeFileForRead(path, "配方文件");
             return ComputeSha256(stream);
         }
 
@@ -858,8 +1078,11 @@ namespace ClearFrost.Core.Recipes
                     return new List<RecipeVersionInfo>();
                 }
 
-                string json = File.ReadAllText(_historyPath);
-                return JsonSerializer.Deserialize<List<RecipeVersionInfo>>(json, JsonOptions) ?? new List<RecipeVersionInfo>();
+                using FileStream stream = OpenRecipeFileForRead(_historyPath, "配方版本历史文件");
+                List<RecipeVersionInfo>? history =
+                    JsonSerializer.Deserialize<List<RecipeVersionInfo>>(stream, JsonOptions);
+                EnsureRecipeFileSafeForRead(_historyPath, "配方版本历史文件");
+                return history ?? new List<RecipeVersionInfo>();
             }
             catch
             {

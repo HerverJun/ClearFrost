@@ -130,11 +130,13 @@ namespace ClearFrost.Services
             await _lifecycleLock.WaitAsync().ConfigureAwait(false);
             try
             {
-            if (!File.Exists(modelPath))
+            if (!TryValidateModelFileForLoad(modelPath, out string safeModelPath, out string validationError))
             {
-                ErrorOccurred?.Invoke($"模型文件不存在: {modelPath}");
+                ErrorOccurred?.Invoke(validationError);
                 return false;
             }
+
+            modelPath = safeModelPath;
 
             if (useGpu)
             {
@@ -255,13 +257,13 @@ namespace ClearFrost.Services
                 if (rebuildManager)
                 {
                     // 主模型加载成功且本次发生过 GPU 重建，按新 GPU 设置恢复辅助槽。
-                    if (!string.IsNullOrEmpty(preservedAux1Path) && File.Exists(preservedAux1Path))
+                    if (TryValidateModelFileForLoad(preservedAux1Path, out string safeAux1Path, out _))
                     {
-                        await TryLoadAuxiliaryModelAsync(manager, preservedAux1Path, 1);
+                        await TryLoadAuxiliaryModelAsync(manager, safeAux1Path, 1);
                     }
-                    if (!string.IsNullOrEmpty(preservedAux2Path) && File.Exists(preservedAux2Path))
+                    if (TryValidateModelFileForLoad(preservedAux2Path, out string safeAux2Path, out _))
                     {
-                        await TryLoadAuxiliaryModelAsync(manager, preservedAux2Path, 2);
+                        await TryLoadAuxiliaryModelAsync(manager, safeAux2Path, 2);
                     }
 
                     _modelManager = manager;
@@ -324,18 +326,26 @@ namespace ClearFrost.Services
         {
             try
             {
-                if (!Directory.Exists(modelsDirectory))
+                if (!TryValidateModelDirectory(modelsDirectory, out string safeModelsDirectory, out string directoryError))
                 {
-                    Debug.WriteLine($"[DetectionService] 模型目录不存在: {modelsDirectory}");
+                    Debug.WriteLine($"[DetectionService] 模型目录不可用: {directoryError}");
+                    ErrorOccurred?.Invoke(directoryError);
                     return false;
                 }
 
-                var modelFiles = Directory.GetFiles(modelsDirectory, "*.onnx");
+                string[] discoveredModelFiles = Directory.GetFiles(safeModelsDirectory, "*.onnx", SearchOption.TopDirectoryOnly);
+                var modelFiles = new List<string>();
                 _availableModels.Clear();
 
-                foreach (var file in modelFiles)
+                foreach (string file in discoveredModelFiles)
                 {
-                    _availableModels.Add(Path.GetFileNameWithoutExtension(file));
+                    if (!TryValidateModelFileForLoad(file, out string safeModelPath, out _))
+                    {
+                        continue;
+                    }
+
+                    modelFiles.Add(safeModelPath);
+                    _availableModels.Add(Path.GetFileNameWithoutExtension(safeModelPath));
                 }
 
                 if (_availableModels.Count == 0)
@@ -370,11 +380,11 @@ namespace ClearFrost.Services
         {
             try
             {
-                string modelsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ONNX");
-                string fileName = modelName.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)
-                    ? modelName
-                    : $"{modelName}.onnx";
-                string modelPath = Path.Combine(modelsDir, fileName);
+                if (!TryResolveSwitchModelPath(modelName, out string modelPath, out string validationError))
+                {
+                    ErrorOccurred?.Invoke(validationError);
+                    return false;
+                }
 
                 if (_modelManager != null)
                 {
@@ -808,10 +818,16 @@ namespace ClearFrost.Services
                 if (_modelManager == null || string.IsNullOrEmpty(modelPath))
                     return false;
 
-                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, modelPath, 1);
+                if (!TryValidateModelFileForLoad(modelPath, out string safeModelPath, out string validationError))
+                {
+                    ErrorOccurred?.Invoke(validationError);
+                    return false;
+                }
+
+                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, safeModelPath, 1);
                 if (ok)
                 {
-                    Debug.WriteLine($"[DetectionService] 辅助模型1已加载: {Path.GetFileName(modelPath)}");
+                    Debug.WriteLine($"[DetectionService] 辅助模型1已加载: {Path.GetFileName(safeModelPath)}");
                 }
 
                 return ok;
@@ -830,10 +846,16 @@ namespace ClearFrost.Services
                 if (_modelManager == null || string.IsNullOrEmpty(modelPath))
                     return false;
 
-                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, modelPath, 2);
+                if (!TryValidateModelFileForLoad(modelPath, out string safeModelPath, out string validationError))
+                {
+                    ErrorOccurred?.Invoke(validationError);
+                    return false;
+                }
+
+                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, safeModelPath, 2);
                 if (ok)
                 {
-                    Debug.WriteLine($"[DetectionService] 辅助模型2已加载: {Path.GetFileName(modelPath)}");
+                    Debug.WriteLine($"[DetectionService] 辅助模型2已加载: {Path.GetFileName(safeModelPath)}");
                 }
 
                 return ok;
@@ -891,6 +913,197 @@ namespace ClearFrost.Services
         #endregion
 
         #region 私有方法
+
+        private static bool TryValidateModelDirectory(string modelsDirectory, out string safeDirectory, out string error)
+        {
+            safeDirectory = string.Empty;
+            error = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(modelsDirectory))
+            {
+                error = "模型目录为空。";
+                return false;
+            }
+
+            try
+            {
+                string fullDirectory = Path.GetFullPath(modelsDirectory);
+                var directory = new DirectoryInfo(fullDirectory);
+                directory.Refresh();
+                if (!directory.Exists)
+                {
+                    error = $"模型目录不存在: {fullDirectory}";
+                    return false;
+                }
+
+                if (DirectoryPathHasReparsePoint(fullDirectory))
+                {
+                    error = $"模型目录包含链接目录，拒绝扫描: {fullDirectory}";
+                    return false;
+                }
+
+                safeDirectory = fullDirectory;
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+            {
+                error = $"模型目录无效: {ExceptionMessageFormatter.FormatForLog(ex)}";
+                return false;
+            }
+        }
+
+        private static bool TryResolveSwitchModelPath(string modelName, out string modelPath, out string error)
+        {
+            modelPath = string.Empty;
+            error = string.Empty;
+
+            string trimmed = modelName?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                error = "模型名称为空。";
+                return false;
+            }
+
+            if (Path.IsPathRooted(trimmed) ||
+                !string.Equals(Path.GetFileName(trimmed), trimmed, StringComparison.Ordinal) ||
+                trimmed.Contains("..", StringComparison.Ordinal))
+            {
+                error = $"模型名称不能包含路径段: {modelName}";
+                return false;
+            }
+
+            string fileName = trimmed.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)
+                ? trimmed
+                : $"{trimmed}.onnx";
+            if (fileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                error = $"模型名称包含非法字符: {modelName}";
+                return false;
+            }
+
+            try
+            {
+                string modelsDir = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ONNX"));
+                string fullPath = Path.GetFullPath(Path.Combine(modelsDir, fileName));
+                if (!IsPathUnderDirectory(fullPath, modelsDir))
+                {
+                    error = $"模型路径必须位于 ONNX 目录内: {modelName}";
+                    return false;
+                }
+
+                if (!TryValidateModelFileForLoad(fullPath, out modelPath, out error))
+                {
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+            {
+                error = $"模型路径无效: {ExceptionMessageFormatter.FormatForLog(ex)}";
+                return false;
+            }
+        }
+
+        private static bool TryValidateModelFileForLoad(string modelPath, out string safeModelPath, out string error)
+        {
+            safeModelPath = string.Empty;
+            error = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(modelPath))
+            {
+                error = "模型文件路径为空。";
+                return false;
+            }
+
+            try
+            {
+                string fullPath = Path.GetFullPath(modelPath);
+                if (!string.Equals(Path.GetExtension(fullPath), ".onnx", StringComparison.OrdinalIgnoreCase))
+                {
+                    error = $"模型文件必须是 ONNX 文件: {fullPath}";
+                    return false;
+                }
+
+                if (!File.Exists(fullPath))
+                {
+                    error = $"模型文件不存在: {fullPath}";
+                    return false;
+                }
+
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(directory) || DirectoryPathHasReparsePoint(directory))
+                {
+                    error = $"模型文件目录包含链接目录，拒绝加载: {fullPath}";
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                if (!file.Exists || HasReparsePoint(file))
+                {
+                    error = $"模型文件是链接文件或不可访问，拒绝加载: {fullPath}";
+                    return false;
+                }
+
+                safeModelPath = fullPath;
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+            {
+                error = $"模型文件路径无效: {ExceptionMessageFormatter.FormatForLog(ex)}";
+                return false;
+            }
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+
+        private static bool IsPathUnderDirectory(string path, string directory)
+        {
+            string normalizedPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string normalizedDirectory = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return normalizedPath.StartsWith(
+                normalizedDirectory + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase);
+        }
 
         private async Task<bool> TryLoadAuxiliaryModelAsync(MultiModelManager manager, string modelPath, int modelIndex)
         {

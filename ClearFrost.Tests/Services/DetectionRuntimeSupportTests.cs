@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
@@ -102,6 +104,212 @@ namespace ClearFrost.Tests.Services
             using ImageSavePayload payload = ImageSavePayload.CreateReadOnlyView(source, "trace.jpg");
 
             payload.EstimatedBytes.Should().Be(source.Step() * source.Rows);
+        }
+
+        [Fact]
+        public async Task ImageSaveQueue_写图返回False会计入失败()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostImageQueueTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                using var queue = new ImageSaveQueue(
+                    capacity: 4,
+                    maxBufferedBytes: 1024 * 1024,
+                    imageWriter: _ => false);
+                using var image = new Mat(8, 8, MatType.CV_8UC3, Scalar.All(128));
+
+                queue.Enqueue(image, Path.Combine(tempDir, "failed-write.jpg")).Should().BeTrue();
+
+                await queue.StopAsync();
+
+                queue.SavedCount.Should().Be(0);
+                queue.FailedCount.Should().Be(1);
+                queue.PendingCount.Should().Be(0);
+                queue.DroppedCount.Should().Be(0);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Fact]
+        public async Task ImageSaveQueue_拒绝链接目录目标且不调用写图器()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostImageQueueTests", Guid.NewGuid().ToString("N"));
+            string externalDir = Path.Combine(Path.GetTempPath(), "ClearFrostImageQueueTests", Guid.NewGuid().ToString("N"));
+            string linkedDir = string.Empty;
+            Directory.CreateDirectory(tempDir);
+            Directory.CreateDirectory(externalDir);
+            int writeCalls = 0;
+
+            try
+            {
+                linkedDir = Path.Combine(tempDir, "linked-images");
+                if (!TryCreateDirectorySymbolicLink(linkedDir, externalDir))
+                {
+                    return;
+                }
+
+                using var queue = new ImageSaveQueue(
+                    capacity: 4,
+                    maxBufferedBytes: 1024 * 1024,
+                    imageWriter: payload =>
+                    {
+                        Interlocked.Increment(ref writeCalls);
+                        File.WriteAllText(payload.Path, "external image");
+                        return true;
+                    });
+                using var image = new Mat(8, 8, MatType.CV_8UC3, Scalar.All(128));
+
+                queue.Enqueue(image, Path.Combine(linkedDir, "frame.jpg")).Should().BeTrue();
+
+                await queue.StopAsync();
+
+                writeCalls.Should().Be(0);
+                queue.SavedCount.Should().Be(0);
+                queue.FailedCount.Should().Be(1);
+                Directory.EnumerateFileSystemEntries(externalDir).Should().BeEmpty();
+            }
+            finally
+            {
+                TryDeleteDirectoryLink(linkedDir);
+                DeleteDirectory(tempDir);
+                DeleteDirectory(externalDir);
+            }
+        }
+
+        [Fact]
+        public async Task ImageSaveQueue_队列满时丢弃最旧待写项并保持计数一致()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostImageQueueTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            using var firstWriteEntered = new ManualResetEventSlim(false);
+            using var releaseWrites = new ManualResetEventSlim(false);
+            var savedNames = new ConcurrentQueue<string>();
+            int writeCalls = 0;
+
+            try
+            {
+                using var queue = new ImageSaveQueue(
+                    capacity: 2,
+                    maxBufferedBytes: long.MaxValue,
+                    imageWriter: payload =>
+                    {
+                        if (Interlocked.Increment(ref writeCalls) == 1)
+                        {
+                            firstWriteEntered.Set();
+                            if (!releaseWrites.Wait(TimeSpan.FromSeconds(5)))
+                            {
+                                return false;
+                            }
+                        }
+
+                        savedNames.Enqueue(Path.GetFileName(payload.Path));
+                        return true;
+                    });
+                using var image = new Mat(8, 8, MatType.CV_8UC3, Scalar.All(128));
+
+                queue.Enqueue(image, Path.Combine(tempDir, "frame-1.jpg")).Should().BeTrue();
+                firstWriteEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+
+                queue.Enqueue(image, Path.Combine(tempDir, "frame-2.jpg")).Should().BeTrue();
+                queue.Enqueue(image, Path.Combine(tempDir, "frame-3.jpg")).Should().BeTrue();
+                queue.PendingCount.Should().Be(2);
+
+                queue.Enqueue(image, Path.Combine(tempDir, "frame-4.jpg")).Should().BeTrue();
+
+                queue.DroppedCount.Should().Be(1);
+                queue.PendingCount.Should().Be(2);
+
+                releaseWrites.Set();
+                await queue.StopAsync();
+
+                queue.SavedCount.Should().Be(3);
+                queue.FailedCount.Should().Be(0);
+                queue.DroppedCount.Should().Be(1);
+                queue.PendingCount.Should().Be(0);
+                savedNames.Should().BeEquivalentTo(new[]
+                {
+                    "frame-1.jpg",
+                    "frame-3.jpg",
+                    "frame-4.jpg"
+                });
+            }
+            finally
+            {
+                releaseWrites.Set();
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Fact]
+        public void DetectionTraceOutbox_拒绝链接Outbox目录且不写入外部目标()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostTraceOutboxTests", Guid.NewGuid().ToString("N"));
+            string externalDir = Path.Combine(Path.GetTempPath(), "ClearFrostTraceOutboxTests", Guid.NewGuid().ToString("N"));
+            string dataDir = Path.Combine(tempDir, "Data");
+            string linkedOutbox = Path.Combine(dataDir, "outbox");
+            Directory.CreateDirectory(dataDir);
+            Directory.CreateDirectory(externalDir);
+
+            try
+            {
+                if (!TryCreateDirectorySymbolicLink(linkedOutbox, externalDir))
+                {
+                    return;
+                }
+
+                DetectionTraceOutbox.Append(CreateTracePayload(), "linked-outbox", dataDir);
+
+                Directory.EnumerateFileSystemEntries(externalDir).Should().BeEmpty();
+            }
+            finally
+            {
+                TryDeleteDirectoryLink(linkedOutbox);
+                DeleteDirectory(tempDir);
+                DeleteDirectory(externalDir);
+            }
+        }
+
+        [Fact]
+        public void DetectionTraceOutbox_拒绝链接Outbox文件且不修改外部文件()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostTraceOutboxTests", Guid.NewGuid().ToString("N"));
+            string externalDir = Path.Combine(Path.GetTempPath(), "ClearFrostTraceOutboxTests", Guid.NewGuid().ToString("N"));
+            string dataDir = Path.Combine(tempDir, "Data");
+            string outboxDir = Path.Combine(dataDir, "outbox");
+            string linkedOutboxFile = Path.Combine(outboxDir, $"detection-trace-{DateTime.Now:yyyyMMdd}.ndjson");
+            Directory.CreateDirectory(outboxDir);
+            Directory.CreateDirectory(externalDir);
+
+            try
+            {
+                string externalFile = Path.Combine(externalDir, "external.ndjson");
+                File.WriteAllText(externalFile, "external trace");
+                if (!TryCreateFileSymbolicLink(linkedOutboxFile, externalFile))
+                {
+                    return;
+                }
+
+                DetectionTraceOutbox.Append(CreateTracePayload(), "linked-file", dataDir);
+
+                File.ReadAllText(externalFile).Should().Be("external trace");
+            }
+            finally
+            {
+                TryDeleteFileLink(linkedOutboxFile);
+                DeleteDirectory(tempDir);
+                DeleteDirectory(externalDir);
+            }
         }
 
         [Fact]
@@ -211,6 +419,93 @@ namespace ClearFrost.Tests.Services
         }
 
         [Fact]
+        public void DetectionTraceImageResolver_拒绝链接带框图并回退原图()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            string externalDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            string renderedPath = string.Empty;
+
+            try
+            {
+                string imagePath = Path.Combine(tempDir, "FAIL_CF-TRACE-001.jpg");
+                string renderedDir = Path.Combine(tempDir, "Rendered");
+                renderedPath = Path.Combine(renderedDir, "FAIL_CF-TRACE-001_rendered.jpg");
+                string externalRendered = Path.Combine(externalDir, "external-rendered.jpg");
+                Directory.CreateDirectory(renderedDir);
+                Directory.CreateDirectory(externalDir);
+                File.WriteAllText(imagePath, "trusted original");
+                File.WriteAllText(externalRendered, "external rendered");
+                if (!TryCreateFileSymbolicLink(renderedPath, externalRendered))
+                {
+                    return;
+                }
+
+                var record = new DetectionTraceRecord
+                {
+                    ImagePath = imagePath,
+                    RenderedImagePath = renderedPath
+                };
+
+                DetectionTraceImageResolution resolved = DetectionTraceImageResolver.Resolve(record);
+
+                resolved.HasRenderedImage.Should().BeFalse();
+                resolved.RenderedImagePath.Should().BeEmpty();
+                resolved.DisplayImagePath.Should().Be(imagePath);
+                resolved.MissingRenderedImage.Should().BeTrue();
+                File.ReadAllText(externalRendered).Should().Be("external rendered");
+            }
+            finally
+            {
+                TryDeleteFileLink(renderedPath);
+                DeleteDirectory(tempDir);
+                DeleteDirectory(externalDir);
+            }
+        }
+
+        [Fact]
+        public void DetectionTraceImageResolver_兜底扫描跳过链接原图()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            string externalDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            string linkedImage = string.Empty;
+
+            try
+            {
+                string imageDir = Path.Combine(tempDir, "Unqualified", "2026年07月05日", "11");
+                Directory.CreateDirectory(imageDir);
+                Directory.CreateDirectory(externalDir);
+                const string inspectionId = "CF-20260705-112233444-TEST-000001";
+                string externalImage = Path.Combine(externalDir, "external-original.jpg");
+                linkedImage = Path.Combine(imageDir, $"FAIL_{inspectionId}.jpg");
+                File.WriteAllText(externalImage, "external original");
+                if (!TryCreateFileSymbolicLink(linkedImage, externalImage))
+                {
+                    return;
+                }
+
+                var record = new DetectionTraceRecord
+                {
+                    Timestamp = new DateTime(2026, 7, 5, 11, 22, 33, 444),
+                    IsQualified = false,
+                    InspectionId = inspectionId
+                };
+
+                DetectionTraceImageResolution resolved = DetectionTraceImageResolver.Resolve(record, tempDir);
+
+                resolved.ImagePath.Should().BeEmpty();
+                resolved.UsedFallbackImagePath.Should().BeFalse();
+                resolved.HasRenderedImage.Should().BeFalse();
+                File.ReadAllText(externalImage).Should().Be("external original");
+            }
+            finally
+            {
+                TryDeleteFileLink(linkedImage);
+                DeleteDirectory(tempDir);
+                DeleteDirectory(externalDir);
+            }
+        }
+
+        [Fact]
         public void BuildTraceImageFileName_包含安全化条码()
         {
             MethodInfo? method = typeof(global::ClearFrost.主窗口).GetMethod(
@@ -259,6 +554,109 @@ namespace ClearFrost.Tests.Services
             database.SavedRecords[0].ProductBarcode.Should().Be("SN-QUEUE-001");
             database.SavedRecords[0].BarcodeReadSucceeded.Should().BeTrue();
             database.SavedRecords[1].ModelName.Should().Be("model-b");
+        }
+
+        private static DetectionPersistencePayload CreateTracePayload()
+        {
+            return new DetectionPersistencePayload
+            {
+                Timestamp = new DateTime(2026, 7, 5, 10, 0, 0),
+                IsQualified = false,
+                InspectionId = "CF-TRACE-OUTBOX-001",
+                TriggerSource = "TEST",
+                ModelName = "model-a",
+                TargetLabel = "part",
+                ExpectedCount = 1,
+                ActualCount = 0
+            };
+        }
+
+        private static bool TryCreateFileSymbolicLink(string linkPath, string targetPath)
+        {
+            try
+            {
+                FileSystemInfo link = File.CreateSymbolicLink(linkPath, targetPath);
+                link.Refresh();
+                return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+            {
+                return false;
+            }
+        }
+
+        private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+        {
+            try
+            {
+                FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+                link.Refresh();
+                return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+            {
+                return false;
+            }
+        }
+
+        private static void TryDeleteFileLink(string linkPath)
+        {
+            if (string.IsNullOrWhiteSpace(linkPath))
+            {
+                return;
+            }
+
+            try
+            {
+                var info = new FileInfo(linkPath);
+                info.Refresh();
+                if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    info.Delete();
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+            {
+            }
+        }
+
+        private static void TryDeleteDirectoryLink(string linkPath)
+        {
+            if (string.IsNullOrWhiteSpace(linkPath))
+            {
+                return;
+            }
+
+            try
+            {
+                var info = new DirectoryInfo(linkPath);
+                info.Refresh();
+                if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    info.Delete();
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+            {
+            }
+        }
+
+        private static void DeleteDirectory(string path)
+        {
+            if (!Directory.Exists(path))
+            {
+                return;
+            }
+
+            var info = new DirectoryInfo(path);
+            info.Refresh();
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+                return;
+            }
+
+            Directory.Delete(path, recursive: true);
         }
 
         private sealed class RecordingDatabaseService : IDatabaseService

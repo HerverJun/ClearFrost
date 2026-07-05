@@ -97,11 +97,7 @@ namespace ClearFrost.Services
                 _dbPath = dbPath;
             }
 
-            string directory = Path.GetDirectoryName(_dbPath) ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
+            EnsureDatabasePathSafe(_dbPath, "检测数据库");
 
             _connectionString = $"Data Source={_dbPath};Cache=Shared;Pooling=True;Default Timeout={BusyTimeoutMs / 1000}";
             Debug.WriteLine($"[SqliteDatabaseService] Database path: {_dbPath}");
@@ -115,6 +111,7 @@ namespace ClearFrost.Services
                     .Where(path => !string.IsNullOrWhiteSpace(path))
                     .Select(path => Path.GetFullPath(path))
                     .Where(path => !PathsEqual(path, runtimeDbPath) && File.Exists(path))
+                    .Where(IsSafeLegacyDatabaseForRead)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToArray();
 
@@ -123,7 +120,7 @@ namespace ClearFrost.Services
                     return;
                 }
 
-                EnsureDatabaseDirectory(runtimeDbPath);
+                EnsureDatabasePathSafe(runtimeDbPath, "检测数据库");
 
                 using var connection = OpenDatabase(runtimeDbPath);
                 EnsureSchema(connection);
@@ -242,6 +239,11 @@ namespace ClearFrost.Services
 
             foreach (string scopeDirectory in Directory.GetDirectories(appDataRoot))
             {
+                if (DirectoryPathHasReparsePoint(scopeDirectory))
+                {
+                    continue;
+                }
+
                 string candidate = Path.Combine(scopeDirectory, "Data", "detection.db");
                 if (!PathsEqual(candidate, runtimeFullPath) && File.Exists(candidate))
                 {
@@ -252,6 +254,7 @@ namespace ClearFrost.Services
 
         private static SqliteConnection OpenDatabase(string dbPath)
         {
+            EnsureDatabasePathSafe(dbPath, "检测数据库");
             var connection = new SqliteConnection($"Data Source={dbPath};Cache=Shared;Pooling=True;Default Timeout={BusyTimeoutMs / 1000}");
             connection.Open();
             ConfigureConnection(connection);
@@ -260,6 +263,7 @@ namespace ClearFrost.Services
 
         private async Task<SqliteConnection> OpenConnectionAsync()
         {
+            EnsureDatabasePathSafe(_dbPath, "检测数据库");
             var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync();
             await ConfigureConnectionAsync(connection);
@@ -290,10 +294,94 @@ namespace ClearFrost.Services
 
         private static void EnsureDatabaseDirectory(string dbPath)
         {
-            string directory = Path.GetDirectoryName(dbPath) ?? string.Empty;
+            EnsureDatabasePathSafe(dbPath, "检测数据库");
+        }
+
+        private static void EnsureDatabasePathSafe(string dbPath, string displayName)
+        {
+            if (string.IsNullOrWhiteSpace(dbPath))
+            {
+                throw new ArgumentException($"{displayName}路径为空。", nameof(dbPath));
+            }
+
+            string fullPath = Path.GetFullPath(dbPath);
+            string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(directory))
             {
+                if (DirectoryPathHasReparsePoint(directory))
+                {
+                    throw new IOException($"{displayName}目录包含链接目录，拒绝使用: {directory}");
+                }
+
                 Directory.CreateDirectory(directory);
+
+                var directoryInfo = new DirectoryInfo(directory);
+                directoryInfo.Refresh();
+                if (directoryInfo.Exists && HasReparsePoint(directoryInfo))
+                {
+                    throw new IOException($"{displayName}目录是链接目录，拒绝使用: {directory}");
+                }
+            }
+
+            var file = new FileInfo(fullPath);
+            file.Refresh();
+            if (file.Exists && HasReparsePoint(file))
+            {
+                throw new IOException($"{displayName}文件是链接文件，拒绝使用: {fullPath}");
+            }
+        }
+
+        private static bool IsSafeLegacyDatabaseForRead(string dbPath)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(dbPath);
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(directory) && DirectoryPathHasReparsePoint(directory))
+                {
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                return file.Exists && !HasReparsePoint(file);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            var current = new DirectoryInfo(Path.GetFullPath(directory));
+            while (current != null)
+            {
+                current.Refresh();
+                if (current.Exists && HasReparsePoint(current))
+                {
+                    return true;
+                }
+
+                current = current.Parent;
+            }
+
+            return false;
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
             }
         }
 

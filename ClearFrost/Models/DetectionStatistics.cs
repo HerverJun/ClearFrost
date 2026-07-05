@@ -47,7 +47,7 @@ namespace ClearFrost.Models
         public void SetSavePath(string basePath)
         {
             string dir = Path.Combine(basePath, "System");
-            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            StatisticsFilePathGuard.EnsureDirectorySafeForWrite(dir, "今日统计目录");
             _savePath = Path.Combine(dir, "statistics.json");
         }
 
@@ -121,6 +121,7 @@ namespace ClearFrost.Models
             {
                 if (File.Exists(filePath))
                 {
+                    StatisticsFilePathGuard.EnsureFileSafeForRead(filePath, "今日统计文件");
                     string json = File.ReadAllText(filePath);
                     var stats = JsonSerializer.Deserialize<DetectionStatistics>(json);
                     if (stats != null)

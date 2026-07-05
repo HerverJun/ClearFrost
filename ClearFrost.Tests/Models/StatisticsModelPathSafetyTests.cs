@@ -1,65 +1,102 @@
-﻿using ClearFrost.Services;
+﻿using System.Text.Json;
+using ClearFrost.Models;
 using FluentAssertions;
 
-namespace ClearFrost.Tests.Services;
+namespace ClearFrost.Tests.Models;
 
-public class AsyncDiagnosticLoggerTests
+public class StatisticsModelPathSafetyTests
 {
     [Fact]
-    public async Task DisposeAsync_拒绝链接日志目录且不写入外部目标()
+    public void Load_拒绝链接统计文件且不加载外部内容()
     {
         string tempDir = CreateTempDirectory();
         string externalDir = CreateTempDirectory();
-        string linkedDirectory = Path.Combine(tempDir, "linked-logs");
         try
         {
-            if (!TryCreateDirectorySymbolicLink(linkedDirectory, externalDir))
+            string systemDir = Path.Combine(tempDir, "System");
+            Directory.CreateDirectory(systemDir);
+
+            string externalCurrent = Path.Combine(externalDir, "external-statistics.json");
+            File.WriteAllText(
+                externalCurrent,
+                JsonSerializer.Serialize(new DetectionStatistics
+                {
+                    TotalCount = 99,
+                    QualifiedCount = 90,
+                    UnqualifiedCount = 9,
+                    CurrentDate = "2026-07-05"
+                }));
+            if (!TryCreateFileSymbolicLink(Path.Combine(systemDir, "statistics.json"), externalCurrent))
             {
                 return;
             }
 
-            var logger = new AsyncDiagnosticLogger(Path.Combine(linkedDirectory, "diagnostic.log"));
+            string externalHistory = Path.Combine(externalDir, "external-history.json");
+            File.WriteAllText(
+                externalHistory,
+                JsonSerializer.Serialize(new StatisticsHistory
+                {
+                    Records =
+                    [
+                        new DailyStatisticsRecord
+                        {
+                            Date = "2026-07-04",
+                            TotalCount = 99,
+                            QualifiedCount = 90,
+                            UnqualifiedCount = 9
+                        }
+                    ]
+                }));
+            if (!TryCreateFileSymbolicLink(Path.Combine(systemDir, "statistics_history.json"), externalHistory))
+            {
+                return;
+            }
 
-            logger.Enqueue("unsafe linked directory").Should().BeTrue();
-            await logger.DisposeAsync();
+            DetectionStatistics stats = DetectionStatistics.Load(tempDir);
+            StatisticsHistory history = StatisticsHistory.Load(tempDir);
 
-            logger.FailedCount.Should().BeGreaterThan(0);
-            Directory.EnumerateFileSystemEntries(externalDir).Should().BeEmpty();
+            stats.TotalCount.Should().Be(0);
+            stats.QualifiedCount.Should().Be(0);
+            stats.UnqualifiedCount.Should().Be(0);
+            history.Records.Should().BeEmpty();
+            File.ReadAllText(externalCurrent).Should().Contain("99");
+            File.ReadAllText(externalHistory).Should().Contain("2026-07-04");
         }
         finally
         {
-            TryDeleteDirectoryLink(linkedDirectory);
+            TryDeleteFileLink(Path.Combine(tempDir, "System", "statistics.json"));
+            TryDeleteFileLink(Path.Combine(tempDir, "System", "statistics_history.json"));
             DeleteDirectory(tempDir);
             DeleteDirectory(externalDir);
         }
     }
 
     [Fact]
-    public async Task DisposeAsync_拒绝链接日志文件且不修改外部文件()
+    public void SetSavePath_拒绝链接统计目录()
     {
         string tempDir = CreateTempDirectory();
         string externalDir = CreateTempDirectory();
-        string linkedLogPath = Path.Combine(tempDir, "diagnostic.log");
+        string systemLink = Path.Combine(tempDir, "System");
         try
         {
-            string externalLogPath = Path.Combine(externalDir, "external.log");
-            File.WriteAllText(externalLogPath, "external log");
-            if (!TryCreateFileSymbolicLink(linkedLogPath, externalLogPath))
+            if (!TryCreateDirectorySymbolicLink(systemLink, externalDir))
             {
                 return;
             }
 
-            var logger = new AsyncDiagnosticLogger(linkedLogPath);
+            var stats = new DetectionStatistics();
+            var history = new StatisticsHistory();
 
-            logger.Enqueue("unsafe linked file").Should().BeTrue();
-            await logger.DisposeAsync();
+            Action setCurrent = () => stats.SetSavePath(tempDir);
+            Action setHistory = () => history.SetSavePath(tempDir);
 
-            logger.FailedCount.Should().BeGreaterThan(0);
-            File.ReadAllText(externalLogPath).Should().Be("external log");
+            setCurrent.Should().Throw<IOException>().WithMessage("*今日统计目录*链接目录*");
+            setHistory.Should().Throw<IOException>().WithMessage("*历史统计目录*链接目录*");
+            Directory.EnumerateFileSystemEntries(externalDir).Should().BeEmpty();
         }
         finally
         {
-            TryDeleteFileLink(linkedLogPath);
+            TryDeleteDirectoryLink(systemLink);
             DeleteDirectory(tempDir);
             DeleteDirectory(externalDir);
         }
@@ -67,7 +104,7 @@ public class AsyncDiagnosticLoggerTests
 
     private static string CreateTempDirectory()
     {
-        string path = Path.Combine(Path.GetTempPath(), "ClearFrostAsyncDiagnosticLoggerTests", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(StatisticsModelPathSafetyTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
     }

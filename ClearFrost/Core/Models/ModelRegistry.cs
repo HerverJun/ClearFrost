@@ -223,7 +223,14 @@ namespace ClearFrost.Core.Models
                     $"模型文件不存在: {entry.ModelPath}");
             }
 
-            string actualHash = ComputeSha256(entry.ModelPath);
+            if (!TryComputeModelSha256(entry.ModelPath, out string actualHash, out string hashError))
+            {
+                return ProductionModelResolutionResult.Fail(
+                    reference,
+                    "ApprovedModelPathUnsafe",
+                    hashError);
+            }
+
             if (!string.Equals(actualHash, sha256, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(actualHash, entry.ModelHash, StringComparison.OrdinalIgnoreCase))
             {
@@ -300,7 +307,14 @@ namespace ClearFrost.Core.Models
                     $"模型文件不存在: {entry.ModelPath}");
             }
 
-            string actualHash = ComputeSha256(entry.ModelPath);
+            if (!TryComputeModelSha256(entry.ModelPath, out string actualHash, out string hashError))
+            {
+                return ProductionModelResolutionResult.Fail(
+                    reference,
+                    "LegacyModelPathUnsafe",
+                    hashError);
+            }
+
             if (!string.IsNullOrWhiteSpace(reference.Sha256) &&
                 !string.Equals(reference.Sha256, actualHash, StringComparison.OrdinalIgnoreCase))
             {
@@ -380,7 +394,14 @@ namespace ClearFrost.Core.Models
                     $"模型文件不存在: {entry.ModelPath}");
             }
 
-            string actualHash = ComputeSha256(entry.ModelPath);
+            if (!TryComputeModelSha256(entry.ModelPath, out string actualHash, out string hashError))
+            {
+                return ProductionModelResolutionResult.Fail(
+                    inputReference,
+                    "LegacyModelPathUnsafe",
+                    hashError);
+            }
+
             ProductionModelReference legacyReference = ProductionModelReference.FromLegacyOnnx(entry.UsedModelName, actualHash);
             return ProductionModelResolutionResult.Ok(legacyReference, entry, entry.ModelPath);
         }
@@ -437,14 +458,41 @@ namespace ClearFrost.Core.Models
                 return;
             }
 
+            if (ModelPackagePathGuard.DirectoryPathHasReparsePoint(packageDirectory))
+            {
+                entries.Add(CreateBlockedPackageEntry(
+                    Path.GetFileName(Path.GetFullPath(packageDirectory)),
+                    packageDirectory,
+                    "Model package root is a reparse point."));
+                return;
+            }
+
             foreach (string directory in Directory.EnumerateDirectories(packageDirectory))
             {
+                if (ModelPackagePathGuard.DirectoryPathHasReparsePoint(directory))
+                {
+                    entries.Add(CreateBlockedPackageEntry(
+                        Path.GetFileName(directory),
+                        directory,
+                        "Model package directory is a reparse point."));
+                    continue;
+                }
+
                 string manifestPath = Path.Combine(directory, "manifest.json");
                 if (!File.Exists(manifestPath))
                 {
                     string[] onnxFiles = Directory.GetFiles(directory, "*.onnx", SearchOption.TopDirectoryOnly);
                     if (onnxFiles.Length > 0)
                     {
+                        if (ModelPackagePathGuard.HasReparsePoint(new FileInfo(onnxFiles[0])))
+                        {
+                            entries.Add(CreateBlockedPackageEntry(
+                                Path.GetFileName(directory),
+                                onnxFiles[0],
+                                "Model package ONNX file is a reparse point."));
+                            continue;
+                        }
+
                         entries.Add(new ModelRegistryEntry
                         {
                             ModelId = Path.GetFileName(directory),
@@ -480,8 +528,34 @@ namespace ClearFrost.Core.Models
 
             try
             {
-                string json = File.ReadAllText(manifestPath);
-                manifest = JsonSerializer.Deserialize<ModelPackageManifest>(json, JsonOptions);
+                if (ModelPackagePathGuard.DirectoryPathHasReparsePoint(directory))
+                {
+                    failures.Add("Model package directory path contains a reparse point.");
+                }
+                else if (ModelPackagePathGuard.HasReparsePoint(new FileInfo(manifestPath)))
+                {
+                    failures.Add("Manifest file is a reparse point.");
+                }
+                else
+                {
+                    using var stream = new FileStream(
+                        manifestPath,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.Read,
+                        bufferSize: 4096,
+                        FileOptions.SequentialScan);
+
+                    if (ModelPackagePathGuard.DirectoryPathHasReparsePoint(directory) ||
+                        ModelPackagePathGuard.HasReparsePoint(new FileInfo(manifestPath)))
+                    {
+                        failures.Add("Manifest file path became unsafe before read.");
+                    }
+                    else
+                    {
+                        manifest = JsonSerializer.Deserialize<ModelPackageManifest>(stream, JsonOptions);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -506,16 +580,39 @@ namespace ClearFrost.Core.Models
             string modelFileName = string.IsNullOrWhiteSpace(manifest.ModelFileName)
                 ? "model.onnx"
                 : manifest.ModelFileName.Trim();
-            string modelPath = Path.Combine(directory, modelFileName);
+            bool modelPathResolved = ModelPackagePathGuard.TryResolveModelPath(
+                directory,
+                modelFileName,
+                out string modelPath,
+                out string modelPathError);
             string computedHash = string.Empty;
 
-            if (!File.Exists(modelPath))
+            if (!modelPathResolved)
+            {
+                failures.Add(modelPathError);
+            }
+            else if (ModelPackagePathGuard.ModelPathHasReparsePoint(directory, modelPath))
+            {
+                failures.Add("Model file path contains a reparse point.");
+            }
+            else if (ModelPackagePathGuard.DirectoryPathHasReparsePoint(Path.GetDirectoryName(modelPath) ?? string.Empty))
+            {
+                failures.Add("Model file directory path contains a reparse point.");
+            }
+            else if (!File.Exists(modelPath))
             {
                 failures.Add($"Model file is missing: {modelFileName}");
             }
+            else if (ModelPackagePathGuard.HasReparsePoint(new FileInfo(modelPath)))
+            {
+                failures.Add("Model file is a reparse point.");
+            }
+            else if (!TryComputeModelSha256(modelPath, out computedHash, out string hashError))
+            {
+                failures.Add(hashError);
+            }
             else
             {
-                computedHash = ComputeSha256(modelPath);
                 string expectedHash = manifest.EffectiveHash;
                 if (string.IsNullOrWhiteSpace(expectedHash))
                 {
@@ -564,6 +661,8 @@ namespace ClearFrost.Core.Models
                 }
             }
 
+            bool manifestApproved = IsApprovedForProduction(manifest);
+
             if (options.RequireProductionApproval)
             {
                 if (manifest.InputWidth <= 0 || manifest.InputHeight <= 0)
@@ -576,7 +675,7 @@ namespace ClearFrost.Core.Models
                     failures.Add("Model task type metadata is missing.");
                 }
 
-                if (!IsApprovedForProduction(manifest))
+                if (!manifestApproved)
                 {
                     failures.Add("Model is not approved for production.");
                 }
@@ -611,7 +710,7 @@ namespace ClearFrost.Core.Models
                 InputWidth = manifest.InputWidth,
                 InputHeight = manifest.InputHeight,
                 ApprovalStatus = manifest.Approval?.Status ?? ModelApprovalStatuses.Pending,
-                ApprovedForProduction = IsApprovedForProduction(manifest)
+                ApprovedForProduction = status == ModelRegistryStatus.Ready && manifestApproved
             };
         }
 
@@ -622,14 +721,65 @@ namespace ClearFrost.Core.Models
                 return;
             }
 
+            if (ModelPackagePathGuard.DirectoryPathHasReparsePoint(onnxDirectory))
+            {
+                entries.Add(new ModelRegistryEntry
+                {
+                    ModelId = Path.GetFileName(Path.GetFullPath(onnxDirectory)),
+                    Version = "legacy",
+                    ModelPath = onnxDirectory,
+                    IsPackage = false,
+                    Status = ModelRegistryStatus.Blocked,
+                    Message = "Bare ONNX root is a reparse point.",
+                    ApprovalStatus = ModelApprovalStatuses.Legacy,
+                    ApprovedForProduction = false
+                });
+                return;
+            }
+
             foreach (string modelPath in Directory.EnumerateFiles(onnxDirectory, "*.onnx", SearchOption.TopDirectoryOnly))
             {
                 string fileName = Path.GetFileName(modelPath);
+                if (ModelPackagePathGuard.DirectoryPathHasReparsePoint(Path.GetDirectoryName(modelPath) ?? string.Empty) ||
+                    ModelPackagePathGuard.HasReparsePoint(new FileInfo(modelPath)))
+                {
+                    entries.Add(new ModelRegistryEntry
+                    {
+                        ModelId = Path.GetFileNameWithoutExtension(fileName),
+                        Version = "legacy",
+                        UsedModelName = fileName,
+                        ModelPath = modelPath,
+                        IsPackage = false,
+                        Status = ModelRegistryStatus.Blocked,
+                        Message = "Bare ONNX model file is a reparse point.",
+                        ApprovalStatus = ModelApprovalStatuses.Legacy,
+                        ApprovedForProduction = false
+                    });
+                    continue;
+                }
+
+                if (!TryComputeModelSha256(modelPath, out string modelHash, out string hashError))
+                {
+                    entries.Add(new ModelRegistryEntry
+                    {
+                        ModelId = Path.GetFileNameWithoutExtension(fileName),
+                        Version = "legacy",
+                        UsedModelName = fileName,
+                        ModelPath = modelPath,
+                        IsPackage = false,
+                        Status = ModelRegistryStatus.Blocked,
+                        Message = hashError,
+                        ApprovalStatus = ModelApprovalStatuses.Legacy,
+                        ApprovedForProduction = false
+                    });
+                    continue;
+                }
+
                 entries.Add(new ModelRegistryEntry
                 {
                     ModelId = Path.GetFileNameWithoutExtension(fileName),
                     Version = "legacy",
-                    ModelHash = ComputeSha256(modelPath),
+                    ModelHash = modelHash,
                     UsedModelName = fileName,
                     ModelPath = modelPath,
                     IsPackage = false,
@@ -639,6 +789,25 @@ namespace ClearFrost.Core.Models
                     ApprovedForProduction = false
                 });
             }
+        }
+
+        private static ModelRegistryEntry CreateBlockedPackageEntry(
+            string modelId,
+            string modelPath,
+            string message)
+        {
+            return new ModelRegistryEntry
+            {
+                ModelId = string.IsNullOrWhiteSpace(modelId) ? "blocked-package" : modelId,
+                Version = string.Empty,
+                UsedModelName = Path.GetFileName(modelPath),
+                ModelPath = modelPath,
+                IsPackage = true,
+                Status = ModelRegistryStatus.Blocked,
+                Message = message,
+                ApprovalStatus = ModelApprovalStatuses.Pending,
+                ApprovedForProduction = false
+            };
         }
 
         public bool IsApprovedForProduction(string? usedModelName)
@@ -695,6 +864,12 @@ namespace ClearFrost.Core.Models
                 return ModelProductionValidationResult.Fail("ProductionModelManifestMissing", $"模型缺少有效 manifest: {fullPath}");
             }
 
+            if (ModelPackagePathGuard.DirectoryPathHasReparsePoint(Path.GetDirectoryName(fullPath) ?? string.Empty) ||
+                ModelPackagePathGuard.HasReparsePoint(new FileInfo(fullPath)))
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelPathUnsafe", "模型文件路径包含链接，禁止进入生产。");
+            }
+
             if (entry.Status != ModelRegistryStatus.Ready)
             {
                 return ModelProductionValidationResult.Fail("ProductionModelRegistryBlocked", entry.Message);
@@ -720,7 +895,11 @@ namespace ClearFrost.Core.Models
                 return ModelProductionValidationResult.Fail("ProductionModelTaskTypeMissing", "模型任务类型元数据缺失。");
             }
 
-            string actualHash = ComputeSha256(fullPath);
+            if (!TryComputeModelSha256(fullPath, out string actualHash, out string hashError))
+            {
+                return ModelProductionValidationResult.Fail("ProductionModelPathUnsafe", hashError);
+            }
+
             if (string.IsNullOrWhiteSpace(entry.ModelHash) ||
                 !string.Equals(entry.ModelHash, actualHash, StringComparison.OrdinalIgnoreCase))
             {
@@ -758,11 +937,56 @@ namespace ClearFrost.Core.Models
                 StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string ComputeSha256(string path)
+        private static bool TryComputeModelSha256(string path, out string sha256, out string error)
         {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var sha256 = SHA256.Create();
-            return Convert.ToHexString(sha256.ComputeHash(stream)).ToLowerInvariant();
+            sha256 = string.Empty;
+            error = string.Empty;
+
+            try
+            {
+                string fullPath = Path.GetFullPath(path);
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(directory) ||
+                    ModelPackagePathGuard.DirectoryPathHasReparsePoint(directory))
+                {
+                    error = "Model file directory path contains a reparse point.";
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                if (!file.Exists)
+                {
+                    error = "Model file is missing.";
+                    return false;
+                }
+
+                if (ModelPackagePathGuard.HasReparsePoint(file))
+                {
+                    error = "Model file is a reparse point.";
+                    return false;
+                }
+
+                using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+                file = new FileInfo(fullPath);
+                file.Refresh();
+                if (ModelPackagePathGuard.DirectoryPathHasReparsePoint(directory) ||
+                    ModelPackagePathGuard.HasReparsePoint(file))
+                {
+                    error = "Model file path became unsafe before hash.";
+                    return false;
+                }
+
+                using var sha256Algorithm = SHA256.Create();
+                sha256 = Convert.ToHexString(sha256Algorithm.ComputeHash(stream)).ToLowerInvariant();
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+            {
+                error = $"Model hash failed: {ex.Message}";
+                return false;
+            }
         }
 
         private static string NormalizeName(string value)
@@ -794,5 +1018,6 @@ namespace ClearFrost.Core.Models
                 return value;
             }
         }
+
     }
 }

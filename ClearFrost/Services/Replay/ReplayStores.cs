@@ -36,8 +36,14 @@ namespace ClearFrost.Services.Replay
                 return false;
             }
 
+            string rootDirectory = RootDirectory;
+            if (HasReparsePoint(new DirectoryInfo(rootDirectory)))
+            {
+                throw new InvalidOperationException($"Replay dataset store root traverses a reparse point: {rootDirectory}");
+            }
+
             string prefix = $".{SanitizeName(datasetId)}.staging-";
-            return Directory.EnumerateDirectories(_rootDirectory)
+            return Directory.EnumerateDirectories(rootDirectory)
                 .Any(path => Path.GetFileName(path).StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
         }
 
@@ -50,15 +56,17 @@ namespace ClearFrost.Services.Replay
             string datasetId = string.IsNullOrWhiteSpace(request.DatasetId)
                 ? $"dataset-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}"
                 : SanitizeName(request.DatasetId);
-            string finalDirectory = Path.Combine(_rootDirectory, datasetId);
+            string rootDirectory = EnsureDatasetRootSafeForWrite();
+            string finalDirectory = Path.Combine(rootDirectory, datasetId);
             if (Directory.Exists(finalDirectory))
             {
                 throw new IOException($"Replay dataset already exists: {finalDirectory}");
             }
 
-            string stagingDirectory = Path.Combine(_rootDirectory, $".{datasetId}.staging-{Guid.NewGuid():N}");
+            string stagingDirectory = Path.Combine(rootDirectory, $".{datasetId}.staging-{Guid.NewGuid():N}");
             string imageDirectory = Path.Combine(stagingDirectory, "images");
             Directory.CreateDirectory(imageDirectory);
+            EnsureDatasetDirectorySafeForWrite(stagingDirectory, rootDirectory);
 
             try
             {
@@ -150,7 +158,7 @@ namespace ClearFrost.Services.Replay
 
                 string manifestPath = Path.Combine(stagingDirectory, "manifest.json");
                 AtomicFileWriter.WriteAllText(manifestPath, JsonSerializer.Serialize(CreateManifestSnapshot(snapshot), ReplayJson.Options));
-                ReplayDatasetSnapshot stagedReload = LoadSnapshotFromManifest(manifestPath);
+                ReplayDatasetSnapshot stagedReload = LoadSnapshotFromManifest(manifestPath, rootDirectory);
                 ValidateSnapshotIntegrity(stagedReload);
                 string stagedHash = ComputeDatasetHash(stagedReload, useStoredImageHash: false);
                 if (!string.Equals(stagedHash, snapshot.DatasetHash, StringComparison.OrdinalIgnoreCase))
@@ -159,6 +167,7 @@ namespace ClearFrost.Services.Replay
                 }
 
                 Directory.CreateDirectory(_rootDirectory);
+                EnsureDatasetDirectorySafeForWrite(stagingDirectory, rootDirectory);
                 Directory.Move(stagingDirectory, finalDirectory);
                 return ResolveSnapshotPaths(snapshot, finalDirectory);
             }
@@ -177,13 +186,14 @@ namespace ClearFrost.Services.Replay
             string datasetId,
             CancellationToken cancellationToken = default)
         {
-            string manifestPath = ResolveManifestPath(datasetId);
+            string manifestPath = ResolveManifestPath(datasetId, allowExternalDirectory: true);
             if (!File.Exists(manifestPath))
             {
                 throw new FileNotFoundException($"Replay dataset manifest not found: {manifestPath}", manifestPath);
             }
 
-            ReplayDatasetSnapshot snapshot = LoadSnapshotFromManifest(manifestPath);
+            string manifestReadRoot = EnsureDatasetManifestSafeForRead(manifestPath);
+            ReplayDatasetSnapshot snapshot = LoadSnapshotFromManifest(manifestPath, manifestReadRoot);
             ValidateSnapshotIntegrity(snapshot);
             return Task.FromResult(snapshot);
         }
@@ -200,12 +210,18 @@ namespace ClearFrost.Services.Replay
             CancellationToken cancellationToken = default)
         {
             var summaries = new List<ReplayDatasetSummary>();
-            if (!Directory.Exists(_rootDirectory))
+            string rootDirectory = RootDirectory;
+            if (!Directory.Exists(rootDirectory))
             {
                 return Task.FromResult<IReadOnlyList<ReplayDatasetSummary>>(summaries);
             }
 
-            foreach (string directory in Directory.EnumerateDirectories(_rootDirectory)
+            if (HasReparsePoint(new DirectoryInfo(rootDirectory)))
+            {
+                throw new InvalidOperationException($"Replay dataset store root traverses a reparse point: {rootDirectory}");
+            }
+
+            foreach (string directory in Directory.EnumerateDirectories(rootDirectory)
                          .Where(path => !Path.GetFileName(path).StartsWith(".", StringComparison.Ordinal) &&
                                         !string.Equals(Path.GetFileName(path), "_archive", StringComparison.OrdinalIgnoreCase)))
             {
@@ -218,7 +234,8 @@ namespace ClearFrost.Services.Replay
 
                 try
                 {
-                    ReplayDatasetSnapshot snapshot = LoadSnapshotFromManifest(manifestPath);
+                    EnsureDatasetFileSafeForRead(manifestPath, rootDirectory);
+                    ReplayDatasetSnapshot snapshot = LoadSnapshotFromManifest(manifestPath, rootDirectory);
                     summaries.Add(new ReplayDatasetSummary
                     {
                         DatasetId = snapshot.DatasetId,
@@ -248,7 +265,18 @@ namespace ClearFrost.Services.Replay
             string datasetId,
             CancellationToken cancellationToken = default)
         {
-            string manifestPath = ResolveManifestPath(datasetId);
+            string manifestPath;
+            try
+            {
+                manifestPath = ResolveManifestPath(datasetId, allowExternalDirectory: false);
+            }
+            catch (ArgumentException ex)
+            {
+                return Task.FromResult(ReplayDatasetArchiveResult.Fail(
+                    "ReplayDatasetPathOutsideRoot",
+                    ex.Message));
+            }
+
             string? datasetDirectory = Path.GetDirectoryName(manifestPath);
             if (string.IsNullOrWhiteSpace(datasetDirectory) || !Directory.Exists(datasetDirectory))
             {
@@ -257,13 +285,25 @@ namespace ClearFrost.Services.Replay
                     $"Replay dataset not found: {datasetId}"));
             }
 
-            string archiveRoot = Path.Combine(_rootDirectory, "_archive");
-            Directory.CreateDirectory(archiveRoot);
-            string archiveName = $"{Path.GetFileName(datasetDirectory)}-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}";
-            string archivePath = Path.Combine(archiveRoot, archiveName);
-            cancellationToken.ThrowIfCancellationRequested();
-            Directory.Move(datasetDirectory, archivePath);
-            return Task.FromResult(ReplayDatasetArchiveResult.Ok(Path.GetFullPath(archivePath)));
+            try
+            {
+                string rootDirectory = EnsureDatasetRootSafeForWrite();
+                EnsureDatasetDirectorySafeForWrite(datasetDirectory, rootDirectory);
+                string archiveRoot = Path.Combine(rootDirectory, "_archive");
+                Directory.CreateDirectory(archiveRoot);
+                EnsureDatasetDirectorySafeForWrite(archiveRoot, rootDirectory);
+                string archiveName = $"{Path.GetFileName(datasetDirectory)}-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}";
+                string archivePath = Path.Combine(archiveRoot, archiveName);
+                cancellationToken.ThrowIfCancellationRequested();
+                Directory.Move(datasetDirectory, archivePath);
+                return Task.FromResult(ReplayDatasetArchiveResult.Ok(Path.GetFullPath(archivePath)));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Task.FromResult(ReplayDatasetArchiveResult.Fail(
+                    "ReplayDatasetReparsePoint",
+                    ex.Message));
+            }
         }
 
         internal static string ComputeDatasetHash(ReplayDatasetSnapshot snapshot, bool useStoredImageHash)
@@ -305,7 +345,9 @@ namespace ClearFrost.Services.Replay
                             sample.Record.ModelHash,
                             sample.Record.ModelName
                         },
-                        ImageHash = useStoredImageHash ? sample.ImageHash : ComputeSha256(ResolveSnapshotFilePath(snapshot, sample.ImagePath))
+                        ImageHash = useStoredImageHash
+                            ? sample.ImageHash
+                            : ComputeSnapshotImageHash(snapshot, sample.ImagePath)
                     })
                     .ToList()
             };
@@ -313,14 +355,16 @@ namespace ClearFrost.Services.Replay
             return ComputeSha256(JsonSerializer.SerializeToUtf8Bytes(canonical, ReplayJson.Options));
         }
 
-        private static ReplayDatasetSnapshot LoadSnapshotFromManifest(string manifestPath)
+        private static ReplayDatasetSnapshot LoadSnapshotFromManifest(string manifestPath, string rootDirectory)
         {
+            using FileStream stream = OpenDatasetFileForRead(manifestPath, rootDirectory);
             ReplayDatasetSnapshot manifest = JsonSerializer.Deserialize<ReplayDatasetSnapshot>(
-                File.ReadAllText(manifestPath),
+                stream,
                 ReplayJson.Options) ?? throw new InvalidOperationException("Replay dataset manifest is invalid.");
+            EnsureDatasetFileSafeForRead(manifestPath, rootDirectory);
 
-            string rootDirectory = Path.GetFullPath(Path.GetDirectoryName(manifestPath) ?? string.Empty);
-            return ResolveSnapshotPaths(manifest, rootDirectory);
+            string snapshotRootDirectory = Path.GetFullPath(Path.GetDirectoryName(manifestPath) ?? string.Empty);
+            return ResolveSnapshotPaths(manifest, snapshotRootDirectory);
         }
 
         private static ReplayDatasetSnapshot CreateManifestSnapshot(ReplayDatasetSnapshot snapshot)
@@ -416,15 +460,23 @@ namespace ClearFrost.Services.Replay
             foreach (ReplayDatasetSample sample in snapshot.Samples)
             {
                 string imagePath = ResolveSnapshotFilePath(snapshot, sample.ImagePath);
+                EnsureDatasetFileSafeForRead(imagePath, snapshot.RootDirectory);
                 if (!File.Exists(imagePath))
                 {
                     throw new FileNotFoundException($"Replay dataset image missing: {imagePath}", imagePath);
                 }
 
-                string actualHash = ComputeSha256(imagePath);
+                string actualHash = ComputeSnapshotImageHash(snapshot, sample.ImagePath);
                 if (!string.Equals(actualHash, sample.ImageHash, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new InvalidOperationException($"Replay dataset image hash mismatch: {sample.SampleId}");
+                throw new InvalidOperationException($"Replay dataset image hash mismatch: {sample.SampleId}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(sample.SourceImagePath) &&
+                    !sample.SourceImagePath.StartsWith("record:", StringComparison.OrdinalIgnoreCase))
+                {
+                    string sourceImagePath = ResolveSnapshotFilePath(snapshot, sample.SourceImagePath);
+                    EnsureDatasetFileSafeForRead(sourceImagePath, snapshot.RootDirectory);
                 }
             }
         }
@@ -547,7 +599,7 @@ namespace ClearFrost.Services.Replay
             throw new InvalidOperationException($"Unknown review disposition: {disposition}");
         }
 
-        private string ResolveManifestPath(string datasetId)
+        private string ResolveManifestPath(string datasetId, bool allowExternalDirectory)
         {
             string trimmed = datasetId?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(trimmed))
@@ -557,13 +609,151 @@ namespace ClearFrost.Services.Replay
 
             if (File.Exists(trimmed))
             {
-                return Path.GetFullPath(trimmed);
+                throw new ArgumentException("Replay dataset must be referenced by dataset id or dataset directory, not a manifest file path.", nameof(datasetId));
             }
 
             string directory = Path.IsPathRooted(trimmed)
-                ? trimmed
+                ? ResolveAbsoluteDatasetDirectory(trimmed, allowExternalDirectory)
                 : Path.Combine(_rootDirectory, SanitizeName(trimmed));
             return Path.Combine(directory, "manifest.json");
+        }
+
+        private string ResolveAbsoluteDatasetDirectory(string directory, bool allowExternalDirectory)
+        {
+            string fullDirectory = Path.GetFullPath(directory);
+            if (!allowExternalDirectory && !IsSameOrChildPath(fullDirectory, _rootDirectory))
+            {
+                throw new ArgumentException($"Replay dataset path is outside the dataset store root: {fullDirectory}");
+            }
+
+            return fullDirectory;
+        }
+
+        private string EnsureDatasetRootSafeForWrite()
+        {
+            string rootDirectory = RootDirectory;
+            Directory.CreateDirectory(rootDirectory);
+            if (HasReparsePoint(new DirectoryInfo(rootDirectory)))
+            {
+                throw new InvalidOperationException($"Replay dataset store root traverses a reparse point: {rootDirectory}");
+            }
+
+            return rootDirectory;
+        }
+
+        private string EnsureDatasetManifestSafeForRead(string manifestPath)
+        {
+            string rootDirectory = IsSameOrChildPath(manifestPath, _rootDirectory)
+                ? RootDirectory
+                : Path.GetDirectoryName(Path.GetFullPath(manifestPath)) ?? string.Empty;
+            EnsureDatasetFileSafeForRead(manifestPath, rootDirectory);
+            return rootDirectory;
+        }
+
+        private static bool IsSameOrChildPath(string candidatePath, string rootPath)
+        {
+            string candidate = Path.GetFullPath(candidatePath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string root = Path.GetFullPath(rootPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.Equals(candidate, root, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            string rootWithSeparator = root + Path.DirectorySeparatorChar;
+            return candidate.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void EnsureDatasetDirectorySafeForWrite(string directory, string rootDirectory)
+        {
+            if (!IsSameOrChildPath(directory, rootDirectory) ||
+                HasReparsePointInPath(directory, rootDirectory))
+            {
+                throw new InvalidOperationException($"Replay dataset directory traverses a reparse point: {directory}");
+            }
+        }
+
+        private static void EnsureDatasetFileSafeForRead(string path, string rootDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(rootDirectory) ||
+                !IsSameOrChildPath(path, rootDirectory) ||
+                HasReparsePointInPath(path, rootDirectory))
+            {
+                throw new InvalidOperationException($"Replay dataset file traverses a reparse point or leaves the dataset root: {path}");
+            }
+        }
+
+        private static string ComputeSnapshotImageHash(ReplayDatasetSnapshot snapshot, string imagePath)
+        {
+            string resolvedPath = ResolveSnapshotFilePath(snapshot, imagePath);
+            using FileStream stream = OpenDatasetFileForRead(resolvedPath, snapshot.RootDirectory);
+            return ComputeSha256(stream);
+        }
+
+        private static FileStream OpenDatasetFileForRead(string path, string rootDirectory)
+        {
+            EnsureDatasetFileSafeForRead(path, rootDirectory);
+            var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            try
+            {
+                EnsureDatasetFileSafeForRead(path, rootDirectory);
+                return stream;
+            }
+            catch
+            {
+                stream.Dispose();
+                throw;
+            }
+        }
+
+        private static bool HasReparsePointInPath(string path, string rootPath)
+        {
+            string root = Path.GetFullPath(rootPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string fullPath = Path.GetFullPath(path);
+            if (File.Exists(fullPath) && HasReparsePoint(new FileInfo(fullPath)))
+            {
+                return true;
+            }
+
+            DirectoryInfo? directory = Directory.Exists(fullPath)
+                ? new DirectoryInfo(fullPath)
+                : new FileInfo(fullPath).Directory;
+            while (directory != null)
+            {
+                string directoryPath = Path.GetFullPath(directory.FullName)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (string.Equals(directoryPath, root, StringComparison.OrdinalIgnoreCase))
+                {
+                    return HasReparsePoint(directory);
+                }
+
+                if (!IsSameOrChildPath(directoryPath, root) || HasReparsePoint(directory))
+                {
+                    return true;
+                }
+
+                directory = directory.Parent;
+            }
+
+            return true;
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
         }
 
         private static string ResolveSourceImage(DetectionRecord record)
@@ -664,6 +854,11 @@ namespace ClearFrost.Services.Replay
         internal static string ComputeSha256(string path)
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return ComputeSha256(stream);
+        }
+
+        private static string ComputeSha256(Stream stream)
+        {
             using var sha256 = SHA256.Create();
             return Convert.ToHexString(sha256.ComputeHash(stream)).ToLowerInvariant();
         }
@@ -746,10 +941,14 @@ namespace ClearFrost.Services.Replay
             if (report == null) throw new ArgumentNullException(nameof(report));
             await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
 
-            string runDirectory = Path.Combine(_reportRoot, report.RunId);
+            string runDirectory = ResolveRunReportDirectory(report.RunId);
+            EnsureReportDirectorySafeForWrite(runDirectory);
             Directory.CreateDirectory(runDirectory);
+            EnsureReportDirectorySafeForWrite(runDirectory);
             report.ReportJsonPath = Path.GetFullPath(Path.Combine(runDirectory, "report.json"));
             report.ReportCsvPath = Path.GetFullPath(Path.Combine(runDirectory, "report.csv"));
+            EnsureReportFileSafeForWrite(report.ReportJsonPath);
+            EnsureReportFileSafeForWrite(report.ReportCsvPath);
             report.ReportHash = string.Empty;
 
             AtomicFileWriter.WriteAllText(report.ReportJsonPath, JsonSerializer.Serialize(report, ReplayJson.Options));
@@ -805,9 +1004,12 @@ namespace ClearFrost.Services.Replay
                 throw new FileNotFoundException($"Replay report not found for run: {runId}", reportPath);
             }
 
-            ReplayRunReport report = JsonSerializer.Deserialize<ReplayRunReport>(
-                await File.ReadAllTextAsync(reportPath, cancellationToken).ConfigureAwait(false),
-                ReplayJson.Options) ?? new ReplayRunReport();
+            await using FileStream stream = OpenReportFileForRead(reportPath);
+            ReplayRunReport report = await JsonSerializer.DeserializeAsync<ReplayRunReport>(
+                stream,
+                ReplayJson.Options,
+                cancellationToken).ConfigureAwait(false) ?? new ReplayRunReport();
+            EnsureReportPathSafeForRead(reportPath);
             if (!string.Equals(report.RunId, runId.Trim(), StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Replay report run id mismatch: {report.RunId}");
@@ -1009,6 +1211,148 @@ namespace ClearFrost.Services.Replay
             return connection;
         }
 
+        private string ResolveRunReportDirectory(string runId)
+        {
+            string trimmed = runId?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                throw new ArgumentException("Replay run id is required.", nameof(runId));
+            }
+
+            if (Path.IsPathRooted(trimmed) ||
+                trimmed.Contains(Path.DirectorySeparatorChar) ||
+                trimmed.Contains(Path.AltDirectorySeparatorChar))
+            {
+                throw new ArgumentException("Replay run id must be a directory name, not a path.", nameof(runId));
+            }
+
+            string fullDirectory = Path.GetFullPath(Path.Combine(_reportRoot, trimmed));
+            if (!IsSameOrChildPath(fullDirectory, _reportRoot))
+            {
+                throw new ArgumentException("Replay run report path is outside the report root.", nameof(runId));
+            }
+
+            return fullDirectory;
+        }
+
+        private void EnsureReportDirectorySafeForWrite(string directory)
+        {
+            EnsureReportPathUnderRoot(directory);
+            if (HasReparsePointInPath(directory, _reportRoot))
+            {
+                throw new InvalidOperationException($"Replay run report directory traverses a reparse point: {directory}");
+            }
+        }
+
+        private void EnsureReportFileSafeForWrite(string reportPath)
+        {
+            EnsureReportPathUnderRoot(reportPath);
+            string directory = Path.GetDirectoryName(reportPath) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(directory) ||
+                HasReparsePointInPath(directory, _reportRoot) ||
+                (File.Exists(reportPath) && HasReparsePoint(new FileInfo(reportPath))))
+            {
+                throw new InvalidOperationException($"Replay report file traverses a reparse point: {reportPath}");
+            }
+        }
+
+        private void EnsureReportPathSafeForRead(string reportPath)
+        {
+            EnsureReportPathUnderRoot(reportPath);
+            if (HasReparsePointInPath(reportPath, _reportRoot))
+            {
+                throw new InvalidOperationException($"Replay report path traverses a reparse point: {reportPath}");
+            }
+        }
+
+        private FileStream OpenReportFileForRead(string reportPath)
+        {
+            EnsureReportPathSafeForRead(reportPath);
+            var stream = new FileStream(reportPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            try
+            {
+                EnsureReportPathSafeForRead(reportPath);
+                return stream;
+            }
+            catch
+            {
+                stream.Dispose();
+                throw;
+            }
+        }
+
+        private void EnsureReportPathUnderRoot(string reportPath)
+        {
+            if (!IsSameOrChildPath(reportPath, _reportRoot))
+            {
+                throw new InvalidOperationException($"Replay report path is outside the report root: {reportPath}");
+            }
+        }
+
+        private static bool IsSameOrChildPath(string candidatePath, string rootPath)
+        {
+            string candidate = Path.GetFullPath(candidatePath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string root = Path.GetFullPath(rootPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.Equals(candidate, root, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            string rootWithSeparator = root + Path.DirectorySeparatorChar;
+            return candidate.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasReparsePointInPath(string path, string rootPath)
+        {
+            string root = Path.GetFullPath(rootPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string fullPath = Path.GetFullPath(path);
+            if (File.Exists(fullPath) && HasReparsePoint(new FileInfo(fullPath)))
+            {
+                return true;
+            }
+
+            DirectoryInfo? directory = Directory.Exists(fullPath)
+                ? new DirectoryInfo(fullPath)
+                : new FileInfo(fullPath).Directory;
+            while (directory != null)
+            {
+                string directoryPath = Path.GetFullPath(directory.FullName)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (string.Equals(directoryPath, root, StringComparison.OrdinalIgnoreCase))
+                {
+                    return HasReparsePoint(directory);
+                }
+
+                if (!IsSameOrChildPath(directoryPath, root) || HasReparsePoint(directory))
+                {
+                    return true;
+                }
+
+                directory = directory.Parent;
+            }
+
+            return true;
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+
         private static string BuildCsv(ReplayRunReport report)
         {
             var builder = new StringBuilder();
@@ -1194,8 +1538,10 @@ namespace ClearFrost.Services.Replay
             };
             evidence.EvidenceHash = ComputeEvidenceHash(evidence);
 
+            string evidencePath = ResolvePath(evidenceId);
+            EnsureEvidenceFileSafeForWrite(evidencePath);
             AtomicFileWriter.WriteAllText(
-                ResolvePath(evidenceId),
+                evidencePath,
                 JsonSerializer.Serialize(evidence, ReplayJson.Options));
             return evidence;
         }
@@ -1343,9 +1689,7 @@ namespace ClearFrost.Services.Replay
             ReplayRunReport report;
             try
             {
-                report = JsonSerializer.Deserialize<ReplayRunReport>(
-                    File.ReadAllText(evidence.ReplayReportPath),
-                    ReplayJson.Options) ?? new ReplayRunReport();
+                report = runStore.LoadReportAsync(evidence.ReplayRunId).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
@@ -1407,9 +1751,13 @@ namespace ClearFrost.Services.Replay
                 return null;
             }
 
-            return JsonSerializer.Deserialize<ModelApprovalEvidence>(
-                File.ReadAllText(path),
+            EnsureEvidenceFileSafeForRead(path);
+            using FileStream stream = OpenEvidenceFileForRead(path);
+            ModelApprovalEvidence? evidence = JsonSerializer.Deserialize<ModelApprovalEvidence>(
+                stream,
                 ReplayJson.Options);
+            EnsureEvidenceFileSafeForRead(path);
+            return evidence;
         }
 
         public IReadOnlyList<ModelApprovalEvidence> ListEvidence()
@@ -1419,14 +1767,26 @@ namespace ClearFrost.Services.Replay
                 return Array.Empty<ModelApprovalEvidence>();
             }
 
+            if (HasReparsePoint(new DirectoryInfo(_rootDirectory)))
+            {
+                return Array.Empty<ModelApprovalEvidence>();
+            }
+
             var evidence = new List<ModelApprovalEvidence>();
             foreach (string path in Directory.EnumerateFiles(_rootDirectory, "*.json"))
             {
                 try
                 {
+                    if (!IsEvidenceFileSafeForRead(path))
+                    {
+                        continue;
+                    }
+
+                    using FileStream stream = OpenEvidenceFileForRead(path);
                     ModelApprovalEvidence? item = JsonSerializer.Deserialize<ModelApprovalEvidence>(
-                        File.ReadAllText(path),
+                        stream,
                         ReplayJson.Options);
+                    EnsureEvidenceFileSafeForRead(path);
                     if (item != null)
                     {
                         evidence.Add(item);
@@ -1443,10 +1803,75 @@ namespace ClearFrost.Services.Replay
 
         internal string ResolvePath(string evidenceId)
         {
-            string fileName = evidenceId.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
-                ? evidenceId
-                : $"{evidenceId}.json";
-            return Path.Combine(_rootDirectory, fileName);
+            string trimmed = evidenceId?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                throw new ArgumentException("Replay approval evidence id is required.", nameof(evidenceId));
+            }
+
+            if (Path.IsPathRooted(trimmed) ||
+                trimmed.Contains(Path.DirectorySeparatorChar) ||
+                trimmed.Contains(Path.AltDirectorySeparatorChar))
+            {
+                throw new ArgumentException("Replay approval evidence id must be a file name, not a path.", nameof(evidenceId));
+            }
+
+            string fileName = trimmed.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                ? trimmed
+                : $"{trimmed}.json";
+            string fullPath = Path.GetFullPath(Path.Combine(_rootDirectory, fileName));
+            if (!IsSameOrChildPath(fullPath, _rootDirectory))
+            {
+                throw new ArgumentException("Replay approval evidence path is outside the evidence store root.", nameof(evidenceId));
+            }
+
+            return fullPath;
+        }
+
+        private void EnsureEvidenceFileSafeForWrite(string path)
+        {
+            if (!IsSameOrChildPath(path, _rootDirectory))
+            {
+                throw new ArgumentException("Replay approval evidence path is outside the evidence store root.");
+            }
+
+            string directory = Path.GetDirectoryName(path) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(directory) ||
+                HasReparsePointInPath(directory, _rootDirectory) ||
+                (File.Exists(path) && HasReparsePoint(new FileInfo(path))))
+            {
+                throw new InvalidOperationException($"Replay approval evidence file traverses a reparse point: {path}");
+            }
+        }
+
+        private void EnsureEvidenceFileSafeForRead(string path)
+        {
+            if (!IsEvidenceFileSafeForRead(path))
+            {
+                throw new InvalidOperationException($"Replay approval evidence file traverses a reparse point: {path}");
+            }
+        }
+
+        private FileStream OpenEvidenceFileForRead(string path)
+        {
+            EnsureEvidenceFileSafeForRead(path);
+            var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            try
+            {
+                EnsureEvidenceFileSafeForRead(path);
+                return stream;
+            }
+            catch
+            {
+                stream.Dispose();
+                throw;
+            }
+        }
+
+        private bool IsEvidenceFileSafeForRead(string path)
+        {
+            return IsSameOrChildPath(path, _rootDirectory) &&
+                   !HasReparsePointInPath(path, _rootDirectory);
         }
 
         internal bool TryDeleteUnpublishedEvidence(string evidenceId, out string error)
@@ -1457,6 +1882,7 @@ namespace ClearFrost.Services.Replay
                 string path = ResolvePath(evidenceId);
                 if (File.Exists(path))
                 {
+                    EnsureEvidenceFileSafeForRead(path);
                     File.Delete(path);
                 }
 
@@ -1472,6 +1898,70 @@ namespace ClearFrost.Services.Replay
         internal static string ComputeEvidenceHash(ModelApprovalEvidence evidence)
         {
             return ReplayArtifactHashing.ComputeEvidenceHash(evidence);
+        }
+
+        private static bool IsSameOrChildPath(string candidatePath, string rootPath)
+        {
+            string candidate = Path.GetFullPath(candidatePath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string root = Path.GetFullPath(rootPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.Equals(candidate, root, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            string rootWithSeparator = root + Path.DirectorySeparatorChar;
+            return candidate.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasReparsePointInPath(string path, string rootPath)
+        {
+            string root = Path.GetFullPath(rootPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string fullPath = Path.GetFullPath(path);
+            if (File.Exists(fullPath) && HasReparsePoint(new FileInfo(fullPath)))
+            {
+                return true;
+            }
+
+            DirectoryInfo? directory = Directory.Exists(fullPath)
+                ? new DirectoryInfo(fullPath)
+                : new FileInfo(fullPath).Directory;
+            while (directory != null)
+            {
+                string directoryPath = Path.GetFullPath(directory.FullName)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (string.Equals(directoryPath, root, StringComparison.OrdinalIgnoreCase))
+                {
+                    return HasReparsePoint(directory);
+                }
+
+                if (!IsSameOrChildPath(directoryPath, root) || HasReparsePoint(directory))
+                {
+                    return true;
+                }
+
+                directory = directory.Parent;
+            }
+
+            return true;
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
         }
 
         private static bool SamePath(string left, string right)

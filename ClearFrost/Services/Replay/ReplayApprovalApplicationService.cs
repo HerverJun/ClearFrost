@@ -112,8 +112,42 @@ namespace ClearFrost.Services.Replay
                 return context.Result;
             }
 
-            string manifestPath = context.CandidateEntry.ManifestPath;
-            byte[] originalManifest = await File.ReadAllBytesAsync(manifestPath, cancellationToken).ConfigureAwait(false);
+            if (!TryValidateCandidateAssets(
+                    context.CandidateEntry,
+                    out string assetErrorCode,
+                    out string assetErrorMessage))
+            {
+                await AppendAuditAsync(
+                    OperationAuditStatus.Denied,
+                    assetErrorMessage,
+                    approverId,
+                    approverRole,
+                    cancellationToken)
+                    .ConfigureAwait(false);
+                return ReplayApprovalResult.Fail(assetErrorCode, assetErrorMessage);
+            }
+
+            if (!TryResolveCandidateAssetPaths(
+                    context.CandidateEntry,
+                    out string manifestPath,
+                    out _,
+                    out _,
+                    out string readErrorCode,
+                    out string readErrorMessage))
+            {
+                await AppendAuditAsync(
+                    OperationAuditStatus.Denied,
+                    readErrorMessage,
+                    approverId,
+                    approverRole,
+                    cancellationToken)
+                    .ConfigureAwait(false);
+                return ReplayApprovalResult.Fail(readErrorCode, readErrorMessage);
+            }
+
+            byte[] originalManifest = await ReadCandidateManifestBytesAsync(
+                context.CandidateEntry,
+                cancellationToken).ConfigureAwait(false);
             ModelApprovalEvidence? evidence = null;
             var compensationFailures = new List<string>();
 
@@ -125,9 +159,7 @@ namespace ClearFrost.Services.Replay
                     context.Dataset.RootDirectory,
                     context.Report.PolicyHash);
 
-                ModelPackageManifest manifest = JsonSerializer.Deserialize<ModelPackageManifest>(
-                    File.ReadAllText(manifestPath),
-                    ReplayJson.Options) ?? new ModelPackageManifest();
+                ModelPackageManifest manifest = ReadCandidateManifest(context.CandidateEntry);
 
                 manifest.AcceptanceDataset = evidence.DatasetPath;
                 manifest.AcceptanceMetrics["totalSamples"] = evidence.Metrics.TotalSampleCount > 0
@@ -319,9 +351,23 @@ namespace ClearFrost.Services.Replay
                 return ReplayApprovalContext.Fail("ReplayApprovalManifestMissing", "Candidate package manifest is required.");
             }
 
+            if (!IsCandidateRegistryStateEligibleForApproval(entry))
+            {
+                return ReplayApprovalContext.Fail(
+                    "ReplayApprovalCandidateRegistryBlocked",
+                    string.IsNullOrWhiteSpace(entry.Message)
+                        ? "Candidate package is blocked by model registry validation."
+                        : entry.Message);
+            }
+
             if (!File.Exists(entry.ManifestPath) || !File.Exists(entry.ModelPath))
             {
                 return ReplayApprovalContext.Fail("ReplayApprovalPackageMissing", "Candidate manifest/model file is missing.");
+            }
+
+            if (!TryValidateCandidateAssets(entry, out string assetErrorCode, out string assetErrorMessage))
+            {
+                return ReplayApprovalContext.Fail(assetErrorCode, assetErrorMessage);
             }
 
             string currentModelHash = FileReplayDatasetStore.ComputeSha256(entry.ModelPath);
@@ -357,6 +403,321 @@ namespace ClearFrost.Services.Replay
             }
 
             return ReplayApprovalContext.Ok(report, dataset, entry);
+        }
+
+        private static bool TryValidateCandidateAssets(
+            ModelRegistryEntry entry,
+            out string errorCode,
+            out string message)
+        {
+            errorCode = string.Empty;
+            message = string.Empty;
+
+            if (!TryResolveCandidateAssetPaths(
+                    entry,
+                    out string manifestPath,
+                    out string modelPath,
+                    out string packageDirectory,
+                    out errorCode,
+                    out message))
+            {
+                return false;
+            }
+
+            ModelPackageManifest manifest;
+            try
+            {
+                manifest = ReadCandidateManifest(entry);
+            }
+            catch (Exception ex)
+            {
+                errorCode = "ReplayApprovalManifestParseFailed";
+                message = ex.Message;
+                return false;
+            }
+
+            if (!string.Equals(manifest.ModelId, entry.ModelId, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(manifest.Version, entry.Version, StringComparison.OrdinalIgnoreCase))
+            {
+                errorCode = "ReplayApprovalManifestIdentityMismatch";
+                message = "Current candidate manifest identity no longer matches the registry entry.";
+                return false;
+            }
+
+            string expectedHash = manifest.EffectiveHash;
+            if (string.IsNullOrWhiteSpace(expectedHash) ||
+                !string.Equals(expectedHash, entry.ModelHash, StringComparison.OrdinalIgnoreCase))
+            {
+                errorCode = "ReplayApprovalManifestHashMismatch";
+                message = "Current candidate manifest hash metadata no longer matches the registry entry.";
+                return false;
+            }
+
+            if (!ModelContractMatchesRegistry(entry, manifest))
+            {
+                errorCode = "ReplayApprovalManifestContractMismatch";
+                message = "Current candidate manifest model contract no longer matches the registry entry.";
+                return false;
+            }
+
+            string modelFileName = string.IsNullOrWhiteSpace(manifest.ModelFileName)
+                ? "model.onnx"
+                : manifest.ModelFileName.Trim();
+            if (!ModelPackagePathGuard.TryResolveModelPath(
+                    packageDirectory,
+                    modelFileName,
+                    out string declaredModelPath,
+                    out string pathError,
+                    "Manifest ModelFileName"))
+            {
+                errorCode = "ReplayApprovalManifestModelPathInvalid";
+                message = pathError;
+                return false;
+            }
+
+            string actualModelPath = ModelPackagePathGuard.GetFullPathSafe(modelPath);
+            if (!string.Equals(declaredModelPath, actualModelPath, StringComparison.OrdinalIgnoreCase))
+            {
+                errorCode = "ReplayApprovalManifestModelPathMismatch";
+                message = "Current candidate model path no longer matches manifest ModelFileName.";
+                return false;
+            }
+
+            if (ModelPackagePathGuard.ModelPathHasReparsePoint(packageDirectory, declaredModelPath))
+            {
+                errorCode = "ReplayApprovalModelPathReparsePoint";
+                message = "Candidate model file path contains a reparse point.";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static async Task<byte[]> ReadCandidateManifestBytesAsync(
+            ModelRegistryEntry entry,
+            CancellationToken cancellationToken)
+        {
+            if (!TryResolveCandidateAssetPaths(
+                    entry,
+                    out string manifestPath,
+                    out _,
+                    out _,
+                    out _,
+                    out string message))
+            {
+                throw new IOException(message);
+            }
+
+            await using var stream = new FileStream(
+                manifestPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 4096,
+                FileOptions.SequentialScan);
+
+            if (!TryResolveCandidateAssetPaths(
+                    entry,
+                    out _,
+                    out _,
+                    out _,
+                    out _,
+                    out message))
+            {
+                throw new IOException(message);
+            }
+
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+
+            if (!TryResolveCandidateAssetPaths(
+                    entry,
+                    out _,
+                    out _,
+                    out _,
+                    out _,
+                    out message))
+            {
+                throw new IOException(message);
+            }
+
+            return buffer.ToArray();
+        }
+
+        private static ModelPackageManifest ReadCandidateManifest(ModelRegistryEntry entry)
+        {
+            if (!TryResolveCandidateAssetPaths(
+                    entry,
+                    out string manifestPath,
+                    out _,
+                    out _,
+                    out _,
+                    out string message))
+            {
+                throw new IOException(message);
+            }
+
+            using var stream = new FileStream(
+                manifestPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 4096,
+                FileOptions.SequentialScan);
+
+            if (!TryResolveCandidateAssetPaths(
+                    entry,
+                    out _,
+                    out _,
+                    out _,
+                    out _,
+                    out message))
+            {
+                throw new IOException(message);
+            }
+
+            ModelPackageManifest manifest =
+                JsonSerializer.Deserialize<ModelPackageManifest>(stream, ReplayJson.Options) ??
+                new ModelPackageManifest();
+
+            if (!TryResolveCandidateAssetPaths(
+                    entry,
+                    out _,
+                    out _,
+                    out _,
+                    out _,
+                    out message))
+            {
+                throw new IOException(message);
+            }
+
+            return manifest;
+        }
+
+        private static bool TryResolveCandidateAssetPaths(
+            ModelRegistryEntry entry,
+            out string manifestPath,
+            out string modelPath,
+            out string packageDirectory,
+            out string errorCode,
+            out string message)
+        {
+            manifestPath = string.Empty;
+            modelPath = string.Empty;
+            packageDirectory = string.Empty;
+            errorCode = string.Empty;
+            message = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(entry.ManifestPath) ||
+                string.IsNullOrWhiteSpace(entry.ModelPath))
+            {
+                errorCode = "ReplayApprovalPackageMissing";
+                message = "Candidate manifest/model file is missing.";
+                return false;
+            }
+
+            try
+            {
+                manifestPath = Path.GetFullPath(entry.ManifestPath);
+                modelPath = Path.GetFullPath(entry.ModelPath);
+                packageDirectory = Path.GetDirectoryName(manifestPath) ?? string.Empty;
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+            {
+                errorCode = "ReplayApprovalPackagePathInvalid";
+                message = $"Candidate manifest/model path is invalid: {ex.Message}";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(packageDirectory))
+            {
+                errorCode = "ReplayApprovalPackageDirectoryInvalid";
+                message = "Candidate package directory is invalid.";
+                return false;
+            }
+
+            if (!File.Exists(manifestPath) || !File.Exists(modelPath))
+            {
+                errorCode = "ReplayApprovalPackageMissing";
+                message = "Candidate manifest/model file is missing.";
+                return false;
+            }
+
+            if (!string.Equals(Path.GetFileName(manifestPath), "manifest.json", StringComparison.OrdinalIgnoreCase))
+            {
+                errorCode = "ReplayApprovalManifestPathInvalid";
+                message = "Candidate manifest file name is invalid.";
+                return false;
+            }
+
+            if (ModelPackagePathGuard.DirectoryPathHasReparsePoint(packageDirectory))
+            {
+                errorCode = "ReplayApprovalPackageDirectoryReparsePoint";
+                message = "Candidate package directory is a reparse point.";
+                return false;
+            }
+
+            string modelDirectory = Path.GetDirectoryName(modelPath) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(modelDirectory) ||
+                ModelPackagePathGuard.DirectoryPathHasReparsePoint(modelDirectory))
+            {
+                errorCode = "ReplayApprovalModelPathReparsePoint";
+                message = "Candidate model file path contains a reparse point.";
+                return false;
+            }
+
+            if (ModelPackagePathGuard.HasReparsePoint(new FileInfo(manifestPath)))
+            {
+                errorCode = "ReplayApprovalManifestReparsePoint";
+                message = "Candidate manifest file is a reparse point.";
+                return false;
+            }
+
+            if (ModelPackagePathGuard.HasReparsePoint(new FileInfo(modelPath)))
+            {
+                errorCode = "ReplayApprovalModelReparsePoint";
+                message = "Candidate model file is a reparse point.";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool ModelContractMatchesRegistry(ModelRegistryEntry entry, ModelPackageManifest manifest)
+        {
+            IReadOnlyList<string> manifestLabels = manifest.Labels != null
+                ? manifest.Labels
+                : Array.Empty<string>();
+            IReadOnlyList<string> entryLabels = entry.Labels != null
+                ? entry.Labels
+                : Array.Empty<string>();
+            return manifest.InputWidth == entry.InputWidth &&
+                   manifest.InputHeight == entry.InputHeight &&
+                   string.Equals(manifest.TaskType ?? string.Empty, entry.TaskType ?? string.Empty, StringComparison.OrdinalIgnoreCase) &&
+                   manifestLabels.Count == entryLabels.Count &&
+                   manifestLabels.Zip(entryLabels, (left, right) => string.Equals(left, right, StringComparison.Ordinal)).All(match => match);
+        }
+
+        private static bool IsCandidateRegistryStateEligibleForApproval(ModelRegistryEntry entry)
+        {
+            if (entry.Status == ModelRegistryStatus.Ready)
+            {
+                return true;
+            }
+
+            if (entry.Status != ModelRegistryStatus.Blocked)
+            {
+                return false;
+            }
+
+            return string.Equals(
+                       entry.ApprovalStatus,
+                       ModelApprovalStatuses.Pending,
+                       StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(
+                       entry.Message?.Trim(),
+                       "Model is not approved for production.",
+                       StringComparison.OrdinalIgnoreCase);
         }
 
         private static ReplayModelIdentity ResolveRequestedCandidate(ReplayApprovalRequest request, ReplayRunReport report)

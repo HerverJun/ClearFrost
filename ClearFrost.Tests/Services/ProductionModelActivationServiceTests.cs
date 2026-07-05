@@ -17,6 +17,56 @@ namespace ClearFrost.Tests.Services;
 public class ProductionModelActivationServiceTests
 {
     [Fact]
+    public void GetSelectionOptions_运行中新加入Onnx会被刷新发现()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string onnxDir = Path.Combine(tempDir, "onnx");
+            Directory.CreateDirectory(onnxDir);
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false
+            };
+            var registry = new ModelRegistry();
+            var recipeManager = new RecipeManager(Path.Combine(tempDir, "recipe.json"));
+            recipeManager.LoadOrCreateDefault(config);
+            var detection = new FakeDetectionService();
+            ProductionModelActivationService service = CreateService(
+                config,
+                registry,
+                recipeManager,
+                detection,
+                Path.Combine(tempDir, "packages"),
+                refreshRegistry: () => registry.Scan(new ModelRegistryScanOptions
+                {
+                    OnnxDirectory = onnxDir,
+                    RequireProductionApproval = false
+                }));
+
+            service.GetSelectionOptions().Should().BeEmpty();
+
+            string modelPath = Path.Combine(onnxDir, "runtime-new.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 3, 1, 4, 1, 5, 9 });
+            string expectedHash = ComputeSha256(modelPath);
+
+            IReadOnlyList<ProductionModelSelectionOption> options = service.GetSelectionOptions();
+
+            options.Should().ContainSingle(option =>
+                option.FileName == "runtime-new.onnx" &&
+                option.ModelId == "runtime-new" &&
+                option.Version == "legacy" &&
+                option.Sha256 == expectedHash &&
+                !option.IsApprovedPackage);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task ActivatePrimaryAsync_批准模型选择会保存引用和Recipe快照()
     {
         string tempDir = CreateTempDirectory();
@@ -519,6 +569,110 @@ public class ProductionModelActivationServiceTests
         }
         finally
         {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task EnsureReadyForProduction_持久化配方为链接文件时阻断生产()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string modelPath = CreatePackage(packageRoot, "pkg-main", "1", "main.onnx");
+            string recipePath = Path.Combine(tempDir, "recipe.json");
+            string externalRecipePath = Path.Combine(tempDir, "external-recipe.json");
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = true
+            };
+            var registry = new ModelRegistry();
+            var recipeManager = new RecipeManager(recipePath);
+            recipeManager.LoadOrCreateDefault(config);
+            var detection = new FakeDetectionService();
+            ProductionModelActivationService service = CreateService(config, registry, recipeManager, detection, packageRoot);
+            registry.Scan(ScanOptions(packageRoot));
+            ProductionModelReference reference = ProductionModelReference.FromApprovedPackage(registry.Resolve(modelPath)!);
+            (await service.ActivatePrimaryAsync(reference.ToSelectionValue(), "initial", false, 0)).Succeeded.Should().BeTrue();
+
+            string trustedRecipeJson = File.ReadAllText(recipePath);
+            File.WriteAllText(externalRecipePath, trustedRecipeJson);
+            File.Delete(recipePath);
+            if (!TryCreateFileSymbolicLink(recipePath, externalRecipePath))
+            {
+                File.WriteAllText(recipePath, trustedRecipeJson);
+                return;
+            }
+
+            ProductionModelReadinessResult result = service.EnsureReadyForProduction();
+
+            result.Succeeded.Should().BeFalse();
+            result.ErrorCode.Should().Be("RecipePersistenceUnavailable");
+            result.Message.Should().Contain("linked");
+            File.ReadAllText(externalRecipePath).Should().Be(trustedRecipeJson);
+        }
+        finally
+        {
+            TryDeleteFileLink(Path.Combine(tempDir, "recipe.json"));
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task EnsureReadyForProduction_持久化配方父目录为链接时阻断生产()
+    {
+        string tempDir = CreateTempDirectory();
+        string? linkedRecipeDir = null;
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string modelPath = CreatePackage(packageRoot, "pkg-main", "1", "main.onnx");
+            string recipeDir = Path.Combine(tempDir, "recipes");
+            linkedRecipeDir = recipeDir;
+            string recipePath = Path.Combine(recipeDir, "recipe.json");
+            string externalRecipeDir = Path.Combine(tempDir, "external-recipes");
+            string externalRecipePath = Path.Combine(externalRecipeDir, "recipe.json");
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = true
+            };
+            var registry = new ModelRegistry();
+            var recipeManager = new RecipeManager(recipePath);
+            recipeManager.LoadOrCreateDefault(config);
+            var detection = new FakeDetectionService();
+            ProductionModelActivationService service = CreateService(config, registry, recipeManager, detection, packageRoot);
+            registry.Scan(ScanOptions(packageRoot));
+            ProductionModelReference reference = ProductionModelReference.FromApprovedPackage(registry.Resolve(modelPath)!);
+            (await service.ActivatePrimaryAsync(reference.ToSelectionValue(), "initial", false, 0)).Succeeded.Should().BeTrue();
+
+            string trustedRecipeJson = File.ReadAllText(recipePath);
+            Directory.CreateDirectory(externalRecipeDir);
+            File.WriteAllText(externalRecipePath, trustedRecipeJson);
+            Directory.Delete(recipeDir, recursive: true);
+            if (!TryCreateDirectorySymbolicLink(recipeDir, externalRecipeDir))
+            {
+                Directory.CreateDirectory(recipeDir);
+                File.WriteAllText(recipePath, trustedRecipeJson);
+                return;
+            }
+
+            ProductionModelReadinessResult result = service.EnsureReadyForProduction();
+
+            result.Succeeded.Should().BeFalse();
+            result.ErrorCode.Should().Be("RecipePersistenceUnavailable");
+            result.Message.Should().Contain("linked path segments");
+            File.ReadAllText(externalRecipePath).Should().Be(trustedRecipeJson);
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(linkedRecipeDir))
+            {
+                TryDeleteDirectoryLink(linkedRecipeDir);
+            }
+
             DeleteDirectory(tempDir);
         }
     }
@@ -1166,6 +1320,76 @@ public class ProductionModelActivationServiceTests
         if (Directory.Exists(path))
         {
             Directory.Delete(path, true);
+        }
+    }
+
+    private static bool TryCreateFileSymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = File.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteFileLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new FileInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
+    private static void TryDeleteDirectoryLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new DirectoryInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
         }
     }
 

@@ -141,7 +141,11 @@
         },
         fieldDebug: {},
         visionDebug: {},
+        maintenanceAdviceHistory: [],
         diagnosticPackage: {},
+        diagnosticPackageHistory: [],
+        fieldHandoffReport: {},
+        fieldHandoffReportHistory: [],
         metrics: {},
         previewFrameId: 0,
         previewFrame: {},
@@ -164,7 +168,11 @@
     state.manualReview.lastResponse = state.manualReview.lastResponse || {};
     state.fieldDebug = state.fieldDebug || {};
     state.visionDebug = state.visionDebug || {};
+    state.maintenanceAdviceHistory = state.maintenanceAdviceHistory || [];
     state.diagnosticPackage = state.diagnosticPackage || {};
+    state.diagnosticPackageHistory = state.diagnosticPackageHistory || [];
+    state.fieldHandoffReport = state.fieldHandoffReport || {};
+    state.fieldHandoffReportHistory = state.fieldHandoffReportHistory || [];
     state.previewFrame = state.previewFrame || {};
     window.CF_STATE = state;
 
@@ -509,6 +517,10 @@
     function applyHealthSnapshot(snapshot) {
         if (!snapshot) return;
         state.health = snapshot;
+        const adviceHistory = pickValue(snapshot, "maintenanceAdviceHistory", "MaintenanceAdviceHistory");
+        if (Array.isArray(adviceHistory)) {
+            state.maintenanceAdviceHistory = adviceHistory;
+        }
         notify("health");
     }
 
@@ -541,6 +553,138 @@
         state.diagnosticPackage = {
             ...(state.diagnosticPackage || {}),
             ...payload,
+        };
+        notify("fieldDebug");
+    }
+
+    function applyDiagnosticPackageHistoryResult(payload) {
+        if (!payload) return;
+        const packages = pickValue(payload, "packages", "Packages");
+        state.diagnosticPackageHistory = Array.isArray(packages) ? packages : [];
+        state.diagnosticPackageHistoryStatus = {
+            succeeded: pickValue(payload, "succeeded", "Succeeded"),
+            message: pickValue(payload, "message", "Message") || "",
+            updatedAt: new Date().toISOString(),
+        };
+        notify("fieldDebug");
+    }
+
+    function applyDiagnosticPackageVerificationResult(payload) {
+        if (!payload) return;
+        state.diagnosticPackage = {
+            ...(state.diagnosticPackage || {}),
+            ...payload,
+        };
+
+        const verifiedPath = String(pickValue(payload, "path", "Path") || "");
+        if (verifiedPath && Array.isArray(state.diagnosticPackageHistory)) {
+            state.diagnosticPackageHistory = state.diagnosticPackageHistory.map((item) => {
+                const itemPath = String(pickValue(item, "packagePath", "PackagePath", "path", "Path") || "");
+                if (itemPath.toLowerCase() !== verifiedPath.toLowerCase()) return item;
+                return {
+                    ...item,
+                    integrityStatus: pickValue(payload, "integrityStatus", "IntegrityStatus") || item.integrityStatus || item.IntegrityStatus,
+                    verifiedEntryCount: pickValue(payload, "verifiedEntryCount", "VerifiedEntryCount"),
+                    integrityEntryCount: pickValue(payload, "integrityEntryCount", "IntegrityEntryCount"),
+                    integrityFindingCount: pickValue(payload, "integrityFindingCount", "IntegrityFindingCount"),
+                    verifiedAt: pickValue(payload, "verifiedAt", "VerifiedAt"),
+                    packageSha256: pickValue(payload, "packageSha256", "PackageSha256"),
+                    indexSha256: pickValue(payload, "indexSha256", "IndexSha256"),
+                };
+            });
+        }
+
+        notify("fieldDebug");
+    }
+
+    function applyMaintenanceAdviceActionResult(payload) {
+        if (!payload) return;
+        const history = pickValue(payload, "history", "History");
+        if (Array.isArray(history)) {
+            state.maintenanceAdviceHistory = history;
+        }
+
+        state.maintenanceAdviceAction = {
+            succeeded: pickValue(payload, "succeeded", "Succeeded"),
+            cleared: pickValue(payload, "cleared", "Cleared"),
+            adviceId: pickValue(payload, "adviceId", "AdviceId"),
+            status: pickValue(payload, "status", "Status"),
+            message: pickValue(payload, "message", "Message") || "",
+            record: pickValue(payload, "record", "Record") || null,
+            updatedAt: new Date().toISOString(),
+        };
+        notify("fieldDebug");
+    }
+
+    function applyShiftTaskActionResult(payload) {
+        if (!payload) return;
+        const history = pickValue(payload, "history", "History");
+        if (Array.isArray(history)) {
+            state.maintenanceAdviceHistory = history;
+        }
+
+        const tasks = pickValue(payload, "tasks", "Tasks");
+        if (Array.isArray(tasks)) {
+            state.health = {
+                ...(state.health || {}),
+                shiftTasks: tasks,
+                ShiftTasks: tasks,
+            };
+        }
+
+        state.shiftTaskAction = {
+            succeeded: pickValue(payload, "succeeded", "Succeeded"),
+            cleared: pickValue(payload, "cleared", "Cleared"),
+            taskId: pickValue(payload, "taskId", "TaskId"),
+            linkedAdviceId: pickValue(payload, "linkedAdviceId", "LinkedAdviceId"),
+            status: pickValue(payload, "status", "Status"),
+            message: pickValue(payload, "message", "Message") || "",
+            record: pickValue(payload, "record", "Record") || null,
+            updatedAt: new Date().toISOString(),
+        };
+        notify("fieldDebug");
+    }
+
+    function applyFieldHandoffReportResult(payload) {
+        if (!payload) return;
+        state.fieldHandoffReport = {
+            ...(state.fieldHandoffReport || {}),
+            ...payload,
+            updatedAt: new Date().toISOString(),
+        };
+
+        const succeeded = pickValue(payload, "succeeded", "Succeeded") !== false;
+        const path = pickValue(payload, "path", "Path", "reportPath", "ReportPath") || "";
+        if (succeeded && path) {
+            const report = {
+                reportPath: path,
+                fileName: pickValue(payload, "fileName", "FileName") || String(path).split(/[\\/]/).pop() || "",
+                sizeBytes: pickValue(payload, "sizeBytes", "SizeBytes") || 0,
+                generatedAt: pickValue(payload, "generatedAt", "GeneratedAt") || "",
+                lastWriteTime: pickValue(payload, "generatedAt", "GeneratedAt") || "",
+                overallStatus: pickValue(payload, "overallStatus", "OverallStatus") || "Pending",
+                shiftTaskCount: pickValue(payload, "shiftTaskCount", "ShiftTaskCount") || 0,
+            };
+            const normalizedPath = String(path).toLowerCase();
+            state.fieldHandoffReportHistory = [
+                report,
+                ...(state.fieldHandoffReportHistory || []).filter((item) => {
+                    const itemPath = String(pickValue(item, "reportPath", "ReportPath", "path", "Path") || "").toLowerCase();
+                    return itemPath !== normalizedPath;
+                }),
+            ].slice(0, 8);
+        }
+        notify("fieldDebug");
+    }
+
+    function applyFieldHandoffReportHistoryResult(payload) {
+        if (!payload) return;
+        const reports = pickValue(payload, "reports", "Reports");
+        state.fieldHandoffReportHistory = Array.isArray(reports) ? reports : [];
+        state.fieldHandoffReportHistoryStatus = {
+            succeeded: pickValue(payload, "succeeded", "Succeeded"),
+            message: pickValue(payload, "message", "Message") || "",
+            updatedAt: new Date().toISOString(),
         };
         notify("fieldDebug");
     }
@@ -600,6 +744,12 @@
         applyFieldDebugResult,
         applyVisionDebugResult,
         applyDiagnosticPackageExportResult,
+        applyDiagnosticPackageHistoryResult,
+        applyDiagnosticPackageVerificationResult,
+        applyMaintenanceAdviceActionResult,
+        applyShiftTaskActionResult,
+        applyFieldHandoffReportResult,
+        applyFieldHandoffReportHistoryResult,
         applyBootstrapSnapshot,
     };
 })();
@@ -886,6 +1036,15 @@
         if (!node) return;
         const text = value === undefined || value === null || value === "" ? fallback : String(value);
         if (node.textContent !== text) node.textContent = text;
+        if ("title" in node && node.title !== text) node.title = text;
+    }
+
+    function setHtml(id, html, fallback = "") {
+        const node = el(id);
+        if (!node) return;
+        const content = html === undefined || html === null || html === "" ? fallback : String(html);
+        if (node.innerHTML !== content) node.innerHTML = content;
+        const text = node.textContent || "";
         if ("title" in node && node.title !== text) node.title = text;
     }
 
@@ -1311,6 +1470,235 @@
         return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
     }
 
+    function formatBytesCompact(bytes) {
+        const value = toFiniteNumber(bytes);
+        if (value <= 0) return "-";
+        if (value >= 1024 * 1024 * 1024) return `${(value / 1024 / 1024 / 1024).toFixed(2)}GB`;
+        if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)}MB`;
+        if (value >= 1024) return `${(value / 1024).toFixed(1)}KB`;
+        return `${Math.trunc(value)}B`;
+    }
+
+    function shortHash(hash) {
+        const value = String(hash || "").trim();
+        return value ? value.slice(0, 12) : "-";
+    }
+
+    function formatDiagnosticDateTime(value) {
+        if (!value) return "-";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return date.toLocaleString();
+    }
+
+    function getDiagnosticPackagePath(pkg) {
+        return getDiagnosticPackageValue(pkg, "path", "Path", "") ||
+            getDiagnosticPackageValue(pkg, "packagePath", "PackagePath", "");
+    }
+
+    function getDiagnosticPackageFileName(pkg) {
+        const explicitName = getDiagnosticPackageValue(pkg, "fileName", "FileName", "");
+        if (explicitName) return explicitName;
+        const path = getDiagnosticPackagePath(pkg);
+        return String(path || "").split(/[\\/]/).pop() || "-";
+    }
+
+    function getDiagnosticPackageValue(pkg, camelName, pascalName, fallback = "") {
+        return pkg?.[camelName] ?? pkg?.[pascalName] ?? fallback;
+    }
+
+    function buildDiagnosticPackageSummaryText(pkg) {
+        const path = getDiagnosticPackagePath(pkg);
+        const packageSha = getDiagnosticPackageValue(pkg, "packageSha256", "PackageSha256", "");
+        const indexSha = getDiagnosticPackageValue(pkg, "indexSha256", "IndexSha256", "");
+        const sizeBytes = getDiagnosticPackageValue(pkg, "sizeBytes", "SizeBytes", "");
+        const integrityStatus = getDiagnosticPackageValue(pkg, "integrityStatus", "IntegrityStatus", "");
+        const integrityEntries = getDiagnosticPackageValue(pkg, "integrityEntryCount", "IntegrityEntryCount", "");
+        const verifiedEntries = getDiagnosticPackageValue(pkg, "verifiedEntryCount", "VerifiedEntryCount", "");
+        const findingCount = getDiagnosticPackageValue(pkg, "integrityFindingCount", "IntegrityFindingCount", "");
+        const exportedAt = getDiagnosticPackageValue(pkg, "exportedAt", "ExportedAt", "");
+
+        return [
+            "ClearFrost 诊断包核验摘要",
+            `路径: ${path || "-"}`,
+            `包 SHA-256: ${packageSha || "-"}`,
+            `索引 SHA-256: ${indexSha || "-"}`,
+            `大小: ${sizeBytes ? `${sizeBytes} bytes (${formatBytesCompact(sizeBytes)})` : "-"}`,
+            `自检状态: ${integrityStatus || "-"}`,
+            `索引条目: ${integrityEntries || "-"}`,
+            `已验证条目: ${verifiedEntries || "-"}`,
+            `异常数量: ${findingCount === "" ? "-" : findingCount}`,
+            `导出时间: ${exportedAt || "-"}`,
+        ].join("\n");
+    }
+
+    function getFieldHandoffReportValue(report, camelName, pascalName, fallback = "") {
+        return report?.[camelName] ?? report?.[pascalName] ?? fallback;
+    }
+
+    function getFieldHandoffReportPath(report) {
+        return getFieldHandoffReportValue(report, "path", "Path", "") ||
+            getFieldHandoffReportValue(report, "reportPath", "ReportPath", "");
+    }
+
+    function getFieldHandoffReportFileName(report) {
+        const explicitName = getFieldHandoffReportValue(report, "fileName", "FileName", "");
+        if (explicitName) return explicitName;
+        const path = getFieldHandoffReportPath(report);
+        return String(path || "").split(/[\\/]/).pop() || "-";
+    }
+
+    function buildFieldHandoffReportSummaryText(report) {
+        const path = getFieldHandoffReportPath(report);
+        const status = getFieldHandoffReportValue(report, "overallStatus", "OverallStatus", "");
+        const sizeBytes = getFieldHandoffReportValue(report, "sizeBytes", "SizeBytes", "");
+        const generatedAt = getFieldHandoffReportValue(report, "generatedAt", "GeneratedAt", "");
+        const activeAdviceCount = getFieldHandoffReportValue(report, "activeAdviceCount", "ActiveAdviceCount", "");
+        const shiftTaskCount = getFieldHandoffReportValue(report, "shiftTaskCount", "ShiftTaskCount", "");
+        const failedRecheckCount = getFieldHandoffReportValue(report, "failedRecheckCount", "FailedRecheckCount", "");
+        const diagnosticPackageCount = getFieldHandoffReportValue(report, "diagnosticPackageCount", "DiagnosticPackageCount", "");
+        const recentAuditCount = getFieldHandoffReportValue(report, "recentAuditCount", "RecentAuditCount", "");
+
+        return [
+            "ClearFrost 现场交接报告摘要",
+            `路径: ${path || "-"}`,
+            `交接结论: ${status || "-"}`,
+            `大小: ${sizeBytes ? `${sizeBytes} bytes (${formatBytesCompact(sizeBytes)})` : "-"}`,
+            `生成时间: ${generatedAt || "-"}`,
+            `当前维护建议: ${activeAdviceCount === "" ? "-" : activeAdviceCount}`,
+            `班次待办: ${shiftTaskCount === "" ? "-" : shiftTaskCount}`,
+            `复检失败: ${failedRecheckCount === "" ? "-" : failedRecheckCount}`,
+            `诊断包数量: ${diagnosticPackageCount === "" ? "-" : diagnosticPackageCount}`,
+            `关键审计数量: ${recentAuditCount === "" ? "-" : recentAuditCount}`,
+        ].join("\n");
+    }
+
+    async function writeClipboardText(text) {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return;
+        }
+
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "readonly");
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        if (!copied) {
+            throw new Error("ClipboardUnavailable");
+        }
+    }
+
+    async function copyDiagnosticPackageSummary() {
+        const pkg = store.state?.diagnosticPackage || {};
+        const path = getDiagnosticPackagePath(pkg);
+        if (!path) {
+            showToast("暂无诊断包摘要", "warning", 1400);
+            addLog("暂无可复制的诊断包核验摘要", "warning");
+            return;
+        }
+
+        try {
+            await writeClipboardText(buildDiagnosticPackageSummaryText(pkg));
+            showToast("诊断包核验摘要已复制", "success", 1600);
+            addLog("诊断包核验摘要已复制", "success");
+        } catch {
+            showToast("复制失败，请手动记录核验摘要", "error", 1800);
+            addLog("诊断包核验摘要复制失败", "error");
+        }
+    }
+
+    async function copyFieldHandoffReportSummary() {
+        const report = store.state?.fieldHandoffReport || {};
+        const path = getFieldHandoffReportPath(report);
+        if (!path) {
+            showToast("暂无交接报告摘要", "warning", 1400);
+            addLog("暂无可复制的交接报告摘要", "warning");
+            return;
+        }
+
+        try {
+            await writeClipboardText(buildFieldHandoffReportSummaryText(report));
+            showToast("交接报告摘要已复制", "success", 1600);
+            addLog("交接报告摘要已复制", "success");
+        } catch {
+            showToast("复制失败，请手动记录交接报告摘要", "error", 1800);
+            addLog("交接报告摘要复制失败", "error");
+        }
+    }
+
+    function requestDiagnosticPackageHistory() {
+        window.sendCommand("query_diagnostic_packages");
+        addLog("正在刷新诊断包历史...", "info");
+    }
+
+    function requestFieldHandoffReportHistory() {
+        window.sendCommand("query_field_handoff_reports");
+        addLog("正在刷新交接报告历史...", "info");
+    }
+
+    function verifyDiagnosticPackage(path) {
+        const packagePath = String(path || "").trim();
+        if (!packagePath) {
+            showToast("未选择诊断包", "warning", 1400);
+            return;
+        }
+
+        window.sendCommand("verify_diagnostic_package", { path: packagePath });
+        addLog("正在复核诊断包完整性...", "info");
+        showToast("正在复核诊断包...", "info", 1200);
+    }
+
+    function exportFieldHandoffReport() {
+        window.sendCommand("export_field_handoff_report");
+        addLog("正在导出现场交接报告...", "info");
+        showToast("正在导出交接报告...", "info", 1200);
+    }
+
+    function sendMaintenanceAdviceAction(adviceId, action) {
+        const id = String(adviceId || "").trim();
+        if (!id) {
+            showToast("维护建议标识为空", "warning", 1400);
+            return;
+        }
+
+        window.sendCommand("maintenance_advice_action", { adviceId: id, action });
+        addLog(action === "recheck" ? "维护建议复检请求已发送" : "维护建议处理记录已提交", "info");
+    }
+
+    function acknowledgeMaintenanceAdvice(adviceId) {
+        sendMaintenanceAdviceAction(adviceId, "acknowledge");
+    }
+
+    function recheckMaintenanceAdvice(adviceId) {
+        sendMaintenanceAdviceAction(adviceId, "recheck");
+    }
+
+    function sendShiftTaskAction(payload, action) {
+        const task = payload && typeof payload === "object" ? payload : { linkedAdviceId: payload };
+        const taskId = String(task.taskId || task.TaskId || "").trim();
+        const linkedAdviceId = String(task.linkedAdviceId || task.LinkedAdviceId || task.adviceId || task.AdviceId || "").trim();
+        if (!taskId && !linkedAdviceId) {
+            showToast("班次待办标识为空", "warning", 1400);
+            return;
+        }
+
+        window.sendCommand("shift_task_action", { taskId, linkedAdviceId, action });
+        addLog(action === "recheck" ? "班次待办复检请求已发送" : "班次待办处理记录已提交", "info");
+    }
+
+    function acknowledgeShiftTask(payload) {
+        sendShiftTaskAction(payload, "acknowledge");
+    }
+
+    function recheckShiftTask(payload) {
+        sendShiftTaskAction(payload, "recheck");
+    }
+
     function logQueuePressureAdvice(health) {
         const items = getQueuePressureItems(health);
         if (items.length === 0) {
@@ -1386,6 +1774,369 @@
         return parts.length ? parts.join(" / ") : "暂无阶段耗时";
     }
 
+    function getFieldObject(health, camelName, pascalName) {
+        const nested = getNestedHealthSnapshot(health);
+        const value = health?.[camelName] ?? health?.[pascalName] ?? nested?.[camelName] ?? nested?.[pascalName];
+        return value && typeof value === "object" ? value : {};
+    }
+
+    function isStartupFailStatus(status) {
+        const value = String(status ?? "").trim().toLowerCase();
+        return value === "fail" || value === "2";
+    }
+
+    function getRoleLabel(role) {
+        const value = String(role || "");
+        if (value === "Primary") return "主模型";
+        if (value === "Auxiliary1") return "子模型1";
+        if (value === "Auxiliary2") return "子模型2";
+        return value || "模型";
+    }
+
+    function getRegistryMatchLabel(strategy) {
+        const value = String(strategy || "");
+        if (value === "ModelPath") return "路径匹配";
+        if (value === "UsedModelName") return "名称匹配";
+        if (value === "ModelFileName") return "文件名匹配";
+        return value || "未匹配";
+    }
+
+    function renderModelSlotChecklist(modelProbe) {
+        const slots = Array.isArray(modelProbe.slots) ? modelProbe.slots :
+            Array.isArray(modelProbe.Slots) ? modelProbe.Slots : [];
+        const loadedSlots = slots.filter((slot) => (slot.isLoaded ?? slot.IsLoaded) === true);
+        if (loadedSlots.length === 0) return "未加载";
+
+        return loadedSlots.map((slot) => {
+            const role = getRoleLabel(slot.role ?? slot.Role);
+            const fileName = slot.modelFileName || slot.ModelFileName || "-";
+            const modelId = slot.modelId || slot.ModelId || "";
+            const version = slot.version || slot.Version || "";
+            const hash = slot.modelHashPrefix || slot.ModelHashPrefix || "";
+            const matched = (slot.registryMatched ?? slot.RegistryMatched) === true;
+            const strategy = getRegistryMatchLabel(slot.registryMatchStrategy || slot.RegistryMatchStrategy);
+            const identity = [modelId && version ? `${modelId}@${version}` : modelId || "", hash ? `#${hash}` : ""]
+                .filter(Boolean)
+                .join(" ");
+            const badgeClass = matched ? "" : " warning";
+            return `<span class="cf-diagnostic-line">${escapeHtml(role)}: ${escapeHtml(fileName)} ${identity ? `· ${escapeHtml(identity)}` : ""} <em class="cf-diagnostic-badge${badgeClass}">${escapeHtml(strategy)}</em></span>`;
+        }).join("");
+    }
+
+    function renderRecipeChecklist(health) {
+        const recipeId = getFieldValue(health, "recipeId", "RecipeId", "");
+        const recipeVersion = getFieldValue(health, "recipeVersion", "RecipeVersion", "");
+        if (!recipeId && !recipeVersion) return "未加载";
+
+        const targetLabel = getFieldValue(health, "recipeTargetLabel", "RecipeTargetLabel", "");
+        const targetCount = getFieldValue(health, "recipeTargetCount", "RecipeTargetCount", "");
+        const target = targetLabel ? ` · ${targetLabel} x${targetCount || 0}` : "";
+        return `${escapeHtml(recipeId || "default")} / ${escapeHtml(recipeVersion || "-")}${escapeHtml(target)}`;
+    }
+
+    function renderStartupBlockersChecklist(health) {
+        const startup = getFieldObject(health, "startupDiagnostics", "StartupDiagnostics");
+        const items = Array.isArray(startup.items) ? startup.items :
+            Array.isArray(startup.Items) ? startup.Items : [];
+        const blockers = items.filter((item) => {
+            const isBlocking = (item.isBlocking ?? item.IsBlocking) === true;
+            return isBlocking && isStartupFailStatus(item.status ?? item.Status);
+        });
+        if (blockers.length === 0) return `<em class="cf-diagnostic-badge">无阻断</em>`;
+
+        const names = blockers
+            .slice(0, 3)
+            .map((item) => item.name || item.Name || item.message || item.Message || "阻断项")
+            .join(" / ");
+        const suffix = blockers.length > 3 ? ` +${blockers.length - 3}` : "";
+        return `<em class="cf-diagnostic-badge error">${blockers.length}项</em> ${escapeHtml(names + suffix)}`;
+    }
+
+    function renderQueueChecklist(health) {
+        const queues = getFieldObject(health, "queues", "Queues");
+        const imagePending = queues.imagePending ?? queues.ImagePending ?? getFieldValue(health, "imageQueueLength", "ImageQueueLength", 0);
+        const imageCapacity = queues.imageCapacity ?? queues.ImageCapacity ?? getFieldValue(health, "imageQueueCapacity", "ImageQueueCapacity", 0);
+        const recordPending = queues.recordPending ?? queues.RecordPending ?? getFieldValue(health, "recordQueueLength", "RecordQueueLength", 0);
+        const recordCapacity = queues.recordCapacity ?? queues.RecordCapacity ?? getFieldValue(health, "recordQueueCapacity", "RecordQueueCapacity", 0);
+        const imageFailures = toFiniteNumber(queues.imageDroppedCount ?? queues.ImageDroppedCount) +
+            toFiniteNumber(queues.imageFailedCount ?? queues.ImageFailedCount);
+        const recordFailures = toFiniteNumber(queues.recordDroppedCount ?? queues.RecordDroppedCount) +
+            toFiniteNumber(queues.recordFailedCount ?? queues.RecordFailedCount);
+        const backlog = String(queues.backlogLevel || queues.BacklogLevel || "").toLowerCase();
+        const warning = backlog === "warning" || imageFailures > 0 || recordFailures > 0;
+        const badge = warning
+            ? `<em class="cf-diagnostic-badge warning">需关注</em>`
+            : `<em class="cf-diagnostic-badge">正常</em>`;
+        const failures = imageFailures + recordFailures > 0 ? ` · 异常 ${imageFailures + recordFailures}` : "";
+        return `${badge} 图像 ${formatQueueText(imagePending, imageCapacity)} · 记录 ${formatQueueText(recordPending, recordCapacity)}${failures}`;
+    }
+
+    function renderAuditChainChecklist(health) {
+        const audit = getFieldObject(health, "auditChain", "AuditChain");
+        const status = String(audit.status || audit.Status || "NotChecked");
+        const checkedAt = audit.checkedAt || audit.CheckedAt || "";
+        const totalRecords = audit.totalRecords ?? audit.TotalRecords ?? 0;
+        const verifiedRecords = audit.verifiedRecords ?? audit.VerifiedRecords ?? 0;
+        const findingCount = audit.findingCount ?? audit.FindingCount ?? 0;
+        const lastHash = audit.lastRecordSha256 || audit.LastRecordSha256 || "";
+        const statusLower = status.toLowerCase();
+        if (!checkedAt || statusLower === "notchecked") {
+            return `<em class="cf-diagnostic-badge pending">未校验</em>`;
+        }
+
+        const badgeClass = statusLower === "healthy"
+            ? ""
+            : statusLower === "warning"
+                ? " warning"
+                : " error";
+        const hashText = lastHash ? ` · Last ${shortHash(lastHash)}` : "";
+        return `<em class="cf-diagnostic-badge${badgeClass}">${escapeHtml(status)}</em> Verified ${escapeHtml(verifiedRecords)}/${escapeHtml(totalRecords)} · Findings ${escapeHtml(findingCount)}${escapeHtml(hashText)}`;
+    }
+
+    function renderFieldAcceptanceChecklist(health, modelProbe) {
+        setHtml("diag-model-slot-list", renderModelSlotChecklist(modelProbe), "等待模型快照");
+        setHtml("diag-recipe-version", renderRecipeChecklist(health), "未加载");
+        setHtml("diag-startup-blockers", renderStartupBlockersChecklist(health), "无阻断项");
+        setHtml("diag-queue-health", renderQueueChecklist(health), "正常");
+        setHtml("diag-audit-chain", renderAuditChainChecklist(health), "未校验");
+    }
+
+    function getAdviceLevelClass(level) {
+        const value = String(level || "").trim().toLowerCase();
+        if (value === "critical" || value === "error") return "critical";
+        if (value === "warning") return "warning";
+        return "ok";
+    }
+
+    function renderMaintenanceAdviceList(health) {
+        const advice = getFieldArray(health, "maintenanceAdvice", "MaintenanceAdvice");
+        if (advice.length === 0) {
+            setHtml(
+                "diag-maintenance-advice",
+                `<div class="cf-maintenance-advice-item ok"><strong>暂无建议</strong><span>当前没有需要处理的诊断建议</span></div>`,
+            );
+            return;
+        }
+
+        const html = advice.slice(0, 4).map((item) => {
+            const levelClass = getAdviceLevelClass(item.level || item.Level);
+            const title = item.title || item.Title || "维护建议";
+            const evidence = item.evidence || item.Evidence || "";
+            const action = item.advice || item.Advice || "";
+            const code = item.code || item.Code || "";
+            const adviceId = item.adviceId || item.AdviceId || "";
+            const resolutionStatus = item.resolutionStatus || item.ResolutionStatus || "Open";
+            const lastActionMessage = item.lastActionMessage || item.LastActionMessage || "";
+            const statusBadge = resolutionStatus && resolutionStatus !== "Open"
+                ? `<em class="cf-diagnostic-badge pending">${escapeHtml(resolutionStatus)}</em>`
+                : "";
+            const actionHtml = adviceId
+                ? `<div class="cf-maintenance-actions">
+                    <button type="button" data-action="acknowledgeMaintenanceAdvice" data-value="${escapeHtml(JSON.stringify(adviceId))}">
+                        <span>已处理</span>
+                    </button>
+                    <button type="button" data-action="recheckMaintenanceAdvice" data-value="${escapeHtml(JSON.stringify(adviceId))}">
+                        <span>复检</span>
+                    </button>
+                </div>`
+                : "";
+            return `<div class="cf-maintenance-advice-item ${levelClass}">
+                <strong>${escapeHtml(title)}${code ? ` · ${escapeHtml(code)}` : ""} ${statusBadge}</strong>
+                ${evidence ? `<span>${escapeHtml(evidence)}</span>` : ""}
+                <em>${escapeHtml(action)}</em>
+                ${lastActionMessage ? `<span>${escapeHtml(lastActionMessage)}</span>` : ""}
+                ${actionHtml}
+            </div>`;
+        }).join("");
+        setHtml("diag-maintenance-advice", html);
+    }
+
+    function renderMaintenanceHistoryRecheckButton(adviceId) {
+        const id = String(adviceId || "").trim();
+        if (!id) return "";
+
+        return `<button type="button" data-action="recheckMaintenanceAdvice" data-value="${escapeHtml(JSON.stringify(id))}">
+            <span>复检</span>
+        </button>`;
+    }
+
+    function renderMaintenanceAdviceHistory(state, health) {
+        const fromState = Array.isArray(state?.maintenanceAdviceHistory) ? state.maintenanceAdviceHistory : [];
+        const fromHealth = getFieldArray(health, "maintenanceAdviceHistory", "MaintenanceAdviceHistory");
+        const history = fromState.length > 0 ? fromState : fromHealth;
+        if (history.length === 0) {
+            setHtml(
+                "diag-maintenance-history",
+                `<div class="cf-maintenance-history-empty">
+                    <strong>暂无处理记录</strong>
+                    <span>处理或复检维护建议后会出现在这里</span>
+                </div>`,
+            );
+            return;
+        }
+
+        const html = history.slice(0, 5).map((record) => {
+            const adviceId = record.adviceId || record.AdviceId || "";
+            const title = record.title || record.Title || "维护建议";
+            const status = record.status || record.Status || "-";
+            const message = record.message || record.Message || "";
+            const actionAt = record.actionAt || record.ActionAt || "";
+            const operatorId = record.operatorId || record.OperatorId || "";
+            const recheckButton = renderMaintenanceHistoryRecheckButton(adviceId);
+            return `<div class="cf-maintenance-history-item">
+                <div>
+                    <strong>${escapeHtml(title)}</strong>
+                    <span>${escapeHtml(status)} · ${escapeHtml(operatorId || "-")} · ${escapeHtml(formatDiagnosticDateTime(actionAt))}</span>
+                    ${message ? `<em>${escapeHtml(message)}</em>` : ""}
+                </div>
+                ${recheckButton}
+            </div>`;
+        }).join("");
+        setHtml("diag-maintenance-history", html);
+    }
+
+    function renderShiftTaskBoard(health) {
+        const tasks = getFieldArray(health, "shiftTasks", "ShiftTasks");
+        if (tasks.length === 0) {
+            setHtml(
+                "diag-shift-task-list",
+                `<div class="cf-shift-task-empty">
+                    <strong>暂无班次待办</strong>
+                    <span>当前无需要交接跟进的诊断任务</span>
+                </div>`,
+            );
+            return;
+        }
+
+        const html = tasks.slice(0, 6).map((task) => {
+            const levelClass = getAdviceLevelClass(task.level || task.Level);
+            const status = task.status || task.Status || "Open";
+            const source = task.source || task.Source || "Diagnostics";
+            const title = task.title || task.Title || "班次待办";
+            const evidence = task.evidence || task.Evidence || "";
+            const action = task.action || task.Action || "";
+            const owner = task.suggestedOwner || task.SuggestedOwner || "现场班组";
+            const firstSeenAt = task.firstSeenAt || task.FirstSeenAt || "";
+            const dueAt = task.dueAt || task.DueAt || "";
+            const escalation = task.escalationLevel || task.EscalationLevel || "Normal";
+            const isOverdue = (task.isOverdue ?? task.IsOverdue) === true;
+            const adviceId = task.linkedAdviceId || task.LinkedAdviceId || "";
+            const taskId = task.taskId || task.TaskId || "";
+            const taskPayload = { taskId, linkedAdviceId: adviceId };
+            const actionHtml = adviceId
+                ? `<div class="cf-maintenance-actions">
+                    <button type="button" data-action="acknowledgeShiftTask" data-value="${escapeHtml(JSON.stringify(taskPayload))}">
+                        <span>已处理</span>
+                    </button>
+                    <button type="button" data-action="recheckShiftTask" data-value="${escapeHtml(JSON.stringify(taskPayload))}">
+                        <span>复检</span>
+                    </button>
+                </div>`
+                : "";
+            const overdueBadge = isOverdue
+                ? `<em class="cf-diagnostic-badge error">超时</em>`
+                : `<em class="cf-diagnostic-badge ${escalation === "High" ? "warning" : ""}">${escapeHtml(escalation)}</em>`;
+            return `<div class="cf-shift-task-item ${levelClass}${isOverdue ? " overdue" : ""}">
+                <strong>${escapeHtml(title)}</strong>
+                <span><em class="cf-diagnostic-badge ${levelClass === "critical" ? "error" : levelClass === "warning" ? "warning" : ""}">${escapeHtml(status)}</em>${overdueBadge}${escapeHtml(source)} · ${escapeHtml(owner)}</span>
+                ${firstSeenAt ? `<span>首次 ${escapeHtml(formatDiagnosticDateTime(firstSeenAt))}</span>` : ""}
+                <span>截止 ${escapeHtml(formatDiagnosticDateTime(dueAt))}</span>
+                ${evidence ? `<span>${escapeHtml(evidence)}</span>` : ""}
+                ${action ? `<em>${escapeHtml(action)}</em>` : ""}
+                ${actionHtml}
+            </div>`;
+        }).join("");
+        setHtml("diag-shift-task-list", html);
+    }
+
+    function renderDiagnosticPackageHistory(state) {
+        const packages = Array.isArray(state?.diagnosticPackageHistory) ? state.diagnosticPackageHistory : [];
+        if (packages.length === 0) {
+            setHtml(
+                "diag-package-history",
+                `<div class="cf-diagnostics-package-empty">
+                    <strong>暂无历史诊断包</strong>
+                    <span>导出诊断包后会出现在这里</span>
+                </div>`,
+            );
+            return;
+        }
+
+        const html = packages.slice(0, 8).map((pkg) => {
+            const path = getDiagnosticPackagePath(pkg);
+            const fileName = getDiagnosticPackageFileName(pkg);
+            const sizeBytes = getDiagnosticPackageValue(pkg, "sizeBytes", "SizeBytes", 0);
+            const lastWriteTime = getDiagnosticPackageValue(pkg, "lastWriteTime", "LastWriteTime", "");
+            const status = getDiagnosticPackageValue(pkg, "integrityStatus", "IntegrityStatus", "Pending");
+            const verifiedEntries = getDiagnosticPackageValue(pkg, "verifiedEntryCount", "VerifiedEntryCount", "");
+            const integrityEntries = getDiagnosticPackageValue(pkg, "integrityEntryCount", "IntegrityEntryCount", "");
+            const findingCount = getDiagnosticPackageValue(pkg, "integrityFindingCount", "IntegrityFindingCount", "");
+            const verifiedAt = getDiagnosticPackageValue(pkg, "verifiedAt", "VerifiedAt", "");
+            const statusLower = String(status || "").toLowerCase();
+            const statusClass = statusLower === "healthy"
+                ? "ok"
+                : statusLower === "pending"
+                    ? "pending"
+                    : "warning";
+            const entryText = integrityEntries
+                ? `${verifiedEntries || 0}/${integrityEntries}`
+                : "待复核";
+            const findingText = findingCount === "" || findingCount === undefined
+                ? ""
+                : ` · 异常 ${findingCount}`;
+            const verifiedText = verifiedAt ? ` · ${formatDiagnosticDateTime(verifiedAt)}` : "";
+            return `<div class="cf-diagnostics-package-history-item">
+                <div>
+                    <strong title="${escapeHtml(path)}">${escapeHtml(fileName)}</strong>
+                    <span>${escapeHtml(formatBytesCompact(sizeBytes))} · ${escapeHtml(formatDiagnosticDateTime(lastWriteTime))}</span>
+                    <em class="cf-diagnostic-badge ${statusClass}">${escapeHtml(status || "Pending")} · ${escapeHtml(entryText)}${escapeHtml(findingText)}${escapeHtml(verifiedText)}</em>
+                </div>
+                <button type="button" data-action="verifyDiagnosticPackage" data-value="${escapeHtml(JSON.stringify(path))}">
+                    <span>复核</span>
+                </button>
+            </div>`;
+        }).join("");
+        setHtml("diag-package-history", html);
+    }
+
+    function renderFieldHandoffReportHistory(state) {
+        const reports = Array.isArray(state?.fieldHandoffReportHistory) ? state.fieldHandoffReportHistory : [];
+        if (reports.length === 0) {
+            setHtml(
+                "diag-handoff-report-history",
+                `<div class="cf-handoff-report-empty">
+                    <strong>暂无历史交接报告</strong>
+                    <span>导出交接报告后会出现在这里</span>
+                </div>`,
+            );
+            return;
+        }
+
+        const html = reports.slice(0, 5).map((report) => {
+            const path = getFieldHandoffReportPath(report);
+            const fileName = getFieldHandoffReportFileName(report);
+            const sizeBytes = getFieldHandoffReportValue(report, "sizeBytes", "SizeBytes", 0);
+            const status = getFieldHandoffReportValue(report, "overallStatus", "OverallStatus", "Pending");
+            const shiftTaskCount = getFieldHandoffReportValue(report, "shiftTaskCount", "ShiftTaskCount", "");
+            const generatedAt = getFieldHandoffReportValue(report, "generatedAt", "GeneratedAt", "") ||
+                getFieldHandoffReportValue(report, "lastWriteTime", "LastWriteTime", "");
+            const statusLower = String(status || "").toLowerCase();
+            const statusClass = statusLower === "ready"
+                ? "ok"
+                : statusLower === "blocked"
+                    ? "error"
+                    : "warning";
+            return `<div class="cf-handoff-report-history-item">
+                <div>
+                    <strong title="${escapeHtml(path)}">${escapeHtml(fileName)}</strong>
+                    <span>${escapeHtml(formatBytesCompact(sizeBytes))} · ${escapeHtml(formatDiagnosticDateTime(generatedAt))}${shiftTaskCount === "" ? "" : ` · 待办 ${escapeHtml(shiftTaskCount)}`}</span>
+                    <em class="cf-diagnostic-badge ${statusClass}">${escapeHtml(status || "Pending")}</em>
+                </div>
+            </div>`;
+        }).join("");
+        setHtml("diag-handoff-report-history", html);
+    }
+
     function renderFieldDiagnostics(state) {
         const health = state?.health || {};
         const modelProbe = health.modelProbe || health.ModelProbe || {};
@@ -1419,6 +2170,10 @@
         setText("diag-memory", `${getFieldValue(health, "memoryMb", "MemoryMb", 0)}MB`, "0MB");
         setText("diag-last-error", getLastFieldError(health), "暂无错误");
         setText("diag-stage-timing", getLastTimingText(health), "等待检测");
+        renderFieldAcceptanceChecklist(health, modelProbe);
+        renderMaintenanceAdviceList(health);
+        renderMaintenanceAdviceHistory(state, health);
+        renderShiftTaskBoard(health);
 
         const debug = state?.fieldDebug || {};
         const debugMessage = debug.message || debug.Message || "等待调试命令";
@@ -1427,6 +2182,36 @@
 
         const pkg = state?.diagnosticPackage || {};
         setText("diag-package-path", pkg.path || pkg.Path || pkg.message || pkg.Message || "", "尚未导出");
+        const packageSha = getDiagnosticPackageValue(pkg, "packageSha256", "PackageSha256", "");
+        const indexSha = getDiagnosticPackageValue(pkg, "indexSha256", "IndexSha256", "");
+        const integrityStatus = getDiagnosticPackageValue(pkg, "integrityStatus", "IntegrityStatus", "");
+        const integrityEntries = getDiagnosticPackageValue(pkg, "integrityEntryCount", "IntegrityEntryCount", "");
+        const verifiedEntries = getDiagnosticPackageValue(pkg, "verifiedEntryCount", "VerifiedEntryCount", "");
+        setText("diag-package-sha", shortHash(packageSha), "-");
+        setText("diag-index-sha", shortHash(indexSha), "-");
+        setText("diag-package-size", formatBytesCompact(pkg.sizeBytes ?? pkg.SizeBytes), "-");
+        setText("diag-integrity-status", integrityStatus, "-");
+        setText(
+            "diag-index-entry-count",
+            integrityEntries && verifiedEntries !== "" ? `${verifiedEntries}/${integrityEntries}` : integrityEntries,
+            "-",
+        );
+        const packageShaEl = el("diag-package-sha");
+        const indexShaEl = el("diag-index-sha");
+        if (packageShaEl) packageShaEl.title = packageSha || "";
+        if (indexShaEl) indexShaEl.title = indexSha || "";
+        renderDiagnosticPackageHistory(state);
+
+        const handoff = state?.fieldHandoffReport || {};
+        const handoffPath = handoff.path || handoff.Path || handoff.reportPath || handoff.ReportPath || "";
+        const handoffStatus = handoff.overallStatus || handoff.OverallStatus || "-";
+        const handoffGeneratedAt = handoff.generatedAt || handoff.GeneratedAt || "";
+        const handoffSize = handoff.sizeBytes ?? handoff.SizeBytes;
+        setText("diag-handoff-report-path", handoffPath || handoff.message || handoff.Message || "", "尚未导出");
+        setText("diag-handoff-status", handoffStatus, "-");
+        setText("diag-handoff-size", formatBytesCompact(handoffSize), "-");
+        setText("diag-handoff-generated-at", formatDiagnosticDateTime(handoffGeneratedAt), "-");
+        renderFieldHandoffReportHistory(state);
     }
 
     function openFieldDiagnosticsPanel() {
@@ -1434,6 +2219,8 @@
         if (!modal) return;
         modal.classList.remove("hidden");
         window.sendCommand("request_health_snapshot");
+        requestDiagnosticPackageHistory();
+        requestFieldHandoffReportHistory();
     }
 
     function closeFieldDiagnosticsPanel() {
@@ -2403,6 +3190,62 @@
         if (message) addLog(message, succeeded === false ? "error" : "info");
     }
 
+    function handleDiagnosticPackageHistoryResult(data) {
+        store.applyDiagnosticPackageHistoryResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const message = data?.message || data?.Message || "";
+        if (message && succeeded === false) addLog(message, "error");
+    }
+
+    function handleDiagnosticPackageVerificationResult(data) {
+        store.applyDiagnosticPackageVerificationResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const message = data?.message || data?.Message || "";
+        if (message) {
+            addLog(message, succeeded === false ? "warning" : "success");
+            showToast(message, succeeded === false ? "warning" : "success", 1600);
+        }
+    }
+
+    function handleMaintenanceAdviceActionResult(data) {
+        store.applyMaintenanceAdviceActionResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const cleared = data?.cleared ?? data?.Cleared;
+        const message = data?.message || data?.Message || "";
+        if (message) {
+            addLog(message, succeeded === false ? "error" : cleared ? "success" : "warning");
+            showToast(message, succeeded === false ? "error" : cleared ? "success" : "warning", 1600);
+        }
+    }
+
+    function handleShiftTaskActionResult(data) {
+        store.applyShiftTaskActionResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const cleared = data?.cleared ?? data?.Cleared;
+        const message = data?.message || data?.Message || "";
+        if (message) {
+            addLog(message, succeeded === false ? "error" : cleared ? "success" : "warning");
+            showToast(message, succeeded === false ? "error" : cleared ? "success" : "warning", 1600);
+        }
+    }
+
+    function handleFieldHandoffReportResult(data) {
+        store.applyFieldHandoffReportResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const message = data?.message || data?.Message || "";
+        if (message) {
+            addLog(message, succeeded === false ? "error" : "success");
+            showToast(succeeded === false ? "交接报告导出失败" : "交接报告已导出", succeeded === false ? "error" : "success", 1600);
+        }
+    }
+
+    function handleFieldHandoffReportHistoryResult(data) {
+        store.applyFieldHandoffReportHistoryResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const message = data?.message || data?.Message || "";
+        if (message && succeeded === false) addLog(message, "error");
+    }
+
     function handleCommandDispatched(cmd) {
         switch (cmd) {
             case "manual_detect":
@@ -2416,6 +3259,24 @@
             case "export_diagnostic_package":
                 addLog("正在导出诊断包...", "info");
                 showToast("正在导出诊断包...", "info", 1200);
+                break;
+            case "query_diagnostic_packages":
+                addLog("诊断包历史刷新请求已发送", "info");
+                break;
+            case "verify_diagnostic_package":
+                addLog("诊断包复核请求已发送", "info");
+                break;
+            case "maintenance_advice_action":
+                addLog("维护建议处理/复检请求已发送", "info");
+                break;
+            case "shift_task_action":
+                addLog("班次待办处理/复检请求已发送", "info");
+                break;
+            case "export_field_handoff_report":
+                addLog("现场交接报告导出请求已发送", "info");
+                break;
+            case "query_field_handoff_reports":
+                addLog("交接报告历史刷新请求已发送", "info");
                 break;
             case "field_debug_step_capture":
             case "field_debug_step_infer":
@@ -2498,8 +3359,13 @@
         addDetectionLog,
         clearLogs,
         clearDetectionLogs,
+        acknowledgeMaintenanceAdvice,
+        acknowledgeShiftTask,
         closeFieldDiagnosticsPanel,
+        copyDiagnosticPackageSummary,
+        copyFieldHandoffReportSummary,
         escapeHtml,
+        exportFieldHandoffReport,
         flashPlcTrigger,
         handleInspectionUpdate,
         openFieldDiagnosticsPanel,
@@ -2511,13 +3377,18 @@
         renderManualReviewStatus: () => renderManualReviewStatus(window.CF_STATE),
         renderReplayStatus: () => renderReplayStatus(window.CF_STATE),
         renderRecentInspections: () => renderRecentInspections(window.CF_STATE),
+        requestDiagnosticPackageHistory,
+        requestFieldHandoffReportHistory,
         requestExitApp,
         requestOpenCamera,
         requestVisionDebugRecentRecords,
         requestStartSystem,
+        recheckMaintenanceAdvice,
+        recheckShiftTask,
         runVisionDebugCurrent,
         runVisionDebugHistory,
         runVisionDebugBatch,
+        verifyDiagnosticPackage,
         saveVisionDebugParams,
         applyVisionDebugTemplate,
         startSystem,
@@ -2559,6 +3430,12 @@
     bridge.registerMessageHandler("fieldDebugResult", handleFieldDebugResult);
     bridge.registerMessageHandler("visionDebugResult", (data) => store.applyVisionDebugResult(data));
     bridge.registerMessageHandler("diagnosticPackageExportResult", handleDiagnosticPackageExportResult);
+    bridge.registerMessageHandler("diagnosticPackageHistoryResult", handleDiagnosticPackageHistoryResult);
+    bridge.registerMessageHandler("diagnosticPackageVerificationResult", handleDiagnosticPackageVerificationResult);
+    bridge.registerMessageHandler("maintenanceAdviceActionResult", handleMaintenanceAdviceActionResult);
+    bridge.registerMessageHandler("shiftTaskActionResult", handleShiftTaskActionResult);
+    bridge.registerMessageHandler("fieldHandoffReportResult", handleFieldHandoffReportResult);
+    bridge.registerMessageHandler("fieldHandoffReportHistoryResult", handleFieldHandoffReportHistoryResult);
     bridge.registerMessageHandler("manualReviewRecords", (data) => store.applyManualReviewUpdate(data));
     bridge.registerMessageHandler("manualReviewResponse", (data) => store.applyManualReviewUpdate(data));
     bridge.registerMessageHandler("datasetCreateStatus", (data) => store.applyReplayUpdate(data));
@@ -4862,6 +5739,12 @@
         return text;
     }
 
+    function shortAuditHash(value) {
+        const text = String(value || "").trim();
+        if (!text) return "";
+        return text.length <= 12 ? text : `${text.slice(0, 12)}...`;
+    }
+
     function createTracePagerState() {
         return {
             pages: [],
@@ -5250,6 +6133,7 @@
     function openAuditModal() {
         byId("audit-modal")?.classList.remove("hidden");
         queryAuditRecords();
+        verifyAuditChain();
     }
 
     function closeAuditModal() {
@@ -5267,7 +6151,7 @@
         setAuditError("");
         const tbody = byId("audit-table");
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">正在加载审计记录...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">正在加载审计记录...</td></tr>';
         }
         bridge.sendCommand("query_audit_records", buildAuditQuery());
     }
@@ -5275,6 +6159,57 @@
     function exportAuditRecords() {
         setAuditError("");
         bridge.sendCommand("export_audit_records", buildAuditQuery());
+    }
+
+    function verifyAuditChain() {
+        setAuditError("");
+        const badge = byId("audit-chain-badge");
+        if (badge) {
+            badge.textContent = "校验中";
+            badge.className = "px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-bold";
+        }
+        bridge.sendCommand("verify_audit_chain", {});
+    }
+
+    function updateAuditChainVerification(data) {
+        const error = data?.error || data?.Error || "";
+        const status = String(data?.status || data?.Status || (error ? "Unavailable" : "Unknown"));
+        const totalRecords = data?.totalRecords ?? data?.TotalRecords ?? 0;
+        const verifiedRecords = data?.verifiedRecords ?? data?.VerifiedRecords ?? 0;
+        const findingCount = data?.findingCount ?? data?.FindingCount ?? 0;
+        const lastHash = data?.lastRecordSha256 || data?.LastRecordSha256 || "";
+        const findings = Array.isArray(data?.findings) ? data.findings : (data?.Findings || []);
+        const badge = byId("audit-chain-badge");
+        const countNode = byId("audit-chain-count");
+        const findingNode = byId("audit-chain-findings");
+        const hashNode = byId("audit-chain-last-hash");
+        const messageNode = byId("audit-chain-message");
+
+        const statusClass = status === "Healthy"
+            ? "bg-bamboo-50 text-bamboo-700 border border-bamboo-100"
+            : status === "Warning"
+                ? "bg-amber-50 text-amber-700 border border-amber-100"
+                : "bg-rouge-50 text-rouge-700 border border-rouge-100";
+
+        if (badge) {
+            badge.textContent = status;
+            badge.className = `px-2 py-0.5 rounded-full font-bold ${statusClass}`;
+        }
+        if (countNode) countNode.textContent = `Verified ${verifiedRecords}/${totalRecords}`;
+        if (findingNode) findingNode.textContent = `Findings ${findingCount}`;
+        if (hashNode) {
+            hashNode.textContent = `Last ${shortAuditHash(lastHash) || "-"}`;
+            hashNode.title = lastHash || "";
+        }
+        if (messageNode) {
+            const firstFinding = findings[0] || {};
+            const summary = firstFinding.errorCode || firstFinding.ErrorCode || error || "";
+            const line = firstFinding.lineNumber || firstFinding.LineNumber || "";
+            messageNode.textContent = summary ? `${summary}${line ? ` @${line}` : ""}` : "";
+        }
+        if (error) {
+            setAuditError(error);
+        }
     }
 
     function updateAuditRecords(data) {
@@ -5290,7 +6225,7 @@
 
         if (badge) badge.textContent = `${records.length} 条`;
         if (!records.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 italic">未匹配到审计记录</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">未匹配到审计记录</td></tr>';
             return;
         }
 
@@ -5307,6 +6242,7 @@
                     <td class="px-3 py-3">${escapeHtml(record.operatorId || "-")}</td>
                     <td class="px-3 py-3">${escapeHtml(formatProductionRole(record.role) || "-")}</td>
                     <td class="px-3 py-3">${escapeHtml(record.inspectionId || "-")}</td>
+                    <td class="px-3 py-3 max-w-[130px] truncate" title="${escapeHtml(record.recordSha256 || "")}">${escapeHtml(shortAuditHash(record.recordSha256) || "-")}</td>
                     <td class="px-3 py-3 max-w-md whitespace-normal break-words">${escapeHtml(formatAuditText(record.details || record.reason) || "-")}</td>
                     <td class="px-3 py-3 max-w-xs whitespace-normal break-words">${escapeHtml(formatAuditText(record.failureBlocker) || "-")}</td>
                 </tr>
@@ -5828,6 +6764,7 @@
         closeLogHistoryModal,
         closeStatisticsHistoryModal,
         exportAuditRecords,
+        verifyAuditChain,
         openGalleryModal,
         openAuditModal,
         openLogHistoryModal,
@@ -5855,6 +6792,7 @@
         selectTraceHour,
         updateDetectionLogTable,
         updateAuditExport,
+        updateAuditChainVerification,
         updateAuditRecords,
         updateNGDates,
         updateNGHours,
@@ -5866,6 +6804,7 @@
     bridge.registerMessageHandler("detectionLogTable", updateDetectionLogTable);
     bridge.registerMessageHandler("auditRecords", updateAuditRecords);
     bridge.registerMessageHandler("auditExport", updateAuditExport);
+    bridge.registerMessageHandler("auditChainVerification", updateAuditChainVerification);
     bridge.registerMessageHandler("historyDates", updateNGDates);
     bridge.registerMessageHandler("historyHours", updateNGHours);
     bridge.registerMessageHandler("historyImages", updateNGImages);

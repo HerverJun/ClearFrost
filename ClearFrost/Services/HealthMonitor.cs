@@ -373,15 +373,81 @@ namespace ClearFrost.Services
         {
             try
             {
-                Directory.CreateDirectory(path);
-                string probe = Path.Combine(path, $".health-{Guid.NewGuid():N}.tmp");
-                File.WriteAllText(probe, "ok");
-                File.Delete(probe);
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    return false;
+                }
+
+                string fullPath = Path.GetFullPath(path);
+                EnsureProbeDirectorySafe(fullPath);
+                Directory.CreateDirectory(fullPath);
+                EnsureProbeDirectorySafe(fullPath);
+                string probe = Path.Combine(fullPath, $".health-{Guid.NewGuid():N}.tmp");
+                WriteAndDeleteProbeFile(probe);
                 return true;
             }
             catch
             {
                 return false;
+            }
+        }
+
+        private static void EnsureProbeDirectorySafe(string directory)
+        {
+            if (DirectoryPathHasReparsePoint(directory))
+            {
+                throw new IOException($"Directory contains a linked path segment: {directory}");
+            }
+        }
+
+        private static void WriteAndDeleteProbeFile(string probePath)
+        {
+            using (var stream = new FileStream(probePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(stream))
+            {
+                writer.Write("ok");
+            }
+
+            var probe = new FileInfo(probePath);
+            probe.Refresh();
+            if (probe.Exists && HasReparsePoint(probe))
+            {
+                throw new IOException($"Probe file is a linked file: {probePath}");
+            }
+
+            File.Delete(probePath);
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            var current = new DirectoryInfo(Path.GetFullPath(directory));
+            while (current != null)
+            {
+                current.Refresh();
+                if (current.Exists && HasReparsePoint(current))
+                {
+                    return true;
+                }
+
+                current = current.Parent;
+            }
+
+            return false;
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
             }
         }
 

@@ -152,6 +152,13 @@ namespace ClearFrost.Services.Replay
                     "Legacy-approved model file is missing.");
             }
 
+            if (!IsSafeReplayModelFileForRead(entry.ModelPath))
+            {
+                return ProductionModelReadinessResult.Fail(
+                    "ReplayLegacyModelHashUnavailable",
+                    "Legacy-approved model file path contains a reparse point.");
+            }
+
             string actualHash;
             try
             {
@@ -199,14 +206,39 @@ namespace ClearFrost.Services.Replay
 
         internal static string ComputeLegacyManifestHash(string manifestPath)
         {
-            if (string.IsNullOrWhiteSpace(manifestPath) || !File.Exists(manifestPath))
+            if (string.IsNullOrWhiteSpace(manifestPath))
             {
                 throw new FileNotFoundException("Legacy-approved manifest file is missing.", manifestPath);
             }
 
-            ModelPackageManifest manifest = JsonSerializer.Deserialize<ModelPackageManifest>(
-                File.ReadAllText(manifestPath),
-                ReplayJson.Options) ?? new ModelPackageManifest();
+            string fullPath = Path.GetFullPath(manifestPath);
+            if (!IsSafeManifestFileForRead(fullPath))
+            {
+                throw new IOException("Legacy-approved manifest file path contains a reparse point.");
+            }
+
+            using var stream = new FileStream(
+                fullPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 4096,
+                FileOptions.SequentialScan);
+
+            if (!IsSafeManifestFileForRead(fullPath))
+            {
+                throw new IOException("Legacy-approved manifest file path became unsafe before read.");
+            }
+
+            ModelPackageManifest manifest =
+                JsonSerializer.Deserialize<ModelPackageManifest>(stream, ReplayJson.Options) ??
+                new ModelPackageManifest();
+
+            if (!IsSafeManifestFileForRead(fullPath))
+            {
+                throw new IOException("Legacy-approved manifest file path became unsafe after read.");
+            }
+
             return ComputeLegacyManifestHash(manifest);
         }
 
@@ -224,6 +256,50 @@ namespace ClearFrost.Services.Replay
 
             return FileReplayDatasetStore.ComputeSha256(
                 JsonSerializer.SerializeToUtf8Bytes(canonical, ReplayJson.Options));
+        }
+
+        private static bool IsSafeManifestFileForRead(string manifestPath)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(manifestPath);
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(directory) ||
+                    ModelPackagePathGuard.DirectoryPathHasReparsePoint(directory))
+                {
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                return file.Exists && !ModelPackagePathGuard.HasReparsePoint(file);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsSafeReplayModelFileForRead(string modelPath)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(modelPath);
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(directory) ||
+                    ModelPackagePathGuard.DirectoryPathHasReparsePoint(directory))
+                {
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                return file.Exists && !ModelPackagePathGuard.HasReparsePoint(file);
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 
@@ -266,12 +342,38 @@ namespace ClearFrost.Services.Replay
                     $"Model manifest does not exist: {model.ManifestPath}"));
             }
 
+            if (ModelPackagePathGuard.HasReparsePoint(new FileInfo(model.ManifestPath)))
+            {
+                return Task.FromResult(ReplayModelValidationResult.Fail(
+                    "ReplayModelManifestReparsePoint",
+                    "Model manifest file is a reparse point."));
+            }
+
+            if (ModelPackagePathGuard.HasReparsePoint(new FileInfo(model.ModelPath)))
+            {
+                return Task.FromResult(ReplayModelValidationResult.Fail(
+                    "ReplayModelFileReparsePoint",
+                    "Model file is a reparse point."));
+            }
+
+            if (!IsSafeManifestFileForRead(model.ManifestPath))
+            {
+                return Task.FromResult(ReplayModelValidationResult.Fail(
+                    "ReplayModelManifestReparsePoint",
+                    "Model manifest path contains a reparse point."));
+            }
+
+            if (!IsSafeReplayModelFileForRead(model.ModelPath))
+            {
+                return Task.FromResult(ReplayModelValidationResult.Fail(
+                    "ReplayModelPathReparsePoint",
+                    "Model file path contains a reparse point."));
+            }
+
             ModelPackageManifest manifest;
             try
             {
-                manifest = JsonSerializer.Deserialize<ModelPackageManifest>(
-                    File.ReadAllText(model.ManifestPath),
-                    ReplayJson.Options) ?? new ModelPackageManifest();
+                manifest = ReadReplayModelManifest(model.ManifestPath);
             }
             catch (Exception ex)
             {
@@ -288,6 +390,19 @@ namespace ClearFrost.Services.Replay
                 !string.Equals(manifest.Version, model.Version, StringComparison.OrdinalIgnoreCase))
             {
                 return Task.FromResult(ReplayModelValidationResult.Fail("ReplayModelVersionMismatch", "Version is missing or does not match manifest."));
+            }
+
+            ReplayModelValidationResult? pathResult = ValidateManifestModelPath(model, manifest);
+            if (pathResult != null)
+            {
+                return Task.FromResult(pathResult);
+            }
+
+            if (!IsSafeReplayModelFileForRead(model.ModelPath))
+            {
+                return Task.FromResult(ReplayModelValidationResult.Fail(
+                    "ReplayModelPathReparsePoint",
+                    "Model file path contains a reparse point."));
             }
 
             string actualHash = FileReplayDatasetStore.ComputeSha256(model.ModelPath);
@@ -343,6 +458,129 @@ namespace ClearFrost.Services.Replay
                 return false;
             }
         }
+
+        private static ReplayModelValidationResult? ValidateManifestModelPath(
+            ReplayModelIdentity model,
+            ModelPackageManifest manifest)
+        {
+            string? packageDirectory = Path.GetDirectoryName(model.ManifestPath);
+            if (string.IsNullOrWhiteSpace(packageDirectory))
+            {
+                return ReplayModelValidationResult.Fail(
+                    "ReplayModelPackageDirectoryInvalid",
+                    "Model manifest directory is invalid.");
+            }
+
+            string modelFileName = string.IsNullOrWhiteSpace(manifest.ModelFileName)
+                ? "model.onnx"
+                : manifest.ModelFileName.Trim();
+            if (!ModelPackagePathGuard.TryResolveModelPath(
+                    packageDirectory,
+                    modelFileName,
+                    out string declaredModelPath,
+                    out string error,
+                    "Manifest ModelFileName"))
+            {
+                return ReplayModelValidationResult.Fail(
+                    "ReplayModelManifestPathInvalid",
+                    error);
+            }
+
+            string actualModelPath = ModelPackagePathGuard.GetFullPathSafe(model.ModelPath);
+            if (!string.Equals(declaredModelPath, actualModelPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return ReplayModelValidationResult.Fail(
+                    "ReplayModelManifestPathMismatch",
+                    "Model path does not match manifest ModelFileName.");
+            }
+
+            if (ModelPackagePathGuard.ModelPathHasReparsePoint(packageDirectory, declaredModelPath))
+            {
+                return ReplayModelValidationResult.Fail(
+                    "ReplayModelPathReparsePoint",
+                    "Model file path contains a reparse point.");
+            }
+
+            return null;
+        }
+
+        private static ModelPackageManifest ReadReplayModelManifest(string manifestPath)
+        {
+            string fullPath = Path.GetFullPath(manifestPath);
+            if (!IsSafeManifestFileForRead(fullPath))
+            {
+                throw new IOException("Model manifest path contains a reparse point.");
+            }
+
+            using var stream = new FileStream(
+                fullPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 4096,
+                FileOptions.SequentialScan);
+
+            if (!IsSafeManifestFileForRead(fullPath))
+            {
+                throw new IOException("Model manifest path became unsafe before read.");
+            }
+
+            ModelPackageManifest manifest =
+                JsonSerializer.Deserialize<ModelPackageManifest>(stream, ReplayJson.Options) ??
+                new ModelPackageManifest();
+
+            if (!IsSafeManifestFileForRead(fullPath))
+            {
+                throw new IOException("Model manifest path became unsafe after read.");
+            }
+
+            return manifest;
+        }
+
+        private static bool IsSafeManifestFileForRead(string manifestPath)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(manifestPath);
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(directory) ||
+                    ModelPackagePathGuard.DirectoryPathHasReparsePoint(directory))
+                {
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                return file.Exists && !ModelPackagePathGuard.HasReparsePoint(file);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsSafeReplayModelFileForRead(string modelPath)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(modelPath);
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(directory) ||
+                    ModelPackagePathGuard.DirectoryPathHasReparsePoint(directory))
+                {
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                return file.Exists && !ModelPackagePathGuard.HasReparsePoint(file);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
     }
 
     public sealed class ProductionReplayInferenceRunner : IReplayInferenceRunner

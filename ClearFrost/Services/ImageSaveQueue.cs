@@ -23,6 +23,7 @@ namespace ClearFrost.Services
         private readonly Channel<ImageSavePayload> _channel;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly Task _workerTask;
+        private readonly Func<ImageSavePayload, bool> _imageWriter;
         private readonly object _enqueueLock = new object();
         private readonly int _capacity;
         private readonly long _maxBufferedBytes;
@@ -36,6 +37,14 @@ namespace ClearFrost.Services
         private bool _stopped;
 
         public ImageSaveQueue(int capacity = 64, long maxBufferedBytes = DefaultMaxBufferedBytes)
+            : this(capacity, maxBufferedBytes, WriteImageWithOpenCv)
+        {
+        }
+
+        internal ImageSaveQueue(
+            int capacity,
+            long maxBufferedBytes,
+            Func<ImageSavePayload, bool>? imageWriter)
         {
             if (capacity <= 0)
             {
@@ -44,6 +53,7 @@ namespace ClearFrost.Services
 
             _capacity = capacity;
             _maxBufferedBytes = maxBufferedBytes > 0 ? maxBufferedBytes : DefaultMaxBufferedBytes;
+            _imageWriter = imageWriter ?? WriteImageWithOpenCv;
             _channel = Channel.CreateBounded<ImageSavePayload>(new BoundedChannelOptions(capacity)
             {
                 SingleReader = false,
@@ -200,13 +210,16 @@ namespace ClearFrost.Services
                         RemovePending(item);
                         try
                         {
-                            string? dir = Path.GetDirectoryName(item.Path);
-                            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                            string fullPath = Path.GetFullPath(item.Path);
+                            string? dir = Path.GetDirectoryName(fullPath);
+                            if (!string.IsNullOrWhiteSpace(dir))
                             {
+                                EnsureImageTargetSafe(fullPath, dir);
                                 Directory.CreateDirectory(dir);
+                                EnsureImageTargetSafe(fullPath, dir);
                             }
 
-                            bool written = Cv2.ImWrite(item.Path, item.Image, BuildEncodingParams(item));
+                            bool written = _imageWriter(item);
                             if (!written)
                             {
                                 throw new IOException($"OpenCV returned false for {item.Path}");
@@ -240,6 +253,59 @@ namespace ClearFrost.Services
                     remaining.Dispose();
                     RemovePending(remaining);
                 }
+            }
+        }
+
+        private static bool WriteImageWithOpenCv(ImageSavePayload item)
+        {
+            return Cv2.ImWrite(item.Path, item.Image, BuildEncodingParams(item));
+        }
+
+        private static void EnsureImageTargetSafe(string fullPath, string directory)
+        {
+            if (DirectoryPathHasReparsePoint(directory))
+            {
+                throw new IOException($"图像保存目录包含链接目录，拒绝写入: {directory}");
+            }
+
+            var target = new FileInfo(fullPath);
+            target.Refresh();
+            if (target.Exists && HasReparsePoint(target))
+            {
+                throw new IOException($"图像保存目标是链接文件，拒绝写入: {fullPath}");
+            }
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            var current = new DirectoryInfo(Path.GetFullPath(directory));
+            while (current != null)
+            {
+                current.Refresh();
+                if (current.Exists && HasReparsePoint(current))
+                {
+                    return true;
+                }
+
+                current = current.Parent;
+            }
+
+            return false;
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
             }
         }
 

@@ -135,7 +135,9 @@ namespace ClearFrost.Services
             string? directory = Path.GetDirectoryName(_path);
             if (!string.IsNullOrWhiteSpace(directory))
             {
+                EnsureSafeLogTargetForWrite(_path, directory);
                 Directory.CreateDirectory(directory);
+                EnsureSafeLogTargetForWrite(_path, directory);
             }
 
             await File.AppendAllTextAsync(
@@ -145,6 +147,64 @@ namespace ClearFrost.Services
                 cancellationToken).ConfigureAwait(false);
 
             return count;
+        }
+
+        private static void EnsureSafeLogTargetForWrite(string path, string directory)
+        {
+            string fullPath = Path.GetFullPath(path);
+            string fullDirectory = Path.GetFullPath(directory);
+            if (DirectoryPathHasReparsePoint(fullDirectory))
+            {
+                throw new IOException($"诊断日志目录包含链接目录，拒绝写入: {fullDirectory}");
+            }
+
+            var file = new FileInfo(fullPath);
+            file.Refresh();
+            if (file.Exists && HasReparsePoint(file))
+            {
+                throw new IOException($"诊断日志文件是链接文件，拒绝写入: {fullPath}");
+            }
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException or UnauthorizedAccessException)
+            {
+                Debug.WriteLine($"[AsyncDiagnosticLogger] 路径安全检查失败，按不安全处理: {ex.Message}");
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
         }
 
         public async ValueTask DisposeAsync()

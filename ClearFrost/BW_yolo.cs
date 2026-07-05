@@ -145,6 +145,7 @@ namespace ClearFrost.Yolo
         private const int DEFAULT_BATCH_SIZE = 1;
         private const int DEFAULT_INPUT_CHANNELS = 3;
         private const int DEFAULT_DYNAMIC_INPUT_SIZE = 640;
+        private const string DirectMlProfileDirectoryName = "ClearFrostDmlProfiling";
 
         private const int LETTERBOX_FILL_COLOR_R = 114;
         private const int LETTERBOX_FILL_COLOR_G = 114;
@@ -637,9 +638,7 @@ namespace ClearFrost.Yolo
                 options.EnableProfiling = enableProfiling;
                 if (enableProfiling)
                 {
-                    options.ProfileOutputPathPrefix = Path.Combine(
-                        Path.GetTempPath(),
-                        $"clearfrost-dml-{Environment.ProcessId}-{Guid.NewGuid():N}");
+                    options.ProfileOutputPathPrefix = CreateDirectMlProfileOutputPathPrefix();
                 }
                 try
                 {
@@ -654,6 +653,193 @@ namespace ClearFrost.Yolo
             return options;
         }
 
+        internal static string CreateDirectMlProfileOutputPathPrefix()
+        {
+            return CreateDirectMlProfileOutputPathPrefix(Path.GetTempPath());
+        }
+
+        internal static string CreateDirectMlProfileOutputPathPrefix(string tempDirectory)
+        {
+            string profileDirectory = EnsureSafeDirectMlProfileDirectory(tempDirectory);
+            return Path.Combine(profileDirectory, $"clearfrost-dml-{Environment.ProcessId}-{Guid.NewGuid():N}");
+        }
+
+        internal static string GetDirectMlProfileDirectory(string tempDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(tempDirectory))
+            {
+                throw new ArgumentException("DirectML profiling 临时目录为空", nameof(tempDirectory));
+            }
+
+            string fullTempDirectory = Path.GetFullPath(tempDirectory);
+            return TrimDirectoryPath(Path.GetFullPath(Path.Combine(fullTempDirectory, DirectMlProfileDirectoryName)));
+        }
+
+        internal static bool TryReadDirectMlProfileText(string profilePath, string profileDirectory, out string profileText)
+        {
+            profileText = string.Empty;
+            if (!IsSafeDirectMlProfileFile(profilePath, profileDirectory))
+            {
+                return false;
+            }
+
+            try
+            {
+                profileText = File.ReadAllText(Path.GetFullPath(profilePath));
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                return false;
+            }
+        }
+
+        internal static bool TryDeleteDirectMlProfileFile(string profilePath, string profileDirectory)
+        {
+            if (!IsSafeDirectMlProfileFile(profilePath, profileDirectory))
+            {
+                return false;
+            }
+
+            try
+            {
+                File.Delete(Path.GetFullPath(profilePath));
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                return false;
+            }
+        }
+
+        internal static bool IsSafeDirectMlProfileFile(string profilePath, string profileDirectory)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(profilePath) || string.IsNullOrWhiteSpace(profileDirectory))
+                {
+                    return false;
+                }
+
+                string safeProfileDirectory = TrimDirectoryPath(Path.GetFullPath(profileDirectory));
+                if (!Directory.Exists(safeProfileDirectory) || DirectoryPathHasReparsePoint(safeProfileDirectory))
+                {
+                    return false;
+                }
+
+                string fullPath = Path.GetFullPath(profilePath);
+                string parentDirectory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (!parentDirectory.Equals(safeProfileDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                string relativePath = Path.GetRelativePath(safeProfileDirectory, fullPath);
+                if (relativePath.Equals("..", StringComparison.Ordinal) ||
+                    relativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) ||
+                    relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal) ||
+                    Path.IsPathRooted(relativePath))
+                {
+                    return false;
+                }
+
+                if (!File.Exists(fullPath) || DirectoryPathHasReparsePoint(parentDirectory))
+                {
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                return file.Exists && !HasReparsePoint(file);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string EnsureSafeDirectMlProfileDirectory(string tempDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(tempDirectory))
+            {
+                throw new ArgumentException("DirectML profiling 临时目录为空", nameof(tempDirectory));
+            }
+
+            string fullTempDirectory = TrimDirectoryPath(Path.GetFullPath(tempDirectory));
+            if (!Directory.Exists(fullTempDirectory) || DirectoryPathHasReparsePoint(fullTempDirectory))
+            {
+                throw new IOException($"DirectML profiling 临时目录不安全: {fullTempDirectory}");
+            }
+
+            string profileDirectory = GetDirectMlProfileDirectory(fullTempDirectory);
+            Directory.CreateDirectory(profileDirectory);
+            if (!Directory.Exists(profileDirectory) || DirectoryPathHasReparsePoint(profileDirectory))
+            {
+                throw new IOException($"DirectML profiling 输出目录不安全: {profileDirectory}");
+            }
+
+            return profileDirectory;
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+
+        private static string TrimDirectoryPath(string path)
+        {
+            string root = Path.GetPathRoot(path) ?? string.Empty;
+            string trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (trimmed.Length == 0)
+            {
+                return path;
+            }
+
+            if (!string.IsNullOrEmpty(root) &&
+                (trimmed.Length < root.Length ||
+                 string.Equals(trimmed, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)))
+            {
+                return root;
+            }
+
+            return trimmed;
+        }
+
         private void ValidateDirectMlSession()
         {
             if (_inferenceSession == null)
@@ -661,6 +847,7 @@ namespace ClearFrost.Yolo
                 throw new InvalidOperationException("ONNX 推理会话未初始化");
             }
 
+            string profileDirectory = GetDirectMlProfileDirectory(Path.GetTempPath());
             string profilePath = string.Empty;
             bool warmupCompleted = false;
             try
@@ -682,7 +869,11 @@ namespace ClearFrost.Yolo
 
                 warmupCompleted = true;
                 profilePath = _inferenceSession.EndProfiling();
-                string profileText = File.Exists(profilePath) ? File.ReadAllText(profilePath) : string.Empty;
+                if (!TryReadDirectMlProfileText(profilePath, profileDirectory, out string profileText))
+                {
+                    throw new InvalidOperationException("DirectML profiling 文件缺失或路径不安全");
+                }
+
                 if (!profileText.Contains("DmlExecutionProvider", StringComparison.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException("DirectML 探针未在 profiling 中发现 DmlExecutionProvider 节点");
@@ -698,7 +889,10 @@ namespace ClearFrost.Yolo
                 {
                     try
                     {
-                        File.Delete(profilePath);
+                        if (!TryDeleteDirectMlProfileFile(profilePath, profileDirectory))
+                        {
+                            Debug.WriteLine($"[YoloDetector] 跳过不安全的 DirectML profiling 文件删除: {profilePath}");
+                        }
                     }
                     catch (Exception ex)
                     {

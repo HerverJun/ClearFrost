@@ -475,15 +475,16 @@ namespace ClearFrost
             if (Path.IsPathRooted(trimmed))
             {
                 string fullPath = Path.GetFullPath(trimmed);
-                return File.Exists(fullPath) ? fullPath : null;
+                return VisionDebugHistoryImageResolver.ResolveExistingImagePathIfSafe(fullPath);
             }
 
             foreach (string basePath in GetHistoryImageBasePaths())
             {
                 string fullPath = Path.GetFullPath(Path.Combine(basePath, trimmed));
-                if (File.Exists(fullPath))
+                string? resolved = VisionDebugHistoryImageResolver.ResolveExistingImagePathIfSafe(fullPath);
+                if (!string.IsNullOrWhiteSpace(resolved))
                 {
-                    return fullPath;
+                    return resolved;
                 }
             }
 

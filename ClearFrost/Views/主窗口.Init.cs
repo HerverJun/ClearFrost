@@ -222,6 +222,12 @@ namespace ClearFrost
             _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC手动连接");
             _uiController.OnRequestHealthSnapshot += (s, e) => SafeFireAndForget(SendHealthSnapshotToFrontendAsync(showToast: true), "前端刷新健康快照");
             _uiController.OnExportDiagnosticPackage += (s, args) => SafeFireAndForget(ExportDiagnosticPackageFromWebAsync(args), "导出诊断包");
+            _uiController.OnQueryDiagnosticPackages += (s, args) => SafeFireAndForget(QueryDiagnosticPackagesFromWebAsync(args), "查询诊断包历史");
+            _uiController.OnVerifyDiagnosticPackage += (s, args) => SafeFireAndForget(VerifyDiagnosticPackageFromWebAsync(args), "复核诊断包");
+            _uiController.OnMaintenanceAdviceAction += (s, args) => SafeFireAndForget(HandleMaintenanceAdviceActionFromWebAsync(args), "维护建议处理/复检");
+            _uiController.OnShiftTaskAction += (s, args) => SafeFireAndForget(HandleShiftTaskActionFromWebAsync(args), "班次待办处理/复检");
+            _uiController.OnExportFieldHandoffReport += (s, args) => SafeFireAndForget(ExportFieldHandoffReportFromWebAsync(args), "导出现场交接报告");
+            _uiController.OnQueryFieldHandoffReports += (s, args) => SafeFireAndForget(QueryFieldHandoffReportsFromWebAsync(args), "查询现场交接报告历史");
             _uiController.OnFieldDebugCommand += (s, args) => SafeFireAndForget(HandleFieldDebugCommandAsync(args), "现场单步调试");
             _uiController.OnVisionDebugCommand += (s, args) => SafeFireAndForget(HandleVisionDebugCommandAsync(args), "视觉算法调试");
             _uiController.OnThresholdChanged += (s, val) =>
@@ -1290,6 +1296,7 @@ namespace ClearFrost
                             throw new InvalidOperationException(_appConfig.LastError ?? "配置保存失败");
                         }
                         configSaved = true;
+                        _appRuntime.RefreshStoragePath();
                         SaveCurrentRecipeSnapshot("系统设置保存");
 
                         // 更新相关路径
@@ -1534,6 +1541,7 @@ namespace ClearFrost
                 YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
                 _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
                 _detectionService.SetTaskMode(_appConfig.TaskType);
+                _appRuntime.RefreshStoragePath();
 
                 _uiController.ImageBasePath = Path_Images;
                 _uiController.LogBasePath = Path_Logs;
@@ -3360,7 +3368,7 @@ namespace ClearFrost
             {
                 var service = new ClearFrost.Services.DatasetCollectionService(
                     ClearFrost.Helpers.RuntimePaths.DatabasePath,
-                    _appConfig.StoragePath);
+                    BaseStoragePath);
 
                 var progress = new Progress<string>(msg =>
                 {

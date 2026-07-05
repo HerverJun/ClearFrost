@@ -102,6 +102,12 @@ namespace ClearFrost
         public event EventHandler? OnConnectPlc;
         public event EventHandler? OnRequestHealthSnapshot;
         public event EventHandler<WebUiCommandEventArgs>? OnExportDiagnosticPackage;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryDiagnosticPackages;
+        public event EventHandler<WebUiCommandEventArgs>? OnVerifyDiagnosticPackage;
+        public event EventHandler<WebUiCommandEventArgs>? OnMaintenanceAdviceAction;
+        public event EventHandler<WebUiCommandEventArgs>? OnShiftTaskAction;
+        public event EventHandler<WebUiCommandEventArgs>? OnExportFieldHandoffReport;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryFieldHandoffReports;
         public event EventHandler<WebUiCommandEventArgs>? OnFieldDebugCommand;
         public event EventHandler<WebUiCommandEventArgs>? OnVisionDebugCommand;
         public event EventHandler<float[]>? OnUpdateROI;
@@ -161,6 +167,7 @@ namespace ClearFrost
         public bool UseFileBackedImageTransport { get; set; }
         public IDatabaseService? DatabaseService { get; set; }
         internal OperationAuditService? AuditService { get; set; }
+        internal Func<CancellationToken, Task<OperationAuditChainVerificationResult>>? AuditChainVerifier { get; set; }
 
         /// <summary>
         /// Maps the image folder to a virtual host for direct access.
@@ -168,7 +175,7 @@ namespace ClearFrost
         public void SetImageMapping(string localPath)
         {
             WebView2? webView = _webView;
-            if (!IsWebViewControlUsable(webView) || !Directory.Exists(localPath))
+            if (!IsWebViewControlUsable(webView) || !IsSafeImageMappingDirectory(localPath))
             {
                 return;
             }
@@ -832,6 +839,24 @@ namespace ClearFrost
                             case "export_diagnostic_package":
                                 OnExportDiagnosticPackage?.Invoke(this, CreateCommandEventArgs(root, requestId));
                                 break;
+                            case "query_diagnostic_packages":
+                                OnQueryDiagnosticPackages?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "verify_diagnostic_package":
+                                OnVerifyDiagnosticPackage?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "maintenance_advice_action":
+                                OnMaintenanceAdviceAction?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "shift_task_action":
+                                OnShiftTaskAction?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "export_field_handoff_report":
+                                OnExportFieldHandoffReport?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "query_field_handoff_reports":
+                                OnQueryFieldHandoffReports?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
                             case "field_debug_step_capture":
                             case "field_debug_step_infer":
                             case "field_debug_plc_write_test":
@@ -948,6 +973,9 @@ namespace ClearFrost
                                 {
                                     await ExportAuditRecordsAsync(auditExportElement, requestId);
                                 }
+                                break;
+                            case "verify_audit_chain":
+                                await SendAuditChainVerificationAsync(requestId);
                                 break;
                             case "get_statistics_history":
                                 OnGetStatisticsHistory?.Invoke(this, EventArgs.Empty);
@@ -1347,6 +1375,42 @@ namespace ClearFrost
             return Task.CompletedTask;
         }
 
+        public Task SendDiagnosticPackageHistoryResult(object result, string? requestId = null)
+        {
+            PostMessage("diagnosticPackageHistoryResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendDiagnosticPackageVerificationResult(object result, string? requestId = null)
+        {
+            PostMessage("diagnosticPackageVerificationResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendMaintenanceAdviceActionResult(object result, string? requestId = null)
+        {
+            PostMessage("maintenanceAdviceActionResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendShiftTaskActionResult(object result, string? requestId = null)
+        {
+            PostMessage("shiftTaskActionResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendFieldHandoffReportResult(object result, string? requestId = null)
+        {
+            PostMessage("fieldHandoffReportResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendFieldHandoffReportHistoryResult(object result, string? requestId = null)
+        {
+            PostMessage("fieldHandoffReportHistoryResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
         /// <summary>
         /// 发送数据集收集结果到前端
         /// </summary>
@@ -1534,7 +1598,7 @@ namespace ClearFrost
                 : DetectionTraceImageResolver.Resolve(
                     record,
                     ImageBasePath,
-                    File.Exists,
+                    SafeImageFileExists,
                     directory => GetCachedTraceImageFiles(imageFileCache, directory));
             string? imageUrl = TryCreateImageUrl(resolution.ImagePath);
             string? renderedImageUrl = TryCreateImageUrl(resolution.RenderedImagePath);
@@ -1591,7 +1655,7 @@ namespace ClearFrost
         {
             try
             {
-                if (!Directory.Exists(directory))
+                if (!SafeDirectoryExists(directory))
                 {
                     return Array.Empty<string>();
                 }
@@ -1600,8 +1664,9 @@ namespace ClearFrost
                     .Where(path =>
                     {
                         string extension = Path.GetExtension(path);
-                        return extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                            extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase);
+                        return (extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                            extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)) &&
+                            SafeImageFileExists(path);
                     })
                     .ToArray();
             }
@@ -1623,7 +1688,7 @@ namespace ClearFrost
                 string basePath = Path.GetFullPath(ImageBasePath)
                     .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 string fullPath = ResolveImageFullPath(path, basePath);
-                if (!File.Exists(fullPath))
+                if (!SafeImageFileExists(fullPath))
                 {
                     return null;
                 }
@@ -1657,7 +1722,7 @@ namespace ClearFrost
             }
 
             string relativeToImageBase = Path.GetFullPath(Path.Combine(basePath, path));
-            if (File.Exists(relativeToImageBase))
+            if (SafeImageFileExists(relativeToImageBase))
             {
                 return relativeToImageBase;
             }
@@ -1666,13 +1731,103 @@ namespace ClearFrost
             if (!string.IsNullOrWhiteSpace(parent))
             {
                 string relativeToStorageRoot = Path.GetFullPath(Path.Combine(parent, path));
-                if (File.Exists(relativeToStorageRoot))
+                if (SafeImageFileExists(relativeToStorageRoot))
                 {
                     return relativeToStorageRoot;
                 }
             }
 
             return relativeToImageBase;
+        }
+
+        internal static bool IsSafeImageMappingDirectory(string localPath)
+        {
+            return SafeDirectoryExists(localPath);
+        }
+
+        private static bool SafeImageFileExists(string path)
+        {
+            return SafeLocalFileExists(path);
+        }
+
+        private static bool SafeLocalFileExists(string path)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                {
+                    return false;
+                }
+
+                string fullPath = Path.GetFullPath(path);
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(directory) || DirectoryPathHasReparsePoint(directory))
+                {
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                return file.Exists && !HasReparsePoint(file);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool SafeDirectoryExists(string directory)
+        {
+            try
+            {
+                return !string.IsNullOrWhiteSpace(directory) &&
+                    Directory.Exists(directory) &&
+                    !DirectoryPathHasReparsePoint(directory);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
         }
 
         private static string? TryGetStringProperty(JsonElement element, string propertyName)
@@ -1787,89 +1942,118 @@ namespace ClearFrost
             if (string.IsNullOrEmpty(LogBasePath) || !IsWebViewControlUsable(_webView)) return;
             try
             {
-                string logsDir = Path.Combine(LogBasePath, "DetectionLogs");
-                if (!Directory.Exists(logsDir))
-                {
-                    PostMessage("detectionLogTable", Array.Empty<object>());
-                    return;
-                }
-
-                // Get all date folders, newest first
-                var dateFolders = Directory.GetDirectories(logsDir)
-                    .OrderByDescending(d => d)
-                    .ToList();
-
-                var logEntries = new List<object>();
-                int collected = 0;
-
-                foreach (var dateFolder in dateFolders)
-                {
-                    if (collected >= maxCount) break;
-
-                    // Get all log files in this date folder, newest first
-                    var logFiles = Directory.GetFiles(dateFolder, "*.txt")
-                        .OrderByDescending(f => f)
-                        .ToList();
-
-                    foreach (var logFile in logFiles)
-                    {
-                        if (collected >= maxCount) break;
-
-                        try
-                        {
-                            // Read all lines and split into entries
-                            string content = File.ReadAllText(logFile, Encoding.UTF8);
-                            // Each entry is separated by double newline
-                            var entries = content.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries);
-
-                            // Process in reverse order (newest first)
-                            for (int i = entries.Length - 1; i >= 0 && collected < maxCount; i--)
-                            {
-                                var entry = entries[i].Trim();
-                                if (string.IsNullOrEmpty(entry)) continue;
-
-                                // Parse entry: "检测时间: {time}\r\n结果: {result}\r\n{details}"
-                                var lines = entry.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-
-                                string time = "";
-                                string result = "";
-                                string details = "";
-
-                                foreach (var line in lines)
-                                {
-                                    if (line.StartsWith("检测时间:"))
-                                        time = line.Substring("检测时间:".Length).Trim();
-                                    else if (line.StartsWith("结果:"))
-                                        result = line.Substring("结果:".Length).Trim();
-                                    else if (!string.IsNullOrWhiteSpace(line))
-                                        details += (details.Length > 0 ? "; " : "") + line.Trim();
-                                }
-
-                                if (!string.IsNullOrEmpty(time))
-                                {
-                                    logEntries.Add(new
-                                    {
-                                        time = time,
-                                        result = result,
-                                        details = details
-                                    });
-                                    collected++;
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[WebUIController] Log entry parse error: {ex.Message}");
-                        }
-                    }
-                }
-
+                IReadOnlyList<object> logEntries = ReadDetectionLogTableEntries(LogBasePath, maxCount);
                 PostMessage("detectionLogTable", logEntries);
             }
             catch (Exception ex)
             {
                 await LogToFrontend($"读取检测日志失败: {ex.Message}", "error");
                 PostMessage("detectionLogTable", Array.Empty<object>());
+            }
+        }
+
+        internal static IReadOnlyList<object> ReadDetectionLogTableEntries(string logBasePath, int maxCount = 100)
+        {
+            if (string.IsNullOrWhiteSpace(logBasePath) || maxCount <= 0)
+            {
+                return Array.Empty<object>();
+            }
+
+            string logsDir = Path.Combine(logBasePath, "DetectionLogs");
+            if (!SafeDirectoryExists(logsDir))
+            {
+                return Array.Empty<object>();
+            }
+
+            var logEntries = new List<object>();
+            int collected = 0;
+
+            foreach (var dateFolder in EnumerateSafeDirectories(logsDir).OrderByDescending(d => d))
+            {
+                if (collected >= maxCount) break;
+
+                foreach (var logFile in EnumerateSafeFiles(dateFolder, "*.txt").OrderByDescending(f => f))
+                {
+                    if (collected >= maxCount) break;
+
+                    try
+                    {
+                        string content = File.ReadAllText(logFile, Encoding.UTF8);
+                        var entries = content.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+                        for (int i = entries.Length - 1; i >= 0 && collected < maxCount; i--)
+                        {
+                            var entry = entries[i].Trim();
+                            if (string.IsNullOrEmpty(entry)) continue;
+
+                            var lines = entry.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+                            string time = "";
+                            string result = "";
+                            string details = "";
+
+                            foreach (var line in lines)
+                            {
+                                if (line.StartsWith("检测时间:"))
+                                    time = line.Substring("检测时间:".Length).Trim();
+                                else if (line.StartsWith("结果:"))
+                                    result = line.Substring("结果:".Length).Trim();
+                                else if (!string.IsNullOrWhiteSpace(line))
+                                    details += (details.Length > 0 ? "; " : "") + line.Trim();
+                            }
+
+                            if (!string.IsNullOrEmpty(time))
+                            {
+                                logEntries.Add(new
+                                {
+                                    time = time,
+                                    result = result,
+                                    details = details
+                                });
+                                collected++;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[WebUIController] Log entry parse error: {ex.Message}");
+                    }
+                }
+            }
+
+            return logEntries;
+        }
+
+        private static IEnumerable<string> EnumerateSafeDirectories(string directory)
+        {
+            try
+            {
+                return Directory.EnumerateDirectories(directory)
+                    .Where(SafeDirectoryExists)
+                    .ToArray();
+            }
+            catch
+            {
+                return Array.Empty<string>();
+            }
+        }
+
+        private static IEnumerable<string> EnumerateSafeFiles(string directory, string searchPattern)
+        {
+            try
+            {
+                if (!SafeDirectoryExists(directory))
+                {
+                    return Array.Empty<string>();
+                }
+
+                return Directory.EnumerateFiles(directory, searchPattern)
+                    .Where(SafeLocalFileExists)
+                    .ToArray();
+            }
+            catch
+            {
+                return Array.Empty<string>();
             }
         }
 
@@ -1905,9 +2089,57 @@ namespace ClearFrost
                     reason = record.Reason,
                     inspectionId = record.InspectionId,
                     details = record.Details,
-                    failureBlocker = record.FailureBlocker
+                    failureBlocker = record.FailureBlocker,
+                    previousRecordSha256 = record.PreviousRecordSha256,
+                    recordSha256 = record.RecordSha256
                 }).ToArray(),
                 error = result.ErrorMessage
+            }, requestId);
+        }
+
+        private async Task SendAuditChainVerificationAsync(string? requestId)
+        {
+            if (!IsWebViewControlUsable(_webView))
+            {
+                return;
+            }
+
+            if (AuditChainVerifier == null && AuditService == null)
+            {
+                PostMessage("auditChainVerification", new
+                {
+                    status = "Unavailable",
+                    totalRecords = 0,
+                    verifiedRecords = 0,
+                    findingCount = 0,
+                    lastRecordSha256 = "",
+                    findings = Array.Empty<object>(),
+                    error = "审计服务未初始化"
+                }, requestId);
+                return;
+            }
+
+            OperationAuditChainVerificationResult result = AuditChainVerifier != null
+                ? await AuditChainVerifier(CancellationToken.None).ConfigureAwait(false)
+                : await AuditService!.VerifyChainAsync().ConfigureAwait(false);
+            PostMessage("auditChainVerification", new
+            {
+                status = result.Status,
+                totalRecords = result.TotalRecords,
+                verifiedRecords = result.VerifiedRecords,
+                findingCount = result.Findings.Count,
+                lastRecordSha256 = result.LastRecordSha256,
+                findings = result.Findings.Take(5).Select(finding => new
+                {
+                    auditFileName = string.IsNullOrWhiteSpace(finding.FilePath)
+                        ? string.Empty
+                        : Path.GetFileName(finding.FilePath),
+                    lineNumber = finding.LineNumber,
+                    severity = finding.Severity,
+                    errorCode = finding.ErrorCode,
+                    message = finding.Message
+                }).ToArray(),
+                error = string.Empty
             }, requestId);
         }
 
@@ -2090,6 +2322,12 @@ namespace ClearFrost
                 OnConnectPlc = null;
                 OnRequestHealthSnapshot = null;
                 OnExportDiagnosticPackage = null;
+                OnQueryDiagnosticPackages = null;
+                OnVerifyDiagnosticPackage = null;
+                OnMaintenanceAdviceAction = null;
+                OnShiftTaskAction = null;
+                OnExportFieldHandoffReport = null;
+                OnQueryFieldHandoffReports = null;
                 OnFieldDebugCommand = null;
                 OnVisionDebugCommand = null;
                 OnUpdateROI = null;
@@ -2134,6 +2372,7 @@ namespace ClearFrost
                 OnSerialAutoDetectPorts = null;
                 OnSerialTestTrigger = null;
                 OnSerialSimulateTrigger = null;
+                AuditChainVerifier = null;
                 _webView = null;
             }
         }

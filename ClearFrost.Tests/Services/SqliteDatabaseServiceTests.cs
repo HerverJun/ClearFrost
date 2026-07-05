@@ -84,6 +84,102 @@ public class SqliteDatabaseServiceTests
     }
 
     [Fact]
+    public void LegacyMigration_跳过链接旧库来源且不导入外部记录()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string linkedLegacyDbPath = string.Empty;
+
+        try
+        {
+            string runtimeDbPath = Path.Combine(tempDir, "runtime", "detection.db");
+            string safeLegacyDbPath = Path.Combine(tempDir, "safe-legacy", "detection.db");
+            string externalDbPath = Path.Combine(externalDir, "external.db");
+            CreateDatabaseWithRows(safeLegacyDbPath);
+            CreateDatabaseWithRows(externalDbPath, "2026-04-08 11:00:00");
+
+            linkedLegacyDbPath = Path.Combine(tempDir, "legacy", "detection.db");
+            Directory.CreateDirectory(Path.GetDirectoryName(linkedLegacyDbPath)!);
+            if (!TryCreateFileSymbolicLink(linkedLegacyDbPath, externalDbPath))
+            {
+                return;
+            }
+
+            InvokeMigration(new[] { safeLegacyDbPath, linkedLegacyDbPath }, runtimeDbPath);
+
+            CountRows(runtimeDbPath).Should().Be(0);
+            CountRows(externalDbPath).Should().Be(1);
+        }
+        finally
+        {
+            TryDeleteFileLink(linkedLegacyDbPath);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
+    public void Constructor_拒绝链接数据库文件且不修改外部文件()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string linkedDbPath = string.Empty;
+
+        try
+        {
+            linkedDbPath = Path.Combine(tempDir, "runtime", "detection.db");
+            Directory.CreateDirectory(Path.GetDirectoryName(linkedDbPath)!);
+            string externalDbPath = Path.Combine(externalDir, "external.db");
+            File.WriteAllText(externalDbPath, "external database");
+            if (!TryCreateFileSymbolicLink(linkedDbPath, externalDbPath))
+            {
+                return;
+            }
+
+            Action act = () => _ = new SqliteDatabaseService(linkedDbPath);
+
+            act.Should().Throw<IOException>().WithMessage("*检测数据库文件*链接文件*");
+            File.ReadAllText(externalDbPath).Should().Be("external database");
+        }
+        finally
+        {
+            TryDeleteFileLink(linkedDbPath);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
+    public void Constructor_拒绝链接数据库目录且不写入外部目录()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string linkedDirectory = string.Empty;
+
+        try
+        {
+            linkedDirectory = Path.Combine(tempDir, "runtime");
+            if (!TryCreateDirectorySymbolicLink(linkedDirectory, externalDir))
+            {
+                return;
+            }
+
+            string dbPath = Path.Combine(linkedDirectory, "detection.db");
+
+            Action act = () => _ = new SqliteDatabaseService(dbPath);
+
+            act.Should().Throw<IOException>().WithMessage("*检测数据库目录*链接目录*");
+            Directory.EnumerateFileSystemEntries(externalDir).Should().BeEmpty();
+        }
+        finally
+        {
+            TryDeleteDirectoryLink(linkedDirectory);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
     public async Task InitializeAsync_旧表只追加追溯列()
     {
         string tempDir = CreateTempDirectory();
@@ -693,11 +789,89 @@ public class SqliteDatabaseServiceTests
         return path;
     }
 
+    private static bool TryCreateFileSymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = File.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteFileLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new FileInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
+    private static void TryDeleteDirectoryLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new DirectoryInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
     private static void DeleteDirectory(string path)
     {
         if (Directory.Exists(path))
         {
             SqliteConnection.ClearAllPools();
+            var info = new DirectoryInfo(path);
+            info.Refresh();
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+                return;
+            }
+
             Directory.Delete(path, true);
         }
     }

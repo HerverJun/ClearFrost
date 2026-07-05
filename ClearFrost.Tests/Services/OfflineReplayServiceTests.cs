@@ -275,10 +275,33 @@ public class OfflineReplayServiceTests
 
     private static void DeleteDirectory(string path)
     {
-        if (Directory.Exists(path))
+        if (!Directory.Exists(path))
         {
-            Directory.Delete(path, recursive: true);
+            return;
         }
+
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                Directory.Delete(path, recursive: true);
+                return;
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                Thread.Sleep(50 * (attempt + 1));
+            }
+            catch (UnauthorizedAccessException) when (attempt < 4)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                Thread.Sleep(50 * (attempt + 1));
+            }
+        }
+
+        Directory.Delete(path, recursive: true);
     }
 
     private sealed class FakeDatabaseService : IDatabaseService
