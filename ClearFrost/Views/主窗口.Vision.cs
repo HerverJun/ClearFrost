@@ -14,6 +14,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using ClearFrost.Core.DeepLearning;
 using ClearFrost.Core.Inspection;
 using ClearFrost.Core.Models;
 using ClearFrost.Core.Recipes;
@@ -126,7 +127,7 @@ namespace ClearFrost
                     InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
                     float[]? roiSnapshot = SnapshotCurrentROI();
                     // 测试推理使用与生产检测一致的候选评估，避免设置页测试和现场判定逻辑分叉。
-                    MultiModelCandidateEvaluator candidateEvaluator = CreateRuleCandidateEvaluator(
+                    MultiModelCandidateEvaluator candidateEvaluator = _appRuntime.DecisionEvaluator.CreateCandidateEvaluator(
                         ruleSet,
                         originalBitmap.Width,
                         originalBitmap.Height,
@@ -147,10 +148,6 @@ namespace ClearFrost
                     var results = result.Results ?? new List<YoloResult>();
                     bool isQualified = result.IsQualified;
                     bool detectionFailed = result.HasError;
-
-                    // 应用 ROI 过滤
-                    results = FilterResultsByROI(results, originalBitmap.Width, originalBitmap.Height, roiSnapshot);
-
                     string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
                     if (detectionFailed)
                     {
@@ -159,19 +156,33 @@ namespace ClearFrost
                     }
                     else
                     {
-                        InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(ruleSet, results, labels);
+                        InspectionDecisionResult decision = _appRuntime.DecisionEvaluator.Evaluate(new InspectionDecisionRequest
+                        {
+                            RuleSet = ruleSet,
+                            Detections = results,
+                            Labels = labels,
+                            ImageWidth = originalBitmap.Width,
+                            ImageHeight = originalBitmap.Height,
+                            Roi = roiSnapshot
+                        });
+                        results = decision.FilteredDetections.ToList();
+
+                        InspectionJudgeResult judgeResult = decision.JudgeResult;
                         result.JudgeResult = judgeResult;
                         result.IsRuleEvaluated = true;
-                        result.IsQualified = judgeResult.IsQualified;
-                        isQualified = judgeResult.IsQualified;
+                        result.IsQualified = decision.Succeeded && judgeResult.IsQualified;
+                        isQualified = result.IsQualified;
+                        string judgeMessage = decision.Succeeded
+                            ? $"测试推理规则判定: {(judgeResult.IsQualified ? "OK" : "NG")} | {judgeResult.Summary}"
+                            : $"测试推理 ROI/规则判定失败，已判定为 NG: {decision.Message}";
                         await _uiController.LogToFrontend(
-                            $"测试推理规则判定: {(judgeResult.IsQualified ? "OK" : "NG")} | {judgeResult.Summary}",
-                            judgeResult.IsQualified ? "info" : "warning");
+                            judgeMessage,
+                            isQualified ? "info" : "warning");
                     }
                     using (var sourceMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(originalBitmap))
                     using (var renderedMat = TryRenderDetectionMat(sourceMat, results, labels))
                     {
-                        string objDesc = GetDetailedDetectionLog(results, labels);
+                        string objDesc = GetDetailedDetectionLog(results, labels, result.JudgeResult);
                         string modelInfo = BuildFallbackStatus(result);
                         string ruleInfo = BuildRuleStatus(result.JudgeResult);
                         string statusMessage = detectionFailed
@@ -293,7 +304,7 @@ namespace ClearFrost
                 InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
                 float[]? roiSnapshot = SnapshotCurrentROI();
                 // 对历史图使用当前规则和当前 ROI 重新评估，便于调试规则变更后的影响。
-                MultiModelCandidateEvaluator candidateEvaluator = CreateRuleCandidateEvaluator(
+                MultiModelCandidateEvaluator candidateEvaluator = _appRuntime.DecisionEvaluator.CreateCandidateEvaluator(
                     ruleSet,
                     sourceMat.Width,
                     sourceMat.Height,
@@ -310,7 +321,6 @@ namespace ClearFrost
                 ApplyRuleTraceSnapshot(result, ruleSetJson, fallbackGoal);
 
                 List<YoloResult> results = result.Results ?? new List<YoloResult>();
-                results = FilterResultsByROI(results, sourceMat.Width, sourceMat.Height, roiSnapshot);
                 string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
 
                 bool isQualified = false;
@@ -322,11 +332,26 @@ namespace ClearFrost
                 }
                 else
                 {
-                    judgeResult = InspectionRuleEngine.Evaluate(ruleSet, results, labels);
+                    InspectionDecisionResult ruleDecision = _appRuntime.DecisionEvaluator.Evaluate(new InspectionDecisionRequest
+                    {
+                        RuleSet = ruleSet,
+                        Detections = results,
+                        Labels = labels,
+                        ImageWidth = sourceMat.Width,
+                        ImageHeight = sourceMat.Height,
+                        Roi = roiSnapshot
+                    });
+                    results = ruleDecision.FilteredDetections.ToList();
+                    judgeResult = ruleDecision.JudgeResult;
                     result.JudgeResult = judgeResult;
                     result.IsRuleEvaluated = true;
-                    result.IsQualified = judgeResult.IsQualified;
-                    isQualified = judgeResult.IsQualified;
+                    result.IsQualified = ruleDecision.Succeeded && judgeResult.IsQualified;
+                    isQualified = result.IsQualified;
+                    if (!ruleDecision.Succeeded)
+                    {
+                        isQualified = false;
+                        await _uiController.LogToFrontend($"历史图复判 ROI/规则判定失败，已判定为 NG: {ruleDecision.Message}", "warning");
+                    }
                 }
 
                 totalSw.Stop();
@@ -1089,20 +1114,16 @@ namespace ClearFrost
         /// <summary>
         /// 手动检测逻辑 (PLC触发或手动按钮)
         /// </summary>
-        private string GetDetailedDetectionLog(List<YoloResult> results, string[]? labels)
+        private string GetDetailedDetectionLog(
+            List<YoloResult> results,
+            string[]? labels,
+            InspectionJudgeResult? judgeResult = null)
         {
-            if (results == null || results.Count == 0) return "未检测到目标";
-
-            // 格式: screw 0.98, body 0.99
-            var details = results.Select(r =>
-            {
-                string label = (labels != null && r.ClassId >= 0 && r.ClassId < labels.Length)
-                    ? labels[r.ClassId]
-                    : $"Class_{r.ClassId}";
-                return $"{label} {r.Confidence:F2}";
-            });
-
-            return $"Found {results.Count}: {string.Join(", ", details)}";
+            return DeepLearningResultSummarizer.CreateTaskAwareLogSummary(
+                results,
+                labels,
+                judgeResult?.IsQualified,
+                GetRulePrimaryReason(judgeResult));
         }
 
         private static string BuildRuleStatus(InspectionJudgeResult? judgeResult)
@@ -1174,37 +1195,6 @@ namespace ClearFrost
             result.RuleSetJson = ruleSetJson ?? string.Empty;
             result.TargetLabel = fallbackGoal?.TargetLabel ?? string.Empty;
             result.ExpectedCount = fallbackGoal?.TargetCount ?? 0;
-        }
-
-        private MultiModelCandidateEvaluator CreateRuleCandidateEvaluator(
-            InspectionRuleSet ruleSet,
-            int imageWidth,
-            int imageHeight,
-            float[]? roiSnapshot)
-        {
-            return candidate =>
-            {
-                var rawResults = candidate.Results?.ToList() ?? new List<YoloResult>();
-                // 多模型候选必须先过同一份 ROI，再交给规则引擎；否则辅助模型选择会和最终展示不一致。
-                List<YoloResult> filteredResults = FilterResultsByROI(rawResults, imageWidth, imageHeight, roiSnapshot);
-                InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(ruleSet, filteredResults, candidate.Labels);
-
-                return new MultiModelCandidateEvaluation
-                {
-                    IsMatch = judgeResult.IsQualified,
-                    Score = ScoreRuleCandidate(judgeResult, filteredResults.Count),
-                    Summary = judgeResult.Summary
-                };
-            };
-        }
-
-        private static int ScoreRuleCandidate(InspectionJudgeResult judgeResult, int filteredCount)
-        {
-            // 未完全命中时也给候选打分，回退链路可返回最接近规则的结果供追溯。
-            int matchedRules = judgeResult.RuleResults.Count(result => result.IsMatch);
-            int failedRules = judgeResult.RuleResults.Count - matchedRules;
-            int score = matchedRules * 1000 - failedRules * 100 + Math.Min(filteredCount, 100);
-            return judgeResult.IsQualified ? score + 1_000_000 : score;
         }
 
         private async Task btnCapture_LogicAsync(string triggerSource = "手动", int? triggerSeq = null)
@@ -1947,15 +1937,7 @@ namespace ClearFrost
 
         #endregion
 
-        #region ROI 过滤辅助方法
-
-        /// <summary>
-        /// 根据 ROI 区域过滤检测结果（仅保留中心点在 ROI 内的检测框）
-        /// </summary>
-        private List<YoloResult> FilterResultsByROI(List<YoloResult> results, int imageWidth, int imageHeight)
-        {
-            return FilterResultsByROI(results, imageWidth, imageHeight, _currentROI);
-        }
+        #region ROI 与配方辅助方法
 
         private float[]? SnapshotCurrentROI()
         {
@@ -1987,40 +1969,6 @@ namespace ClearFrost
                     _uiController.LogToFrontend($"{operation} 已保存，但配方快照更新失败: {ex.Message}", "error"),
                     "配方快照保存失败");
             }
-        }
-
-        private static List<YoloResult> FilterResultsByROI(
-            List<YoloResult> results,
-            int imageWidth,
-            int imageHeight,
-            float[]? roi)
-        {
-            if (roi == null || roi.Length != 4 || roi[2] <= 0.001f || roi[3] <= 0.001f)
-                return results; // 无 ROI 设置或 ROI 为空（宽度或高度约为0），返回全部结果
-
-            // 将归一化 ROI 转换为像素坐标
-            float roiX = roi[0] * imageWidth;
-            float roiY = roi[1] * imageHeight;
-            float roiW = roi[2] * imageWidth;
-            float roiH = roi[3] * imageHeight;
-
-            Debug.WriteLine($"[ROI过滤] ROI区域: X={roiX:F0}, Y={roiY:F0}, W={roiW:F0}, H={roiH:F0}");
-
-            // 过滤：仅保留检测框中心点在 ROI 内的结果
-            // 注意：YoloResult 直接有 CenterX, CenterY 属性
-            var filtered = results.Where(r =>
-            {
-                float centerX = r.CenterX;
-                float centerY = r.CenterY;
-                bool inROI = centerX >= roiX && centerX <= roiX + roiW &&
-                             centerY >= roiY && centerY <= roiY + roiH;
-                if (!inROI)
-                    Debug.WriteLine($"[ROI过滤] 过滤掉: 中心点({centerX:F0},{centerY:F0}) 不在ROI内");
-                return inROI;
-            }).ToList();
-
-            Debug.WriteLine($"[ROI过滤] 过滤前: {results.Count} 个, 过滤后: {filtered.Count} 个");
-            return filtered;
         }
 
         #endregion

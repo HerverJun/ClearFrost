@@ -58,6 +58,10 @@ public class WebUIReplayContractTests
         historyJs.Should().Contain("query_model_approval_evidence");
         historyJs.Should().Contain("run_replay_integrity_scan");
         historyJs.Should().Contain("approve_replay_candidate");
+        historyJs.Should().Contain("resultJson");
+        historyJs.Should().Contain("DeepLearningSummary");
+        historyJs.Should().Contain("formatTraceDeepLearningSummary");
+        historyJs.Should().Contain("深度学习:");
         historyJs.Should().Contain("requestId");
         indexHtml.Should().Contain("replay-acceptance-panel");
         indexHtml.Should().Contain("工程师：模型回放验证");
@@ -130,6 +134,9 @@ public class WebUIReplayContractTests
         bundle.Should().Contain("query_model_approval_evidence");
         bundle.Should().Contain("run_replay_integrity_scan");
         bundle.Should().Contain("approve_replay_candidate");
+        bundle.Should().Contain("resultJson");
+        bundle.Should().Contain("DeepLearningSummary");
+        bundle.Should().Contain("formatTraceDeepLearningSummary");
     }
 
     [Fact]

@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using ClearFrost.Yolo;
 using OpenCvSharp;
 
@@ -227,6 +228,78 @@ namespace ClearFrost.Core.DeepLearning
             return labels != null && classId >= 0 && classId < labels.Count
                 ? labels[classId]
                 : $"Class_{classId}";
+        }
+
+        public static string CreateTaskAwareLogSummary(
+            IReadOnlyList<YoloResult>? results,
+            IReadOnlyList<string>? labels,
+            bool? isQualified = null,
+            string? judgementReason = null)
+        {
+            List<YoloResult> resultList = results?.ToList() ?? new List<YoloResult>();
+            if (resultList.Count == 0)
+            {
+                return "未检测到目标";
+            }
+
+            string judgement = FormatJudgement(isQualified, judgementReason);
+            if (resultList.Any(result => result.DataKind == YoloResultDataKind.Classification))
+            {
+                ClassificationResultSummary classification = CreateClassificationSummary(resultList, labels);
+                return $"分类结果：Top1={classification.Top1Label}，Confidence={classification.Top1Confidence.ToString("0.00", CultureInfo.InvariantCulture)}{judgement}";
+            }
+
+            if (resultList.Any(result => result.MaskData != null && !result.MaskData.Empty()))
+            {
+                SegmentationResultSummary segmentation = CreateSegmentationSummary(resultList, labels);
+                SegmentationInstanceSummary? first = segmentation.Instances.FirstOrDefault();
+                string measurement = first == null
+                    ? "未找到分割实例"
+                    : $"{first.Label} 实例 {segmentation.InstanceCount} 个，面积 {first.MaskArea.ToString("0", CultureInfo.InvariantCulture)}，覆盖率 {(first.MaskCoverage * 100).ToString("0.0", CultureInfo.InvariantCulture)}%";
+                return $"分割结果：{measurement}{judgement}";
+            }
+
+            if (resultList.Any(result => result.DataKind == YoloResultDataKind.Obb || result.Angle.HasValue))
+            {
+                ObbResultSummary obb = CreateObbSummary(resultList, labels);
+                ObbInstanceSummary? first = obb.Instances.FirstOrDefault();
+                string angleText = first?.Angle == null
+                    ? "角度未提供"
+                    : $"{first.Label} 角度 {first.Angle.Value.ToString("0.0", CultureInfo.InvariantCulture)}°";
+                return $"旋转框结果：{angleText}{judgement}";
+            }
+
+            if (resultList.Any(result => result.KeyPoints != null && result.KeyPoints.Length > 0))
+            {
+                PoseResultSummary pose = CreatePoseSummary(resultList, labels);
+                return $"姿态结果：目标 {pose.InstanceCount} 个，关键点 {pose.TotalKeyPointCount} 个，低置信度 {pose.LowConfidenceKeyPointCount} 个{judgement}";
+            }
+
+            string details = string.Join(", ", resultList.Take(8).Select(result =>
+            {
+                string label = ResolveLabel(result.ClassId, labels);
+                return $"{label} {result.Confidence.ToString("0.00", CultureInfo.InvariantCulture)}";
+            }));
+            string suffix = resultList.Count > 8 ? "..." : string.Empty;
+            return $"检测结果：{resultList.Count} 个；{details}{suffix}";
+        }
+
+        private static string FormatJudgement(bool? isQualified, string? judgementReason)
+        {
+            if (!isQualified.HasValue)
+            {
+                return string.Empty;
+            }
+
+            var builder = new StringBuilder();
+            builder.Append(isQualified.Value ? "，判定=OK" : "，判定=NG");
+            if (!string.IsNullOrWhiteSpace(judgementReason))
+            {
+                builder.Append("，原因=");
+                builder.Append(judgementReason.Trim());
+            }
+
+            return builder.ToString();
         }
     }
 }

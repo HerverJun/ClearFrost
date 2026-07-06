@@ -200,6 +200,33 @@ public class VisionDebugTests
             rule.ReferenceLabel == "body");
     }
 
+    [Theory]
+    [InlineData(InspectionRuleSetTemplateIds.ClassificationJudge, InspectionRuleTypes.Classification, "OK", "分类判定")]
+    [InlineData(InspectionRuleSetTemplateIds.SegmentationArea, InspectionRuleTypes.SegmentationArea, "glue", "分割面积判定")]
+    [InlineData(InspectionRuleSetTemplateIds.ObbAngle, InspectionRuleTypes.ObbAngle, "screw", "OBB 角度判定")]
+    [InlineData(InspectionRuleSetTemplateIds.PoseKeypoints, InspectionRuleTypes.PoseKeypoints, "person", "姿态关键点判定")]
+    public void 深度学习模板_JSON往返且保留中文摘要(
+        string templateId,
+        string expectedRuleType,
+        string targetLabel,
+        string expectedTemplateText)
+    {
+        InspectionRuleSet ruleSet = InspectionRuleSetTemplates.Create(
+            templateId,
+            new[] { targetLabel, "OK", "NG" },
+            targetLabel);
+
+        string json = InspectionRuleSetSerializer.Serialize(ruleSet);
+
+        InspectionRuleSetSerializer.TryDeserialize(json, out InspectionRuleSet restored, out string errorMessage)
+            .Should().BeTrue(errorMessage);
+        restored.Rules.Should().ContainSingle(rule => rule.Type == expectedRuleType);
+        json.Should().Contain(expectedRuleType);
+        InspectionRuleSetTemplates.ListTemplates()
+            .Select(item => item.GetType().GetProperty("name")?.GetValue(item)?.ToString() ?? string.Empty)
+            .Should().Contain(name => name.Contains(expectedTemplateText));
+    }
+
     [Fact]
     public void 参数对比摘要_列出生产与试运行差异()
     {

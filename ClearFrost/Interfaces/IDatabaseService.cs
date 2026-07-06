@@ -81,6 +81,8 @@ namespace ClearFrost.Interfaces
         public string ErrorStage { get; set; } = "";
         public string ErrorCode { get; set; } = "";
         public string ErrorMessage { get; set; } = "";
+        public string RuleSummary { get; set; } = "";
+        public string ResultJson { get; set; } = "";
     }
 
     /// <summary>

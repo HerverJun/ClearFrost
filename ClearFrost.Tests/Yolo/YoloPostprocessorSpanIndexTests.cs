@@ -79,6 +79,25 @@ public class YoloPostprocessorSpanIndexTests
     }
 
     [Fact]
+    public void Classify_Output_按置信度排序并保留ClassificationKind()
+    {
+        object detector = CreateDetector();
+        var tensor = new DenseTensor<float>(new[] { 1, 3 });
+        tensor[0, 0] = 0.20f;
+        tensor[0, 1] = 0.93f;
+        tensor[0, 2] = 0.81f;
+
+        List<YoloResult> results = InvokeFilter("FilterConfidence_Classify", detector, tensor, 0.5f);
+
+        results.Should().HaveCount(2);
+        results[0].DataKind.Should().Be(YoloResultDataKind.Classification);
+        results[0].ClassId.Should().Be(1);
+        results[0].Confidence.Should().BeApproximately(0.93f, Tolerance);
+        results[1].DataKind.Should().Be(YoloResultDataKind.Classification);
+        results[1].ClassId.Should().Be(2);
+    }
+
+    [Fact]
     public void Yolo5Detect_MidLayout_低目标置信度会跳过锚点()
     {
         object detector = CreateDetector();

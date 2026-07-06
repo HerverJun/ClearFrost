@@ -78,6 +78,74 @@ public class ClassificationRuleEvaluatorTests
         result.JudgeResult.IsQualified.Should().BeTrue();
     }
 
+    [Fact]
+    public void InspectionDecisionEvaluator_Detect按Roi过滤()
+    {
+        var evaluator = new InspectionDecisionEvaluator();
+
+        InspectionDecisionResult result = evaluator.Evaluate(new InspectionDecisionRequest
+        {
+            RuleSet = CountRuleSet("part", 1),
+            Detections = new[]
+            {
+                Detection(0, 20, 20),
+                Detection(0, 90, 90)
+            },
+            Labels = new[] { "part" },
+            ImageWidth = 100,
+            ImageHeight = 100,
+            Roi = new[] { 0f, 0f, 0.5f, 0.5f }
+        });
+
+        result.Succeeded.Should().BeTrue();
+        result.FilteredDetections.Should().ContainSingle()
+            .Which.CenterX.Should().Be(20);
+        result.JudgeResult.IsQualified.Should().BeTrue();
+    }
+
+    [Fact]
+    public void InspectionDecisionEvaluator_Multitask坐标结果按Roi过滤但分类保留()
+    {
+        var evaluator = new InspectionDecisionEvaluator();
+        YoloResult segmentation = Detection(2, 90, 90);
+        segmentation.MaskData = new OpenCvSharp.Mat(1, 1, OpenCvSharp.MatType.CV_32F, OpenCvSharp.Scalar.All(1));
+        var obb = new YoloResult();
+        obb.SetObbData(90, 90, 10, 10, 0.95f, 3, 15);
+        YoloResult pose = Detection(4, 90, 90);
+        pose.KeyPoints = new[] { new PosePoint { X = 90, Y = 90, Score = 0.9f } };
+
+        try
+        {
+            InspectionDecisionResult result = evaluator.Evaluate(new InspectionDecisionRequest
+            {
+                RuleSet = CountRuleSet("part", 1),
+                Detections = new[]
+                {
+                    Classification(0.93f, 0),
+                    Detection(1, 20, 20),
+                    Detection(1, 90, 90),
+                    segmentation,
+                    obb,
+                    pose
+                },
+                Labels = new[] { "OK", "part", "glue", "screw", "person" },
+                ImageWidth = 100,
+                ImageHeight = 100,
+                Roi = new[] { 0f, 0f, 0.5f, 0.5f }
+            });
+
+            result.Succeeded.Should().BeTrue();
+            result.FilteredDetections.Should().HaveCount(2);
+            result.FilteredDetections.Should().Contain(item => item.DataKind == YoloResultDataKind.Classification);
+            result.FilteredDetections.Should().Contain(item => item.ClassId == 1 && item.CenterX == 20);
+            result.JudgeResult.IsQualified.Should().BeTrue();
+        }
+        finally
+        {
+            segmentation.Dispose();
+        }
+    }
+
     private static InspectionRuleSet RuleSet(string expectedLabel, double minConfidence)
     {
         return new InspectionRuleSet
@@ -95,10 +163,33 @@ public class ClassificationRuleEvaluatorTests
         };
     }
 
+    private static InspectionRuleSet CountRuleSet(string label, int count)
+    {
+        return new InspectionRuleSet
+        {
+            Rules = new List<InspectionRule>
+            {
+                new InspectionRule
+                {
+                    Type = InspectionRuleTypes.Count,
+                    Label = label,
+                    Count = count
+                }
+            }
+        };
+    }
+
     private static YoloResult Classification(float confidence, int classId)
     {
         var result = new YoloResult();
         result.SetClassificationData(confidence, classId);
+        return result;
+    }
+
+    private static YoloResult Detection(int classId, float centerX, float centerY)
+    {
+        var result = new YoloResult();
+        result.SetDetectionData(centerX, centerY, 10, 10, 0.95f, classId);
         return result;
     }
 }

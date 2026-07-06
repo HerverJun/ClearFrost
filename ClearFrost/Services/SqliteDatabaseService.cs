@@ -1149,7 +1149,9 @@ namespace ClearFrost.Services
                         RenderedImagePath,
                         ErrorStage,
                         ErrorCode,
-                        ErrorMessage
+                        ErrorMessage,
+                        RuleSummary,
+                        ResultJson
                     FROM DetectionRecords
                     {whereClause}
                     ORDER BY Timestamp DESC, Id DESC
@@ -1185,7 +1187,9 @@ namespace ClearFrost.Services
                         RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
                         ErrorStage = GetStringOrDefault(reader, "ErrorStage"),
                         ErrorCode = GetStringOrDefault(reader, "ErrorCode"),
-                        ErrorMessage = GetStringOrDefault(reader, "ErrorMessage")
+                        ErrorMessage = GetStringOrDefault(reader, "ErrorMessage"),
+                        RuleSummary = GetStringOrDefault(reader, "RuleSummary"),
+                        ResultJson = GetStringOrDefault(reader, "ResultJson")
                     });
                     lastTimestamp = timestampText;
                     lastId = id;

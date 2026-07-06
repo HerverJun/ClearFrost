@@ -369,6 +369,8 @@ public class SqliteDatabaseServiceTests
                 ErrorStage = "Barcode",
                 ErrorCode = "NoBarcode",
                 ErrorMessage = "PLC 条码为空",
+                RuleSummary = "分类规则 OK",
+                ResultJson = "{\"DeepLearningSummary\":{\"Classification\":{\"Top1Label\":\"OK\",\"Top1Confidence\":0.93}}}",
                 ImagePath = @"C:\Trace\FAIL_2.jpg",
                 RenderedImagePath = @"C:\Trace\Rendered\FAIL_2_rendered.jpg"
             });
@@ -403,6 +405,8 @@ public class SqliteDatabaseServiceTests
             records[0].ErrorStage.Should().Be("Barcode");
             records[0].ErrorCode.Should().Be("NoBarcode");
             records[0].ErrorMessage.Should().Be("PLC 条码为空");
+            records[0].RuleSummary.Should().Be("分类规则 OK");
+            records[0].ResultJson.Should().Contain("DeepLearningSummary");
 
             List<DetectionTraceRecord> topRecords = await service.GetTraceRecordsAsync(new DetectionTraceQuery
             {

@@ -951,7 +951,7 @@ namespace ClearFrost.Services
                 Mat? renderedMat = TryRenderDetectionMat(frameToProcess, results, labels);
                 _statisticsService.RecordDetection(isQualified);
 
-                string objDesc = GetDetailedDetectionLog(results, labels);
+                string objDesc = GetDetailedDetectionLog(results, labels, result.JudgeResult);
                 string modelInfo = BuildFallbackStatus(result);
                 string ruleInfo = BuildRuleStatus(result.JudgeResult);
                 pipelineResult.StatusMessage = detectionFailed
@@ -1779,19 +1779,16 @@ namespace ClearFrost.Services
             });
         }
 
-        private static string GetDetailedDetectionLog(List<YoloResult> results, string[]? labels)
+        private static string GetDetailedDetectionLog(
+            List<YoloResult> results,
+            string[]? labels,
+            InspectionJudgeResult? judgeResult = null)
         {
-            if (results == null || results.Count == 0) return "未检测到目标";
-
-            var details = results.Select(r =>
-            {
-                string label = (labels != null && r.ClassId >= 0 && r.ClassId < labels.Length)
-                    ? labels[r.ClassId]
-                    : $"Class_{r.ClassId}";
-                return $"{label} {r.Confidence:F2}";
-            });
-
-            return $"Found {results.Count}: {string.Join(", ", details)}";
+            return DeepLearningResultSummarizer.CreateTaskAwareLogSummary(
+                results,
+                labels,
+                judgeResult?.IsQualified,
+                GetRulePrimaryReason(judgeResult));
         }
 
         private static string BuildRuleStatus(InspectionJudgeResult? judgeResult)
@@ -1863,71 +1860,6 @@ namespace ClearFrost.Services
             result.RuleSetJson = ruleSetJson ?? string.Empty;
             result.TargetLabel = fallbackGoal?.TargetLabel ?? string.Empty;
             result.ExpectedCount = fallbackGoal?.TargetCount ?? 0;
-        }
-
-        private static MultiModelCandidateEvaluator CreateRuleCandidateEvaluator(
-            InspectionRuleSet ruleSet,
-            int imageWidth,
-            int imageHeight,
-            float[]? roiSnapshot)
-        {
-            return candidate =>
-            {
-                var rawResults = candidate.Results?.ToList() ?? new List<YoloResult>();
-                List<YoloResult> filteredResults = FilterResultsByROI(rawResults, imageWidth, imageHeight, roiSnapshot);
-                InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(ruleSet, filteredResults, candidate.Labels);
-
-                return new MultiModelCandidateEvaluation
-                {
-                    IsMatch = judgeResult.IsQualified,
-                    Score = ScoreRuleCandidate(judgeResult, filteredResults.Count),
-                    Summary = judgeResult.Summary
-                };
-            };
-        }
-
-        private static int ScoreRuleCandidate(InspectionJudgeResult judgeResult, int filteredCount)
-        {
-            int matchedRules = judgeResult.RuleResults.Count(result => result.IsMatch);
-            int failedRules = judgeResult.RuleResults.Count - matchedRules;
-            int score = matchedRules * 1000 - failedRules * 100 + Math.Min(filteredCount, 100);
-            return judgeResult.IsQualified ? score + 1_000_000 : score;
-        }
-
-        private static List<YoloResult> FilterResultsByROI(
-            List<YoloResult> results,
-            int imageWidth,
-            int imageHeight,
-            float[]? roi)
-        {
-            if (roi == null || roi.Length != 4 || roi[2] <= 0.001f || roi[3] <= 0.001f)
-            {
-                return results;
-            }
-
-            float roiX = roi[0] * imageWidth;
-            float roiY = roi[1] * imageHeight;
-            float roiW = roi[2] * imageWidth;
-            float roiH = roi[3] * imageHeight;
-
-            Debug.WriteLine($"[ROI过滤] ROI区域: X={roiX:F0}, Y={roiY:F0}, W={roiW:F0}, H={roiH:F0}");
-
-            var filtered = results.Where(r =>
-            {
-                float centerX = r.CenterX;
-                float centerY = r.CenterY;
-                bool inROI = centerX >= roiX && centerX <= roiX + roiW &&
-                             centerY >= roiY && centerY <= roiY + roiH;
-                if (!inROI)
-                {
-                    Debug.WriteLine($"[ROI过滤] 过滤掉: 中心点({centerX:F0},{centerY:F0}) 不在ROI内");
-                }
-
-                return inROI;
-            }).ToList();
-
-            Debug.WriteLine($"[ROI过滤] 过滤前: {results.Count} 个, 过滤后: {filtered.Count} 个");
-            return filtered;
         }
 
         private static int ClampLongToInt(long value)

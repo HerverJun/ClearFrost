@@ -143,6 +143,80 @@ public class DeepLearningResultSummarizerTests
         summary.LowConfidenceKeyPointCount.Should().Be(1);
     }
 
+    [Fact]
+    public void TaskAwareLogSummary_Classification使用Top1而不是Found()
+    {
+        string summary = DeepLearningResultSummarizer.CreateTaskAwareLogSummary(
+            new[] { Classification(0.93f, 0) },
+            new[] { "OK" },
+            isQualified: true,
+            judgementReason: "分类匹配");
+
+        summary.Should().Contain("分类结果");
+        summary.Should().Contain("Top1=OK");
+        summary.Should().Contain("判定=OK");
+        summary.Should().NotContain("Found");
+    }
+
+    [Fact]
+    public void TaskAwareLogSummary_Segmentation显示面积覆盖率()
+    {
+        using Mat mask = new Mat(2, 2, MatType.CV_32F, new float[]
+        {
+            1.0f, 0.7f,
+            0.0f, 0.1f
+        });
+        var result = Detection(0, confidence: 0.91f);
+        result.MaskData = mask.Clone();
+
+        string summary = DeepLearningResultSummarizer.CreateTaskAwareLogSummary(
+            new[] { result },
+            new[] { "glue" },
+            isQualified: true);
+
+        summary.Should().Contain("分割结果");
+        summary.Should().Contain("面积 2");
+        summary.Should().Contain("覆盖率 50.0%");
+        result.Dispose();
+    }
+
+    [Fact]
+    public void TaskAwareLogSummary_Obb显示角度()
+    {
+        var result = new YoloResult();
+        result.SetObbData(10, 20, 30, 40, 0.91f, 0, 12.5f);
+
+        string summary = DeepLearningResultSummarizer.CreateTaskAwareLogSummary(
+            new[] { result },
+            new[] { "screw" },
+            isQualified: true);
+
+        summary.Should().Contain("旋转框结果");
+        summary.Should().Contain("角度 12.5°");
+    }
+
+    [Fact]
+    public void TaskAwareLogSummary_Pose显示关键点统计()
+    {
+        var result = Detection(0, confidence: 0.88f);
+        result.KeyPoints = new[]
+        {
+            new PosePoint { X = 1, Y = 2, Score = 0.9f },
+            new PosePoint { X = 3, Y = 4, Score = 0.2f }
+        };
+
+        string summary = DeepLearningResultSummarizer.CreateTaskAwareLogSummary(
+            new[] { result },
+            new[] { "person" },
+            isQualified: false,
+            judgementReason: "低置信度");
+
+        summary.Should().Contain("姿态结果");
+        summary.Should().Contain("关键点 2 个");
+        summary.Should().Contain("低置信度 1 个");
+        summary.Should().Contain("判定=NG");
+    }
+
     private static YoloModelDescriptor Descriptor(YoloModelTask task, YoloOutputLayout layout)
     {
         return new YoloModelDescriptor

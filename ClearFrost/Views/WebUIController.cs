@@ -1618,6 +1618,8 @@ namespace ClearFrost
                 errorStage = record.ErrorStage,
                 errorCode = record.ErrorCode,
                 errorMessage = record.ErrorMessage,
+                ruleSummary = record.RuleSummary,
+                resultJson = record.ResultJson,
                 imagePath = resolution.ImagePath,
                 renderedImagePath = resolution.RenderedImagePath,
                 imageUrl = imageUrl,

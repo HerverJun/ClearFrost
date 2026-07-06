@@ -1,0 +1,3 @@
+﻿ONNX_GENERATION_SKIPPED
+Reason: python package 'onnx' is not installed
+No internet install attempted.

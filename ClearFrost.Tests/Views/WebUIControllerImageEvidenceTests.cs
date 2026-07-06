@@ -73,7 +73,9 @@ public class WebUIControllerImageEvidenceTests
                 new DetectionTraceRecord
                 {
                     ImagePath = imagePath,
-                    RenderedImagePath = linkedRendered
+                    RenderedImagePath = linkedRendered,
+                    RuleSummary = "分类规则 OK",
+                    ResultJson = "{\"DeepLearningSummary\":{\"Classification\":{\"Top1Label\":\"OK\",\"Top1Confidence\":0.93}}}"
                 });
 
             payload.GetPropertyValue("hasImage").Should().Be(true);
@@ -81,6 +83,8 @@ public class WebUIControllerImageEvidenceTests
             payload.GetPropertyValue("renderedImageUrl").Should().BeNull();
             payload.GetPropertyValue("imageUrl").Should().Be("http://ng-images.local/FAIL_CF-TRACE-001.jpg");
             payload.GetPropertyValue("displayImageUrl").Should().Be("http://ng-images.local/FAIL_CF-TRACE-001.jpg");
+            payload.GetPropertyValue("ruleSummary").Should().Be("分类规则 OK");
+            payload.GetPropertyValue("resultJson").Should().Be("{\"DeepLearningSummary\":{\"Classification\":{\"Top1Label\":\"OK\",\"Top1Confidence\":0.93}}}");
             File.ReadAllText(externalRendered).Should().Be("external rendered");
         }
         finally

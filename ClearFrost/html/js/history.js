@@ -1,4 +1,4 @@
-// ==========================================
+﻿// ==========================================
 // ClearFrost history, logs and gallery
 // ==========================================
 (function () {
@@ -208,8 +208,12 @@
             const reviewLabel = record.hasRenderedImage ? "复查图" : "无复查图";
             const model = record.modelVersion || record.modelName || "-";
             const adviceText = getTraceAdviceText(record, "建议");
+            const deepLearningText = record.deepLearningTraceSummary || "";
             const adviceMarkup = adviceText
                 ? `<p class="cf-trace-advice">${escapeHtml(adviceText)}</p>`
+                : "";
+            const deepLearningMarkup = deepLearningText
+                ? `<p>深度学习: ${escapeHtml(deepLearningText)}</p>`
                 : "";
             const imageMarkup = url
                 ? `<img src="${url}" loading="lazy" decoding="async" alt="${escapeHtml(record.inspectionId)}">`
@@ -227,6 +231,7 @@
                         <p>ID: ${escapeHtml(record.inspectionId || "-")}</p>
                         <p>模型: ${escapeHtml(model)}</p>
                         <p>相机: ${escapeHtml(record.cameraId || "-")}</p>
+                        ${deepLearningMarkup}
                         ${adviceMarkup}
                     </div>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
@@ -746,6 +751,82 @@
         return "";
     }
 
+    function parseJsonObject(value) {
+        if (!value) return null;
+        if (typeof value === "object") return value;
+        if (typeof value !== "string") return null;
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === "object" ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
+    function getSummarySection(source, pascalName, camelName) {
+        if (!source || typeof source !== "object") return null;
+        return source[pascalName] || source[camelName] || null;
+    }
+
+    function extractDeepLearningSummary(resultJson) {
+        const parsed = parseJsonObject(resultJson);
+        if (!parsed) return null;
+        return parsed.DeepLearningSummary || parsed.deepLearningSummary || null;
+    }
+
+    function formatNumber(value, digits = 2) {
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? numberValue.toFixed(digits) : "";
+    }
+
+    function firstArrayItem(source, pascalName, camelName) {
+        const items = source?.[pascalName] || source?.[camelName] || [];
+        return Array.isArray(items) && items.length > 0 ? items[0] : null;
+    }
+
+    function formatTraceDeepLearningSummary(record) {
+        const summary = record?.deepLearningSummary;
+        if (!summary) return "";
+
+        const classification = getSummarySection(summary, "Classification", "classification");
+        const top1Label = classification?.Top1Label || classification?.top1Label || "";
+        const top1Confidence = classification?.Top1Confidence ?? classification?.top1Confidence;
+        if (top1Label) {
+            const confidence = formatNumber(top1Confidence);
+            return confidence ? `分类 Top1=${top1Label} ${confidence}` : `分类 Top1=${top1Label}`;
+        }
+
+        const segmentation = getSummarySection(summary, "Segmentation", "segmentation");
+        const segmentationCount = Number(segmentation?.InstanceCount ?? segmentation?.instanceCount ?? 0);
+        if (segmentationCount > 0) {
+            const instance = firstArrayItem(segmentation, "Instances", "instances");
+            const area = formatNumber(instance?.MaskArea ?? instance?.maskArea, 0);
+            const coverageValue = Number(instance?.MaskCoverage ?? instance?.maskCoverage);
+            const coverage = Number.isFinite(coverageValue) ? (coverageValue * 100).toFixed(1) : "";
+            const detail = [area ? `面积 ${area}` : "", coverage ? `覆盖率 ${coverage}%` : ""].filter(Boolean).join("，");
+            return detail ? `分割 ${segmentationCount} 个，${detail}` : `分割 ${segmentationCount} 个`;
+        }
+
+        const obb = getSummarySection(summary, "Obb", "obb");
+        const obbCount = Number(obb?.InstanceCount ?? obb?.instanceCount ?? 0);
+        if (obbCount > 0) {
+            const instance = firstArrayItem(obb, "Instances", "instances");
+            const label = instance?.Label || instance?.label || "";
+            const angle = formatNumber(instance?.Angle ?? instance?.angle, 1);
+            const angleText = angle ? `角度 ${angle}°` : "角度未提供";
+            return `OBB ${label ? `${label} ` : ""}${angleText}`;
+        }
+
+        const pose = getSummarySection(summary, "Pose", "pose");
+        const poseCount = Number(pose?.InstanceCount ?? pose?.instanceCount ?? 0);
+        const keyPointCount = Number(pose?.TotalKeyPointCount ?? pose?.totalKeyPointCount ?? 0);
+        if (poseCount > 0 || keyPointCount > 0) {
+            return `姿态 ${poseCount} 个，关键点 ${keyPointCount} 个`;
+        }
+
+        return "";
+    }
+
     function normalizeTraceRecord(item) {
         if (typeof item === "string") {
             const baseUrl = `http://ng-images.local/Unqualified/${window.currentNGDate}/${window.currentNGHour}/`;
@@ -761,6 +842,10 @@
                 displayImageUrl: url,
                 hasRenderedImage: false,
                 missingRenderedImage: true,
+                ruleSummary: "",
+                resultJson: "",
+                deepLearningSummary: null,
+                deepLearningTraceSummary: "",
             };
         }
 
@@ -769,10 +854,12 @@
         const renderedImageUrl = pickTraceValue(record, "renderedImageUrl", "RenderedImageUrl");
         const missingRenderedImageValue = pickTraceValue(record, "missingRenderedImage", "MissingRenderedImage");
         const hasRenderedImageValue = pickTraceValue(record, "hasRenderedImage", "HasRenderedImage");
+        const resultJson = pickTraceValue(record, "resultJson", "ResultJson") || "";
+        const deepLearningSummary = extractDeepLearningSummary(resultJson);
         const hasRenderedImage = hasRenderedImageValue !== ""
             ? toBoolean(hasRenderedImageValue)
             : Boolean(renderedImageUrl) && !toBoolean(missingRenderedImageValue);
-        return {
+        const normalized = {
             inspectionId: pickTraceValue(record, "inspectionId", "InspectionId") || "-",
             detectionRecordId: toNullableNumber(pickTraceValue(record, "detectionRecordId", "DetectionRecordId", "id", "Id")),
             productBarcode: pickTraceValue(record, "productBarcode", "ProductBarcode") || "-",
@@ -786,6 +873,9 @@
             errorMessage: pickTraceValue(record, "errorMessage", "ErrorMessage") || "",
             imagePath: pickTraceValue(record, "imagePath", "ImagePath") || "",
             renderedImagePath: pickTraceValue(record, "renderedImagePath", "RenderedImagePath") || "",
+            ruleSummary: pickTraceValue(record, "ruleSummary", "RuleSummary") || "",
+            resultJson,
+            deepLearningSummary,
             imageUrl,
             renderedImageUrl,
             thumbnailUrl: pickTraceValue(record, "thumbnailUrl", "ThumbnailUrl") || renderedImageUrl || imageUrl,
@@ -793,6 +883,8 @@
             hasRenderedImage,
             missingRenderedImage: hasRenderedImageValue !== "" ? !toBoolean(hasRenderedImageValue) : !renderedImageUrl || toBoolean(missingRenderedImageValue),
         };
+        normalized.deepLearningTraceSummary = formatTraceDeepLearningSummary(normalized);
+        return normalized;
     }
 
     function getTraceAdviceText(record, prefix = "处理建议") {
@@ -925,6 +1017,10 @@
             const statusText = normalized.hasRenderedImage ? "复查图" : "无复查图";
             const canRulePreview = Boolean(normalized.imagePath || normalized.renderedImagePath || originalUrl || reviewUrl);
             const adviceText = getTraceAdviceText(normalized);
+            const summaryLine = [
+                normalized.deepLearningTraceSummary ? `深度学习: ${normalized.deepLearningTraceSummary}` : "",
+                normalized.ruleSummary ? `规则: ${normalized.ruleSummary}` : "",
+            ].filter(Boolean).join(" · ");
             info.innerHTML = `
                 <div class="cf-trace-viewer-toolbar">
                     <div class="cf-trace-viewer-meta">
@@ -938,6 +1034,7 @@
                         <button type="button" data-trace-action="rule-preview" data-can-preview="${canRulePreview ? "true" : "false"}" ${canRulePreview ? "" : "disabled"}>当前规则复判</button>
                     </div>
                 </div>
+                <div class="cf-trace-preview-status ${summaryLine ? "" : "hidden"}">${escapeHtml(summaryLine)}</div>
                 <div class="cf-trace-preview-status error ${adviceText ? "" : "hidden"}">${escapeHtml(adviceText)}</div>
                 <div id="history-rule-preview-status" class="cf-trace-preview-status hidden"></div>`;
 
