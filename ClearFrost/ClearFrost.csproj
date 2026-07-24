@@ -22,7 +22,7 @@
     <Authors>蘅芜君</Authors>
     <Company>蘅芜君</Company>
     <Copyright>Copyright (c) 2026 蘅芜君</Copyright>
-    <Version>5.8.7</Version>
+    <Version>6.0.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <!-- [安全工业模式] DPI manifest -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -64,7 +64,7 @@
   </Target>
 
   <Target Name="BundleWebUiScripts" BeforeTargets="BeforeBuild">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;$files = @('html\js\bridge.js','html\js\state.js','html\js\render-main.js','html\js\settings.js','html\js\camera.js','html\js\history.js','html\js\roi.js','html\js\boot.js','html\js\app.js','html\js\ui.js'); $encoding = New-Object System.Text.UTF8Encoding($true); $content = [string]::Join([Environment]::NewLine, ($files | ForEach-Object { [System.IO.File]::ReadAllText((Join-Path '$(MSBuildProjectDirectory)' $_)) })); [System.IO.File]::WriteAllText((Join-Path '$(MSBuildProjectDirectory)' 'html\js\bundle.js'), $content, $encoding)&quot;" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;$files = @('html\js\bridge.js','html\js\state.js','html\js\coordinate-mapping.js','html\js\render-main.js','html\js\settings.js','html\js\camera.js','html\js\history.js','html\js\roi.js','html\js\boot.js','html\js\app.js','html\js\ui.js'); $encoding = New-Object System.Text.UTF8Encoding($true); $content = [string]::Join([Environment]::NewLine, ($files | ForEach-Object { [System.IO.File]::ReadAllText((Join-Path '$(MSBuildProjectDirectory)' $_)) })); [System.IO.File]::WriteAllText((Join-Path '$(MSBuildProjectDirectory)' 'html\js\bundle.js'), $content, $encoding)&quot;" />
   </Target>
 
   <!-- 本地华睿 MVSDK_Net DLL 引用 (官方托管 SDK，包含 MyCamera 类) -->

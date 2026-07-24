@@ -49,7 +49,7 @@ namespace ClearFrost.Models
         public void SetSavePath(string basePath)
         {
             string dir = Path.Combine(basePath, "System");
-            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            StatisticsFilePathGuard.EnsureDirectorySafeForWrite(dir, "历史统计目录");
             _savePath = Path.Combine(dir, "statistics_history.json");
         }
 
@@ -94,6 +94,7 @@ namespace ClearFrost.Models
             {
                 if (File.Exists(filePath))
                 {
+                    StatisticsFilePathGuard.EnsureFileSafeForRead(filePath, "历史统计文件");
                     string json = File.ReadAllText(filePath);
                     var history = JsonSerializer.Deserialize<StatisticsHistory>(json);
                     if (history != null)

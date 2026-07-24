@@ -1,4 +1,4 @@
-# 清霜视觉检测系统 V5.7 正式版 (ClearFrost)
+# 清霜视觉检测系统 V6.0.0 正式版 (ClearFrost)
 
 <p align="center">
   <img src="ClearFrost/icon_transparent.png" width="120" alt="ClearFrost Logo">
@@ -14,10 +14,12 @@
   <img src="https://img.shields.io/badge/YOLO-v8%2Fv11%2Fv26-00FFFF" alt="YOLO">
   <img src="https://img.shields.io/badge/OpenCV-4.8-5C3EE8?logo=opencv" alt="OpenCV">
   <img src="https://img.shields.io/badge/Platform-Windows%20x64-0078D6?logo=windows" alt="Windows x64">
-  <img src="https://img.shields.io/badge/Release-V5.7-16A34A" alt="ClearFrost V5.7">
+  <img src="https://img.shields.io/badge/Release-V6.0.0-16A34A" alt="ClearFrost V6.0.0">
 </p>
 
-> V5.7 的重点是现场可交付：稳定检测链路、多模型追溯、配置迁移、可版本化发布，以及更适合产线维护的发布流程。
+> V6.0.0 的重点是生产闭环：稳定检测链路、多模型追溯、回放验证审批、配置迁移、可版本化发布，以及更适合产线维护的发布流程。
+
+> V6_test 默认以现场轻量部署为主，严格模型准入和回放验证属于工程师高级维护能力。普通产线不强制模型审批证据，详见 `docs/V6_FIELD_DEPLOYMENT_MODE.md`。
 
 ---
 
@@ -25,8 +27,8 @@
 
 | 项目 | 内容 |
 |------|------|
-| 当前系列 | `V5.7` |
-| 默认项目版本 | `5.7.0` |
+| 当前系列 | `V6.0.0` |
+| 默认项目版本 | `6.0.0` |
 | 目标框架 | `net8.0-windows10.0.17763.0` |
 | 平台 | Windows x64 |
 | 主项目 | `ClearFrost/ClearFrost.csproj` |
@@ -36,7 +38,7 @@
 
 ---
 
-## V5.7 重点能力
+## V6.0.0 重点能力
 
 ### 视觉检测
 
@@ -66,7 +68,7 @@
 
 - 新增统一发布器 `脚本/publish.ps1`
 - 支持 Lite / Full / Both 三种发布模式
-- 发布时输入版本号，例如 `5.7.1`
+- 发布时输入版本号，例如 `6.0.0`
 - 自动生成版本化输出目录和 `VERSION.txt`
 - 可选生成 zip 包
 - 缺少根目录 `check_env.bat` 时自动生成环境检查脚本
@@ -138,39 +140,39 @@ dotnet run --project ClearFrost/ClearFrost.csproj -c Debug
 版本输入示例：
 
 ```text
-5.7.1
+6.0.0
 ```
 
 ### 命令行发布
 
 ```bat
-脚本\publish_lite.bat 5.7.1 -Zip
-脚本\publish_full.bat 5.7.1 -Zip
+脚本\publish_lite.bat 6.0.0 -Zip
+脚本\publish_full.bat 6.0.0 -Zip
 ```
 
 或直接使用 PowerShell：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\脚本\publish.ps1 -Mode Full -Version 5.7.1 -Zip -OpenOutput
+powershell -NoProfile -ExecutionPolicy Bypass -File .\脚本\publish.ps1 -Mode Full -Version 6.0.0 -Zip -OpenOutput
 ```
 
 输出目录示例：
 
 ```text
-PublishOutput\ClearFrost_5.7.1_Lite
-PublishOutput\ClearFrost_5.7.1_Lite.zip
-PublishOutput\ClearFrost_5.7.1_Full
-PublishOutput\ClearFrost_5.7.1_Full.zip
+PublishOutput\ClearFrost_6.0.0_Lite
+PublishOutput\ClearFrost_6.0.0_Lite.zip
+PublishOutput\ClearFrost_6.0.0_Full
+PublishOutput\ClearFrost_6.0.0_Full.zip
 ```
 
 版本号建议：
 
 | 类型 | 示例 | 说明 |
 |------|------|------|
-| 当前正式版 | `5.7.0` | V5.7 初始正式包 |
-| 修复版 | `5.7.1` | 小 bug 修复、补丁更新 |
-| 功能更新 | `5.8.0` | 新增一批功能但仍在 V5 系列 |
-| 大版本 | `6.0.0` | 兼容性或架构级变化 |
+| 当前正式版 | `6.0.0` | V6.0.0 初始正式包 |
+| 修复版 | `6.0.1` | 小 bug 修复、补丁更新 |
+| 功能更新 | `6.1.0` | 新增一批功能但仍在 V6 系列 |
+| 大版本 | `7.0.0` | 兼容性或架构级变化 |
 
 ---
 
@@ -238,10 +240,10 @@ NuGet 依赖由 `dotnet restore` 自动还原，主要包括：
 
 ### 发布时输入什么版本号？
 
-如果当前是 `5.7.0`，后续修复版输入：
+如果当前是 `6.0.0`，后续修复版输入：
 
 ```text
-5.7.1
+6.0.1
 ```
 
 如果只是重新打当前版本的包，直接按回车使用默认值即可。
@@ -270,12 +272,13 @@ VERSION.txt
 
 ## 更新日志
 
-### v5.7 (2026-05-22)
+### v6.0.0 (2026-07-04)
 
 - 新增统一发布器，支持发布时指定版本号
 - 窗口标题从程序集版本自动生成，避免手工忘改
 - 配置迁移导出使用统一应用版本
 - WebView2 用户数据目录按版本隔离
+- 增加生产模型上线管控、回放验证审批和 PLC 握手闭环
 - 发布产物自动生成 `VERSION.txt`
 - 缺少环境检查脚本时自动生成 `check_env.bat`
 
@@ -291,11 +294,11 @@ VERSION.txt
 
 ## 维护建议
 
-- 发布正式包时固定使用三段版本号，例如 `5.7.1`
+- 发布正式包时固定使用三段版本号，例如 `6.0.0`
 - 每次现场交付保留 `PublishOutput` 中的 zip 包和 `VERSION.txt`
 - 模型文件、相机 SDK、现场配置不要直接提交到 Git
 - 修改发布流程后至少验证一次 Lite 发布和一次 Debug x64 构建
 
 ---
 
-**最后更新**: 2026-05-22
+**最后更新**: 2026-07-04

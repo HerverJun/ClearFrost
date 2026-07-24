@@ -19,6 +19,7 @@ $textFileNames = @(
 $bomRequiredExtensions = @(".cs", ".ps1")
 $skipFragments = @(
     "\.git\",
+    "\artifacts\",
     "\bin\",
     "\obj\",
     "\node_modules\",
@@ -106,7 +107,7 @@ Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object {
 
     foreach ($sentinel in $mojibakeSentinels) {
         if ($text.Contains($sentinel)) {
-            $badFiles.Add("Mojibake sentinel U+{0:X4}: {1}" -f [int][char]$sentinel[0], $file.FullName)
+            $badFiles.Add(("Mojibake sentinel U+{0:X4}: {1}" -f [int][char]$sentinel[0], $file.FullName))
             break
         }
     }

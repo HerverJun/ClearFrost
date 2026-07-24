@@ -41,6 +41,24 @@ using ClearFrost.Services;
 
 namespace ClearFrost
 {
+    public sealed class WebUiCommandEventArgs : EventArgs
+    {
+        public WebUiCommandEventArgs(string requestId, string payloadJson, string command = "")
+        {
+            RequestId = requestId ?? string.Empty;
+            Command = command ?? string.Empty;
+            PayloadJson = string.IsNullOrWhiteSpace(payloadJson) || string.Equals(payloadJson, "null", StringComparison.OrdinalIgnoreCase)
+                ? "{}"
+                : payloadJson;
+        }
+
+        public string RequestId { get; }
+
+        public string Command { get; }
+
+        public string PayloadJson { get; }
+    }
+
     /// <summary>
     /// Manages the WebView2 control and communication between C# and the Web frontend.
     /// </summary>
@@ -83,6 +101,15 @@ namespace ClearFrost
         public event EventHandler? OnStartDrag;
         public event EventHandler? OnConnectPlc;
         public event EventHandler? OnRequestHealthSnapshot;
+        public event EventHandler<WebUiCommandEventArgs>? OnExportDiagnosticPackage;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryDiagnosticPackages;
+        public event EventHandler<WebUiCommandEventArgs>? OnVerifyDiagnosticPackage;
+        public event EventHandler<WebUiCommandEventArgs>? OnMaintenanceAdviceAction;
+        public event EventHandler<WebUiCommandEventArgs>? OnShiftTaskAction;
+        public event EventHandler<WebUiCommandEventArgs>? OnExportFieldHandoffReport;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryFieldHandoffReports;
+        public event EventHandler<WebUiCommandEventArgs>? OnFieldDebugCommand;
+        public event EventHandler<WebUiCommandEventArgs>? OnVisionDebugCommand;
         public event EventHandler<float[]>? OnUpdateROI;
         public event EventHandler<float>? OnSetConfidence;
         public event EventHandler<float>? OnSetIou;
@@ -99,6 +126,19 @@ namespace ClearFrost
         public event EventHandler? OnResetStatistics;
         public event EventHandler? OnCollectDataset;
         public event EventHandler<string>? OnRunHistoryRulePreview;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryManualReviewRecords;
+        public event EventHandler<WebUiCommandEventArgs>? OnSaveManualReview;
+        public event EventHandler<WebUiCommandEventArgs>? OnCreateReplayDataset;
+        public event EventHandler<WebUiCommandEventArgs>? OnRunReplayComparison;
+        public event EventHandler<WebUiCommandEventArgs>? OnApproveReplayCandidate;
+        public event EventHandler<WebUiCommandEventArgs>? OnPreviewReplayDataset;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryReplayDatasets;
+        public event EventHandler<WebUiCommandEventArgs>? OnArchiveReplayDataset;
+        public event EventHandler<WebUiCommandEventArgs>? OnCancelReplayRun;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryReplayRuns;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryReplayReport;
+        public event EventHandler<WebUiCommandEventArgs>? OnQueryModelApprovalEvidence;
+        public event EventHandler<WebUiCommandEventArgs>? OnRunReplayIntegrityScan;
 
         // ================== 多相机事件 ==================
         public event EventHandler? OnGetCameraList;
@@ -126,6 +166,8 @@ namespace ClearFrost
         public string ImageBasePath { get; set; } = "";
         public bool UseFileBackedImageTransport { get; set; }
         public IDatabaseService? DatabaseService { get; set; }
+        internal OperationAuditService? AuditService { get; set; }
+        internal Func<CancellationToken, Task<OperationAuditChainVerificationResult>>? AuditChainVerifier { get; set; }
 
         /// <summary>
         /// Maps the image folder to a virtual host for direct access.
@@ -133,7 +175,7 @@ namespace ClearFrost
         public void SetImageMapping(string localPath)
         {
             WebView2? webView = _webView;
-            if (!IsWebViewControlUsable(webView) || !Directory.Exists(localPath))
+            if (!IsWebViewControlUsable(webView) || !IsSafeImageMappingDirectory(localPath))
             {
                 return;
             }
@@ -313,24 +355,43 @@ namespace ClearFrost
         /// <summary>
         /// Sends the real-time camera image as base64 to the frontend.
         /// </summary>
-        public async Task UpdateImage(string base64Image)
+        public Task UpdateImage(
+            string base64Image,
+            int sourceWidth = 0,
+            int sourceHeight = 0,
+            int previewWidth = 0,
+            int previewHeight = 0)
         {
-            if (!IsWebViewControlUsable(_webView)) return;
+            if (!IsWebViewControlUsable(_webView)) return Task.CompletedTask;
             PostMessage("previewFrame", new
             {
                 base64 = base64Image,
-                frameId = Interlocked.Increment(ref _previewFrameId)
+                frameId = Interlocked.Increment(ref _previewFrameId),
+                sourceWidth = Math.Max(0, sourceWidth),
+                sourceHeight = Math.Max(0, sourceHeight),
+                previewWidth = Math.Max(0, previewWidth),
+                previewHeight = Math.Max(0, previewHeight)
             });
+            return Task.CompletedTask;
         }
 
-        public Task UpdateImageUrl(string url)
+        public Task UpdateImageUrl(
+            string url,
+            int sourceWidth = 0,
+            int sourceHeight = 0,
+            int previewWidth = 0,
+            int previewHeight = 0)
         {
             if (!IsWebViewControlUsable(_webView)) return Task.CompletedTask;
 
             PostMessage("previewFrame", new
             {
                 url = url,
-                frameId = Interlocked.Increment(ref _previewFrameId)
+                frameId = Interlocked.Increment(ref _previewFrameId),
+                sourceWidth = Math.Max(0, sourceWidth),
+                sourceHeight = Math.Max(0, sourceHeight),
+                previewWidth = Math.Max(0, previewWidth),
+                previewHeight = Math.Max(0, previewHeight)
             });
             return Task.CompletedTask;
         }
@@ -372,12 +433,12 @@ namespace ClearFrost
 
                 if (UseFileBackedImageTransport && !string.IsNullOrWhiteSpace(_webPreviewCachePath))
                 {
-                    await UpdateImageFileAsync(encoded);
+                    await UpdateImageFileAsync(encoded, image.Width, image.Height, resized.Width, resized.Height);
                 }
                 else
                 {
                     string base64 = Convert.ToBase64String(encoded);
-                    await UpdateImage(base64);
+                    await UpdateImage(base64, image.Width, image.Height, resized.Width, resized.Height);
                 }
 
                 Volatile.Write(ref _lastImagePushTick, Environment.TickCount64);
@@ -410,12 +471,17 @@ namespace ClearFrost
             return Task.CompletedTask;
         }
 
-        private async Task UpdateImageFileAsync(byte[] encoded)
+        private async Task UpdateImageFileAsync(
+            byte[] encoded,
+            int sourceWidth = 0,
+            int sourceHeight = 0,
+            int previewWidth = 0,
+            int previewHeight = 0)
         {
             if (string.IsNullOrWhiteSpace(_webPreviewCachePath))
             {
                 string base64 = Convert.ToBase64String(encoded);
-                await UpdateImage(base64);
+                await UpdateImage(base64, sourceWidth, sourceHeight, previewWidth, previewHeight);
                 return;
             }
 
@@ -426,7 +492,7 @@ namespace ClearFrost
             await File.WriteAllBytesAsync(filePath, encoded);
 
             string imageUrl = $"https://{PreviewHostName}/{fileName}?t={Environment.TickCount64}";
-            await UpdateImageUrl(imageUrl);
+            await UpdateImageUrl(imageUrl, sourceWidth, sourceHeight, previewWidth, previewHeight);
         }
 
         private static Mat ResizeForPreview(Mat image, int targetWidth, int targetHeight)
@@ -454,7 +520,7 @@ namespace ClearFrost
         /// <summary>
         /// Sends the model list to the frontend (Requirement from Step 177/147).
         /// </summary>
-        public Task SendModelList(string[] models)
+        public Task SendModelList(object models)
         {
             PostMessage("modelList", new { models = models });
             return Task.CompletedTask;
@@ -636,6 +702,9 @@ namespace ClearFrost
         /// </summary>
         private async void CoreWebView2_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
+            string? requestId = null;
+            string cmd = string.Empty;
+
             try
             {
                 // Use WebMessageAsJson as TryGetWebMessageAsString might be missing/obsolete
@@ -646,12 +715,12 @@ namespace ClearFrost
                 using (JsonDocument doc = JsonDocument.Parse(json))
                 {
                     JsonElement root = doc.RootElement;
-                    string? requestId = root.TryGetProperty("requestId", out JsonElement requestIdElement)
+                    requestId = root.TryGetProperty("requestId", out JsonElement requestIdElement)
                         ? requestIdElement.GetString()
                         : null;
                     if (root.TryGetProperty("cmd", out JsonElement cmdElement))
                     {
-                        string cmd = cmdElement.GetString() ?? string.Empty;
+                        cmd = cmdElement.GetString() ?? string.Empty;
 
                         switch (cmd)
                         {
@@ -767,6 +836,42 @@ namespace ClearFrost
                             case "request_health_snapshot":
                                 OnRequestHealthSnapshot?.Invoke(this, EventArgs.Empty);
                                 break;
+                            case "export_diagnostic_package":
+                                OnExportDiagnosticPackage?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "query_diagnostic_packages":
+                                OnQueryDiagnosticPackages?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "verify_diagnostic_package":
+                                OnVerifyDiagnosticPackage?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "maintenance_advice_action":
+                                OnMaintenanceAdviceAction?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "shift_task_action":
+                                OnShiftTaskAction?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "export_field_handoff_report":
+                                OnExportFieldHandoffReport?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "query_field_handoff_reports":
+                                OnQueryFieldHandoffReports?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "field_debug_step_capture":
+                            case "field_debug_step_infer":
+                            case "field_debug_plc_write_test":
+                            case "field_debug_barcode_read_test":
+                            case "field_debug_simulate_trigger":
+                                OnFieldDebugCommand?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "vision_debug_query_recent":
+                            case "vision_debug_run_current":
+                            case "vision_debug_run_history":
+                            case "vision_debug_run_batch":
+                            case "vision_debug_save_params":
+                            case "vision_debug_apply_template":
+                                OnVisionDebugCommand?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
                             case "set_confidence":
                                 if (root.TryGetProperty("value", out JsonElement confElement))
                                 {
@@ -857,6 +962,21 @@ namespace ClearFrost
                             case "get_detection_logs":
                                 await SendDetectionLogs();
                                 break;
+                            case "query_audit_records":
+                                if (root.TryGetProperty("value", out JsonElement auditQueryElement))
+                                {
+                                    await SendAuditRecordsAsync(auditQueryElement, requestId);
+                                }
+                                break;
+                            case "export_audit_records":
+                                if (root.TryGetProperty("value", out JsonElement auditExportElement))
+                                {
+                                    await ExportAuditRecordsAsync(auditExportElement, requestId);
+                                }
+                                break;
+                            case "verify_audit_chain":
+                                await SendAuditChainVerificationAsync(requestId);
+                                break;
                             case "get_statistics_history":
                                 OnGetStatisticsHistory?.Invoke(this, EventArgs.Empty);
                                 break;
@@ -868,6 +988,45 @@ namespace ClearFrost
                                 break;
                             case "collect_dataset":
                                 OnCollectDataset?.Invoke(this, EventArgs.Empty);
+                                break;
+                            case "query_manual_review_records":
+                                OnQueryManualReviewRecords?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "save_manual_review":
+                                OnSaveManualReview?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "create_replay_dataset":
+                                OnCreateReplayDataset?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "run_replay_comparison":
+                                OnRunReplayComparison?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "approve_replay_candidate":
+                                OnApproveReplayCandidate?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "preview_replay_dataset":
+                                OnPreviewReplayDataset?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "query_replay_datasets":
+                                OnQueryReplayDatasets?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "archive_replay_dataset":
+                                OnArchiveReplayDataset?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "cancel_replay_run":
+                                OnCancelReplayRun?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "query_replay_runs":
+                                OnQueryReplayRuns?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "query_replay_report":
+                                OnQueryReplayReport?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "query_model_approval_evidence":
+                                OnQueryModelApprovalEvidence?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                break;
+                            case "run_replay_integrity_scan":
+                                OnRunReplayIntegrityScan?.Invoke(this, CreateCommandEventArgs(root, requestId));
                                 break;
 
                             // ================== 多相机命令 ==================
@@ -949,8 +1108,21 @@ namespace ClearFrost
                                 break;
 
                             default:
+                                await SendCommandErrorAsync(
+                                    cmd,
+                                    requestId,
+                                    "UnknownCommand",
+                                    $"未知前端命令: {cmd}");
                                 break;
                         }
+                    }
+                    else
+                    {
+                        await SendCommandErrorAsync(
+                            string.Empty,
+                            requestId,
+                            "MissingCommand",
+                            "前端消息缺少 cmd 字段");
                     }
                 }
             }
@@ -958,7 +1130,48 @@ namespace ClearFrost
             {
                 // Optionally log error to debugger or frontend
                 System.Diagnostics.Debug.WriteLine($"Error processing web message: {ex.Message}");
+                try
+                {
+                    await SendCommandErrorAsync(
+                        cmd,
+                        requestId,
+                        "CommandException",
+                        $"前端命令处理异常: {(string.IsNullOrWhiteSpace(cmd) ? "<empty>" : cmd)} - {ex.Message}");
+                }
+                catch (Exception notifyEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error reporting web message failure: {notifyEx.Message}");
+                }
             }
+        }
+
+        private Task SendCommandErrorAsync(string cmd, string? requestId, string errorCode, string message)
+        {
+            string normalizedCmd = string.IsNullOrWhiteSpace(cmd) ? "<empty>" : cmd;
+            string normalizedErrorCode = string.IsNullOrWhiteSpace(errorCode) ? "CommandError" : errorCode;
+            string normalizedMessage = string.IsNullOrWhiteSpace(message)
+                ? $"前端命令处理失败: {normalizedCmd}"
+                : message;
+
+            Debug.WriteLine($"[WebUIController] {normalizedErrorCode}: {normalizedMessage}");
+            PostMessage("commandError", new
+            {
+                cmd = normalizedCmd,
+                errorCode = normalizedErrorCode,
+                message = normalizedMessage
+            }, requestId);
+            return LogToFrontend(normalizedMessage, "error");
+        }
+
+        private static WebUiCommandEventArgs CreateCommandEventArgs(JsonElement root, string? requestId)
+        {
+            string payload = root.TryGetProperty("value", out JsonElement valueElement)
+                ? valueElement.GetRawText()
+                : "{}";
+            string command = root.TryGetProperty("cmd", out JsonElement cmdElement)
+                ? cmdElement.GetString() ?? string.Empty
+                : string.Empty;
+            return new WebUiCommandEventArgs(requestId ?? string.Empty, payload, command);
         }
 
         private async void CoreWebView2_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -1044,6 +1257,23 @@ namespace ClearFrost
 
             await UpdateImage(image);
 
+            object? inspectionPayload = inspection == null
+                ? null
+                : BuildInspectionPayload(
+                    inspection,
+                    isOk,
+                    logMessage,
+                    actualCount,
+                    usedModelName,
+                    wasFallback,
+                    barcodeEnabled,
+                    productBarcode,
+                    barcodeReadSucceeded,
+                    barcodeError,
+                    ruleSummary,
+                    rulePrimaryReason,
+                    ruleDetails);
+
             PostMessage("detectionFrame", new
             {
                 isOk = isOk,
@@ -1075,22 +1305,7 @@ namespace ClearFrost
                 rulePrimaryReason = rulePrimaryReason,
                 ruleDetails = ruleDetails,
                 sourceLabel = sourceLabel,
-                inspection = inspection == null
-                    ? null
-                    : BuildInspectionPayload(
-                        inspection,
-                        isOk,
-                        logMessage,
-                        actualCount,
-                        usedModelName,
-                        wasFallback,
-                        barcodeEnabled,
-                        productBarcode,
-                        barcodeReadSucceeded,
-                        barcodeError,
-                        ruleSummary,
-                        rulePrimaryReason,
-                        ruleDetails)
+                inspection = inspectionPayload
             });
         }
 
@@ -1142,6 +1357,60 @@ namespace ClearFrost
             return Task.CompletedTask;
         }
 
+        public Task SendFieldDebugResult(object result, string? requestId = null)
+        {
+            PostMessage("fieldDebugResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendVisionDebugResult(object result, string? requestId = null)
+        {
+            PostMessage("visionDebugResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendDiagnosticPackageExportResult(object result, string? requestId = null)
+        {
+            PostMessage("diagnosticPackageExportResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendDiagnosticPackageHistoryResult(object result, string? requestId = null)
+        {
+            PostMessage("diagnosticPackageHistoryResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendDiagnosticPackageVerificationResult(object result, string? requestId = null)
+        {
+            PostMessage("diagnosticPackageVerificationResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendMaintenanceAdviceActionResult(object result, string? requestId = null)
+        {
+            PostMessage("maintenanceAdviceActionResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendShiftTaskActionResult(object result, string? requestId = null)
+        {
+            PostMessage("shiftTaskActionResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendFieldHandoffReportResult(object result, string? requestId = null)
+        {
+            PostMessage("fieldHandoffReportResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
+        public Task SendFieldHandoffReportHistoryResult(object result, string? requestId = null)
+        {
+            PostMessage("fieldHandoffReportHistoryResult", result, requestId);
+            return Task.CompletedTask;
+        }
+
         /// <summary>
         /// 发送数据集收集结果到前端
         /// </summary>
@@ -1188,6 +1457,13 @@ namespace ClearFrost
                 handshakeStartMs = context.HandshakeStartMs,
                 plcResultWriteMs = context.PlcResultWriteMs,
                 handshakeCompleteMs = context.HandshakeCompleteMs,
+                terminalHandshakeAttempted = context.TerminalHandshakeAttempted,
+                terminalHandshakeSucceeded = context.TerminalHandshakeSucceeded,
+                terminalHandshakeErrorCode = context.TerminalHandshakeErrorCode,
+                terminalHandshakeSignalName = context.TerminalHandshakeSignalName,
+                terminalHandshakeAddress = context.TerminalHandshakeAddress,
+                terminalHandshakeMessage = context.TerminalHandshakeMessage,
+                cycleSucceeded = context.CycleSucceeded,
                 fallbackAttemptCount = context.FallbackAttemptCount,
                 fallbackSkippedReason = context.FallbackSkippedReason,
                 imageQueuePending = context.ImageQueuePending,
@@ -1322,7 +1598,7 @@ namespace ClearFrost
                 : DetectionTraceImageResolver.Resolve(
                     record,
                     ImageBasePath,
-                    File.Exists,
+                    SafeImageFileExists,
                     directory => GetCachedTraceImageFiles(imageFileCache, directory));
             string? imageUrl = TryCreateImageUrl(resolution.ImagePath);
             string? renderedImageUrl = TryCreateImageUrl(resolution.RenderedImagePath);
@@ -1342,6 +1618,8 @@ namespace ClearFrost
                 errorStage = record.ErrorStage,
                 errorCode = record.ErrorCode,
                 errorMessage = record.ErrorMessage,
+                ruleSummary = record.RuleSummary,
+                resultJson = record.ResultJson,
                 imagePath = resolution.ImagePath,
                 renderedImagePath = resolution.RenderedImagePath,
                 imageUrl = imageUrl,
@@ -1379,7 +1657,7 @@ namespace ClearFrost
         {
             try
             {
-                if (!Directory.Exists(directory))
+                if (!SafeDirectoryExists(directory))
                 {
                     return Array.Empty<string>();
                 }
@@ -1388,8 +1666,9 @@ namespace ClearFrost
                     .Where(path =>
                     {
                         string extension = Path.GetExtension(path);
-                        return extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                            extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase);
+                        return (extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                            extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)) &&
+                            SafeImageFileExists(path);
                     })
                     .ToArray();
             }
@@ -1411,7 +1690,7 @@ namespace ClearFrost
                 string basePath = Path.GetFullPath(ImageBasePath)
                     .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 string fullPath = ResolveImageFullPath(path, basePath);
-                if (!File.Exists(fullPath))
+                if (!SafeImageFileExists(fullPath))
                 {
                     return null;
                 }
@@ -1445,7 +1724,7 @@ namespace ClearFrost
             }
 
             string relativeToImageBase = Path.GetFullPath(Path.Combine(basePath, path));
-            if (File.Exists(relativeToImageBase))
+            if (SafeImageFileExists(relativeToImageBase))
             {
                 return relativeToImageBase;
             }
@@ -1454,13 +1733,103 @@ namespace ClearFrost
             if (!string.IsNullOrWhiteSpace(parent))
             {
                 string relativeToStorageRoot = Path.GetFullPath(Path.Combine(parent, path));
-                if (File.Exists(relativeToStorageRoot))
+                if (SafeImageFileExists(relativeToStorageRoot))
                 {
                     return relativeToStorageRoot;
                 }
             }
 
             return relativeToImageBase;
+        }
+
+        internal static bool IsSafeImageMappingDirectory(string localPath)
+        {
+            return SafeDirectoryExists(localPath);
+        }
+
+        private static bool SafeImageFileExists(string path)
+        {
+            return SafeLocalFileExists(path);
+        }
+
+        private static bool SafeLocalFileExists(string path)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                {
+                    return false;
+                }
+
+                string fullPath = Path.GetFullPath(path);
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(directory) || DirectoryPathHasReparsePoint(directory))
+                {
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                return file.Exists && !HasReparsePoint(file);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool SafeDirectoryExists(string directory)
+        {
+            try
+            {
+                return !string.IsNullOrWhiteSpace(directory) &&
+                    Directory.Exists(directory) &&
+                    !DirectoryPathHasReparsePoint(directory);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
         }
 
         private static string? TryGetStringProperty(JsonElement element, string propertyName)
@@ -1512,6 +1881,29 @@ namespace ClearFrost
             return null;
         }
 
+        private static DateTimeOffset? TryGetDateTimeOffsetProperty(JsonElement element, string propertyName)
+        {
+            if (!element.TryGetProperty(propertyName, out JsonElement propertyElement))
+            {
+                return null;
+            }
+
+            string? raw = propertyElement.ValueKind == JsonValueKind.String
+                ? propertyElement.GetString()
+                : propertyElement.GetRawText();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return null;
+            }
+
+            if (DateTimeOffset.TryParse(raw, out DateTimeOffset value))
+            {
+                return value;
+            }
+
+            return null;
+        }
+
         private static bool TryParseTraceDate(string value, out DateTime date)
         {
             if (DateTime.TryParse(value, out date))
@@ -1552,83 +1944,7 @@ namespace ClearFrost
             if (string.IsNullOrEmpty(LogBasePath) || !IsWebViewControlUsable(_webView)) return;
             try
             {
-                string logsDir = Path.Combine(LogBasePath, "DetectionLogs");
-                if (!Directory.Exists(logsDir))
-                {
-                    PostMessage("detectionLogTable", Array.Empty<object>());
-                    return;
-                }
-
-                // Get all date folders, newest first
-                var dateFolders = Directory.GetDirectories(logsDir)
-                    .OrderByDescending(d => d)
-                    .ToList();
-
-                var logEntries = new List<object>();
-                int collected = 0;
-
-                foreach (var dateFolder in dateFolders)
-                {
-                    if (collected >= maxCount) break;
-
-                    // Get all log files in this date folder, newest first
-                    var logFiles = Directory.GetFiles(dateFolder, "*.txt")
-                        .OrderByDescending(f => f)
-                        .ToList();
-
-                    foreach (var logFile in logFiles)
-                    {
-                        if (collected >= maxCount) break;
-
-                        try
-                        {
-                            // Read all lines and split into entries
-                            string content = File.ReadAllText(logFile, Encoding.UTF8);
-                            // Each entry is separated by double newline
-                            var entries = content.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries);
-
-                            // Process in reverse order (newest first)
-                            for (int i = entries.Length - 1; i >= 0 && collected < maxCount; i--)
-                            {
-                                var entry = entries[i].Trim();
-                                if (string.IsNullOrEmpty(entry)) continue;
-
-                                // Parse entry: "检测时间: {time}\r\n结果: {result}\r\n{details}"
-                                var lines = entry.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-
-                                string time = "";
-                                string result = "";
-                                string details = "";
-
-                                foreach (var line in lines)
-                                {
-                                    if (line.StartsWith("检测时间:"))
-                                        time = line.Substring("检测时间:".Length).Trim();
-                                    else if (line.StartsWith("结果:"))
-                                        result = line.Substring("结果:".Length).Trim();
-                                    else if (!string.IsNullOrWhiteSpace(line))
-                                        details += (details.Length > 0 ? "; " : "") + line.Trim();
-                                }
-
-                                if (!string.IsNullOrEmpty(time))
-                                {
-                                    logEntries.Add(new
-                                    {
-                                        time = time,
-                                        result = result,
-                                        details = details
-                                    });
-                                    collected++;
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[WebUIController] Log entry parse error: {ex.Message}");
-                        }
-                    }
-                }
-
+                IReadOnlyList<object> logEntries = ReadDetectionLogTableEntries(LogBasePath, maxCount);
                 PostMessage("detectionLogTable", logEntries);
             }
             catch (Exception ex)
@@ -1636,6 +1952,247 @@ namespace ClearFrost
                 await LogToFrontend($"读取检测日志失败: {ex.Message}", "error");
                 PostMessage("detectionLogTable", Array.Empty<object>());
             }
+        }
+
+        internal static IReadOnlyList<object> ReadDetectionLogTableEntries(string logBasePath, int maxCount = 100)
+        {
+            if (string.IsNullOrWhiteSpace(logBasePath) || maxCount <= 0)
+            {
+                return Array.Empty<object>();
+            }
+
+            string logsDir = Path.Combine(logBasePath, "DetectionLogs");
+            if (!SafeDirectoryExists(logsDir))
+            {
+                return Array.Empty<object>();
+            }
+
+            var logEntries = new List<object>();
+            int collected = 0;
+
+            foreach (var dateFolder in EnumerateSafeDirectories(logsDir).OrderByDescending(d => d))
+            {
+                if (collected >= maxCount) break;
+
+                foreach (var logFile in EnumerateSafeFiles(dateFolder, "*.txt").OrderByDescending(f => f))
+                {
+                    if (collected >= maxCount) break;
+
+                    try
+                    {
+                        string content = File.ReadAllText(logFile, Encoding.UTF8);
+                        var entries = content.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+                        for (int i = entries.Length - 1; i >= 0 && collected < maxCount; i--)
+                        {
+                            var entry = entries[i].Trim();
+                            if (string.IsNullOrEmpty(entry)) continue;
+
+                            var lines = entry.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+                            string time = "";
+                            string result = "";
+                            string details = "";
+
+                            foreach (var line in lines)
+                            {
+                                if (line.StartsWith("检测时间:"))
+                                    time = line.Substring("检测时间:".Length).Trim();
+                                else if (line.StartsWith("结果:"))
+                                    result = line.Substring("结果:".Length).Trim();
+                                else if (!string.IsNullOrWhiteSpace(line))
+                                    details += (details.Length > 0 ? "; " : "") + line.Trim();
+                            }
+
+                            if (!string.IsNullOrEmpty(time))
+                            {
+                                logEntries.Add(new
+                                {
+                                    time = time,
+                                    result = result,
+                                    details = details
+                                });
+                                collected++;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[WebUIController] Log entry parse error: {ex.Message}");
+                    }
+                }
+            }
+
+            return logEntries;
+        }
+
+        private static IEnumerable<string> EnumerateSafeDirectories(string directory)
+        {
+            try
+            {
+                return Directory.EnumerateDirectories(directory)
+                    .Where(SafeDirectoryExists)
+                    .ToArray();
+            }
+            catch
+            {
+                return Array.Empty<string>();
+            }
+        }
+
+        private static IEnumerable<string> EnumerateSafeFiles(string directory, string searchPattern)
+        {
+            try
+            {
+                if (!SafeDirectoryExists(directory))
+                {
+                    return Array.Empty<string>();
+                }
+
+                return Directory.EnumerateFiles(directory, searchPattern)
+                    .Where(SafeLocalFileExists)
+                    .ToArray();
+            }
+            catch
+            {
+                return Array.Empty<string>();
+            }
+        }
+
+        private async Task SendAuditRecordsAsync(JsonElement queryElement, string? requestId)
+        {
+            if (!IsWebViewControlUsable(_webView))
+            {
+                return;
+            }
+
+            if (AuditService == null)
+            {
+                PostMessage("auditRecords", new
+                {
+                    records = Array.Empty<object>(),
+                    error = "审计服务未初始化"
+                }, requestId);
+                return;
+            }
+
+            OperationAuditQuery query = ParseAuditQuery(queryElement);
+            OperationAuditQueryResult result = await AuditService.QueryAsync(query).ConfigureAwait(false);
+            PostMessage("auditRecords", new
+            {
+                records = result.Records.Select(record => new
+                {
+                    timestamp = record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"),
+                    correlationId = record.CorrelationId,
+                    operation = record.Operation,
+                    status = record.Status.ToString(),
+                    operatorId = record.OperatorId,
+                    role = record.Role.ToString(),
+                    reason = record.Reason,
+                    inspectionId = record.InspectionId,
+                    details = record.Details,
+                    failureBlocker = record.FailureBlocker,
+                    previousRecordSha256 = record.PreviousRecordSha256,
+                    recordSha256 = record.RecordSha256
+                }).ToArray(),
+                error = result.ErrorMessage
+            }, requestId);
+        }
+
+        private async Task SendAuditChainVerificationAsync(string? requestId)
+        {
+            if (!IsWebViewControlUsable(_webView))
+            {
+                return;
+            }
+
+            if (AuditChainVerifier == null && AuditService == null)
+            {
+                PostMessage("auditChainVerification", new
+                {
+                    status = "Unavailable",
+                    totalRecords = 0,
+                    verifiedRecords = 0,
+                    findingCount = 0,
+                    lastRecordSha256 = "",
+                    findings = Array.Empty<object>(),
+                    error = "审计服务未初始化"
+                }, requestId);
+                return;
+            }
+
+            OperationAuditChainVerificationResult result = AuditChainVerifier != null
+                ? await AuditChainVerifier(CancellationToken.None).ConfigureAwait(false)
+                : await AuditService!.VerifyChainAsync().ConfigureAwait(false);
+            PostMessage("auditChainVerification", new
+            {
+                status = result.Status,
+                totalRecords = result.TotalRecords,
+                verifiedRecords = result.VerifiedRecords,
+                findingCount = result.Findings.Count,
+                lastRecordSha256 = result.LastRecordSha256,
+                findings = result.Findings.Take(5).Select(finding => new
+                {
+                    auditFileName = string.IsNullOrWhiteSpace(finding.FilePath)
+                        ? string.Empty
+                        : Path.GetFileName(finding.FilePath),
+                    lineNumber = finding.LineNumber,
+                    severity = finding.Severity,
+                    errorCode = finding.ErrorCode,
+                    message = finding.Message
+                }).ToArray(),
+                error = string.Empty
+            }, requestId);
+        }
+
+        private async Task ExportAuditRecordsAsync(JsonElement queryElement, string? requestId)
+        {
+            if (!IsWebViewControlUsable(_webView))
+            {
+                return;
+            }
+
+            if (AuditService == null)
+            {
+                PostMessage("auditExport", new { path = "", error = "审计服务未初始化" }, requestId);
+                return;
+            }
+
+            try
+            {
+                string outputDirectory = string.IsNullOrWhiteSpace(LogBasePath)
+                    ? Path.Combine(RuntimePaths.DataDirectory, "outbox")
+                    : Path.Combine(LogBasePath, "Outbox");
+                string outputPath = Path.Combine(outputDirectory, $"operation-audit-export-{DateTime.Now:yyyyMMddHHmmss}.csv");
+                string path = await AuditService.ExportCsvAsync(ParseAuditQuery(queryElement), outputPath).ConfigureAwait(false);
+                PostMessage("auditExport", new { path = path, error = "" }, requestId);
+            }
+            catch (Exception ex)
+            {
+                PostMessage("auditExport", new { path = "", error = ex.Message }, requestId);
+            }
+        }
+
+        private static OperationAuditQuery ParseAuditQuery(JsonElement element)
+        {
+            OperationAuditStatus? status = null;
+            string statusText = TryGetStringProperty(element, "status") ?? TryGetStringProperty(element, "Status") ?? string.Empty;
+            if (Enum.TryParse(statusText, ignoreCase: true, out OperationAuditStatus parsedStatus))
+            {
+                status = parsedStatus;
+            }
+
+            return new OperationAuditQuery
+            {
+                StartTime = TryGetDateTimeOffsetProperty(element, "startTime") ?? TryGetDateTimeOffsetProperty(element, "StartTime"),
+                EndTime = TryGetDateTimeOffsetProperty(element, "endTime") ?? TryGetDateTimeOffsetProperty(element, "EndTime"),
+                Operation = TryGetStringProperty(element, "operation") ?? TryGetStringProperty(element, "Operation") ?? string.Empty,
+                OperatorId = TryGetStringProperty(element, "operatorId") ?? TryGetStringProperty(element, "OperatorId") ?? string.Empty,
+                Role = TryGetStringProperty(element, "role") ?? TryGetStringProperty(element, "Role") ?? string.Empty,
+                Status = status,
+                FailureReason = TryGetStringProperty(element, "failureReason") ?? TryGetStringProperty(element, "FailureReason") ?? string.Empty,
+                Limit = TryGetInt32Property(element, "limit") ?? TryGetInt32Property(element, "Limit") ?? 200
+            };
         }
 
         /// <summary>
@@ -1766,6 +2323,15 @@ namespace ClearFrost
                 OnStartDrag = null;
                 OnConnectPlc = null;
                 OnRequestHealthSnapshot = null;
+                OnExportDiagnosticPackage = null;
+                OnQueryDiagnosticPackages = null;
+                OnVerifyDiagnosticPackage = null;
+                OnMaintenanceAdviceAction = null;
+                OnShiftTaskAction = null;
+                OnExportFieldHandoffReport = null;
+                OnQueryFieldHandoffReports = null;
+                OnFieldDebugCommand = null;
+                OnVisionDebugCommand = null;
                 OnUpdateROI = null;
                 OnSetConfidence = null;
                 OnSetIou = null;
@@ -1782,6 +2348,19 @@ namespace ClearFrost
                 OnResetStatistics = null;
                 OnCollectDataset = null;
                 OnRunHistoryRulePreview = null;
+                OnQueryManualReviewRecords = null;
+                OnSaveManualReview = null;
+                OnCreateReplayDataset = null;
+                OnRunReplayComparison = null;
+                OnApproveReplayCandidate = null;
+                OnPreviewReplayDataset = null;
+                OnQueryReplayDatasets = null;
+                OnArchiveReplayDataset = null;
+                OnCancelReplayRun = null;
+                OnQueryReplayRuns = null;
+                OnQueryReplayReport = null;
+                OnQueryModelApprovalEvidence = null;
+                OnRunReplayIntegrityScan = null;
                 OnGetCameraList = null;
                 OnSwitchCamera = null;
                 OnAddCamera = null;
@@ -1795,6 +2374,7 @@ namespace ClearFrost
                 OnSerialAutoDetectPorts = null;
                 OnSerialTestTrigger = null;
                 OnSerialSimulateTrigger = null;
+                AuditChainVerifier = null;
                 _webView = null;
             }
         }

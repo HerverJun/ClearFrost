@@ -16,12 +16,22 @@ namespace ClearFrost.Services
     {
         private readonly string _dbPath;
         private readonly string _storagePath;
+        private readonly Action<string, string, bool> _copyFile;
         private const int BusyTimeoutMs = 5000;
 
         public DatasetCollectionService(string dbPath, string storagePath)
+            : this(dbPath, storagePath, File.Copy)
+        {
+        }
+
+        internal DatasetCollectionService(
+            string dbPath,
+            string storagePath,
+            Action<string, string, bool>? copyFile)
         {
             _dbPath = dbPath ?? throw new ArgumentNullException(nameof(dbPath));
             _storagePath = storagePath ?? throw new ArgumentNullException(nameof(storagePath));
+            _copyFile = copyFile ?? File.Copy;
         }
 
         /// <summary>
@@ -67,14 +77,22 @@ namespace ClearFrost.Services
                 // 过滤出磁盘上实际存在的原图，避免渲染框污染训练数据。
                 validRecords = allRecords
                     .Select(r => ResolveImagePath(r))
-                    .Where(r => !string.IsNullOrWhiteSpace(r.EffectiveImagePath) && File.Exists(r.EffectiveImagePath))
+                    .Where(r => IsSafeImageSourcePath(r.EffectiveImagePath))
                     .ToList();
 
-                // 若数据库路径全部失效，尝试根据 Timestamp 在标准目录中自动查找
-                if (validRecords.Count == 0)
+                // 若有部分记录路径失效，尝试根据时间戳在标准目录中进行增量匹配并补充
+                if (validRecords.Count < allRecords.Count)
                 {
-                    progress?.Report("数据库中图片路径为空，尝试根据时间戳自动匹配...");
-                    validRecords = TryResolvePathsFromStandardDirectories(allRecords);
+                    progress?.Report("检测到部分图片路径失效，尝试根据时间戳在标准目录中进行增量匹配...");
+                    var invalidRecords = allRecords
+                        .Where(r => !IsSafeImageSourcePath(r.EffectiveImagePath))
+                        .ToList();
+                    var resolvedIncremental = TryResolvePathsFromStandardDirectories(invalidRecords);
+                    validRecords = validRecords
+                        .Concat(resolvedIncremental)
+                        .GroupBy(r => r.Id)
+                        .Select(g => g.First())
+                        .ToList();
                 }
 
                 // 若仍无有效记录，回退到直接扫描图片文件夹
@@ -140,15 +158,19 @@ namespace ClearFrost.Services
                 return DatasetCollectionResult.Failed("没有可复制的有效图片。");
             }
 
-            string outputDir = Path.Combine(
-                _storagePath,
-                "DatasetCollections",
-                $"Dataset_{DateTime.Now:yyyyMMdd_HHmmss}");
-
-            string failDir = Path.Combine(outputDir, "Fail");
-            string passDir = Path.Combine(outputDir, "Pass");
-            Directory.CreateDirectory(failDir);
-            Directory.CreateDirectory(passDir);
+            string outputDir;
+            string failDir;
+            string passDir;
+            try
+            {
+                outputDir = CreateSafeOutputDirectory();
+                failDir = CreateSafeDirectory(Path.Combine(outputDir, "Fail"), "NG 数据集目录");
+                passDir = CreateSafeDirectory(Path.Combine(outputDir, "Pass"), "OK 数据集目录");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                return DatasetCollectionResult.Failed($"数据集输出目录不安全: {ex.Message}");
+            }
 
             progress?.Report($"开始复制 {selected.Count} 张图片到 {outputDir}...");
 
@@ -181,7 +203,7 @@ namespace ClearFrost.Services
                             } while (File.Exists(destPath));
                         }
 
-                        File.Copy(record.EffectiveImagePath!, destPath, overwrite: false);
+                        _copyFile(record.EffectiveImagePath!, destPath, false);
 
                         if (record.IsQualified)
                             passCopied++;
@@ -195,14 +217,33 @@ namespace ClearFrost.Services
                 }
             }, cancellationToken);
 
-            string message = $"成功复制 {failCopied + passCopied} 张图片（NG {failCopied} / OK {passCopied}）";
+            int totalCopied = failCopied + passCopied;
+            if (totalCopied == 0 && selected.Count > 0)
+            {
+                string errDetail = copyErrors.Count > 0 ? string.Join("; ", copyErrors.Take(3)) : "无可用文件";
+                try
+                {
+                    if (Directory.Exists(outputDir) && IsSafeDirectoryTreeForDelete(outputDir))
+                    {
+                        Directory.Delete(outputDir, true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    copyErrors.Add($"清理空数据集目录失败 {outputDir}: {ex.Message}");
+                }
+
+                return DatasetCollectionResult.Failed($"数据集图片复制失败: 未成功复制任何图片。详情: {errDetail}");
+            }
+
+            string message = $"成功复制 {totalCopied} 张图片（NG {failCopied} / OK {passCopied}）";
             if (copyErrors.Count > 0)
             {
                 message += $"，{copyErrors.Count} 张复制失败。";
             }
-            if (failCopied + passCopied < totalCount)
+            if (totalCopied < totalCount)
             {
-                message += $" 因可用图片不足，目标从 {totalCount} 张调整为实际 {failCopied + passCopied} 张。";
+                message += $" 因可用图片不足，目标从 {totalCount} 张调整为实际 {totalCopied} 张。";
             }
 
             return new DatasetCollectionResult
@@ -214,6 +255,49 @@ namespace ClearFrost.Services
                 TotalRequested = totalCount,
                 Message = message
             };
+        }
+
+        private string CreateSafeOutputDirectory()
+        {
+            string outputRoot = CreateSafeDirectory(
+                Path.Combine(_storagePath, "DatasetCollections"),
+                "数据集输出根目录");
+
+            for (int attempt = 0; attempt < 100; attempt++)
+            {
+                string suffix = Guid.NewGuid().ToString("N")[..8];
+                string outputDir = Path.Combine(
+                    outputRoot,
+                    $"Dataset_{DateTime.Now:yyyyMMdd_HHmmss}_{suffix}");
+                if (Directory.Exists(outputDir))
+                {
+                    continue;
+                }
+
+                return CreateSafeDirectory(outputDir, "数据集输出目录");
+            }
+
+            return CreateSafeDirectory(
+                Path.Combine(outputRoot, $"Dataset_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}"),
+                "数据集输出目录");
+        }
+
+        private static string CreateSafeDirectory(string directory, string displayName)
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                throw new ArgumentException($"{displayName}为空。", nameof(directory));
+            }
+
+            string fullDirectory = Path.GetFullPath(directory);
+            EnsureExistingDirectoryAncestorsHaveNoReparsePoint(fullDirectory, displayName);
+            Directory.CreateDirectory(fullDirectory);
+            if (!IsSafeDirectoryPath(fullDirectory))
+            {
+                throw new IOException($"{displayName}包含链接目录: {fullDirectory}");
+            }
+
+            return fullDirectory;
         }
 
         /// <summary>
@@ -356,7 +440,7 @@ namespace ClearFrost.Services
         private static DetectionRecordLite ResolveImagePath(DetectionRecordLite record)
         {
             if (!string.IsNullOrWhiteSpace(record.ImagePath) &&
-                File.Exists(record.ImagePath))
+                IsSafeImageSourcePath(record.ImagePath))
             {
                 record.EffectiveImagePath = record.ImagePath;
                 return record;
@@ -376,7 +460,7 @@ namespace ClearFrost.Services
 
             foreach (var record in records)
             {
-                if (!string.IsNullOrWhiteSpace(record.EffectiveImagePath) && File.Exists(record.EffectiveImagePath))
+                if (IsSafeImageSourcePath(record.EffectiveImagePath))
                 {
                     resolved.Add(record);
                     continue;
@@ -387,7 +471,7 @@ namespace ClearFrost.Services
                 string hourFolder = record.Timestamp.ToString("HH");
                 string searchDir = Path.Combine(imageBase, subFolder, dateFolder, hourFolder);
 
-                if (!Directory.Exists(searchDir))
+                if (!Directory.Exists(searchDir) || !IsSafeDirectoryPath(searchDir))
                     continue;
 
                 string[] files = EnumerateImageFiles(searchDir).ToArray();
@@ -418,7 +502,7 @@ namespace ClearFrost.Services
                         .FirstOrDefault();
                 }
 
-                if (matched != null && File.Exists(matched))
+                if (matched != null && IsSafeImageSourcePath(matched))
                 {
                     record.EffectiveImagePath = matched;
                     resolved.Add(record);
@@ -464,12 +548,15 @@ namespace ClearFrost.Services
                 cancellationToken.ThrowIfCancellationRequested();
                 string subFolder = isQualified ? "Qualified" : "Unqualified";
                 string subPath = Path.Combine(imageBase, subFolder);
-                if (!Directory.Exists(subPath))
+                if (!Directory.Exists(subPath) || !IsSafeDirectoryPath(subPath))
                     continue;
 
                 foreach (string dateDir in Directory.GetDirectories(subPath))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (!IsSafeDirectoryPath(dateDir))
+                        continue;
+
                     string dateName = Path.GetFileName(dateDir) ?? "";
                     if (!DateTime.TryParseExact(dateName, "yyyy年MM月dd日", null, System.Globalization.DateTimeStyles.None, out DateTime dirDate))
                         continue;
@@ -479,6 +566,9 @@ namespace ClearFrost.Services
                     foreach (string hourDir in Directory.GetDirectories(dateDir))
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+                        if (!IsSafeDirectoryPath(hourDir))
+                            continue;
+
                         string hourName = Path.GetFileName(hourDir) ?? "";
                         if (!int.TryParse(hourName, out int hour))
                             continue;
@@ -521,7 +611,7 @@ namespace ClearFrost.Services
 
         private static IEnumerable<string> EnumerateImageFiles(string directory)
         {
-            if (!Directory.Exists(directory))
+            if (!Directory.Exists(directory) || !IsSafeDirectoryPath(directory))
             {
                 return Enumerable.Empty<string>();
             }
@@ -529,7 +619,144 @@ namespace ClearFrost.Services
             string[] extensions = { ".jpg", ".jpeg", ".png", ".bmp" };
             return Directory
                 .EnumerateFiles(directory, "*.*", SearchOption.TopDirectoryOnly)
-                .Where(file => extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase));
+                .Where(file =>
+                    extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase) &&
+                    IsSafeImageSourcePath(file));
+        }
+
+        private static bool IsSafeImageSourcePath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
+            try
+            {
+                string fullPath = Path.GetFullPath(path);
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                if (!file.Exists || HasReparsePoint(file))
+                {
+                    return false;
+                }
+
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                return IsSafeDirectoryPath(directory);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
+        private static bool IsSafeDirectoryPath(string? directory)
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                return false;
+            }
+
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return false;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
+        private static void EnsureExistingDirectoryAncestorsHaveNoReparsePoint(string directory, string displayName)
+        {
+            var current = new DirectoryInfo(Path.GetFullPath(directory));
+            while (current != null && !current.Exists)
+            {
+                current = current.Parent;
+            }
+
+            while (current != null)
+            {
+                current.Refresh();
+                if (current.Exists && HasReparsePoint(current))
+                {
+                    throw new IOException($"{displayName}包含链接目录: {current.FullName}");
+                }
+
+                current = current.Parent;
+            }
+        }
+
+        private static bool IsSafeDirectoryTreeForDelete(string directory)
+        {
+            if (!IsSafeDirectoryPath(directory))
+            {
+                return false;
+            }
+
+            try
+            {
+                var pending = new Stack<DirectoryInfo>();
+                pending.Push(new DirectoryInfo(Path.GetFullPath(directory)));
+
+                while (pending.Count > 0)
+                {
+                    DirectoryInfo current = pending.Pop();
+                    current.Refresh();
+                    if (!current.Exists)
+                    {
+                        continue;
+                    }
+
+                    foreach (FileSystemInfo entry in current.EnumerateFileSystemInfos())
+                    {
+                        entry.Refresh();
+                        if (HasReparsePoint(entry))
+                        {
+                            return false;
+                        }
+
+                        if (entry is DirectoryInfo childDirectory)
+                        {
+                            pending.Push(childDirectory);
+                        }
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
         }
     }
 

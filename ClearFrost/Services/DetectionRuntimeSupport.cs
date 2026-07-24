@@ -123,13 +123,24 @@ namespace ClearFrost.Services
         public string InspectionId { get; set; } = string.Empty;
         public string TriggerSource { get; init; } = string.Empty;
         public int? TriggerSeq { get; init; }
+        public int? PlcTriggerSeq { get; init; }
         public int? ResultSeq { get; init; }
+        public bool TerminalHandshakeAttempted { get; set; }
+        public bool TerminalHandshakeSucceeded { get; set; }
+        public string TerminalHandshakeErrorCode { get; set; } = string.Empty;
+        public string TerminalHandshakeSignalName { get; set; } = string.Empty;
+        public string TerminalHandshakeAddress { get; set; } = string.Empty;
+        public string TerminalHandshakeMessage { get; set; } = string.Empty;
+        public bool CycleSucceeded { get; set; }
         public string ProductBarcode { get; init; } = string.Empty;
+        public string Barcode { get; init; } = string.Empty;
         public bool? BarcodeReadSucceeded { get; init; }
         public string BarcodeError { get; init; } = string.Empty;
         public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;
+        public string QueueStatus { get; set; } = string.Empty;
         public string ImagePath { get; set; } = string.Empty;
         public string RenderedImagePath { get; set; } = string.Empty;
+        public string TraceImagePath { get; set; } = string.Empty;
         public string ErrorStage { get; set; } = string.Empty;
         public string ErrorCode { get; set; } = string.Empty;
         public string ErrorMessage { get; set; } = string.Empty;
@@ -166,13 +177,24 @@ namespace ClearFrost.Services
                 InspectionId = InspectionId,
                 TriggerSource = TriggerSource,
                 TriggerSeq = TriggerSeq,
+                PlcTriggerSeq = PlcTriggerSeq,
                 ResultSeq = ResultSeq,
+                TerminalHandshakeAttempted = TerminalHandshakeAttempted,
+                TerminalHandshakeSucceeded = TerminalHandshakeSucceeded,
+                TerminalHandshakeErrorCode = TerminalHandshakeErrorCode,
+                TerminalHandshakeSignalName = TerminalHandshakeSignalName,
+                TerminalHandshakeAddress = TerminalHandshakeAddress,
+                TerminalHandshakeMessage = TerminalHandshakeMessage,
+                CycleSucceeded = CycleSucceeded,
                 ProductBarcode = ProductBarcode,
+                Barcode = Barcode,
                 BarcodeReadSucceeded = BarcodeReadSucceeded,
                 BarcodeError = BarcodeError,
                 TraceStatus = TraceStatus,
+                QueueStatus = QueueStatus,
                 ImagePath = ImagePath,
                 RenderedImagePath = RenderedImagePath,
+                TraceImagePath = TraceImagePath,
                 ErrorStage = ErrorStage,
                 ErrorCode = ErrorCode,
                 ErrorMessage = ErrorMessage,
@@ -442,6 +464,11 @@ namespace ClearFrost.Services
 
         public static void Append(DetectionPersistencePayload payload, string reason)
         {
+            Append(payload, reason, RuntimePaths.DataDirectory);
+        }
+
+        internal static void Append(DetectionPersistencePayload payload, string reason, string dataDirectory)
+        {
             if (payload == null)
             {
                 return;
@@ -449,8 +476,10 @@ namespace ClearFrost.Services
 
             try
             {
-                string directory = Path.Combine(RuntimePaths.DataDirectory, "outbox");
+                string directory = Path.Combine(dataDirectory, "outbox");
+                EnsureSafeOutboxDirectory(directory);
                 Directory.CreateDirectory(directory);
+                EnsureSafeOutboxDirectory(directory);
                 string path = Path.Combine(directory, $"detection-trace-{DateTime.Now:yyyyMMdd}.ndjson");
                 string json = JsonSerializer.Serialize(new
                 {
@@ -461,12 +490,80 @@ namespace ClearFrost.Services
 
                 lock (WriteLock)
                 {
+                    EnsureSafeOutboxFile(path);
                     File.AppendAllText(path, json + Environment.NewLine, Utf8NoBom);
                 }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DetectionTraceOutbox] 写入追溯 outbox 失败: {ex.Message}");
+            }
+        }
+
+        private static void EnsureSafeOutboxDirectory(string directory)
+        {
+            string fullDirectory = Path.GetFullPath(directory);
+            if (DirectoryPathHasReparsePoint(fullDirectory))
+            {
+                throw new IOException($"追溯 outbox 目录包含链接目录，拒绝写入: {fullDirectory}");
+            }
+        }
+
+        private static void EnsureSafeOutboxFile(string path)
+        {
+            string fullPath = Path.GetFullPath(path);
+            string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                EnsureSafeOutboxDirectory(directory);
+            }
+
+            var file = new FileInfo(fullPath);
+            file.Refresh();
+            if (file.Exists && HasReparsePoint(file))
+            {
+                throw new IOException($"追溯 outbox 文件是链接文件，拒绝写入: {fullPath}");
+            }
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException or UnauthorizedAccessException)
+            {
+                Debug.WriteLine($"[DetectionTraceOutbox] 路径安全检查失败，按不安全处理: {ex.Message}");
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
             }
         }
     }

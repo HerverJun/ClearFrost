@@ -115,6 +115,31 @@ namespace ClearFrost.Interfaces
         public string GpuFailureReason { get; init; } = string.Empty;
     }
 
+    public sealed class DetectionModelSlotSnapshot
+    {
+        public ModelRole Role { get; init; } = ModelRole.None;
+        public bool IsLoaded { get; init; }
+        public string ModelPath { get; init; } = string.Empty;
+    }
+
+    public sealed class DetectionRuntimeModelSnapshot
+    {
+        public DetectionModelSlotSnapshot Primary { get; init; } = new DetectionModelSlotSnapshot
+        {
+            Role = ModelRole.Primary
+        };
+
+        public DetectionModelSlotSnapshot Auxiliary1 { get; init; } = new DetectionModelSlotSnapshot
+        {
+            Role = ModelRole.Auxiliary1
+        };
+
+        public DetectionModelSlotSnapshot Auxiliary2 { get; init; } = new DetectionModelSlotSnapshot
+        {
+            Role = ModelRole.Auxiliary2
+        };
+    }
+
     /// <summary>
     /// 检测服务接口
     /// </summary>
@@ -166,6 +191,8 @@ namespace ClearFrost.Interfaces
         /// </summary>
         DetectionRuntimeStatus RuntimeStatus { get; }
 
+        DetectionRuntimeModelSnapshot RuntimeModelSnapshot { get; }
+
         #endregion
 
         #region 方法
@@ -177,6 +204,11 @@ namespace ClearFrost.Interfaces
         /// <param name="useGpu">是否使用 GPU</param>
         /// <returns>是否成功</returns>
         Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0);
+
+        /// <summary>
+        /// 卸载主模型并清理检测运行时缓存。
+        /// </summary>
+        void UnloadPrimaryModel();
 
         /// <summary>
         /// 扫描并加载默认模型

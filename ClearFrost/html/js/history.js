@@ -1,4 +1,4 @@
-// ==========================================
+﻿// ==========================================
 // ClearFrost history, logs and gallery
 // ==========================================
 (function () {
@@ -10,9 +10,77 @@
     const TRACE_DEFAULT_PAGE_SIZE = 100;
     let tracePagerState = createTracePagerState();
     let activeTraceRecord = null;
+    const AuditStatusLabels = Object.freeze({
+        Requested: "已请求",
+        Denied: "已拒绝",
+        Succeeded: "已成功",
+        Failed: "已失败",
+    });
+    const AuditOperationLabels = Object.freeze({
+        ManualRelease: "强制放行",
+        ManualReview: "人工复核",
+        ReplayApproval: "回放审批",
+        ReplayIntegrityScan: "回放完整性扫描",
+        archive_replay_dataset: "归档回放数据集",
+        create_replay_dataset: "创建回放数据集",
+        preview_replay_dataset: "预览回放数据集",
+        query_replay_datasets: "查询回放数据集",
+        run_replay_comparison: "对比新旧模型",
+        cancel_replay_run: "取消回放运行",
+        query_replay_runs: "查询回放运行",
+        query_replay_report: "查询回放报告",
+        query_model_approval_evidence: "查询模型验证记录",
+        run_replay_integrity_scan: "运行验证记录扫描",
+        approve_replay_candidate: "审批候选模型",
+        query_manual_review_records: "查询人工复核记录",
+        save_manual_review: "保存人工复核",
+    });
+    const ProductionRoleLabels = Object.freeze({
+        Operator: "操作员",
+        ShiftLead: "班组长",
+        Engineer: "工程师",
+    });
 
     function byId(id) {
         return document.getElementById(id);
+    }
+
+    function formatAuditStatus(status) {
+        const value = String(status || "").trim();
+        return AuditStatusLabels[value] || value;
+    }
+
+    function formatProductionRole(role) {
+        const value = String(role || "").trim();
+        return ProductionRoleLabels[value] || value;
+    }
+
+    function formatAuditOperation(operation) {
+        const value = String(operation || "").trim();
+        return AuditOperationLabels[value] || value;
+    }
+
+    function formatAuditText(value) {
+        let text = String(value || "").trim();
+        if (!text) return "";
+
+        Object.entries(AuditOperationLabels).forEach(([raw, label]) => {
+            text = text.split(raw).join(label);
+        });
+        Object.entries(AuditStatusLabels).forEach(([raw, label]) => {
+            text = text.split(raw).join(label);
+        });
+        Object.entries(ProductionRoleLabels).forEach(([raw, label]) => {
+            text = text.split(`RequiredRole=${raw}`).join(`需要${label}权限`);
+            text = text.split(raw).join(label);
+        });
+        return text;
+    }
+
+    function shortAuditHash(value) {
+        const text = String(value || "").trim();
+        if (!text) return "";
+        return text.length <= 12 ? text : `${text.slice(0, 12)}...`;
     }
 
     function createTracePagerState() {
@@ -50,6 +118,19 @@
         if (value === undefined || value === null || value === "") return null;
         const numberValue = Number(value);
         return Number.isFinite(numberValue) ? numberValue : null;
+    }
+
+    const TRACE_DATE_ITEM_CLASS = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
+    const TRACE_DATE_ITEM_ACTIVE_CLASS = "p-2.5 bg-celadon-50 text-celadon-700 cursor-pointer rounded-xl text-[11px] font-black transition-[background-color,border-color,color,box-shadow] shadow-sm border border-celadon-200 mb-1";
+    const TRACE_HOUR_ITEM_CLASS = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group";
+    const TRACE_HOUR_ITEM_ACTIVE_CLASS = "px-4 py-2 bg-celadon-600 border-celadon-600 text-white rounded-xl text-[11px] cursor-pointer transition-[background-color,border-color,color,box-shadow] font-bold shadow-md flex items-center justify-between";
+
+    function traceDateItemClass(isActive = false) {
+        return isActive ? TRACE_DATE_ITEM_ACTIVE_CLASS : TRACE_DATE_ITEM_CLASS;
+    }
+
+    function traceHourItemClass(isActive = false) {
+        return isActive ? TRACE_HOUR_ITEM_ACTIVE_CLASS : TRACE_HOUR_ITEM_CLASS;
     }
 
     function setTraceLoadingState(isLoading) {
@@ -127,8 +208,12 @@
             const reviewLabel = record.hasRenderedImage ? "复查图" : "无复查图";
             const model = record.modelVersion || record.modelName || "-";
             const adviceText = getTraceAdviceText(record, "建议");
+            const deepLearningText = record.deepLearningTraceSummary || "";
             const adviceMarkup = adviceText
                 ? `<p class="cf-trace-advice">${escapeHtml(adviceText)}</p>`
+                : "";
+            const deepLearningMarkup = deepLearningText
+                ? `<p>深度学习: ${escapeHtml(deepLearningText)}</p>`
                 : "";
             const imageMarkup = url
                 ? `<img src="${url}" loading="lazy" decoding="async" alt="${escapeHtml(record.inspectionId)}">`
@@ -146,6 +231,7 @@
                         <p>ID: ${escapeHtml(record.inspectionId || "-")}</p>
                         <p>模型: ${escapeHtml(model)}</p>
                         <p>相机: ${escapeHtml(record.cameraId || "-")}</p>
+                        ${deepLearningMarkup}
                         ${adviceMarkup}
                     </div>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
@@ -176,7 +262,8 @@
     function requestTracePage(direction = "initial") {
         syncTraceControls();
         const date = byId("gallery-date-picker")?.value || window.currentNGDate;
-        const hour = byId("trace-hour-select")?.value || window.currentNGHour || "";
+        const hourSelect = byId("trace-hour-select");
+        const hour = hourSelect ? hourSelect.value : (window.currentNGHour || "");
         if (!date) return;
 
         window.currentNGDate = date;
@@ -222,7 +309,7 @@
     function syncLogHistoryChrome() {
         if (!document.body.classList.contains("cf-stitch-page")) return;
         const title = document.querySelector("#log-history-modal .cf-ornate-header h3");
-        if (title) title.textContent = "检测日志 (Detection Logs)";
+        if (title) title.textContent = "检测日志";
     }
 
     function openLogHistoryModal() {
@@ -239,6 +326,38 @@
         }
     }
 
+    function setTraceDateSelection(date) {
+        const selectedDate = date || "";
+        window.currentNGDate = selectedDate;
+        const dateInput = byId("gallery-date-picker");
+        if (dateInput && dateInput.value !== selectedDate) {
+            dateInput.value = selectedDate;
+        }
+
+        const list = byId("ng-date-list");
+        if (!list) return;
+        Array.from(list.children).forEach((child) => {
+            if (!child.dataset?.traceDate) return;
+            child.className = traceDateItemClass(child.dataset.traceDate === selectedDate);
+        });
+    }
+
+    function setTraceHourSelection(hour) {
+        const selectedHour = hour ?? "";
+        window.currentNGHour = selectedHour;
+        const hourSelect = byId("trace-hour-select");
+        if (hourSelect && hourSelect.value !== selectedHour) {
+            hourSelect.value = selectedHour;
+        }
+
+        const list = byId("ng-hour-list");
+        if (!list) return;
+        Array.from(list.children).forEach((child) => {
+            if (!child.dataset?.traceHour) return;
+            child.className = traceHourItemClass(child.dataset.traceHour === selectedHour);
+        });
+    }
+
     function closeLogHistoryModal() {
         byId("log-history-modal")?.classList.add("hidden");
     }
@@ -248,7 +367,7 @@
         syncTraceControls();
         resetTracePagerState();
         const badge = byId("gallery-count");
-        if (badge) badge.textContent = "0 张";
+        if (badge) badge.textContent = "0 条";
         bridge.sendCommand("get_ng_dates");
     }
 
@@ -343,9 +462,163 @@
         }).join("");
     }
 
+    function buildAuditQuery() {
+        return {
+            startTime: byId("audit-start-time")?.value || "",
+            endTime: byId("audit-end-time")?.value || "",
+            operation: byId("audit-operation-filter")?.value || "",
+            operatorId: byId("audit-operator-filter")?.value || "",
+            status: byId("audit-status-filter")?.value || "",
+            limit: 500,
+        };
+    }
+
+    function openAuditModal() {
+        byId("audit-modal")?.classList.remove("hidden");
+        queryAuditRecords();
+        verifyAuditChain();
+    }
+
+    function closeAuditModal() {
+        byId("audit-modal")?.classList.add("hidden");
+    }
+
+    function setAuditError(message) {
+        const node = byId("audit-error");
+        if (!node) return;
+        node.textContent = message || "";
+        node.classList.toggle("hidden", !message);
+    }
+
+    function queryAuditRecords() {
+        setAuditError("");
+        const tbody = byId("audit-table");
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">正在加载审计记录...</td></tr>';
+        }
+        bridge.sendCommand("query_audit_records", buildAuditQuery());
+    }
+
+    function exportAuditRecords() {
+        setAuditError("");
+        bridge.sendCommand("export_audit_records", buildAuditQuery());
+    }
+
+    function verifyAuditChain() {
+        setAuditError("");
+        const badge = byId("audit-chain-badge");
+        if (badge) {
+            badge.textContent = "校验中";
+            badge.className = "px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-bold";
+        }
+        bridge.sendCommand("verify_audit_chain", {});
+    }
+
+    function updateAuditChainVerification(data) {
+        const error = data?.error || data?.Error || "";
+        const status = String(data?.status || data?.Status || (error ? "Unavailable" : "Unknown"));
+        const totalRecords = data?.totalRecords ?? data?.TotalRecords ?? 0;
+        const verifiedRecords = data?.verifiedRecords ?? data?.VerifiedRecords ?? 0;
+        const findingCount = data?.findingCount ?? data?.FindingCount ?? 0;
+        const lastHash = data?.lastRecordSha256 || data?.LastRecordSha256 || "";
+        const findings = Array.isArray(data?.findings) ? data.findings : (data?.Findings || []);
+        const badge = byId("audit-chain-badge");
+        const countNode = byId("audit-chain-count");
+        const findingNode = byId("audit-chain-findings");
+        const hashNode = byId("audit-chain-last-hash");
+        const messageNode = byId("audit-chain-message");
+
+        const statusClass = status === "Healthy"
+            ? "bg-bamboo-50 text-bamboo-700 border border-bamboo-100"
+            : status === "Warning"
+                ? "bg-amber-50 text-amber-700 border border-amber-100"
+                : "bg-rouge-50 text-rouge-700 border border-rouge-100";
+
+        if (badge) {
+            badge.textContent = status;
+            badge.className = `px-2 py-0.5 rounded-full font-bold ${statusClass}`;
+        }
+        if (countNode) countNode.textContent = `Verified ${verifiedRecords}/${totalRecords}`;
+        if (findingNode) findingNode.textContent = `Findings ${findingCount}`;
+        if (hashNode) {
+            hashNode.textContent = `Last ${shortAuditHash(lastHash) || "-"}`;
+            hashNode.title = lastHash || "";
+        }
+        if (messageNode) {
+            const firstFinding = findings[0] || {};
+            const summary = firstFinding.errorCode || firstFinding.ErrorCode || error || "";
+            const line = firstFinding.lineNumber || firstFinding.LineNumber || "";
+            messageNode.textContent = summary ? `${summary}${line ? ` @${line}` : ""}` : "";
+        }
+        if (error) {
+            setAuditError(error);
+        }
+    }
+
+    function updateAuditRecords(data) {
+        const records = Array.isArray(data) ? data : (data?.records || data?.Records || []);
+        const error = data?.error || data?.Error || "";
+        const tbody = byId("audit-table");
+        const badge = byId("audit-count-badge");
+        if (!tbody) return;
+
+        if (error) {
+            setAuditError(error);
+        }
+
+        if (badge) badge.textContent = `${records.length} 条`;
+        if (!records.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">未匹配到审计记录</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = records.map((record) => {
+            const status = String(record.status || "");
+            const statusClass = status === "Failed" || status === "Denied"
+                ? "bg-rouge-50 text-rouge-600 border-rouge-200"
+                : "bg-bamboo-50 text-bamboo-600 border-bamboo-200";
+            return `
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-3 py-3 whitespace-nowrap">${escapeHtml(record.timestamp || "-")}</td>
+                    <td class="px-3 py-3">${escapeHtml(formatAuditOperation(record.operation) || "-")}</td>
+                    <td class="px-3 py-3"><span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusClass}">${escapeHtml(formatAuditStatus(status) || "-")}</span></td>
+                    <td class="px-3 py-3">${escapeHtml(record.operatorId || "-")}</td>
+                    <td class="px-3 py-3">${escapeHtml(formatProductionRole(record.role) || "-")}</td>
+                    <td class="px-3 py-3">${escapeHtml(record.inspectionId || "-")}</td>
+                    <td class="px-3 py-3 max-w-[130px] truncate" title="${escapeHtml(record.recordSha256 || "")}">${escapeHtml(shortAuditHash(record.recordSha256) || "-")}</td>
+                    <td class="px-3 py-3 max-w-md whitespace-normal break-words">${escapeHtml(formatAuditText(record.details || record.reason) || "-")}</td>
+                    <td class="px-3 py-3 max-w-xs whitespace-normal break-words">${escapeHtml(formatAuditText(record.failureBlocker) || "-")}</td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    function updateAuditExport(data) {
+        const error = data?.error || data?.Error || "";
+        const path = data?.path || data?.Path || "";
+        if (error) {
+            setAuditError(error);
+            return;
+        }
+
+        const node = byId("audit-export-path");
+        if (node) node.textContent = path ? `已导出: ${path}` : "";
+        window.showToast?.("审计 CSV 已导出", "success", 1600);
+    }
+
     function updateNGDates(data) {
         if (data === undefined) {
-            bridge.sendCommand("get_ng_dates");
+            const selectedDate = byId("gallery-date-picker")?.value || "";
+            if (selectedDate) {
+                setTraceDateSelection(selectedDate);
+                setTraceHourSelection("");
+                resetTracePagerState();
+                if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
+                if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
+                bridge.sendCommand("get_ng_hours", selectedDate);
+            } else {
+                bridge.sendCommand("get_ng_dates");
+            }
             return;
         }
         const dates = Array.isArray(data) ? data : (data?.dates || data?.Dates || []);
@@ -363,24 +636,35 @@
 
         dates.forEach((date) => {
             const div = document.createElement("div");
-            div.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
+            div.className = traceDateItemClass();
+            div.dataset.traceDate = date;
+            div.tabIndex = 0;
             div.innerText = date;
-            div.onclick = () => {
-                Array.from(list.children).forEach((child) => {
-                    child.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
-                });
-                div.className = "p-2.5 bg-celadon-50 text-celadon-700 cursor-pointer rounded-xl text-[11px] font-black transition-[background-color,border-color,color,box-shadow] shadow-sm border border-celadon-200 mb-1";
-                window.currentNGDate = date;
-                window.currentNGHour = "";
+            const selectDate = () => {
+                setTraceDateSelection(date);
+                setTraceHourSelection("");
                 resetTracePagerState();
                 if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
                 if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
                 bridge.sendCommand("get_ng_hours", date);
             };
+            div.onclick = selectDate;
+            div.onkeydown = (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectDate();
+                }
+            };
             list.appendChild(div);
         });
 
-        list.firstElementChild?.click?.();
+        const selectedInputDate = byId("gallery-date-picker")?.value || "";
+        const preferredDate = dates.includes(window.currentNGDate)
+            ? window.currentNGDate
+            : (dates.includes(selectedInputDate) ? selectedInputDate : dates[0]);
+        Array.from(list.children)
+            .find((child) => child.dataset?.traceDate === preferredDate)
+            ?.click?.();
     }
 
     function updateNGHours(data) {
@@ -410,38 +694,51 @@
                 hourSelect.appendChild(option);
             }
             const div = document.createElement("div");
-            div.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group";
+            div.className = traceHourItemClass();
+            div.dataset.traceHour = hour;
+            div.tabIndex = 0;
             div.innerHTML = `<span>${escapeHtml(hour)}:00 时段</span><span class="opacity-0 group-hover:opacity-100">›</span>`;
-            div.onclick = () => {
-                Array.from(list.children).forEach((child) => {
-                    child.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group";
-                });
-                div.className = "px-4 py-2 bg-celadon-600 border-celadon-600 text-white rounded-xl text-[11px] cursor-pointer transition-[background-color,border-color,color,box-shadow] font-bold shadow-md flex items-center justify-between";
-                window.currentNGHour = hour;
+            const selectHour = () => {
+                setTraceHourSelection(hour);
                 resetTracePagerState();
                 if (byId("ng-image-grid")) {
                     byId("ng-image-grid").innerHTML = '<div class="col-span-full h-full flex flex-col items-center justify-center py-20 text-ink-300 opacity-50"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-celadon-500 mb-4"></div><span class="text-xs font-serif italic">正在索引影像档案...</span></div>';
                 }
                 requestTracePage("initial");
             };
+            div.onclick = selectHour;
+            div.onkeydown = (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectHour();
+                }
+            };
             list.appendChild(div);
         });
 
-        if (!window.currentNGHour) {
-            list.firstElementChild?.click?.();
-        }
+        const preferredHour = hours.includes(window.currentNGHour) ? window.currentNGHour : hours[0];
+        Array.from(list.children)
+            .find((child) => child.dataset?.traceHour === preferredHour)
+            ?.click?.();
     }
 
     function selectTraceHour(hour) {
-        window.currentNGHour = hour || byId("trace-hour-select")?.value || window.currentNGHour;
+        const selectedHour = hour ?? byId("trace-hour-select")?.value ?? "";
+        setTraceHourSelection(selectedHour);
+        resetTracePagerState();
+        if (byId("ng-image-grid")) {
+            byId("ng-image-grid").innerHTML = '<div class="col-span-full h-full flex flex-col items-center justify-center py-20 text-ink-300 opacity-50"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-celadon-500 mb-4"></div><span class="text-xs font-serif italic">正在索引影像档案...</span></div>';
+        }
+        requestTracePage("initial");
     }
 
     function searchTraceImages() {
         syncTraceControls();
         const date = byId("gallery-date-picker")?.value || window.currentNGDate;
-        const hour = byId("trace-hour-select")?.value || window.currentNGHour || "";
-        if (date) window.currentNGDate = date;
-        window.currentNGHour = hour;
+        const hourSelect = byId("trace-hour-select");
+        const hour = hourSelect ? hourSelect.value : (window.currentNGHour || "");
+        if (date) setTraceDateSelection(date);
+        setTraceHourSelection(hour);
         resetTracePagerState();
         requestTracePage("initial");
     }
@@ -451,6 +748,82 @@
         for (const key of keys) {
             if (source[key] !== undefined && source[key] !== null) return source[key];
         }
+        return "";
+    }
+
+    function parseJsonObject(value) {
+        if (!value) return null;
+        if (typeof value === "object") return value;
+        if (typeof value !== "string") return null;
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === "object" ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
+    function getSummarySection(source, pascalName, camelName) {
+        if (!source || typeof source !== "object") return null;
+        return source[pascalName] || source[camelName] || null;
+    }
+
+    function extractDeepLearningSummary(resultJson) {
+        const parsed = parseJsonObject(resultJson);
+        if (!parsed) return null;
+        return parsed.DeepLearningSummary || parsed.deepLearningSummary || null;
+    }
+
+    function formatNumber(value, digits = 2) {
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? numberValue.toFixed(digits) : "";
+    }
+
+    function firstArrayItem(source, pascalName, camelName) {
+        const items = source?.[pascalName] || source?.[camelName] || [];
+        return Array.isArray(items) && items.length > 0 ? items[0] : null;
+    }
+
+    function formatTraceDeepLearningSummary(record) {
+        const summary = record?.deepLearningSummary;
+        if (!summary) return "";
+
+        const classification = getSummarySection(summary, "Classification", "classification");
+        const top1Label = classification?.Top1Label || classification?.top1Label || "";
+        const top1Confidence = classification?.Top1Confidence ?? classification?.top1Confidence;
+        if (top1Label) {
+            const confidence = formatNumber(top1Confidence);
+            return confidence ? `分类 Top1=${top1Label} ${confidence}` : `分类 Top1=${top1Label}`;
+        }
+
+        const segmentation = getSummarySection(summary, "Segmentation", "segmentation");
+        const segmentationCount = Number(segmentation?.InstanceCount ?? segmentation?.instanceCount ?? 0);
+        if (segmentationCount > 0) {
+            const instance = firstArrayItem(segmentation, "Instances", "instances");
+            const area = formatNumber(instance?.MaskArea ?? instance?.maskArea, 0);
+            const coverageValue = Number(instance?.MaskCoverage ?? instance?.maskCoverage);
+            const coverage = Number.isFinite(coverageValue) ? (coverageValue * 100).toFixed(1) : "";
+            const detail = [area ? `面积 ${area}` : "", coverage ? `覆盖率 ${coverage}%` : ""].filter(Boolean).join("，");
+            return detail ? `分割 ${segmentationCount} 个，${detail}` : `分割 ${segmentationCount} 个`;
+        }
+
+        const obb = getSummarySection(summary, "Obb", "obb");
+        const obbCount = Number(obb?.InstanceCount ?? obb?.instanceCount ?? 0);
+        if (obbCount > 0) {
+            const instance = firstArrayItem(obb, "Instances", "instances");
+            const label = instance?.Label || instance?.label || "";
+            const angle = formatNumber(instance?.Angle ?? instance?.angle, 1);
+            const angleText = angle ? `角度 ${angle}°` : "角度未提供";
+            return `OBB ${label ? `${label} ` : ""}${angleText}`;
+        }
+
+        const pose = getSummarySection(summary, "Pose", "pose");
+        const poseCount = Number(pose?.InstanceCount ?? pose?.instanceCount ?? 0);
+        const keyPointCount = Number(pose?.TotalKeyPointCount ?? pose?.totalKeyPointCount ?? 0);
+        if (poseCount > 0 || keyPointCount > 0) {
+            return `姿态 ${poseCount} 个，关键点 ${keyPointCount} 个`;
+        }
+
         return "";
     }
 
@@ -469,6 +842,10 @@
                 displayImageUrl: url,
                 hasRenderedImage: false,
                 missingRenderedImage: true,
+                ruleSummary: "",
+                resultJson: "",
+                deepLearningSummary: null,
+                deepLearningTraceSummary: "",
             };
         }
 
@@ -477,11 +854,14 @@
         const renderedImageUrl = pickTraceValue(record, "renderedImageUrl", "RenderedImageUrl");
         const missingRenderedImageValue = pickTraceValue(record, "missingRenderedImage", "MissingRenderedImage");
         const hasRenderedImageValue = pickTraceValue(record, "hasRenderedImage", "HasRenderedImage");
+        const resultJson = pickTraceValue(record, "resultJson", "ResultJson") || "";
+        const deepLearningSummary = extractDeepLearningSummary(resultJson);
         const hasRenderedImage = hasRenderedImageValue !== ""
             ? toBoolean(hasRenderedImageValue)
             : Boolean(renderedImageUrl) && !toBoolean(missingRenderedImageValue);
-        return {
+        const normalized = {
             inspectionId: pickTraceValue(record, "inspectionId", "InspectionId") || "-",
+            detectionRecordId: toNullableNumber(pickTraceValue(record, "detectionRecordId", "DetectionRecordId", "id", "Id")),
             productBarcode: pickTraceValue(record, "productBarcode", "ProductBarcode") || "-",
             timestamp: pickTraceValue(record, "timestamp", "Timestamp") || "-",
             isQualified: toBoolean(pickTraceValue(record, "isQualified", "IsQualified")),
@@ -493,6 +873,9 @@
             errorMessage: pickTraceValue(record, "errorMessage", "ErrorMessage") || "",
             imagePath: pickTraceValue(record, "imagePath", "ImagePath") || "",
             renderedImagePath: pickTraceValue(record, "renderedImagePath", "RenderedImagePath") || "",
+            ruleSummary: pickTraceValue(record, "ruleSummary", "RuleSummary") || "",
+            resultJson,
+            deepLearningSummary,
             imageUrl,
             renderedImageUrl,
             thumbnailUrl: pickTraceValue(record, "thumbnailUrl", "ThumbnailUrl") || renderedImageUrl || imageUrl,
@@ -500,6 +883,8 @@
             hasRenderedImage,
             missingRenderedImage: hasRenderedImageValue !== "" ? !toBoolean(hasRenderedImageValue) : !renderedImageUrl || toBoolean(missingRenderedImageValue),
         };
+        normalized.deepLearningTraceSummary = formatTraceDeepLearningSummary(normalized);
+        return normalized;
     }
 
     function getTraceAdviceText(record, prefix = "处理建议") {
@@ -632,6 +1017,10 @@
             const statusText = normalized.hasRenderedImage ? "复查图" : "无复查图";
             const canRulePreview = Boolean(normalized.imagePath || normalized.renderedImagePath || originalUrl || reviewUrl);
             const adviceText = getTraceAdviceText(normalized);
+            const summaryLine = [
+                normalized.deepLearningTraceSummary ? `深度学习: ${normalized.deepLearningTraceSummary}` : "",
+                normalized.ruleSummary ? `规则: ${normalized.ruleSummary}` : "",
+            ].filter(Boolean).join(" · ");
             info.innerHTML = `
                 <div class="cf-trace-viewer-toolbar">
                     <div class="cf-trace-viewer-meta">
@@ -645,6 +1034,7 @@
                         <button type="button" data-trace-action="rule-preview" data-can-preview="${canRulePreview ? "true" : "false"}" ${canRulePreview ? "" : "disabled"}>当前规则复判</button>
                     </div>
                 </div>
+                <div class="cf-trace-preview-status ${summaryLine ? "" : "hidden"}">${escapeHtml(summaryLine)}</div>
                 <div class="cf-trace-preview-status error ${adviceText ? "" : "hidden"}">${escapeHtml(adviceText)}</div>
                 <div id="history-rule-preview-status" class="cf-trace-preview-status hidden"></div>`;
 
@@ -693,22 +1083,152 @@
         renderTracePage(page);
     }
 
+    function getReplayLimit() {
+        const raw = Number(byId("replay-query-limit")?.value || 100);
+        if (!Number.isFinite(raw)) return 100;
+        return Math.max(1, Math.min(10000, Math.trunc(raw)));
+    }
+
+    function getReplayPanelPayload() {
+        return {
+            limit: getReplayLimit(),
+            datasetId: String(byId("replay-dataset-input")?.value || "").trim(),
+            runId: String(byId("replay-run-input")?.value || "").trim(),
+            baselineModel: String(byId("replay-baseline-model")?.value || "").trim(),
+            candidateModel: String(byId("replay-candidate-model")?.value || "").trim(),
+            recipeVersion: activeTraceRecord?.recipeVersion || "",
+        };
+    }
+
+    function setReplayPanelStatus(id, text) {
+        const node = byId(id);
+        if (node) node.textContent = text || "";
+    }
+
+    function queryManualReviewRecords() {
+        const requestId = bridge.sendCommand("query_manual_review_records", {
+            limit: getReplayLimit(),
+            recipeVersion: activeTraceRecord?.recipeVersion || "",
+        });
+        setReplayPanelStatus("manual-review-response", `查询中 ${requestId}`);
+    }
+
+    function saveManualReview() {
+        const inspectionId = activeTraceRecord?.inspectionId || "";
+        if (!inspectionId) {
+            window.showToast?.("请先选择一条追溯记录再保存真值", "warning", 1800);
+            return;
+        }
+
+        const revisionRaw = String(byId("manual-review-expected-revision")?.value || "").trim();
+        const requestId = bridge.sendCommand("save_manual_review", {
+            detectionRecordId: activeTraceRecord?.detectionRecordId || 0,
+            inspectionId,
+            sampleId: inspectionId,
+            groundTruth: byId("manual-review-ground-truth-input")?.value || "OK",
+            disposition: byId("manual-review-disposition-input")?.value || "Confirmed",
+            expectedRevision: revisionRaw ? Number(revisionRaw) : null,
+            notes: String(byId("manual-review-notes")?.value || "").trim(),
+        });
+        setReplayPanelStatus("manual-review-response", `保存中 ${requestId}`);
+    }
+
+    function createReplayDataset() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("create_replay_dataset", payload);
+        setReplayPanelStatus("replay-run-status", `生成验证样本集 ${requestId}`);
+    }
+
+    function previewReplayDataset() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("preview_replay_dataset", payload);
+        setReplayPanelStatus("replay-run-status", `预览中 ${requestId}`);
+    }
+
+    function queryReplayDatasets() {
+        const requestId = bridge.sendCommand("query_replay_datasets", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `查询数据集 ${requestId}`);
+    }
+
+    function archiveReplayDataset() {
+        const requestId = bridge.sendCommand("archive_replay_dataset", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `归档中 ${requestId}`);
+    }
+
+    function runReplayComparison() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("run_replay_comparison", payload);
+        setReplayPanelStatus("replay-run-status", `对比新旧模型 ${requestId}`);
+    }
+
+    function cancelReplayRun() {
+        const requestId = bridge.sendCommand("cancel_replay_run", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `正在取消 ${requestId}`);
+    }
+
+    function queryReplayRuns() {
+        const requestId = bridge.sendCommand("query_replay_runs", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `查询运行记录 ${requestId}`);
+    }
+
+    function queryReplayReport() {
+        const requestId = bridge.sendCommand("query_replay_report", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `生成报告 ${requestId}`);
+    }
+
+    function queryModelApprovalEvidence() {
+        const requestId = bridge.sendCommand("query_model_approval_evidence", getReplayPanelPayload());
+        setReplayPanelStatus("replay-approval-status", `查询验证记录 ${requestId}`);
+    }
+
+    function runReplayIntegrityScan() {
+        const requestId = bridge.sendCommand("run_replay_integrity_scan", getReplayPanelPayload());
+        setReplayPanelStatus("replay-approval-status", `扫描中 ${requestId}`);
+    }
+
+    function approveReplayCandidate() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("approve_replay_candidate", payload);
+        setReplayPanelStatus("replay-approval-status", `确认上线 ${requestId}`);
+    }
+
     Object.assign(window, {
         closeGalleryModal,
         closeImageViewer,
+        closeAuditModal,
         closeLogHistoryModal,
         closeStatisticsHistoryModal,
+        exportAuditRecords,
+        verifyAuditChain,
         openGalleryModal,
+        openAuditModal,
         openLogHistoryModal,
         openStatisticsHistoryModal,
         loadNextTracePage,
         loadPreviousTracePage,
+        queryAuditRecords,
         receiveStatisticsHistory,
         requestStatisticsHistory,
         runHistoryRulePreview,
+        queryManualReviewRecords,
+        saveManualReview,
+        createReplayDataset,
+        previewReplayDataset,
+        queryReplayDatasets,
+        archiveReplayDataset,
+        runReplayComparison,
+        cancelReplayRun,
+        queryReplayRuns,
+        queryReplayReport,
+        queryModelApprovalEvidence,
+        runReplayIntegrityScan,
+        approveReplayCandidate,
         searchTraceImages,
         selectTraceHour,
         updateDetectionLogTable,
+        updateAuditExport,
+        updateAuditChainVerification,
+        updateAuditRecords,
         updateNGDates,
         updateNGHours,
         updateNGImages,
@@ -717,6 +1237,9 @@
 
     bridge.registerMessageHandler("statisticsHistory", receiveStatisticsHistory);
     bridge.registerMessageHandler("detectionLogTable", updateDetectionLogTable);
+    bridge.registerMessageHandler("auditRecords", updateAuditRecords);
+    bridge.registerMessageHandler("auditExport", updateAuditExport);
+    bridge.registerMessageHandler("auditChainVerification", updateAuditChainVerification);
     bridge.registerMessageHandler("historyDates", updateNGDates);
     bridge.registerMessageHandler("historyHours", updateNGHours);
     bridge.registerMessageHandler("historyImages", updateNGImages);

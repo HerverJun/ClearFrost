@@ -6,10 +6,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using ClearFrost.Core.Models;
 using ClearFrost.Core.Security;
 using ClearFrost.Core.Rules;
 using ClearFrost.Helpers;
@@ -99,7 +99,7 @@ namespace ClearFrost.Config
 
         // ================== Trigger Source Settings ==================
         /// <summary>
-        /// 触发源: PLC 或 SerialPhotoelectric
+        /// 触发源: PLC、SerialPhotoelectric 或 Manual
         /// </summary>
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public TriggerSource TriggerSource { get; set; } = TriggerSource.PLC;
@@ -163,6 +163,8 @@ namespace ClearFrost.Config
         /// 当前使用的主模型文件名（含扩展名，如 "model_v1.onnx"）
         /// </summary>
         public string CurrentModelFileName { get; set; } = "";
+        public string OnnxModelDirectory { get; set; } = "ONNX";
+        public ProductionModelReference CurrentModelReference { get; set; } = ProductionModelReference.Empty();
         public int TaskType { get; set; } = 1;
         public bool EnablePreprocessing { get; set; } = true;
         public bool EnableGpu { get; set; } = false;
@@ -171,17 +173,20 @@ namespace ClearFrost.Config
         public bool UseFileBackedWebImageTransport { get; set; } = true;
         public string ModelPackageDirectory { get; set; } = "models";
         public bool StrictModelPackageMode { get; set; } = false;
+        public bool RequireApprovedModelsForProduction { get; set; } = false;
 
         // ================== Multi-Model Fallback Settings ==================
         /// <summary>
         /// 辅助模型1路径
         /// </summary>
         public string Auxiliary1ModelPath { get; set; } = "";
+        public ProductionModelReference Auxiliary1ModelReference { get; set; } = ProductionModelReference.Empty();
 
         /// <summary>
         /// 辅助模型2路径
         /// </summary>
         public string Auxiliary2ModelPath { get; set; } = "";
+        public ProductionModelReference Auxiliary2ModelReference { get; set; } = ProductionModelReference.Empty();
 
         /// <summary>
         /// 是否启用多模型自动切换
@@ -281,6 +286,7 @@ namespace ClearFrost.Config
                         continue;
                     }
 
+                    EnsureConfigFileSafeForRead(loadPath);
                     string json = File.ReadAllText(loadPath);
                     var config = FromJson(json);
                     config.MigrateLegacyCamera();
@@ -490,6 +496,9 @@ namespace ClearFrost.Config
 
         private void NormalizeRuntimeSettings()
         {
+            CurrentModelReference ??= ProductionModelReference.Empty();
+            Auxiliary1ModelReference ??= ProductionModelReference.Empty();
+            Auxiliary2ModelReference ??= ProductionModelReference.Empty();
             NormalizePlcAddresses();
             NormalizeSequenceJudgeSettings();
             NormalizeInspectionRuleSetSettings();
@@ -722,6 +731,16 @@ namespace ClearFrost.Config
             }
         }
 
+        private static void EnsureConfigFileSafeForRead(string path)
+        {
+            var file = new FileInfo(path);
+            file.Refresh();
+            if (file.Exists && (file.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new IOException($"配置文件是链接文件，拒绝读取: {path}");
+            }
+        }
+
         private static JsonSerializerOptions CreateJsonOptions()
         {
             return new JsonSerializerOptions
@@ -734,43 +753,7 @@ namespace ClearFrost.Config
 
         private static void WriteConfigAtomically(string targetPath, string json)
         {
-            string configDir = Path.GetDirectoryName(targetPath) ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(configDir))
-            {
-                Directory.CreateDirectory(configDir);
-            }
-
-            string tempPath = Path.Combine(
-                string.IsNullOrWhiteSpace(configDir) ? "." : configDir,
-                $"config.{Guid.NewGuid():N}.tmp");
-
-            try
-            {
-                File.WriteAllText(tempPath, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-
-                if (File.Exists(targetPath))
-                {
-                    File.Replace(tempPath, targetPath, ConfigBackupPath, ignoreMetadataErrors: true);
-                }
-                else
-                {
-                    File.Move(tempPath, targetPath);
-                }
-            }
-            finally
-            {
-                try
-                {
-                    if (File.Exists(tempPath))
-                    {
-                        File.Delete(tempPath);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LogError("CleanupTempConfig", ex);
-                }
-            }
+            AtomicFileWriter.WriteAllText(targetPath, json);
         }
 
         private void TrySeedRuntimeConfig()

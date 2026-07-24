@@ -67,12 +67,25 @@ namespace ClearFrost
             _databaseService = _appRuntime.DatabaseService;
             _uiController.DatabaseService = _databaseService;
             SafeFireAndForget(_databaseService.InitializeAsync(), "数据库初始化");
-            _operationAuditService = new OperationAuditService(Path.Combine(Path_Logs, "Outbox"));
+            _operationAuditService = _appRuntime.OperationAuditService;
+            _uiController.AuditService = _operationAuditService;
+            _uiController.AuditChainVerifier = _appRuntime.VerifyOperationAuditChainAsync;
             _imageSaveQueue = _appRuntime.ImageSaveQueue;
             _detectionRecordQueue = _appRuntime.DetectionRecordQueue;
             _recipeManager = _appRuntime.RecipeManager;
             _currentROI = _recipeManager.CurrentRecipe.GetRoiSnapshot();
             _modelRegistry = _appRuntime.ModelRegistry;
+            _modelActivationService = new ProductionModelActivationService(
+                _appConfig,
+                _modelRegistry,
+                _recipeManager,
+                _detectionService,
+                () => _appRuntime.RefreshModelRegistry(),
+                () => _appConfig.Save(),
+                SnapshotCurrentROI,
+                ResolveCurrentOperatorId,
+                () => _appConfig.CurrentOperatorRole.ToString(),
+                (role, entry, reference) => _appRuntime.ReplayProductionGate.Validate(role, entry, reference));
             _healthMonitor = _appRuntime.HealthMonitor;
             _startupDiagnostics = _appRuntime.StartupDiagnostics;
             _inspectionPipelineService = new InspectionPipelineService(
@@ -89,6 +102,7 @@ namespace ClearFrost
                 _healthMonitor,
                 SnapshotCurrentROI,
                 () => _cameraManager.ActiveCameraId ?? string.Empty,
+                _appRuntime.DecisionEvaluator,
                 DiagLog);
             _serialTriggerService = new SerialPhotoelectricTriggerService();
             LogStartupDiagnostics();
@@ -106,6 +120,10 @@ namespace ClearFrost
                 int warningCount = report.Items.Count(i => i.Status == StartupDiagnosticStatus.Warning);
                 _storageService.WriteStartupLog(
                     $"StartupDiagnostics Ready={report.IsReady}, Fail={failCount}, Warning={warningCount}");
+                if (!_appConfig.RequireApprovedModelsForProduction)
+                {
+                    _storageService.WriteStartupLog(OperatorFaultMessages.FieldLightweightModeSummary);
+                }
 
                 foreach (StartupDiagnosticItem item in report.Items)
                 {
@@ -131,7 +149,11 @@ namespace ClearFrost
                 RecordHealthError("StartupDiagnostics", $"刷新模型注册表失败: {ex.Message}");
             }
 
-            StartupDiagnosticReport report = _startupDiagnostics.Run(_appConfig, _storageService, _modelRegistry);
+            StartupDiagnosticReport report = _startupDiagnostics.Run(
+                _appConfig,
+                _storageService,
+                _modelRegistry,
+                (role, entry, reference) => _appRuntime.ReplayProductionGate.Validate(role, entry, reference));
             LogStartupDiagnostics();
             return report;
         }
@@ -150,13 +172,7 @@ namespace ClearFrost
                 return true;
             }
 
-            string summary = _appRuntime.StartupBlockingSummary;
-            if (string.IsNullOrWhiteSpace(summary))
-            {
-                summary = "启动诊断存在阻塞项";
-            }
-
-            string message = $"启动诊断未通过，已阻止{operation}: {summary}";
+            string message = OperatorFaultMessages.ForStartupReport(refreshedReport, operation);
             RecordHealthError("StartupDiagnostics", message, inspectionId);
             await _uiController.LogToFrontend(message, "error");
             return false;

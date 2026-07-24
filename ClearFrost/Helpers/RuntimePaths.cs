@@ -144,7 +144,17 @@ namespace ClearFrost.Helpers
                 try
                 {
                     string normalized = Path.GetFullPath(candidate);
+                    if (DirectoryPathHasReparsePoint(normalized))
+                    {
+                        continue;
+                    }
+
                     Directory.CreateDirectory(normalized);
+                    if (DirectoryPathHasReparsePoint(normalized))
+                    {
+                        continue;
+                    }
+
                     return normalized;
                 }
                 catch
@@ -154,6 +164,46 @@ namespace ClearFrost.Helpers
             }
 
             return Path.GetFullPath(primaryPath);
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
         }
 
         private static IEnumerable<string> GetCandidates(string primaryPath)

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>清霜 V5 现场操作台 - ClearFrost</title>
+    <title>清霜 V5 现场操作台</title>
 
 
 
@@ -22,12 +22,41 @@
         <div class="stitch-brand">
             <div class="stitch-snow-mark" aria-hidden="true">
                 <svg viewBox="0 0 64 64" role="img" aria-label="清霜图标" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="32" cy="32" r="25" fill="#d9e2ff" />
-                    <g stroke="#094cb2" stroke-width="3" stroke-linecap="round" fill="none">
-                        <path d="M32 10v44M10 32h44M16.4 16.4l31.2 31.2M47.6 16.4 16.4 47.6" />
-                        <path d="m32 10-6 7M32 10l6 7M32 54l-6-7M32 54l6-7M10 32l7-6M10 32l7 6M54 32l-7-6M54 32l-7 6" />
+                    <defs>
+                        <radialGradient id="cf-snow-bg" cx="34%" cy="24%" r="72%">
+                            <stop offset="0" stop-color="#ffffff" />
+                            <stop offset="0.56" stop-color="#dcecff" />
+                            <stop offset="1" stop-color="#b8d4f8" />
+                        </radialGradient>
+                        <linearGradient id="cf-snow-stroke" x1="14" y1="12" x2="50" y2="52">
+                            <stop offset="0" stop-color="#0b63d8" />
+                            <stop offset="1" stop-color="#06449f" />
+                        </linearGradient>
+                    </defs>
+                    <circle cx="32" cy="32" r="24" fill="url(#cf-snow-bg)" stroke="#a9c8ed" stroke-width="1.4" />
+                    <path d="M32 9.5 51.5 20.8v22.4L32 54.5 12.5 43.2V20.8Z" fill="none"
+                        stroke="#7fb0eb" stroke-width="1.2" opacity="0.42" />
+                    <g fill="none" stroke="url(#cf-snow-stroke)" stroke-linecap="round" stroke-linejoin="round">
+                        <g stroke-width="3">
+                            <path d="M32 12v40" />
+                            <path d="M14.7 22 49.3 42" />
+                            <path d="M14.7 42 49.3 22" />
+                        </g>
+                        <g stroke-width="2.3">
+                            <path d="m32 12-5.5 6.2M32 12l5.5 6.2" />
+                            <path d="m32 52-5.5-6.2M32 52l5.5-6.2" />
+                            <path d="m14.7 22 8.1-1.5M14.7 22l2.7 7.7" />
+                            <path d="m49.3 42-8.1 1.5M49.3 42l-2.7-7.7" />
+                            <path d="m14.7 42 2.7-7.7M14.7 42l8.1 1.5" />
+                            <path d="m49.3 22-2.7 7.7M49.3 22l-8.1-1.5" />
+                        </g>
+                        <g stroke-width="1.8" opacity="0.9">
+                            <path d="M32 24h8M32 24h-8M32 40h8M32 40h-8" />
+                            <path d="m25 28 4-6M39 36l-4 6M39 28l-4-6M25 36l4 6" />
+                        </g>
                     </g>
-                    <circle cx="32" cy="32" r="5" fill="#3366cc" />
+                    <circle cx="32" cy="32" r="5.5" fill="#f8fbff" stroke="#0b55be" stroke-width="2" />
+                    <circle cx="32" cy="32" r="2.2" fill="#0b55be" />
                 </svg>
             </div>
             <h1>清霜 <span>ClearFrost</span></h1>
@@ -48,6 +77,13 @@
                     </span>
                     <strong id="status-plc-text">未连接</strong>
                 </div>
+                <div id="status-trigger-source" class="stitch-status-light" title="当前触发源: PLC触发" aria-label="当前触发源: PLC触发">
+                    <span class="stitch-status-label">
+                        <span id="status-trigger-source-dot" class="status-dot status-on" aria-hidden="true"></span>
+                        <span>触发源</span>
+                    </span>
+                    <strong id="status-trigger-source-text">PLC触发</strong>
+                </div>
                 <div id="status-plc-trigger" class="stitch-status-light" title="触发拍照待触发" aria-label="触发拍照: 待触发">
                     <span class="stitch-status-label">
                         <span id="status-plc-trigger-dot" class="status-dot status-off" aria-hidden="true"></span>
@@ -58,7 +94,7 @@
             </div>
             <div id="operator-status-chip" class="stitch-operator-chip" title="当前操作员">
                 <span id="operator-status-role">操作员</span>
-                <strong id="operator-status-id">未设置</strong>
+                <strong id="operator-status-id">本机操作</strong>
             </div>
         </div>
         <nav class="stitch-nav-actions" aria-label="操作">
@@ -75,12 +111,34 @@
                         d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4m-4 5a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4" />
                 </svg>
             </button>
+            <button data-action="openFieldDiagnosticsPanel" title="现场诊断" aria-label="现场诊断">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M14.7 6.3a4 4 0 0 0-5 5L4 17v3h3l5.7-5.7a4 4 0 0 0 5-5l-2.4 2.4-3-3 2.4-2.4Z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="m14 14 5 5" />
+                </svg>
+            </button>
+            <button data-action="openVisionDebugPanel" title="视觉调试（工程师）" aria-label="视觉调试（工程师）">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 5h16M4 19h16M7 5v14M17 5v14M9 9h6M9 15h6" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M6 12h12" />
+                </svg>
+            </button>
             <button data-action="openGalleryModal" title="记录追溯" aria-label="记录追溯">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11Z" />
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="m5.5 16 4.2-4.2a1.5 1.5 0 0 1 2.1 0l2 2 1.1-1.1a1.5 1.5 0 0 1 2.1 0l1.5 1.5M15.5 8.5h.01" />
+                </svg>
+            </button>
+            <button data-action="openAuditModal" title="审计记录" aria-label="审计记录">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12h6m-6 4h6M7 3h10l3 3v15H4V3h3Zm10 0v4h4" />
                 </svg>
             </button>
         </nav>
@@ -90,7 +148,7 @@
     <div id="app-main" class="stitch-shell">
         <aside id="left-panel" class="stitch-left-panel">
             <section class="stitch-section">
-                <h3>实时统计 (Real-time Stats)</h3>
+                <h3>实时统计</h3>
                 <div class="stitch-stat-grid">
                     <div class="stitch-stat-card">
                         <span>生产总数</span>
@@ -102,17 +160,17 @@
                     </div>
                 </div>
                 <div class="stitch-okng-grid">
-                    <div><span>OK</span><strong id="val-ok">0</strong></div>
-                    <div><span>NG</span><strong id="val-ng">0</strong></div>
+                    <div><span>合格</span><strong id="val-ok">0</strong></div>
+                    <div><span>不合格</span><strong id="val-ng">0</strong></div>
                 </div>
             </section>
 
             <section class="stitch-section stitch-model-section">
-                <h3>模型配置 (Model Config)</h3>
+                <h3>模型配置</h3>
                 <div id="yolo-controls" class="stitch-model-stack">
                     <div class="stitch-model-card">
                         <label>
-                            <span>主模型 (Main)</span>
+                            <span>主模型</span>
                         </label>
                         <select id="model-select" data-change-cmd="change_model">
                             <option value="">正在初始化系统...</option>
@@ -120,7 +178,7 @@
                     </div>
                     <div class="stitch-model-card">
                         <label>
-                            <span>子模型 1 (Sub 1)</span>
+                            <span>子模型 1</span>
                         </label>
                         <select id="auxiliary1-select" data-change-cmd="set_auxiliary1_model">
                             <option value="">不使用</option>
@@ -128,7 +186,7 @@
                     </div>
                     <div class="stitch-model-card">
                         <label>
-                            <span>子模型 2 (Sub 2)</span>
+                            <span>子模型 2</span>
                         </label>
                         <select id="auxiliary2-select" data-change-cmd="set_auxiliary2_model">
                             <option value="">不使用</option>
@@ -148,7 +206,7 @@
             </section>
 
             <section class="stitch-section stitch-key-log-section">
-                <h3>关键日志 (Key Logs)</h3>
+                <h3>关键日志</h3>
                 <div id="log-container" class="stitch-key-log-list scroller" aria-live="polite"></div>
             </section>
         </aside>
@@ -158,8 +216,8 @@
                 <div class="stitch-feed-info">
                     <div class="stitch-feed-chips">
                         <span id="feed-sn">条码: -</span>
-                        <span id="feed-model-name">Model -</span>
-                        <span id="feed-trigger-seq">T- / R-</span>
+                        <span id="feed-model-name">模型 -</span>
+                        <span id="feed-trigger-seq">触发- / 结果-</span>
                     </div>
                     <button data-action="clearRoi" title="清除 ROI" aria-label="清除 ROI">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -173,11 +231,12 @@
                         src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz48c3ZnIHdpZHRoPSIxMjgwIiBoZWlnaHQ9IjcyMCIgdmlld0JveD0iMCAwIDEyODAgNzIwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMjgwIiBoZWlnaHQ9IjcyMCIgZmlsbD0iI2NiZDVlMSIvPjx0ZXh0IHg9IjY0MCIgeT0iMzYwIiBmb250LWZhbWlseT0iSW50ZXIsU2Vnb2UgVUksTWljcm9zb2Z0IFlhSGVpLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMzIiIGZpbGw9IiM0NzU1NjkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPuetieW+heWbvuWDj+i+k+WFpTwvdGV4dD48L3N2Zz4="
                         alt="相机画面">
                     <canvas id="roi-canvas"></canvas>
+                    <canvas id="vision-debug-overlay"></canvas>
                     <div class="stitch-bounding-box" aria-hidden="true"></div>
                     <div id="result-overlay" class="hidden stitch-result-overlay">OK</div>
                 </div>
                 <div class="stitch-result-strip">
-                    <span id="camera-result-pill" class="cf-result-pill result-idle">WAIT</span>
+                    <span id="camera-result-pill" class="cf-result-pill result-idle">等待</span>
                     <div>
                         <strong id="camera-result-text">等待检测结果</strong>
                         <p>
@@ -186,16 +245,16 @@
                             检出 <b id="camera-target-count">0</b>
                             <span>|</span>
                             模型 <b id="camera-model">-</b>
-                            <em id="camera-fallback" class="hidden">FALLBACK</em>
+                            <em id="camera-fallback" class="hidden">备用模型</em>
                         </p>
                     </div>
-                    <span id="camera-phase">IDLE</span>
+                    <span id="camera-phase">空闲</span>
                 </div>
             </div>
         </main>
 
         <aside id="right-panel" class="stitch-log-panel">
-            <h3>检测日志 (Detection Logs)</h3>
+            <h3>检测日志</h3>
             <div id="inspection-flow-list" class="stitch-log-list scroller"></div>
             <div class="stitch-action-stack">
                 <button id="btn-open-camera" data-action="startSystem" class="stitch-start-button">
@@ -203,7 +262,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M8 5v14l11-7-11-7Z" />
                     </svg>
-                    启动系统 (Start System)
+                    启动系统
                 </button>
                 <div class="stitch-action-grid">
                     <button data-cmd="manual_detect">
@@ -229,6 +288,475 @@
 
     <!-- MODALS: 瓷感磨砂 -->
 
+    <!-- Field Diagnostics Modal -->
+    <div id="field-diagnostics-modal"
+        class="fixed inset-0 bg-ink-900/60 z-[65] hidden flex items-center justify-center p-3">
+        <div class="cf-diagnostics-panel">
+            <div class="cf-diagnostics-header">
+                <div>
+                    <span>现场诊断中心</span>
+                    <h2>现场体检面板</h2>
+                </div>
+                <div class="cf-diagnostics-header-actions">
+                    <button data-cmd="request_health_snapshot" title="刷新诊断状态" aria-label="刷新诊断状态">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M20 11a8 8 0 0 0-15.5-3M4 4v4h4m-4 5a8 8 0 0 0 15.5 3M20 20v-4h-4" />
+                        </svg>
+                    </button>
+                    <button data-action="closeFieldDiagnosticsPanel" title="关闭" aria-label="关闭">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="cf-diagnostics-body scroller">
+                <section class="cf-diagnostics-section">
+                    <h3>设备状态</h3>
+                    <div class="cf-diagnostics-grid cf-field-status-grid">
+                        <div class="cf-diagnostic-tile">
+                            <span>相机</span>
+                            <strong id="diag-camera-status">未连接</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>PLC</span>
+                            <strong id="diag-plc-status">未连接</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>触发源</span>
+                            <strong id="diag-trigger-source">PLC触发</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>模型</span>
+                            <strong id="diag-current-model">未加载</strong>
+                        </div>
+                        <div class="cf-diagnostic-tile">
+                            <span>存储</span>
+                            <strong id="diag-storage-status">正常</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="cf-diagnostics-section">
+                    <h3>当前是否可以生产</h3>
+                    <div class="cf-production-readiness">
+                        <strong id="diag-production-readiness">正在检查</strong>
+                        <span id="diag-production-guidance">请先刷新状态。</span>
+                    </div>
+                </section>
+
+                <section class="cf-diagnostics-section">
+                    <h3>待处理问题</h3>
+                    <div id="diag-maintenance-advice" class="cf-maintenance-advice-list">
+                        <div class="cf-maintenance-advice-item ok">
+                            <strong>暂无待处理问题</strong>
+                            <span>当前状态可以继续生产。</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="cf-diagnostics-section">
+                    <h3>常用操作</h3>
+                    <div class="cf-common-action-grid">
+                        <button data-cmd="request_health_snapshot">
+                            <span>刷新状态</span>
+                        </button>
+                        <button data-cmd="export_diagnostic_package">
+                            <span>导出诊断包</span>
+                        </button>
+                        <button data-action="openSettingsModal">
+                            <span>打开设置</span>
+                        </button>
+                        <button data-action="copyFaultSummary">
+                            <span>复制故障摘要</span>
+                        </button>
+                    </div>
+                </section>
+
+                <details class="cf-engineer-details">
+                    <summary>工程师详情（高级）</summary>
+                    <p>供视觉/设备工程师排查使用，一线操作无需关注。</p>
+
+                    <section class="cf-diagnostics-section">
+                        <h3>工程师检查项</h3>
+                        <div class="cf-diagnostics-checklist" id="diag-acceptance-list">
+                            <div>
+                                <span>运行模型</span>
+                                <strong id="diag-model-slot-list">等待模型快照</strong>
+                            </div>
+                            <div>
+                                <span>当前配方</span>
+                                <strong id="diag-recipe-version">未加载</strong>
+                            </div>
+                            <div>
+                                <span>启动诊断原始项</span>
+                                <strong id="diag-startup-blockers">无阻断项</strong>
+                            </div>
+                            <div>
+                                <span>队列</span>
+                                <strong id="diag-queue-health">正常</strong>
+                            </div>
+                            <div>
+                                <span>审计链</span>
+                                <strong id="diag-audit-chain">未校验</strong>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="cf-diagnostics-section">
+                        <h3>性能与内部状态</h3>
+                        <div class="cf-diagnostics-grid">
+                            <div class="cf-diagnostic-tile">
+                                <span>最近 InspectionId</span>
+                                <strong id="diag-last-inspection-id">-</strong>
+                            </div>
+                            <div class="cf-diagnostic-tile">
+                                <span>P95 耗时</span>
+                                <strong id="diag-p95">0ms</strong>
+                            </div>
+                            <div class="cf-diagnostic-tile">
+                                <span>P99 耗时</span>
+                                <strong id="diag-p99">0ms</strong>
+                            </div>
+                            <div class="cf-diagnostic-tile">
+                                <span>图像队列</span>
+                                <strong id="diag-image-queue">0/-</strong>
+                            </div>
+                            <div class="cf-diagnostic-tile">
+                                <span>记录队列</span>
+                                <strong id="diag-record-queue">0/-</strong>
+                            </div>
+                            <div class="cf-diagnostic-tile">
+                                <span>磁盘剩余</span>
+                                <strong id="diag-free-disk">0GB</strong>
+                            </div>
+                            <div class="cf-diagnostic-tile">
+                                <span>内存占用</span>
+                                <strong id="diag-memory">0MB</strong>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="cf-diagnostics-section">
+                        <h3>最近异常与阶段耗时</h3>
+                        <div class="cf-diagnostics-readout">
+                            <div>
+                                <span>最近错误</span>
+                                <strong id="diag-last-error">暂无错误</strong>
+                            </div>
+                            <div>
+                                <span>最近检测阶段耗时</span>
+                                <strong id="diag-stage-timing">等待检测</strong>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="cf-diagnostics-section">
+                        <h3>处理记录与班次待办</h3>
+                        <div class="cf-maintenance-history" id="diag-maintenance-history">
+                            <div class="cf-maintenance-history-empty">
+                                <strong>暂无处理记录</strong>
+                                <span>处理或复检维护建议后会出现在这里</span>
+                            </div>
+                        </div>
+                        <div class="cf-shift-task-list" id="diag-shift-task-list">
+                            <div class="cf-shift-task-empty">
+                                <strong>暂无班次待办</strong>
+                                <span>当前无需要交接跟进的诊断任务</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="cf-diagnostics-section">
+                        <h3>现场交接</h3>
+                        <div class="cf-diagnostics-export-row cf-handoff-report-row">
+                            <button data-action="exportFieldHandoffReport">
+                                <span>导出交接报告</span>
+                            </button>
+                            <button data-action="copyFieldHandoffReportSummary">
+                                <span>复制交接摘要</span>
+                            </button>
+                            <strong id="diag-handoff-report-path">尚未导出</strong>
+                        </div>
+                        <div class="cf-handoff-report-meta" id="diag-handoff-report-meta">
+                            <span>结论 <strong id="diag-handoff-status">-</strong></span>
+                            <span>大小 <strong id="diag-handoff-size">-</strong></span>
+                            <span>生成时间 <strong id="diag-handoff-generated-at">-</strong></span>
+                        </div>
+                        <div class="cf-diagnostics-history-head">
+                            <span>历史交接报告</span>
+                            <button data-action="requestFieldHandoffReportHistory">
+                                <span>刷新</span>
+                            </button>
+                        </div>
+                        <div class="cf-handoff-report-history" id="diag-handoff-report-history">
+                            <div class="cf-handoff-report-empty">
+                                <strong>暂无历史交接报告</strong>
+                                <span>导出交接报告后会出现在这里</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="cf-diagnostics-section">
+                        <h3>单步调试</h3>
+                        <div class="cf-debug-command-grid">
+                            <button data-cmd="field_debug_step_capture">
+                                <span>单步取图</span>
+                            </button>
+                            <button data-cmd="field_debug_step_infer">
+                                <span>单步推理</span>
+                            </button>
+                            <button data-cmd="field_debug_plc_write_test"
+                                data-confirm="确认向 PLC 结果地址写入测试值？请确认设备处于调试状态。">
+                                <span>PLC 写入测试</span>
+                            </button>
+                            <button data-cmd="field_debug_barcode_read_test">
+                                <span>条码读取测试</span>
+                            </button>
+                            <button data-cmd="field_debug_simulate_trigger"
+                                data-confirm="确认执行一次触发模拟？系统会按完整检测链路运行。">
+                                <span>触发模拟</span>
+                            </button>
+                        </div>
+                        <div class="cf-debug-status-line">
+                            <span>调试结果</span>
+                            <strong id="diag-debug-status">等待调试命令</strong>
+                        </div>
+                    </section>
+
+                    <section class="cf-diagnostics-section">
+                        <h3>诊断包</h3>
+                        <div class="cf-diagnostics-export-row">
+                            <button data-cmd="export_diagnostic_package">
+                                <span>一键导出诊断包</span>
+                            </button>
+                            <button data-action="copyDiagnosticPackageSummary">
+                                <span>复制核验摘要</span>
+                            </button>
+                            <strong id="diag-package-path">尚未导出</strong>
+                        </div>
+                        <div class="cf-diagnostics-package-meta" id="diag-package-integrity">
+                            <span>包 SHA-256 <strong id="diag-package-sha">-</strong></span>
+                            <span>索引 SHA-256 <strong id="diag-index-sha">-</strong></span>
+                            <span>大小 <strong id="diag-package-size">-</strong></span>
+                            <span>校验 <strong id="diag-integrity-status">-</strong></span>
+                            <span>条目 <strong id="diag-index-entry-count">-</strong></span>
+                        </div>
+                        <div class="cf-diagnostics-history-head">
+                            <span>历史诊断包</span>
+                            <button data-action="requestDiagnosticPackageHistory">
+                                <span>刷新</span>
+                            </button>
+                        </div>
+                        <div class="cf-diagnostics-package-history" id="diag-package-history">
+                            <div class="cf-diagnostics-package-empty">
+                                <strong>暂无历史诊断包</strong>
+                                <span>导出诊断包后会出现在这里</span>
+                            </div>
+                        </div>
+                    </section>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vision Debug Modal -->
+    <div id="vision-debug-modal"
+        class="fixed inset-0 bg-ink-900/60 z-[66] hidden flex items-center justify-center p-3">
+        <div class="cf-vision-debug-panel">
+            <div class="cf-vision-debug-header">
+                <div>
+                    <span>视觉调试（工程师）</span>
+                    <h2>视觉调试工作台</h2>
+                    <p>用于工程师验证模型、规则和当前相机画面；一线生产无需操作。</p>
+                </div>
+                <div class="cf-vision-debug-actions">
+                    <button data-action="requestVisionDebugRecentRecords" title="刷新历史样本" aria-label="刷新历史样本">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M20 11a8 8 0 0 0-15.5-3M4 4v4h4m-4 5a8 8 0 0 0 15.5 3M20 20v-4h-4" />
+                        </svg>
+                    </button>
+                    <button data-action="closeVisionDebugPanel" title="关闭" aria-label="关闭">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="cf-vision-debug-body scroller">
+                <div id="vision-debug-operator-note" class="cf-vision-debug-operator-note hidden">
+                    这是工程师调试工具，生产操作无需进入。
+                </div>
+
+                <section class="cf-vision-debug-section cf-vision-debug-step">
+                    <h3>第一步：选择场景</h3>
+                    <label class="cf-vision-debug-field">
+                        <span>场景</span>
+                        <select id="vision-debug-template-select">
+                            <option value="target_count">目标数量检测</option>
+                            <option value="classification_judge">分类判定</option>
+                            <option value="segmentation_area">分割面积判定</option>
+                            <option value="obb_angle">OBB 角度判定（预留）</option>
+                            <option value="pose_keypoints">姿态关键点判定（预留）</option>
+                            <option value="screw_count">螺钉数量检测</option>
+                            <option value="remote_missing_part">遥控器漏装检测</option>
+                            <option value="wire_sequence">线序顺序检测</option>
+                            <option value="relative_position">相对位置检测</option>
+                            <option value="custom_rule">自定义规则</option>
+                        </select>
+                    </label>
+                    <button id="vision-debug-apply-template" data-action="applySelectedVisionDebugTemplate">
+                        <span>应用场景</span>
+                    </button>
+                    <details class="cf-vision-debug-details">
+                        <summary>常用工位模板</summary>
+                        <div class="cf-vision-template-grid">
+                            <button data-action="applyVisionDebugTemplate" data-value="w5_screw_count">W5 螺钉数量</button>
+                            <button data-action="applyVisionDebugTemplate" data-value="w6_screw_count">W6 螺钉数量</button>
+                            <button data-action="applyVisionDebugTemplate" data-value="n5_remote_missing_part">N5 遥控器漏装</button>
+                            <button data-action="applyVisionDebugTemplate" data-value="n6_remote_missing_part">N6 遥控器漏装</button>
+                            <button data-action="applyVisionDebugTemplate" data-value="electric_heating_screw_count">电加热螺钉检测</button>
+                        </div>
+                    </details>
+                </section>
+
+                <section class="cf-vision-debug-section cf-vision-debug-step">
+                    <h3>第二步：获取图片</h3>
+                    <div class="cf-vision-debug-toolbar">
+                        <button data-action="runVisionDebugCurrent">
+                            <span>获取当前相机单帧</span>
+                        </button>
+                        <button data-action="requestVisionDebugRecentRecords">
+                            <span>从历史记录选择</span>
+                        </button>
+                        <button data-action="showVisionDebugLocalImageNotice">
+                            <span>本地图片导入暂未开放，请先使用当前相机或历史样本。</span>
+                        </button>
+                    </div>
+                    <div class="cf-vision-history-row cf-vision-batch-row">
+                        <select id="vision-debug-history-select"></select>
+                        <button id="vision-debug-run-history" data-action="runVisionDebugHistory">使用历史样本</button>
+                    </div>
+                    <div id="vision-debug-image-empty" class="cf-vision-debug-empty">
+                        还没有可调试图片。请先启动相机并获取一帧，或从历史记录选择样本。
+                    </div>
+                    <div id="vision-debug-history-status" class="cf-vision-debug-status">等待选择历史样本</div>
+                </section>
+
+                <section class="cf-vision-debug-section cf-vision-debug-step cf-vision-debug-controls">
+                    <h3>第三步：运行验证</h3>
+                    <div class="cf-vision-debug-toolbar">
+                        <button id="vision-debug-run-current" data-action="runVisionDebugCurrent">
+                            <span>运行当前规则</span>
+                        </button>
+                        <button id="vision-debug-run-batch" data-action="runVisionDebugBatch">
+                            <span>批量验证历史样本</span>
+                        </button>
+                    </div>
+                    <div class="cf-vision-history-row">
+                        <select id="vision-debug-batch-result">
+                            <option value="All">最近 OK/NG</option>
+                            <option value="NG">最近 NG</option>
+                            <option value="OK">最近 OK</option>
+                        </select>
+                        <input id="vision-debug-batch-limit" type="number" min="1" max="50" step="1" value="20" title="批量数量上限 50">
+                    </div>
+                    <div class="cf-vision-debug-grid">
+                        <label>
+                            <span>置信度 <b id="vision-debug-confidence-value">0.50</b></span>
+                            <input id="vision-debug-confidence" type="range" min="0" max="1" step="0.01">
+                        </label>
+                        <label>
+                            <span>IOU <b id="vision-debug-iou-value">0.30</b></span>
+                            <input id="vision-debug-iou" type="range" min="0" max="1" step="0.01">
+                        </label>
+                        <label>
+                            <span>目标类别</span>
+                            <select id="vision-debug-target-label"></select>
+                        </label>
+                        <label>
+                            <span>期望数量</span>
+                            <input id="vision-debug-target-count" type="number" min="0" max="256" step="1">
+                        </label>
+                        <label>
+                            <span>预处理模式</span>
+                            <select id="vision-debug-preprocess-mode">
+                                <option value="StandardLetterBox">StandardLetterBox</option>
+                                <option value="IndustrialFast">IndustrialFast</option>
+                            </select>
+                            <small id="vision-debug-preprocess-help" class="cf-vision-debug-hint">StandardLetterBox：生产默认等比缩放，适合标准 YOLO 导出模型。</small>
+                        </label>
+                        <label class="cf-vision-debug-switch">
+                            <span>ROI 开关/显示</span>
+                            <input id="vision-debug-roi-enabled" type="checkbox" checked>
+                        </label>
+                    </div>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>规则摘要</h3>
+                    <div id="vision-debug-rule-summary" class="cf-vision-debug-list">
+                        <div>目标：screw，数量：4，最低置信度：0.0</div>
+                    </div>
+                    <details class="cf-vision-debug-details">
+                        <summary>高级：查看/编辑规则 JSON</summary>
+                        <textarea id="vision-debug-rule-set" spellcheck="false"></textarea>
+                        <div id="vision-debug-rule-json-status" class="cf-vision-debug-status">规则 JSON 默认隐藏，保存前会校验格式。</div>
+                        <button id="vision-debug-save-params" data-action="saveVisionDebugParams">
+                            <span>保存参数</span>
+                        </button>
+                    </details>
+                </section>
+
+                <section class="cf-vision-debug-section cf-vision-debug-result-section">
+                    <div class="cf-vision-debug-result-head">
+                        <span id="vision-debug-final-result" class="cf-vision-debug-result-pill">等待</span>
+                        <strong id="vision-debug-primary-reason">运行后将在这里显示检测结果。</strong>
+                    </div>
+                    <div class="cf-vision-debug-summary">
+                        <span>全部 <b id="vision-debug-count-all">0</b></span>
+                        <span>ROI内 <b id="vision-debug-count-in">0</b></span>
+                        <span>过滤 <b id="vision-debug-count-out">0</b></span>
+                        <span>耗时 <b id="vision-debug-elapsed">0ms</b></span>
+                    </div>
+                    <div id="vision-debug-image-warning" class="cf-vision-debug-status"></div>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>深度学习任务摘要</h3>
+                    <div id="vision-debug-task-summary" class="cf-vision-debug-list">
+                        <div>分类 Top1、分割面积/覆盖率、OBB 角度、姿态关键点将在运行后显示。</div>
+                    </div>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>参数对比摘要</h3>
+                    <div id="vision-debug-param-diff" class="cf-vision-debug-list"></div>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>批量回放摘要</h3>
+                    <div id="vision-debug-batch-summary" class="cf-vision-debug-list"></div>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>检测框列表</h3>
+                    <div id="vision-debug-box-list" class="cf-vision-debug-list"></div>
+                </section>
+
+                <section class="cf-vision-debug-section">
+                    <h3>规则判定详情</h3>
+                    <div id="vision-debug-rule-details" class="cf-vision-debug-list"></div>
+                </section>
+            </div>
+        </div>
+    </div>
+
     <!-- Manual Release Modal -->
     <div id="manual-release-modal"
         class="fixed inset-0 bg-ink-900/60 z-[70] hidden flex items-center justify-center p-4">
@@ -243,7 +771,7 @@
                 <div class="cf-manual-release-summary">
                     <div>
                         <span>操作员</span>
-                        <strong id="manual-release-operator-id">未设置</strong>
+                        <strong id="manual-release-operator-id">本机操作</strong>
                     </div>
                     <div>
                         <span>角色</span>
@@ -295,7 +823,7 @@
                         <button type="button" class="cf-settings-tab" data-settings-tab="sequence"
                             data-action="activateSettingsTab" data-value="sequence">判定规则</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="preset"
-                            data-action="activateSettingsTab" data-value="preset">预设与收集</button>
+                            data-action="activateSettingsTab" data-value="preset">工位模板与配置迁移</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="camera"
                             data-action="activateSettingsTab" data-value="camera">相机参数配置</button>
                         <button type="button" class="cf-settings-tab" data-settings-tab="trigger"
@@ -306,7 +834,7 @@
                     <div class="cf-settings-content">
                         <div class="space-y-4 hidden" data-settings-section="preset">
                             <h3 class="text-[10px] font-serif font-black text-celadon-600 uppercase tracking-[0.2em]">
-                                预设与收集
+                                工位模板与配置迁移
                             </h3>
                             <!-- 项目快速切换 (仅填充现有字段，不锁定修改) -->
                             <div class="p-4 bg-gradient-to-r from-celadon-50 to-porcelain-50 rounded-xl border border-celadon-200 shadow-sm">
@@ -316,17 +844,18 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
                                     </svg>
-                                    快速切换项目预设
+                                    工位快速配置
                                 </label>
                                 <select id="project-preset-select" data-change-action="loadProjectPreset"
                                     class="w-full tech-input px-4 py-3 rounded-xl text-sm font-bold cursor-pointer border-2 border-celadon-200 focus:border-celadon-500 transition-[background-color,border-color,box-shadow,color]">
-                                    <option value="">-- 选择预设项目（可选）--</option>
-                                    <option value="N5_remote">N5遥控器漏装视觉检测</option>
-                                    <option value="N5_screw">N5螺钉视觉检测</option>
-                                    <option value="N6_remote">N6遥控器漏装视觉检测</option>
-                                    <option value="N6_screw">N6螺钉视觉检测</option>
-                                    <option value="W5_screw">W5螺钉视觉检测</option>
-                                    <option value="W6_screw">W6螺钉视觉检测</option>
+                                    <option value="">-- 选择工位模板（可选）--</option>
+                                    <option value="N5_remote">N5 遥控器漏装</option>
+                                    <option value="N5_screw">N5 螺钉检测</option>
+                                    <option value="N6_remote">N6 遥控器漏装</option>
+                                    <option value="N6_screw">N6 螺钉检测</option>
+                                    <option value="W5_screw">W5 螺钉检测</option>
+                                    <option value="W6_screw">W6 螺钉检测</option>
+                                    <option value="electric_heating_screw">电加热螺钉检测</option>
                                 </select>
                                 <div class="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] gap-2">
                                     <input id="project-preset-name" type="text" class="tech-input px-3 py-2 rounded-lg text-xs"
@@ -345,7 +874,9 @@
                                     </button>
                                 </div>
                                 <p id="project-preset-path" class="text-[9px] text-ink-400 mt-2 truncate"></p>
-                                <p class="text-[9px] text-ink-400 mt-2 italic">选择后自动填充下方配置项，填充后仍可手动修改各参数</p>
+                                <p id="project-preset-load-hint" class="text-[9px] text-ink-400 mt-2 italic">
+                                    选择后只载入模板，不会自动保存；请确认相机序列号、PLC IP 和模型后再保存。
+                                </p>
                             </div>
 
                             <!-- 配置迁移 -->
@@ -555,6 +1086,7 @@
                                         class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
                                         <option value="PLC">PLC</option>
                                         <option value="SerialPhotoelectric">串口光电</option>
+                                        <option value="Manual">手动检测</option>
                                     </select>
                                 </div>
                             </div>
@@ -651,8 +1183,8 @@
                                     <label class="text-[10px] font-bold text-ink-400 mb-1 block">业务协议模式</label>
                                     <select id="cfg-plc-protocol-mode" data-change-action="updatePlcProtocolModeUi"
                                         class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer font-mono">
-                                        <option value="Legacy">Legacy（保持旧现场行为）</option>
-                                        <option value="HandshakeV1">HandshakeV1（序号/健康握手）</option>
+                                        <option value="Legacy">旧版模式（保持旧现场行为）</option>
+                                        <option value="HandshakeV1">握手模式 V1（序号/健康握手）</option>
                                     </select>
                                 </div>
                                 <div class="cf-plc-span-2">
@@ -832,7 +1364,7 @@
                         <section class="cf-plc-group">
                             <div class="cf-plc-group-title">
                                 <span>节拍与写入值</span>
-                                <em>触发等待、轮询间隔和 OK/NG 返回值</em>
+                                <em>触发等待、轮询间隔和合格/不合格返回值</em>
                             </div>
                             <div class="cf-plc-grid cf-plc-grid-4">
                                 <div>
@@ -894,8 +1426,8 @@
                             <label class="block text-[10px] text-ink-400 mb-1 text-ink-500 font-bold">相机品牌</label>
                             <select id="cfg-cam-manufacturer"
                                 class="w-full tech-input px-3 py-2 rounded-lg text-xs font-bold cursor-pointer">
-                                <option value="Huaray">华睿 (Huaray)</option>
-                                <option value="Hikvision">海康威视 (Hikvision)</option>
+                                <option value="Huaray">华睿</option>
+                                <option value="Hikvision">海康威视</option>
                             </select>
                         </div>
                         <div>
@@ -996,7 +1528,7 @@
                             <div>
                                 <label class="text-[10px] font-bold text-ink-400 mb-1 block">当前操作员</label>
                                 <input id="cfg-current-operator-id" type="text"
-                                    class="w-full tech-input px-4 py-2.5 rounded-xl text-xs font-bold" placeholder="operator-id">
+                                    class="w-full tech-input px-4 py-2.5 rounded-xl text-xs font-bold" placeholder="操作员编号">
                             </div>
                             <div>
                                 <label class="text-[10px] font-bold text-ink-400 mb-1 block">当前角色</label>
@@ -1074,9 +1606,9 @@
             class="absolute inset-y-0 right-0 w-[80%] bg-white/95 shadow-2xl flex flex-col border-l border-slate-200 cf-ornate-modal">
             <header class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0 cf-ornate-header">
                 <div class="cf-trace-title-block">
-                    <div class="cf-trace-kicker">TRACE ARCHIVE</div>
+                    <div class="cf-trace-kicker">追溯档案</div>
                     <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest capitalize">记录追溯 <span
-                            class="text-[10px] font-sans font-normal text-ink-400 ml-2 uppercase italic tracking-normal">查看历史检测异常（NG）图片记录</span></h3>
+                            class="text-[10px] font-sans font-normal text-ink-400 ml-2 uppercase italic tracking-normal">查看历史异常图片记录</span></h3>
                     <div class="cf-trace-filters">
                         <label>日期选择</label>
                         <div id="trace-date-slot"></div>
@@ -1094,11 +1626,121 @@
                     class="p-2 hover:bg-slate-100 rounded-full transition-[background-color,color] text-2xl">&times;</button>
             </header>
 
+            <section id="replay-acceptance-panel" class="border-b border-slate-100 bg-white/90 px-8 py-3">
+                <details class="cf-replay-engineer-details">
+                    <summary>工程师：模型回放验证</summary>
+                    <p>人工复核、回放数据集、模型对比和验证记录仅供工程师维护模型上线时使用。</p>
+                <div class="grid grid-cols-1 xl:grid-cols-3 gap-3 text-[11px] text-ink-600">
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between gap-2">
+                            <strong class="text-ink-800">人工复核</strong>
+                            <span>记录 <b id="manual-review-count">0</b></span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <select id="manual-review-ground-truth-input" class="border border-slate-200 rounded px-2 py-1">
+                                <option value="OK">合格</option>
+                                <option value="NG">不合格</option>
+                            </select>
+                            <select id="manual-review-disposition-input" class="border border-slate-200 rounded px-2 py-1">
+                                <option value="Confirmed">已确认</option>
+                                <option value="FalseReject">误判不合格</option>
+                                <option value="MissedDetection">漏检</option>
+                                <option value="Pending">待处理</option>
+                                <option value="InvalidSample">无效样本</option>
+                            </select>
+                            <input id="manual-review-expected-revision" type="number" min="0" placeholder="版本号"
+                                class="border border-slate-200 rounded px-2 py-1">
+                        </div>
+                        <input id="manual-review-notes" type="text" placeholder="备注"
+                            class="w-full border border-slate-200 rounded px-2 py-1">
+                        <div class="flex gap-2">
+                            <button type="button" data-action="queryManualReviewRecords"
+                                class="px-3 py-1 rounded border border-slate-200">查询</button>
+                            <button type="button" data-action="saveManualReview"
+                                class="px-3 py-1 rounded bg-ink-800 text-white">保存真值</button>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2 text-[10px] text-slate-500">
+                            <span>结果 <b id="manual-review-response"></b></span>
+                            <span>版本 <b id="manual-review-revision"></b></span>
+                            <span>真值 <b id="manual-review-ground-truth"></b></span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between gap-2">
+                            <strong class="text-ink-800">回放数据集</strong>
+                            <span id="replay-dataset-id"></span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <input id="replay-query-limit" type="number" min="1" max="10000" value="100"
+                                class="border border-slate-200 rounded px-2 py-1">
+                            <input id="replay-dataset-input" type="text" placeholder="数据集编号"
+                                class="border border-slate-200 rounded px-2 py-1 col-span-2">
+                        </div>
+                        <input id="replay-baseline-model" type="text" placeholder="基准模型选择值"
+                            class="w-full border border-slate-200 rounded px-2 py-1">
+                        <input id="replay-candidate-model" type="text" placeholder="候选模型选择值"
+                            class="w-full border border-slate-200 rounded px-2 py-1">
+                        <div class="flex gap-2">
+                            <button type="button" data-action="createReplayDataset"
+                                class="px-3 py-1 rounded border border-slate-200">生成验证样本集</button>
+                            <button type="button" data-action="previewReplayDataset"
+                                class="px-3 py-1 rounded border border-slate-200">预览</button>
+                            <button type="button" data-action="queryReplayDatasets"
+                                class="px-3 py-1 rounded border border-slate-200">数据集</button>
+                            <button type="button" data-action="archiveReplayDataset"
+                                class="px-3 py-1 rounded border border-slate-200">归档</button>
+                            <button type="button" data-action="runReplayComparison"
+                                class="px-3 py-1 rounded bg-celadon-600 text-white">对比新旧模型</button>
+                        </div>
+                        <div class="truncate text-[10px] text-slate-500">验证样本集 <b id="replay-dataset-count"></b> · 内部校验 <b id="replay-dataset-hash"></b></div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between gap-2">
+                            <strong class="text-ink-800">模型上线验证</strong>
+                            <span id="replay-approval-status"></span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <input id="replay-run-input" type="text" placeholder="运行编号"
+                                class="border border-slate-200 rounded px-2 py-1">
+                            <button type="button" data-action="approveReplayCandidate"
+                                class="px-3 py-1 rounded bg-rouge-600 text-white">确认新模型可上线</button>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" data-action="cancelReplayRun"
+                                class="px-3 py-1 rounded border border-slate-200">取消</button>
+                            <button type="button" data-action="queryReplayRuns"
+                                class="px-3 py-1 rounded border border-slate-200">运行记录</button>
+                            <button type="button" data-action="queryReplayReport"
+                                class="px-3 py-1 rounded border border-slate-200">报告</button>
+                            <button type="button" data-action="queryModelApprovalEvidence"
+                                class="px-3 py-1 rounded border border-slate-200">验证记录</button>
+                            <button type="button" data-action="runReplayIntegrityScan"
+                                class="px-3 py-1 rounded border border-slate-200">扫描</button>
+                        </div>
+                        <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-slate-500">
+                            <span>状态 <b id="replay-run-status"></b></span>
+                            <span>进度 <b id="replay-run-progress"></b></span>
+                            <span>变化 <b id="replay-changed-count"></b></span>
+                            <span>新增漏检 <b id="replay-new-missed-count"></b></span>
+                            <span>修复漏检 <b id="replay-fixed-missed-count"></b></span>
+                            <span>新增误判 <b id="replay-new-false-reject-count"></b></span>
+                            <span>修复误判 <b id="replay-fixed-false-reject-count"></b></span>
+                            <span>运行 <b id="replay-run-count"></b></span>
+                            <span>验证扫描 <b id="replay-integrity-status"></b></span>
+                        </div>
+                        <div id="replay-rejection-reasons" class="min-h-4 text-[10px] text-rouge-600"></div>
+                    </div>
+                </div>
+                </details>
+            </section>
+
             <div class="flex flex-1 overflow-hidden">
                 <div class="w-60 border-r border-slate-100 flex flex-col bg-slate-50/50 shrink-0">
                     <div class="cf-trace-sidebar-head">
                         <span>异常目录</span>
-                        <strong>NG Archive</strong>
+                        <strong>不合格档案</strong>
                     </div>
                     <div class="p-5 border-b border-slate-100 bg-white">
                         <label
@@ -1193,14 +1835,12 @@
                         <thead>
                             <tr class="bg-slate-50/80 border-b border-slate-200">
                                 <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">
-                                    时间戳 /
-                                    TIMESTAMP</th>
+                                    时间戳</th>
                                 <th
                                     class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest text-center">
-                                    结果 / STATUS</th>
+                                    结果</th>
                                 <th class="px-4 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">
-                                    检测详情
-                                    / DETAILS</th>
+                                    检测详情</th>
                             </tr>
                         </thead>
                         <tbody id="log-history-table"
@@ -1214,8 +1854,7 @@
                 </div>
             </div>
             <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
-                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">Showing latest 500
-                    records</span>
+                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">最多显示最新 500 条记录</span>
                 <button type="button" disabled title="CSV 导出将在后续版本开放"
                     class="px-4 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-ink-600 hover:text-celadon-600 hover:border-celadon-300 transition-[background-color,border-color,color,box-shadow] flex items-center gap-2">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1223,6 +1862,81 @@
                             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
                     </svg> 导出 CSV
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audit Query Modal -->
+    <div id="audit-modal"
+        class="fixed inset-0 bg-ink-900/60 z-[60] hidden flex items-center justify-center p-4">
+        <div class="glass-panel-lite cf-ornate-modal w-full max-w-6xl rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[82vh]">
+            <div class="h-16 border-b border-slate-100 flex justify-between items-center px-8 bg-white shrink-0 cf-ornate-header">
+                <div class="flex items-center gap-4">
+                    <h3 class="text-lg font-serif font-black text-ink-800 tracking-widest uppercase">审计记录</h3>
+                    <span id="audit-count-badge"
+                        class="px-2 py-0.5 text-[10px] font-bold bg-celadon-50 text-celadon-600 rounded-full">0 条</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input id="audit-start-time" type="datetime-local" class="tech-input rounded-lg px-3 py-1.5 text-xs">
+                    <input id="audit-end-time" type="datetime-local" class="tech-input rounded-lg px-3 py-1.5 text-xs">
+                    <input id="audit-operation-filter" type="text" placeholder="操作"
+                        class="tech-input rounded-lg px-3 py-1.5 text-xs w-28">
+                    <input id="audit-operator-filter" type="text" placeholder="操作员"
+                        class="tech-input rounded-lg px-3 py-1.5 text-xs w-28">
+                    <select id="audit-status-filter" class="tech-input rounded-lg px-3 py-1.5 text-xs">
+                        <option value="">全部状态</option>
+                        <option value="Requested">已请求</option>
+                        <option value="Denied">已拒绝</option>
+                        <option value="Succeeded">已成功</option>
+                        <option value="Failed">已失败</option>
+                    </select>
+                    <button data-action="queryAuditRecords"
+                        class="px-3 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">查询</button>
+                    <button data-action="exportAuditRecords"
+                        class="px-3 py-1.5 text-xs font-bold text-ink-600 bg-white border border-slate-200 hover:border-celadon-300 rounded-lg transition-colors">导出</button>
+                    <button data-action="verifyAuditChain"
+                        class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 hover:border-amber-300 rounded-lg transition-colors">校验链</button>
+                    <button data-action="closeAuditModal"
+                        class="text-2xl text-ink-400 hover:text-vermilion transition-colors">&times;</button>
+                </div>
+            </div>
+            <div id="audit-error" class="hidden px-8 py-2 text-xs text-rouge-600 bg-rouge-50 border-b border-rouge-100"></div>
+            <div id="audit-chain-status"
+                class="px-8 py-3 text-[11px] bg-white border-b border-slate-100 flex flex-wrap gap-3 items-center text-ink-500">
+                <span class="font-bold text-ink-700">审计链</span>
+                <span id="audit-chain-badge" class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-bold">未校验</span>
+                <span id="audit-chain-count" class="font-mono">Verified -/-</span>
+                <span id="audit-chain-findings" class="font-mono">Findings -</span>
+                <span id="audit-chain-last-hash" class="font-mono truncate max-w-[320px]">Last -</span>
+                <span id="audit-chain-message" class="text-rouge-600"></span>
+            </div>
+            <div class="flex-1 overflow-auto p-6 scroller bg-slate-50/30">
+                <div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-soft">
+                    <table class="w-full text-left border-collapse min-w-[1240px]">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200">
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">时间</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">操作</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">状态</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">操作员</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">角色</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">检测单号</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">链哈希</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">详情</th>
+                                <th class="px-3 py-3 text-[10px] font-bold text-ink-400 uppercase tracking-widest">失败原因</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audit-table" class="text-[11px] text-ink-600 font-mono divide-y divide-slate-100">
+                            <tr>
+                                <td colspan="9" class="px-4 py-10 text-center text-ink-300 italic">尚未加载审计记录</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
+                <span id="audit-export-path" class="text-[10px] text-ink-400 font-mono truncate"></span>
+                <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">只读审计队列查询</span>
             </div>
         </div>
     </div>
@@ -1251,9 +1965,9 @@
                             class="text-left text-ink-400 font-bold uppercase tracking-widest border-b border-slate-200">
                             <th class="px-4 py-4">生产日期</th>
                             <th class="px-4 py-4 text-center">总检测数</th>
-                            <th class="px-4 py-4 text-center">合格 (OK)</th>
-                            <th class="px-4 py-4 text-center">不合格 (NG)</th>
-                            <th class="px-4 py-4 text-center">直通率 (Yield)</th>
+                            <th class="px-4 py-4 text-center">合格</th>
+                            <th class="px-4 py-4 text-center">不合格</th>
+                            <th class="px-4 py-4 text-center">直通率</th>
                         </tr>
                     </thead>
                     <tbody id="statistics-history-table" class="divide-y divide-slate-100 text-ink-600 font-mono">

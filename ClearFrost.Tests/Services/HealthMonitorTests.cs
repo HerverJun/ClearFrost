@@ -42,10 +42,21 @@ public class HealthMonitorTests
             HealthSnapshot snapshot = monitor.GetSnapshot();
 
             snapshot.HealthLevel.Should().Be(HealthLevel.Warning);
+            snapshot.CameraStatus.Should().Be("Grabbing");
+            snapshot.PlcStatus.Should().Be("Connected:Fake");
+            snapshot.ModelStatus.Should().Contain("Loaded:fake-model");
+            snapshot.StorageStatus.Should().Be("Writable");
+            snapshot.DatabaseStatus.Should().Be("Ready");
             snapshot.LastInspectionId.Should().Be("CF-1");
             snapshot.LastInspectionTotalMs.Should().Be(123);
+            snapshot.LastInspectionTiming.Should().NotBeNull();
+            snapshot.RecentInspectionTimings.Should().Contain(t => t.InspectionId == "CF-1" && t.TotalMs == 123);
+            snapshot.RecentInspectionP95Ms.Should().Be(123);
+            snapshot.RecentInspectionP99Ms.Should().Be(123);
             snapshot.ImageQueueLength.Should().Be(imageQueue.PendingCount);
             snapshot.RecordQueueLength.Should().Be(recordQueue.PendingCount);
+            snapshot.FreeDiskGb.Should().BeGreaterThanOrEqualTo(0);
+            snapshot.MemoryMb.Should().BeGreaterThan(0);
             snapshot.RecentErrors.Should().Contain(e => e.Source == "PLC" && e.InspectionId == "CF-1");
         }
         finally
@@ -181,6 +192,48 @@ public class HealthMonitorTests
         }
     }
 
+    [Fact]
+    public void GetSnapshot_链接存储目录判定为Critical且不写入外部目标()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        string externalDir = Path.Combine(Path.GetTempPath(), "ClearFrostHealthTests", Guid.NewGuid().ToString("N"));
+        string linkedStoragePath = string.Empty;
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(externalDir);
+
+        try
+        {
+            linkedStoragePath = Path.Combine(tempDir, "linked-storage");
+            if (!TryCreateDirectorySymbolicLink(linkedStoragePath, externalDir))
+            {
+                return;
+            }
+
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(new RecordingDatabaseService());
+            var monitor = new HealthMonitor(
+                new FakeCameraService(),
+                new FakePlcService(),
+                new FakeDetectionService(),
+                new FakeStorageService(linkedStoragePath, ensureDirectories: false),
+                imageQueue,
+                recordQueue,
+                diskProbeCacheTtl: TimeSpan.Zero);
+
+            HealthSnapshot snapshot = monitor.GetSnapshot();
+
+            snapshot.HealthLevel.Should().Be(HealthLevel.Critical);
+            snapshot.StorageStatus.Should().Be("Error");
+            Directory.EnumerateFileSystemEntries(externalDir).Should().BeEmpty();
+        }
+        finally
+        {
+            TryDeleteDirectoryLink(linkedStoragePath);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
     private static void SetPendingCount(object queue, long value)
     {
         var field = queue.GetType().GetField(
@@ -197,6 +250,59 @@ public class HealthMonitorTests
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
         field.Should().NotBeNull();
         field!.SetValue(queue, value);
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteDirectoryLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new DirectoryInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
+    private static void DeleteDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+
+        var info = new DirectoryInfo(path);
+        info.Refresh();
+        if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            info.Delete();
+            return;
+        }
+
+        Directory.Delete(path, true);
     }
 
     private sealed class FakeCameraService : ICameraService
@@ -241,6 +347,11 @@ public class HealthMonitorTests
             int triggerDelayMs = 800,
             PlcMonitoringOptions? options = null) => true;
         public void StopMonitoring() { }
+        public Task StopMonitoringAsync(System.Threading.CancellationToken cancellationToken = default)
+        {
+            StopMonitoring();
+            return Task.CompletedTask;
+        }
         public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
         public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite) => Task.FromResult(true);
         public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
@@ -262,6 +373,7 @@ public class HealthMonitorTests
         public IReadOnlyList<string> AvailableModels => Array.Empty<string>();
         public long LastInferenceMs => 0;
         public DetectionRuntimeStatus RuntimeStatus { get; } = new DetectionRuntimeStatus();
+        public DetectionRuntimeModelSnapshot RuntimeModelSnapshot { get; } = new DetectionRuntimeModelSnapshot();
 
         public Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
         public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
@@ -285,6 +397,7 @@ public class HealthMonitorTests
         public void SetEnableFallback(bool enabled) { }
         public Task<bool> LoadAuxiliary1ModelAsync(string modelPath) => Task.FromResult(true);
         public Task<bool> LoadAuxiliary2ModelAsync(string modelPath) => Task.FromResult(true);
+        public void UnloadPrimaryModel() { }
         public void UnloadAuxiliary1Model() { }
         public void UnloadAuxiliary2Model() { }
         public string[] GetLabels() => Array.Empty<string>();
@@ -294,17 +407,21 @@ public class HealthMonitorTests
 
     private sealed class FakeStorageService : IStorageService
     {
-        public FakeStorageService(string basePath)
+        public FakeStorageService(string basePath, bool ensureDirectories = true)
         {
             ImageBasePath = Path.Combine(basePath, "Images");
             LogBasePath = Path.Combine(basePath, "Logs");
             SystemPath = Path.Combine(basePath, "System");
-            EnsureDirectoriesExist();
+            if (ensureDirectories)
+            {
+                EnsureDirectoriesExist();
+            }
         }
 
         public string ImageBasePath { get; }
         public string LogBasePath { get; }
         public string SystemPath { get; }
+        public string BaseStoragePath => Directory.GetParent(ImageBasePath)?.FullName ?? ImageBasePath;
 
         public void SaveDetectionImage(Bitmap bitmap, bool isQualified) { }
         public void SaveDetectionImageAsync(Bitmap bitmap, bool isQualified) { }
@@ -320,6 +437,7 @@ public class HealthMonitorTests
             Directory.CreateDirectory(LogBasePath);
             Directory.CreateDirectory(SystemPath);
         }
+        public void UpdateStoragePath(string storagePath) { }
         public void Dispose() { }
     }
 
@@ -329,11 +447,18 @@ public class HealthMonitorTests
         public Task SaveDetectionRecordAsync(DetectionRecord record) => Task.CompletedTask;
         public Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100)
             => Task.FromResult(new List<DetectionRecord>());
+        public Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
+            => Task.FromResult<DetectionRecord?>(null);
+        public Task<List<DetectionRecord>> GetDetectionRecordsByInspectionIdAsync(string inspectionId)
+            => Task.FromResult(new List<DetectionRecord>());
         public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
             => Task.FromResult(new List<DetectionTraceRecord>());
 
         public Task<DetectionTracePage> GetTraceRecordPageAsync(DetectionTraceQuery query)
             => Task.FromResult(new DetectionTracePage());
+
+        public Task<List<DetectionRecord>> GetReplayRecordsAsync(DetectionReplayQuery query)
+            => Task.FromResult(new List<DetectionRecord>());
 
         public Task<List<string>> GetTraceDateKeysAsync(bool? isQualified = null, int limit = 60)
             => Task.FromResult(new List<string>());

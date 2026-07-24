@@ -16,6 +16,7 @@ using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using ClearFrost.Interfaces;
@@ -29,8 +30,12 @@ namespace ClearFrost.Services
     {
         #region 私有字段
 
-        private readonly string _baseStoragePath;
+        private string _baseStoragePath;
         private bool _disposed;
+        private static readonly StringComparison FileSystemPathComparison =
+            RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
 
         #endregion
 
@@ -39,6 +44,14 @@ namespace ClearFrost.Services
         public string ImageBasePath => Path.Combine(_baseStoragePath, "Images");
         public string LogBasePath => Path.Combine(_baseStoragePath, "Logs");
         public string SystemPath => Path.Combine(_baseStoragePath, "System");
+        private string AuditOutboxPath => Path.Combine(LogBasePath, "Outbox");
+        private string DiagnosticPackagePath => Path.Combine(LogBasePath, "Diagnostics");
+        private string HandoffReportPath => Path.Combine(LogBasePath, "HandoffReports");
+
+        /// <summary>
+        /// 已解析的存储根路径（进行驱动器/盘符校验后的实际路径）
+        /// </summary>
+        public string BaseStoragePath => _baseStoragePath;
 
         /// <summary>
         /// 启动日志路径
@@ -79,6 +92,20 @@ namespace ClearFrost.Services
             return path;
         }
 
+        public void UpdateStoragePath(string storagePath)
+        {
+            string resolved = ResolveStoragePath(storagePath);
+            if (string.Equals(_baseStoragePath, resolved, StringComparison.OrdinalIgnoreCase))
+            {
+                EnsureDirectoriesExist();
+                return;
+            }
+
+            _baseStoragePath = resolved;
+            EnsureDirectoriesExist();
+            Debug.WriteLine($"[StorageService] 存储路径已刷新: {_baseStoragePath}");
+        }
+
         #endregion
 
         #region 图像保存
@@ -96,11 +123,10 @@ namespace ClearFrost.Services
                     now.ToString("yyyy年MM月dd日"),
                     now.ToString("HH"));
 
-                if (!Directory.Exists(saveDir))
-                    Directory.CreateDirectory(saveDir);
-
                 string fileName = $"{(isQualified ? "PASS" : "FAIL")}_{now:HHmmssfff}.jpg";
-                bitmap.Save(Path.Combine(saveDir, fileName), ImageFormat.Jpeg);
+                string filePath = Path.Combine(saveDir, fileName);
+                EnsureSafeFileTargetForWrite(filePath, "检测图像");
+                bitmap.Save(filePath, ImageFormat.Jpeg);
             }
             catch (Exception ex)
             {
@@ -137,13 +163,11 @@ namespace ClearFrost.Services
                 DateTime now = DateTime.Now;
                 string dir = Path.Combine(LogBasePath, "DetectionLogs", now.ToString("yyyy年MM月dd日"));
 
-                if (!Directory.Exists(dir))
-                    Directory.CreateDirectory(dir);
-
                 string fileName = $"{now:yyyyMMddHH}.txt";
                 string fullContent = $"检测时间: {now}\r\n结果: {(isQualified ? "合格" : "不合格")}\r\n{content}\r\n";
                 string filePath = Path.Combine(dir, fileName);
 
+                EnsureSafeFileTargetForWrite(filePath, "检测日志");
                 using FileStream fs = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite, 4096, FileOptions.SequentialScan);
                 using StreamWriter writer = new StreamWriter(fs, Encoding.UTF8, 4096);
                 writer.Write(fullContent);
@@ -159,6 +183,7 @@ namespace ClearFrost.Services
             try
             {
                 string msg = $"[{DateTime.Now}] {action} {(serialNumber != null ? "SN:" + serialNumber : "")}\n";
+                EnsureSafeFileTargetForWrite(StartupLogPath, "启动日志");
                 File.AppendAllText(StartupLogPath, msg);
             }
             catch (Exception ex)
@@ -174,6 +199,7 @@ namespace ClearFrost.Services
                 DateTime now = DateTime.Now;
                 string file = Path.Combine(LogBasePath, $"ErrorLog_{now:yyyyMMdd}.txt");
                 string content = $"[{now:HH:mm:ss}] {message}\r\n";
+                EnsureSafeFileTargetForWrite(file, "错误日志");
                 File.AppendAllText(file, content, Encoding.UTF8);
             }
             catch (Exception ex)
@@ -212,8 +238,10 @@ namespace ClearFrost.Services
 
                         if (folderDate.HasValue && folderDate.Value < limit)
                         {
-                            Directory.Delete(dir, true);
-                            Debug.WriteLine($"[StorageService] Deleted old folder: {dir}");
+                            if (TryDeleteCleanupDirectory(dir))
+                            {
+                                Debug.WriteLine($"[StorageService] Deleted old folder: {dir}");
+                            }
                         }
                     }
                 }
@@ -287,8 +315,10 @@ namespace ClearFrost.Services
 
                     try
                     {
-                        Directory.Delete(imageDirs[i].path, true);
-                        deletedCount++;
+                        if (TryDeleteCleanupDirectory(imageDirs[i].path))
+                        {
+                            deletedCount++;
+                        }
                     }
                     catch
                     {
@@ -329,8 +359,10 @@ namespace ClearFrost.Services
 
                         try
                         {
-                            Directory.Delete(logDirs[i].path, true);
-                            deletedCount++;
+                            if (TryDeleteCleanupDirectory(logDirs[i].path))
+                            {
+                                deletedCount++;
+                            }
                         }
                         catch
                         {
@@ -369,8 +401,10 @@ namespace ClearFrost.Services
 
                         try
                         {
-                            File.Delete(errorLogs[i].path);
-                            deletedCount++;
+                            if (TryDeleteCleanupFile(errorLogs[i].path))
+                            {
+                                deletedCount++;
+                            }
                         }
                         catch
                         {
@@ -404,18 +438,245 @@ namespace ClearFrost.Services
         {
             try
             {
-                if (!Directory.Exists(ImageBasePath))
-                    Directory.CreateDirectory(ImageBasePath);
-
-                if (!Directory.Exists(LogBasePath))
-                    Directory.CreateDirectory(LogBasePath);
-
-                if (!Directory.Exists(SystemPath))
-                    Directory.CreateDirectory(SystemPath);
+                EnsureSafeDirectoryForWrite(ImageBasePath, "图像目录");
+                EnsureSafeDirectoryForWrite(LogBasePath, "日志目录");
+                EnsureSafeDirectoryForWrite(SystemPath, "系统证据目录");
+                EnsureSafeDirectoryForWrite(AuditOutboxPath, "审计发件箱目录");
+                EnsureSafeDirectoryForWrite(DiagnosticPackagePath, "诊断包目录");
+                EnsureSafeDirectoryForWrite(HandoffReportPath, "交接报告目录");
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[StorageService] EnsureDirectoriesExist Error: {ex.Message}");
+            }
+        }
+
+        private bool TryDeleteCleanupDirectory(string path)
+        {
+            if (!IsSafeCleanupDirectoryPath(path))
+            {
+                Debug.WriteLine($"[StorageService] Skip unsafe/protected directory cleanup: {path}");
+                return false;
+            }
+
+            Directory.Delete(path, true);
+            return true;
+        }
+
+        private bool TryDeleteCleanupFile(string path)
+        {
+            if (!IsSafeCleanupFilePath(path))
+            {
+                Debug.WriteLine($"[StorageService] Skip unsafe/protected file cleanup: {path}");
+                return false;
+            }
+
+            File.Delete(path);
+            return true;
+        }
+
+        internal bool IsSafeCleanupDirectoryPath(string path)
+        {
+            if (!IsCleanupPathInsideStorage(path) || IsProtectedEvidencePath(path))
+            {
+                return false;
+            }
+
+            var info = new DirectoryInfo(path);
+            return !DirectoryPathHasReparsePoint(path) &&
+                   info.Exists &&
+                   !HasReparsePoint(info) &&
+                   !DirectoryTreeContainsReparsePoint(info);
+        }
+
+        internal bool IsSafeCleanupFilePath(string path)
+        {
+            if (!IsCleanupPathInsideStorage(path) || IsProtectedEvidencePath(path))
+            {
+                return false;
+            }
+
+            var info = new FileInfo(path);
+            string directory = Path.GetDirectoryName(info.FullName) ?? string.Empty;
+            return !string.IsNullOrWhiteSpace(directory) &&
+                   !DirectoryPathHasReparsePoint(directory) &&
+                   info.Exists &&
+                   !HasReparsePoint(info);
+        }
+
+        private bool IsCleanupPathInsideStorage(string path)
+        {
+            try
+            {
+                return IsSameOrChildPath(path, _baseStoragePath);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[StorageService] Cleanup path root check failed, protected by default: {ex.Message}");
+                return false;
+            }
+        }
+
+        private bool IsProtectedEvidencePath(string path)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(path);
+                string[] protectedRoots =
+                {
+                    SystemPath,
+                    AuditOutboxPath,
+                    DiagnosticPackagePath,
+                    HandoffReportPath
+                };
+
+                return protectedRoots.Any(root => IsSameOrChildPath(fullPath, root));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[StorageService] Cleanup path safety check failed, protected by default: {ex.Message}");
+                return true;
+            }
+        }
+
+        private static bool IsSameOrChildPath(string candidatePath, string rootPath)
+        {
+            string candidate = Path.GetFullPath(candidatePath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string root = Path.GetFullPath(rootPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.Equals(candidate, root, FileSystemPathComparison))
+            {
+                return true;
+            }
+
+            string rootWithSeparator = root + Path.DirectorySeparatorChar;
+            return candidate.StartsWith(rootWithSeparator, FileSystemPathComparison);
+        }
+
+        private static void EnsureSafeFileTargetForWrite(string path, string displayName)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                throw new ArgumentException($"{displayName}路径为空。", nameof(path));
+            }
+
+            string fullPath = Path.GetFullPath(path);
+            string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                EnsureSafeDirectoryForWrite(directory, $"{displayName}目录");
+            }
+
+            var file = new FileInfo(fullPath);
+            file.Refresh();
+            if (file.Exists && HasReparsePoint(file))
+            {
+                throw new IOException($"{displayName}目标是链接文件，拒绝写入: {fullPath}");
+            }
+        }
+
+        private static void EnsureSafeDirectoryForWrite(string directory, string displayName)
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                throw new ArgumentException($"{displayName}路径为空。", nameof(directory));
+            }
+
+            string fullDirectory = Path.GetFullPath(directory);
+            if (DirectoryPathHasReparsePoint(fullDirectory))
+            {
+                throw new IOException($"{displayName}包含链接目录，拒绝写入: {fullDirectory}");
+            }
+
+            Directory.CreateDirectory(fullDirectory);
+
+            var info = new DirectoryInfo(fullDirectory);
+            info.Refresh();
+            if (info.Exists && HasReparsePoint(info))
+            {
+                throw new IOException($"{displayName}是链接目录，拒绝写入: {fullDirectory}");
+            }
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException or UnauthorizedAccessException)
+            {
+                Debug.WriteLine($"[StorageService] Directory reparse point check failed, protected by default: {ex.Message}");
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+
+        private static bool DirectoryTreeContainsReparsePoint(DirectoryInfo root)
+        {
+            try
+            {
+                var pending = new Stack<DirectoryInfo>();
+                pending.Push(root);
+
+                while (pending.Count > 0)
+                {
+                    DirectoryInfo current = pending.Pop();
+                    current.Refresh();
+                    if (!current.Exists)
+                    {
+                        continue;
+                    }
+
+                    foreach (FileSystemInfo entry in current.EnumerateFileSystemInfos())
+                    {
+                        entry.Refresh();
+                        if (HasReparsePoint(entry))
+                        {
+                            return true;
+                        }
+
+                        if (entry is DirectoryInfo directory)
+                        {
+                            pending.Push(directory);
+                        }
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Debug.WriteLine($"[StorageService] Cleanup directory tree scan failed, protected by default: {ex.Message}");
+                return true;
             }
         }
 

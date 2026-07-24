@@ -32,17 +32,26 @@
 
     let PROJECT_PRESETS = {
         N5_remote: {
-            name: "N5遥控器漏装视觉检测",
+            name: "N5 遥控器漏装",
+            StationName: "N5 遥控器漏装",
+            DetectionType: "遥控器漏装",
             PlcIp: "10.182.82.19",
             PlcPort: 2700,
             PlcTriggerAddress: "D100",
             PlcResultAddress: "D102",
             CameraSerialNumber: "5G087BAGAK00018",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_Binary",
+            TriggerSource: "PLC",
             TargetLabel: "remote",
+            TargetLabels: ["remote"],
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -60,6 +69,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -72,20 +82,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         N5_screw: {
-            name: "N5螺钉视觉检测",
+            name: "N5 螺钉检测",
+            StationName: "N5 螺钉检测",
+            DetectionType: "螺钉检测",
             PlcIp: "10.182.82.19",
             PlcPort: 3000,
             PlcTriggerAddress: "D90",
             PlcResultAddress: "D92",
             CameraSerialNumber: "EF59601AAK00030",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_Binary",
+            TriggerSource: "PLC",
             TargetLabel: "screw",
+            TargetLabels: ["screw"],
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -103,6 +122,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -115,20 +135,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         N6_remote: {
-            name: "N6遥控器漏装视觉检测",
+            name: "N6 遥控器漏装",
+            StationName: "N6 遥控器漏装",
+            DetectionType: "遥控器漏装",
             PlcIp: "192.168.100.122",
             PlcPort: 5777,
             PlcTriggerAddress: "D6607",
             PlcResultAddress: "D6608",
             CameraSerialNumber: "AM01040AAK00040",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_Binary",
+            TriggerSource: "PLC",
             TargetLabel: "remote",
+            TargetLabels: ["remote"],
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -146,6 +175,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -158,20 +188,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         N6_screw: {
-            name: "N6螺钉视觉检测",
+            name: "N6 螺钉检测",
+            StationName: "N6 螺钉检测",
+            DetectionType: "螺钉检测",
             PlcIp: "10.182.82.3",
             PlcPort: 4300,
             PlcTriggerAddress: "D100",
             PlcResultAddress: "D102",
             CameraSerialNumber: "",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_Binary",
+            TriggerSource: "PLC",
             TargetLabel: "screw",
+            TargetLabels: ["screw"],
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -189,6 +228,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -201,20 +241,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         W5_screw: {
-            name: "W5螺钉视觉检测",
+            name: "W5 螺钉检测",
+            StationName: "W5 螺钉检测",
+            DetectionType: "螺钉检测",
             PlcIp: "192.168.22.44",
             PlcPort: 4999,
             PlcTriggerAddress: "D555",
             PlcResultAddress: "D556",
             CameraSerialNumber: "EF59632AAK00291",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_ASCII",
+            TriggerSource: "PLC",
             TargetLabel: "screw",
+            TargetLabels: ["screw"],
             TargetCount: 4,
             ExposureTime: 50000,
             Gain: 1.1,
+            GainRaw: 1.1,
+            RecommendedExposureTime: 50000,
+            RecommendedGainRaw: 1.1,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -232,6 +281,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -244,20 +294,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         W6_screw: {
-            name: "W6螺钉视觉检测",
+            name: "W6 螺钉检测",
+            StationName: "W6 螺钉检测",
+            DetectionType: "螺钉检测",
             PlcIp: "192.168.250.1",
             PlcPort: 5999,
             PlcTriggerAddress: "D555",
             PlcResultAddress: "D556",
             CameraSerialNumber: "EF59632AAK00291",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_ASCII",
+            TriggerSource: "PLC",
             TargetLabel: "screw",
+            TargetLabels: ["screw"],
             TargetCount: 4,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -275,6 +334,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -287,7 +347,60 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
+            DefaultStoragePath: "C:\\GreeVisionData",
+        },
+        electric_heating_screw: {
+            name: "电加热螺钉检测",
+            StationName: "电加热螺钉检测",
+            DetectionType: "螺钉检测",
+            PlcIp: "",
+            PlcPort: 0,
+            PlcTriggerAddress: "D555",
+            PlcResultAddress: "D556",
+            CameraSerialNumber: "",
             CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
+            PlcProtocol: "Mitsubishi_MC_ASCII",
+            TriggerSource: "PLC",
+            TargetLabel: "screw",
+            TargetLabels: ["screw"],
+            TargetCount: 4,
+            ExposureTime: 3500,
+            Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
+            PlcDriverProvider: "HaoCommunication",
+            PlcProtocolMode: "Legacy",
+            PlcTriggerDelayMs: 800,
+            PlcPollingIntervalMs: 500,
+            PlcOkValue: 1,
+            PlcNgValue: 0,
+            PlcTriggerSeqAddress: "D557",
+            PlcResultSeqAddress: "D558",
+            PlcVisionOnlineAddress: "D559",
+            PlcVisionReadyAddress: "D560",
+            PlcVisionBusyAddress: "D561",
+            PlcInspectionDoneAddress: "D562",
+            PlcErrorCodeAddress: "D563",
+            PlcTraceSavedAddress: "D564",
+            PlcHeartbeatAddress: "D565",
+            PlcResetFaultAddress: "D566",
+            BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
+            BarcodeAddress: "D570",
+            BarcodeWordLength: 16,
+            BarcodeEncoding: "ASCII",
+            BarcodeRequired: false,
+            PlcSiemensCpuModel: "S1200",
+            PlcSiemensRack: 0,
+            PlcSiemensSlot: 2,
+            EnableGpu: false,
+            IndustrialRenderMode: true,
+            MaxRetryCount: 1,
+            RetryIntervalMs: 2000,
+            StoragePath: "C:\\GreeVisionData",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
     };
 
@@ -784,6 +897,8 @@
         const triggerSource = byId("cfg-trigger-source")?.value || "PLC";
         const serialSection = byId("cfg-serial-trigger-section");
         if (serialSection) serialSection.classList.toggle("hidden", triggerSource !== "SerialPhotoelectric");
+        store.state.settings = { ...(store.state.settings || {}), TriggerSource: triggerSource };
+        window.updateTriggerSourceStatus?.(triggerSource);
     }
 
     function normalizeSerialPortName(value) {
@@ -1178,9 +1293,15 @@
         updateTriggerSourceUi();
         window.updateOperatorStatus?.();
         if (store.state.modelList?.length) {
-            selectModelOption(byId("model-select"), data.CurrentModelFileName);
-            selectModelOption(byId("auxiliary1-select"), data.Auxiliary1ModelPath);
-            selectModelOption(byId("auxiliary2-select"), data.Auxiliary2ModelPath);
+            selectModelOption(
+                byId("model-select"),
+                modelSelectionValueFromReference(data.CurrentModelReference, data.CurrentModelFileName));
+            selectModelOption(
+                byId("auxiliary1-select"),
+                modelSelectionValueFromReference(data.Auxiliary1ModelReference, data.Auxiliary1ModelPath));
+            selectModelOption(
+                byId("auxiliary2-select"),
+                modelSelectionValueFromReference(data.Auxiliary2ModelReference, data.Auxiliary2ModelPath));
         }
     }
 
@@ -1211,7 +1332,7 @@
 
         const emptyOption = document.createElement("option");
         emptyOption.value = "";
-        emptyOption.text = "-- 选择预设项目（可选）--";
+        emptyOption.text = "-- 选择工位模板（可选）--";
         select.add(emptyOption);
 
         Object.entries(PROJECT_PRESETS)
@@ -1225,6 +1346,13 @@
 
         if (currentValue && PROJECT_PRESETS[currentValue]) {
             select.value = currentValue;
+        }
+    }
+
+    function setProjectPresetLoadHint(message) {
+        const hint = byId("project-preset-load-hint");
+        if (hint) {
+            hint.textContent = message || "选择后只载入模板，不会自动保存；请确认相机序列号、PLC IP 和模型后再保存。";
         }
     }
 
@@ -1482,15 +1610,58 @@
             select.value = preferred;
             return;
         }
+        const preferredFileMatch = preferred ? options.find((option) => option.dataset.fileName === preferred) : null;
+        if (preferredFileMatch) {
+            select.value = preferredFileMatch.value;
+            return;
+        }
         if (fallback && options.some((option) => option.value === fallback)) {
             select.value = fallback;
+            return;
+        }
+        const fallbackFileMatch = fallback ? options.find((option) => option.dataset.fileName === fallback) : null;
+        if (fallbackFileMatch) {
+            select.value = fallbackFileMatch.value;
             return;
         }
         select.selectedIndex = options.length ? 0 : -1;
     }
 
+    function encodeModelIdentityPart(value) {
+        const bytes = encodeURIComponent(String(value || "")).replace(/%([0-9A-F]{2})/g, (_, hex) =>
+            String.fromCharCode(parseInt(hex, 16)));
+        return btoa(bytes).replace(/=+$/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+    }
+
+    function modelSelectionValueFromReference(reference, legacyValue = "") {
+        if (!reference) return String(legacyValue || "").trim();
+        const type = String(reference.Type || reference.type || "");
+        const modelId = reference.ModelId || reference.modelId || "";
+        const version = reference.Version || reference.version || "";
+        const sha256 = String(reference.Sha256 || reference.sha256 || "").trim().toLowerCase();
+        const legacyFileName = reference.LegacyFileName || reference.legacyFileName || legacyValue || "";
+        if ((type === "ApprovedPackage" || type === "1") && modelId && version && sha256) {
+            return `approved:${encodeModelIdentityPart(modelId)}:${encodeModelIdentityPart(version)}:${sha256}`;
+        }
+        if ((type === "LegacyOnnx" || type === "2") && legacyFileName) {
+            return `legacy:${encodeModelIdentityPart(legacyFileName)}:${sha256}`;
+        }
+        return String(legacyValue || "").trim();
+    }
+
+    function normalizeModelOption(item) {
+        if (typeof item === "string") {
+            return { value: item, text: item, fileName: item };
+        }
+        const value = String(item?.value || item?.Value || "").trim();
+        const text = String(item?.text || item?.Text || item?.fileName || item?.FileName || value).trim();
+        const fileName = String(item?.fileName || item?.FileName || text).trim();
+        return { value, text, fileName };
+    }
+
     function initModelList(files, notifyBackend = false) {
-        const models = Array.isArray(files) ? files : (files?.models || files?.Models || []);
+        const rawModels = Array.isArray(files) ? files : (files?.models || files?.Models || []);
+        const models = rawModels.map(normalizeModelOption).filter((model) => model.value);
         store.state.modelList = models;
         const select = byId("model-select");
         if (!select) return;
@@ -1509,28 +1680,39 @@
             return;
         }
 
-        models.forEach((fileName) => {
+        models.forEach((model) => {
             const option = document.createElement("option");
-            option.value = fileName;
-            option.text = fileName;
+            option.value = model.value;
+            option.text = model.text;
+            option.dataset.fileName = model.fileName;
             select.add(option);
         });
-        selectModelOption(select, settings.CurrentModelFileName, previousPrimary);
+        selectModelOption(
+            select,
+            modelSelectionValueFromReference(settings.CurrentModelReference, settings.CurrentModelFileName),
+            previousPrimary);
 
         ["auxiliary1-select", "auxiliary2-select"].forEach((id) => {
             const auxSelect = byId(id);
             if (!auxSelect) return;
             auxSelect.innerHTML = '<option value="">不使用</option>';
-            models.forEach((fileName) => {
+            models.forEach((model) => {
                 const option = document.createElement("option");
-                option.value = fileName;
-                option.text = fileName;
+                option.value = model.value;
+                option.text = model.text;
+                option.dataset.fileName = model.fileName;
                 auxSelect.add(option);
             });
         });
 
-        selectModelOption(byId("auxiliary1-select"), settings.Auxiliary1ModelPath, previousAux1);
-        selectModelOption(byId("auxiliary2-select"), settings.Auxiliary2ModelPath, previousAux2);
+        selectModelOption(
+            byId("auxiliary1-select"),
+            modelSelectionValueFromReference(settings.Auxiliary1ModelReference, settings.Auxiliary1ModelPath),
+            previousAux1);
+        selectModelOption(
+            byId("auxiliary2-select"),
+            modelSelectionValueFromReference(settings.Auxiliary2ModelReference, settings.Auxiliary2ModelPath),
+            previousAux2);
         if (notifyBackend) bridge.sendCommand("change_model", select.value);
         window.addLog?.(`成功加载 ${models.length} 个模型`, "info");
     }
@@ -1579,6 +1761,7 @@
     function loadProjectPreset(presetId) {
         if (!presetId) {
             syncProjectPresetName();
+            setProjectPresetLoadHint("");
             return;
         }
 
@@ -1659,8 +1842,15 @@
         updateTriggerSourceUi();
         store.state.inspectionRuleSet = normalizeInspectionRuleSet(preset.InspectionRuleSetJson, preset);
         renderInspectionRules();
+        if (preset.EnableMultiModelFallback !== undefined) {
+            applyMultiModelUiState(!!preset.EnableMultiModelFallback);
+        }
         syncProjectPresetName();
-        window.addLog?.(`已加载预设: ${getPresetDisplayName(presetId, preset)}`, "success");
+        const templateName = getPresetDisplayName(presetId, preset);
+        const message = `已载入 ${templateName}模板，请确认相机序列号、PLC IP 和模型后保存。`;
+        setProjectPresetLoadHint(message);
+        window.showToast?.(message, "success", 1800);
+        window.addLog?.(message, "success");
     }
 
     function handleConfigSnapshot(data) {

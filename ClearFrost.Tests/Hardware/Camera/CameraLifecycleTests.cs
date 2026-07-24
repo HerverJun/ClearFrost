@@ -97,7 +97,7 @@ namespace ClearFrost.Tests.Hardware.Camera
         }
 
         [Fact]
-        public void CameraManager_调试模式只对Mock配置创建模拟相机()
+        public void CameraManager_Mock配置遵循构建安全开关()
         {
             var config = new CameraConfig
             {
@@ -118,7 +118,11 @@ namespace ClearFrost.Tests.Hardware.Camera
             manager.LoadFromConfig(appConfig);
 
             manager.ActiveCamera.Should().NotBeNull();
+#if DEBUG
             manager.ActiveCamera!.Camera.Should().BeOfType<MockCamera>();
+#else
+            manager.ActiveCamera!.Camera.Should().NotBeOfType<MockCamera>();
+#endif
         }
 
         [Fact]

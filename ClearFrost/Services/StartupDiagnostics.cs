@@ -8,6 +8,7 @@ using ClearFrost.Core.Models;
 using ClearFrost.Hardware;
 using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
+using ClearFrost.Yolo;
 using Microsoft.Web.WebView2.Core;
 
 namespace ClearFrost.Services
@@ -43,7 +44,8 @@ namespace ClearFrost.Services
         public StartupDiagnosticReport Run(
             AppConfig config,
             IStorageService storageService,
-            ModelRegistry? modelRegistry = null)
+            ModelRegistry? modelRegistry = null,
+            Func<ModelRole, ModelRegistryEntry, ProductionModelReference, ProductionModelReadinessResult>? approvalEvidenceValidator = null)
         {
             if (config == null) throw new ArgumentNullException(nameof(config));
             if (storageService == null) throw new ArgumentNullException(nameof(storageService));
@@ -57,6 +59,10 @@ namespace ClearFrost.Services
                 CheckWritableDirectory("Database directory", Path.GetDirectoryName(RuntimePaths.DatabasePath) ?? RuntimePaths.DataDirectory, isBlocking: true),
                 CheckWritableDirectory("Storage directory", operationalStoragePath, isBlocking: true),
                 CheckWritableDirectory("Log directory", storageService.LogBasePath, isBlocking: true),
+                CheckWritableDirectory("System evidence directory", storageService.SystemPath, isBlocking: true),
+                CheckWritableDirectory("Audit outbox directory", Path.Combine(storageService.LogBasePath, "Outbox"), isBlocking: true),
+                CheckWritableDirectory("Diagnostic package directory", Path.Combine(storageService.LogBasePath, "Diagnostics"), isBlocking: false),
+                CheckWritableDirectory("Handoff report directory", Path.Combine(storageService.LogBasePath, "HandoffReports"), isBlocking: false),
                 CheckPlcAddresses(config),
                 CheckCameraConfig(config),
                 CheckDiskFreeSpace(operationalStoragePath)
@@ -65,7 +71,41 @@ namespace ClearFrost.Services
             if (modelRegistry != null)
             {
                 items.Add(CheckModelRegistry(modelRegistry));
+                if (config.RequireApprovedModelsForProduction)
+                {
+                    items.Add(CheckReplayEvidenceGate(config, modelRegistry, approvalEvidenceValidator));
+                }
+                else
+                {
+                    items.Add(Pass(
+                        "Model approval mode",
+                        OperatorFaultMessages.FieldLightweightModeSummary,
+                        "RequireApprovedModelsForProduction=false",
+                        isBlocking: false));
+                }
             }
+
+            CurrentReport = new StartupDiagnosticReport
+            {
+                Items = items,
+                UpdatedAt = DateTimeOffset.Now
+            };
+            return CurrentReport;
+        }
+
+        public StartupDiagnosticReport ReportStoragePathRefreshFailure(
+            string requestedStoragePath,
+            string activeStoragePath,
+            string errorMessage)
+        {
+            var items = CurrentReport.Items
+                .Where(item => !string.Equals(item.Name, "Storage path refresh", StringComparison.Ordinal))
+                .ToList();
+            items.Add(Fail(
+                "Storage path refresh",
+                "StoragePath refresh failed; runtime storage-bound evidence services remain on the previous path.",
+                $"Requested={requestedStoragePath ?? string.Empty}; Active={activeStoragePath ?? string.Empty}; Error={errorMessage ?? string.Empty}",
+                isBlocking: true));
 
             CurrentReport = new StartupDiagnosticReport
             {
@@ -90,24 +130,7 @@ namespace ClearFrost.Services
 
         private static string ResolveOperationalStoragePath(AppConfig config, IStorageService storageService)
         {
-            try
-            {
-                string imageBasePath = storageService.ImageBasePath;
-                if (!string.IsNullOrWhiteSpace(imageBasePath))
-                {
-                    string? parent = Directory.GetParent(Path.GetFullPath(imageBasePath))?.FullName;
-                    if (!string.IsNullOrWhiteSpace(parent))
-                    {
-                        return parent;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[StartupDiagnostics] 解析运行存储目录失败: {ex.Message}");
-            }
-
-            return config.StoragePath;
+            return storageService.BaseStoragePath;
         }
 
         private static StartupDiagnosticItem CheckNativeDll(string name, string fileName, bool isBlocking)
@@ -130,15 +153,76 @@ namespace ClearFrost.Services
                     throw new InvalidOperationException("Directory path is empty.");
                 }
 
-                Directory.CreateDirectory(path);
-                string probe = Path.Combine(path, $".startup-diagnostics-{Guid.NewGuid():N}.tmp");
-                File.WriteAllText(probe, "ok");
-                File.Delete(probe);
-                return Pass(name, "Writable.", Path.GetFullPath(path), isBlocking);
+                string fullPath = Path.GetFullPath(path);
+                EnsureProbeDirectorySafe(fullPath);
+                Directory.CreateDirectory(fullPath);
+                EnsureProbeDirectorySafe(fullPath);
+                string probe = Path.Combine(fullPath, $".startup-diagnostics-{Guid.NewGuid():N}.tmp");
+                WriteAndDeleteProbeFile(probe);
+                return Pass(name, "Writable.", fullPath, isBlocking);
             }
             catch (Exception ex)
             {
                 return Fail(name, "Directory is not writable.", ex.Message, isBlocking);
+            }
+        }
+
+        private static void EnsureProbeDirectorySafe(string directory)
+        {
+            if (DirectoryPathHasReparsePoint(directory))
+            {
+                throw new IOException($"Directory contains a linked path segment: {directory}");
+            }
+        }
+
+        private static void WriteAndDeleteProbeFile(string probePath)
+        {
+            using (var stream = new FileStream(probePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(stream))
+            {
+                writer.Write("ok");
+            }
+
+            var probe = new FileInfo(probePath);
+            probe.Refresh();
+            if (probe.Exists && HasReparsePoint(probe))
+            {
+                throw new IOException($"Probe file is a linked file: {probePath}");
+            }
+
+            File.Delete(probePath);
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            var current = new DirectoryInfo(Path.GetFullPath(directory));
+            while (current != null)
+            {
+                current.Refresh();
+                if (current.Exists && HasReparsePoint(current))
+                {
+                    return true;
+                }
+
+                current = current.Parent;
+            }
+
+            return false;
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
             }
         }
 
@@ -280,6 +364,68 @@ namespace ClearFrost.Services
             }
 
             return Pass("Model registry", "Model registry is ready.", $"{modelRegistry.Entries.Count} entries", isBlocking: true);
+        }
+
+        private static StartupDiagnosticItem CheckReplayEvidenceGate(
+            AppConfig config,
+            ModelRegistry modelRegistry,
+            Func<ModelRole, ModelRegistryEntry, ProductionModelReference, ProductionModelReadinessResult>? approvalEvidenceValidator)
+        {
+            if (approvalEvidenceValidator == null)
+            {
+                return Fail(
+                    "Replay evidence gate",
+                    OperatorFaultMessages.StrictModelGateBlocked,
+                    "RequireApprovedModelsForProduction=true",
+                    isBlocking: true);
+            }
+
+            foreach ((ModelRole Role, ProductionModelReference? Reference) slot in new[]
+            {
+                (ModelRole.Primary, config.CurrentModelReference),
+                (ModelRole.Auxiliary1, config.Auxiliary1ModelReference),
+                (ModelRole.Auxiliary2, config.Auxiliary2ModelReference)
+            })
+            {
+                ProductionModelReference reference = slot.Reference?.Clone() ?? ProductionModelReference.Empty();
+                if (reference.IsEmpty)
+                {
+                    if (slot.Role == ModelRole.Primary)
+                    {
+                        return Fail(
+                            "Replay evidence gate",
+                            OperatorFaultMessages.ForCode("PrimaryModelReferenceEmpty"),
+                            "RequireApprovedModelsForProduction=true",
+                            isBlocking: true);
+                    }
+
+                    continue;
+                }
+
+                ProductionModelResolutionResult resolved = modelRegistry.ResolveReference(
+                    reference,
+                    requireProductionApproval: true);
+                if (!resolved.Succeeded || resolved.Entry == null)
+                {
+                    return Fail(
+                        "Replay evidence gate",
+                        OperatorFaultMessages.StrictModelGateBlocked,
+                        $"{slot.Role}: {resolved.ErrorCode} {resolved.Message}",
+                        isBlocking: true);
+                }
+
+                ProductionModelReadinessResult result = approvalEvidenceValidator(slot.Role, resolved.Entry, reference);
+                if (!result.Succeeded)
+                {
+                    return Fail(
+                        "Replay evidence gate",
+                        OperatorFaultMessages.StrictModelGateBlocked,
+                        $"{slot.Role} {resolved.Entry.ModelId}/{resolved.Entry.Version}: {result.ErrorCode} {result.Message}",
+                        isBlocking: true);
+                }
+            }
+
+            return Pass("Replay evidence gate", "Approved model evidence validation passed.", string.Empty, isBlocking: true);
         }
 
         private static string? FindNativeDll(string fileName)

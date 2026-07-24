@@ -336,6 +336,7 @@ namespace ClearFrost.Config
 
             public static FileSnapshot Capture(string path)
             {
+                EnsureFileIsNotReparsePoint(path);
                 return File.Exists(path)
                     ? new FileSnapshot(path, true, File.ReadAllBytes(path))
                     : new FileSnapshot(path, false, null);
@@ -343,50 +344,48 @@ namespace ClearFrost.Config
 
             public void Restore()
             {
-                string directory = System.IO.Path.GetDirectoryName(Path) ?? string.Empty;
-                if (!string.IsNullOrWhiteSpace(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
                 if (!Exists)
                 {
                     if (File.Exists(Path))
                     {
+                        EnsureFileIsNotReparsePoint(Path);
+                        EnsureDirectoryPathHasNoReparsePoint(System.IO.Path.GetDirectoryName(Path) ?? string.Empty);
                         File.Delete(Path);
                     }
 
                     return;
                 }
 
-                string tempPath = System.IO.Path.Combine(
-                    string.IsNullOrWhiteSpace(directory) ? "." : directory,
-                    $"{System.IO.Path.GetFileName(Path)}.{Guid.NewGuid():N}.rollback");
+                AtomicFileWriter.RestoreAllBytes(Path, Content ?? Array.Empty<byte>());
+            }
 
-                try
+            private static void EnsureFileIsNotReparsePoint(string path)
+            {
+                var file = new FileInfo(path);
+                file.Refresh();
+                if (file.Exists && (file.Attributes & FileAttributes.ReparsePoint) != 0)
                 {
-                    File.WriteAllBytes(tempPath, Content ?? Array.Empty<byte>());
-                    if (File.Exists(Path))
-                    {
-                        File.Replace(tempPath, Path, null, ignoreMetadataErrors: true);
-                    }
-                    else
-                    {
-                        File.Move(tempPath, Path);
-                    }
+                    throw new IOException($"运行配置文件是链接文件，拒绝回滚: {path}");
                 }
-                finally
+            }
+
+            private static void EnsureDirectoryPathHasNoReparsePoint(string directory)
+            {
+                if (string.IsNullOrWhiteSpace(directory))
                 {
-                    try
+                    return;
+                }
+
+                var current = new DirectoryInfo(System.IO.Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && (current.Attributes & FileAttributes.ReparsePoint) != 0)
                     {
-                        if (File.Exists(tempPath))
-                        {
-                            File.Delete(tempPath);
-                        }
+                        throw new IOException($"运行配置目录包含链接目录，拒绝回滚: {current.FullName}");
                     }
-                    catch
-                    {
-                    }
+
+                    current = current.Parent;
                 }
             }
         }

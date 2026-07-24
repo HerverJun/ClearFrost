@@ -1,4 +1,4 @@
-/* CSS Fallbacks for critical Tailwind colors */
+﻿/* CSS Fallbacks for critical Tailwind colors */
 .bg-celadon-500 {
     background-color: #06b6d4 !important;
 }
@@ -622,6 +622,375 @@ input[type="range"]::-webkit-slider-runnable-track {
     overflow: hidden;
 }
 
+.cf-vision-debug-panel {
+    width: min(1180px, 96vw);
+    height: min(860px, 92vh);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    border-radius: 10px;
+    background: rgba(248, 250, 252, 0.98);
+    box-shadow: 0 30px 80px -42px rgba(15, 23, 42, 0.58);
+}
+
+.cf-vision-debug-header {
+    height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+    background: #ffffff;
+}
+
+.cf-vision-debug-header span,
+.cf-vision-debug-section h3 {
+    font-size: 11px;
+    font-weight: 800;
+    color: #64748b;
+    letter-spacing: 0;
+}
+
+.cf-vision-debug-header h2 {
+    margin: 2px 0 0;
+    color: #0f172a;
+    font-size: 22px;
+    font-weight: 900;
+}
+
+.cf-vision-debug-header p {
+    margin: 3px 0 0;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.35;
+    font-weight: 700;
+}
+
+.cf-vision-debug-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.cf-vision-debug-actions button,
+.cf-vision-debug-toolbar button,
+.cf-vision-template-grid button,
+.cf-common-action-grid button,
+#vision-debug-apply-template,
+#vision-debug-save-params,
+#vision-debug-run-history,
+#vision-debug-run-batch {
+    border: 1px solid rgba(30, 64, 175, 0.16);
+    border-radius: 6px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 12px;
+    font-weight: 800;
+    transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.cf-vision-debug-actions button {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+}
+
+.cf-vision-debug-actions svg {
+    width: 18px;
+    height: 18px;
+}
+
+.cf-vision-debug-actions button:hover,
+.cf-vision-debug-toolbar button:hover,
+.cf-vision-template-grid button:hover,
+.cf-common-action-grid button:hover,
+#vision-debug-apply-template:hover,
+#vision-debug-save-params:hover,
+#vision-debug-run-history:hover,
+#vision-debug-run-batch:hover {
+    background: #dbeafe;
+    border-color: rgba(37, 99, 235, 0.32);
+}
+
+.cf-vision-debug-body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+    gap: 14px;
+    padding: 16px;
+    overflow: auto;
+}
+
+.cf-vision-debug-section {
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 14px;
+}
+
+.cf-vision-debug-operator-note {
+    grid-column: 1 / -1;
+    padding: 10px 12px;
+    border-radius: 8px;
+    color: #0d3d9e;
+    background: #eff6ff;
+    border: 1px solid rgba(13, 61, 158, 0.16);
+    font-size: 12px;
+    font-weight: 850;
+}
+
+.cf-vision-debug-step,
+.cf-vision-debug-controls,
+.cf-vision-debug-section:nth-of-type(4) {
+    grid-column: 1;
+}
+
+.cf-vision-debug-result-section,
+.cf-vision-debug-section:nth-of-type(6),
+.cf-vision-debug-section:nth-of-type(7),
+.cf-vision-debug-section:nth-of-type(8),
+.cf-vision-debug-section:nth-of-type(9) {
+    grid-column: 2;
+}
+
+.cf-vision-debug-toolbar,
+.cf-vision-history-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.cf-vision-batch-row {
+    grid-template-columns: minmax(0, 1fr) 76px minmax(96px, 0.8fr);
+}
+
+.cf-vision-debug-toolbar button,
+#vision-debug-apply-template,
+#vision-debug-save-params,
+#vision-debug-run-history,
+#vision-debug-run-batch {
+    height: 36px;
+}
+
+.cf-vision-debug-grid {
+    display: grid;
+    gap: 10px;
+}
+
+.cf-vision-debug-grid label {
+    display: grid;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 800;
+    color: #475569;
+}
+
+.cf-vision-debug-field {
+    display: grid;
+    gap: 6px;
+    margin: 10px 0;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.cf-vision-debug-grid input,
+.cf-vision-debug-grid select,
+.cf-vision-debug-field select,
+.cf-vision-batch-row input,
+.cf-vision-history-row select,
+#vision-debug-rule-set {
+    width: 100%;
+    border: 1px solid rgba(148, 163, 184, 0.34);
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.cf-vision-debug-grid input,
+.cf-vision-debug-grid select,
+.cf-vision-debug-field select,
+.cf-vision-batch-row input,
+.cf-vision-history-row select {
+    min-height: 34px;
+    padding: 0 10px;
+}
+
+.cf-vision-debug-hint {
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.45;
+    font-weight: 700;
+}
+
+.cf-vision-debug-grid input[type="range"] {
+    padding: 0;
+}
+
+.cf-vision-debug-switch {
+    grid-template-columns: 1fr auto !important;
+    align-items: center;
+}
+
+.cf-vision-debug-switch input {
+    width: 20px;
+    height: 20px;
+}
+
+.cf-vision-template-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 10px 0;
+}
+
+.cf-vision-template-grid button {
+    min-height: 34px;
+}
+
+#vision-debug-rule-set {
+    min-height: 120px;
+    padding: 10px;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    resize: vertical;
+}
+
+.cf-vision-debug-status {
+    margin-top: 8px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.cf-vision-debug-status.error {
+    color: #b91c1c;
+}
+
+.cf-vision-debug-empty {
+    margin-top: 8px;
+    padding: 12px;
+    border-radius: 8px;
+    color: #475569;
+    background: #f8fafc;
+    border: 1px dashed rgba(100, 116, 139, 0.34);
+    font-size: 12px;
+    line-height: 1.45;
+    font-weight: 780;
+}
+
+.cf-vision-debug-details {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.cf-vision-debug-details summary {
+    cursor: pointer;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.cf-vision-debug-result-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.cf-vision-debug-result-head strong {
+    color: #0f172a;
+    font-size: 15px;
+}
+
+.cf-vision-debug-result-pill {
+    min-width: 58px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.cf-vision-debug-result-pill.ok {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.cf-vision-debug-result-pill.ng,
+.cf-vision-debug-result-pill.error {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.cf-vision-debug-summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.cf-vision-debug-summary span,
+.cf-vision-debug-list > div {
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.cf-vision-debug-summary span {
+    padding: 10px;
+}
+
+.cf-vision-debug-summary b {
+    color: #0f172a;
+}
+
+.cf-vision-debug-list {
+    display: grid;
+    gap: 8px;
+    max-height: 260px;
+    overflow: auto;
+}
+
+.cf-vision-debug-list > div {
+    padding: 10px;
+}
+
+.cf-vision-debug-list strong {
+    color: #0f172a;
+}
+
+.cf-vision-debug-box-muted {
+    opacity: 0.68;
+}
+
+@media (max-width: 960px) {
+    .cf-vision-debug-body {
+        grid-template-columns: 1fr;
+    }
+
+    .cf-vision-debug-controls,
+    .cf-vision-debug-step,
+    .cf-vision-debug-section:nth-of-type(4),
+    .cf-vision-debug-result-section,
+    .cf-vision-debug-section:nth-of-type(6),
+    .cf-vision-debug-section:nth-of-type(7),
+    .cf-vision-debug-section:nth-of-type(8),
+    .cf-vision-debug-section:nth-of-type(9) {
+        grid-column: 1;
+    }
+}
+
 #result-overlay {
     box-shadow:
         0 24px 48px -28px rgba(20, 30, 40, 0.34),
@@ -924,6 +1293,20 @@ input[type="range"]::-webkit-slider-runnable-track {
     color: #b91c1c;
     background: #fee2e2;
     border: 1px solid #fecaca;
+}
+
+.result-cycle-failed,
+.cf-flow-row.cycle-failed .cf-flow-status {
+    width: auto;
+    min-width: 72px;
+    color: #991b1b;
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+}
+
+.cf-flow-row.cycle-failed {
+    border-color: #fecaca;
+    background: #fff7f7;
 }
 
 .cf-flow-row {
@@ -1367,6 +1750,671 @@ input[type="range"]::-webkit-slider-runnable-track {
     box-shadow: 0 0 0 2px rgba(9, 76, 178, 0.28);
 }
 
+.cf-diagnostics-panel {
+    width: min(1080px, calc(100vw - 24px));
+    max-height: min(88vh, 820px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 14px;
+    background: #f6f8fb;
+    border: 1px solid rgba(180, 190, 210, 0.48);
+    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+}
+
+.cf-diagnostics-header {
+    min-height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 18px;
+    background: linear-gradient(180deg, #ffffff 0%, #f3f6fa 100%);
+    border-bottom: 1px solid rgba(180, 190, 210, 0.42);
+}
+
+.cf-diagnostics-header span,
+.cf-diagnostics-section h3,
+.cf-diagnostic-tile span,
+.cf-diagnostics-checklist > div > span,
+.cf-diagnostics-readout span,
+.cf-debug-status-line span,
+.cf-diagnostics-export-row span {
+    color: #566174;
+    font-size: 11px;
+    line-height: 1.2;
+    font-weight: 800;
+}
+
+.cf-diagnostics-header h2 {
+    margin: 2px 0 0;
+    color: #0d3d9e;
+    font-size: 22px;
+    line-height: 1.1;
+    font-weight: 900;
+}
+
+.cf-diagnostics-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cf-diagnostics-header-actions button {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    color: #475569;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.5);
+}
+
+.cf-diagnostics-header-actions svg {
+    width: 21px;
+    height: 21px;
+}
+
+.cf-diagnostics-body {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 18px;
+}
+
+.cf-diagnostics-section {
+    margin-bottom: 16px;
+}
+
+.cf-diagnostics-section h3 {
+    margin: 0 0 8px;
+}
+
+.cf-diagnostics-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.cf-field-status-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.cf-diagnostic-tile,
+.cf-diagnostics-checklist > div,
+.cf-diagnostics-readout > div,
+.cf-debug-status-line,
+.cf-diagnostics-export-row {
+    min-width: 0;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.cf-diagnostic-tile {
+    min-height: 72px;
+    padding: 11px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.cf-diagnostic-tile strong {
+    min-width: 0;
+    overflow: hidden;
+    color: #0f172a;
+    font-size: 15px;
+    line-height: 1.2;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-diagnostics-checklist {
+    display: grid;
+    grid-template-columns: 1.2fr 0.9fr 1fr 0.9fr;
+    gap: 8px;
+}
+
+.cf-diagnostics-checklist > div {
+    min-height: 82px;
+    padding: 11px 12px;
+}
+
+.cf-diagnostics-checklist strong {
+    display: block;
+    min-width: 0;
+    margin-top: 5px;
+    overflow-wrap: anywhere;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.45;
+    font-weight: 850;
+}
+
+.cf-diagnostics-checklist .cf-diagnostic-line {
+    display: block;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.45;
+    font-weight: 850;
+}
+
+.cf-production-readiness {
+    min-width: 0;
+    padding: 14px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.cf-production-readiness strong {
+    display: block;
+    color: #0f172a;
+    font-size: 20px;
+    line-height: 1.2;
+    font-weight: 900;
+}
+
+.cf-production-readiness span {
+    display: block;
+    margin-top: 6px;
+    color: #566174;
+    font-size: 12px;
+    line-height: 1.45;
+    font-weight: 800;
+}
+
+.cf-common-action-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.cf-common-action-grid button {
+    min-height: 44px;
+}
+
+.cf-engineer-details,
+.cf-replay-engineer-details {
+    border-radius: 8px;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+    background: #ffffff;
+    padding: 10px 12px;
+}
+
+.cf-engineer-details summary,
+.cf-replay-engineer-details summary {
+    cursor: pointer;
+    color: #0f172a;
+    font-size: 13px;
+    line-height: 1.3;
+    font-weight: 900;
+}
+
+.cf-engineer-details > p,
+.cf-replay-engineer-details > p {
+    margin: 6px 0 12px;
+    color: #566174;
+    font-size: 11px;
+    line-height: 1.45;
+    font-weight: 780;
+}
+
+.cf-diagnostics-package-meta,
+.cf-handoff-report-meta {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.cf-handoff-report-meta {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cf-diagnostics-package-meta span,
+.cf-handoff-report-meta span {
+    min-width: 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+    color: #566174;
+    font-size: 10px;
+    line-height: 1.35;
+    font-weight: 800;
+}
+
+.cf-diagnostics-package-meta strong,
+.cf-handoff-report-meta strong {
+    display: block;
+    min-width: 0;
+    margin-top: 3px;
+    overflow: hidden;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.25;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-maintenance-advice-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.cf-shift-task-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.cf-maintenance-advice-item {
+    min-width: 0;
+    min-height: 88px;
+    padding: 11px 12px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.cf-shift-task-item,
+.cf-shift-task-empty {
+    min-width: 0;
+    min-height: 88px;
+    padding: 11px 12px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.cf-maintenance-advice-item strong {
+    display: block;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: #0f172a;
+    font-size: 13px;
+    line-height: 1.35;
+    font-weight: 900;
+}
+
+.cf-shift-task-item strong,
+.cf-shift-task-empty strong {
+    display: block;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: #0f172a;
+    font-size: 13px;
+    line-height: 1.35;
+    font-weight: 900;
+}
+
+.cf-maintenance-advice-item span,
+.cf-maintenance-advice-item em {
+    display: block;
+    min-width: 0;
+    margin-top: 5px;
+    overflow-wrap: anywhere;
+    color: #566174;
+    font-size: 11px;
+    line-height: 1.45;
+    font-style: normal;
+    font-weight: 750;
+}
+
+.cf-shift-task-item span,
+.cf-shift-task-item em,
+.cf-shift-task-empty span {
+    display: block;
+    min-width: 0;
+    margin-top: 5px;
+    overflow-wrap: anywhere;
+    color: #566174;
+    font-size: 11px;
+    line-height: 1.45;
+    font-style: normal;
+    font-weight: 750;
+}
+
+.cf-maintenance-advice-item.warning {
+    border-color: rgba(138, 63, 8, 0.26);
+    background: #fffaf1;
+}
+
+.cf-shift-task-item.warning {
+    border-color: rgba(138, 63, 8, 0.26);
+    background: #fffaf1;
+}
+
+.cf-maintenance-advice-item.critical {
+    border-color: rgba(154, 31, 46, 0.28);
+    background: #fff5f7;
+}
+
+.cf-shift-task-item.critical {
+    border-color: rgba(154, 31, 46, 0.28);
+    background: #fff5f7;
+}
+
+.cf-shift-task-item.overdue {
+    border-color: rgba(154, 31, 46, 0.42);
+    box-shadow: 0 0 0 1px rgba(154, 31, 46, 0.08), 0 6px 14px rgba(154, 31, 46, 0.08);
+}
+
+.cf-maintenance-advice-item.ok {
+    border-color: rgba(49, 95, 76, 0.18);
+    background: #f6fbf8;
+}
+
+.cf-shift-task-item.ok,
+.cf-shift-task-empty {
+    border-color: rgba(49, 95, 76, 0.18);
+    background: #f6fbf8;
+}
+
+.cf-maintenance-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.cf-maintenance-actions button,
+.cf-maintenance-history-item button {
+    min-height: 28px;
+    padding: 0 9px;
+    border-radius: 8px;
+    color: #0d3d9e;
+    background: #eef5ff;
+    border: 1px solid rgba(13, 61, 158, 0.18);
+    font-size: 10px;
+    font-weight: 900;
+}
+
+.cf-maintenance-history {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.cf-maintenance-history-item,
+.cf-maintenance-history-empty {
+    min-width: 0;
+    padding: 9px 10px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+}
+
+.cf-maintenance-history-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 70px;
+    align-items: center;
+    gap: 10px;
+}
+
+.cf-maintenance-history-item strong,
+.cf-maintenance-history-empty strong {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.3;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-maintenance-history-item span,
+.cf-maintenance-history-item em,
+.cf-maintenance-history-empty span {
+    display: block;
+    min-width: 0;
+    margin-top: 3px;
+    overflow-wrap: anywhere;
+    color: #566174;
+    font-size: 10px;
+    line-height: 1.35;
+    font-style: normal;
+    font-weight: 780;
+}
+
+.cf-diagnostic-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 18px;
+    margin: 0 4px 4px 0;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    line-height: 1.2;
+    font-weight: 900;
+    color: #315f4c;
+    background: #e6f6ef;
+    border: 1px solid rgba(49, 95, 76, 0.18);
+}
+
+.cf-diagnostic-badge.warning {
+    color: #8a3f08;
+    background: #fff3df;
+    border-color: rgba(138, 63, 8, 0.22);
+}
+
+.cf-diagnostic-badge.error {
+    color: #9a1f2e;
+    background: #ffe6eb;
+    border-color: rgba(154, 31, 46, 0.22);
+}
+
+.cf-diagnostic-badge.pending {
+    color: #566174;
+    background: #eef2f7;
+    border-color: rgba(86, 97, 116, 0.18);
+}
+
+.cf-diagnostics-history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.cf-diagnostics-history-head span {
+    color: #566174;
+    font-size: 11px;
+    font-weight: 850;
+}
+
+.cf-diagnostics-history-head button,
+.cf-diagnostics-package-history-item button {
+    min-height: 30px;
+    padding: 0 10px;
+    border-radius: 8px;
+    color: #0d3d9e;
+    background: #eef5ff;
+    border: 1px solid rgba(13, 61, 158, 0.18);
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.cf-diagnostics-package-history {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.cf-diagnostics-package-history-item,
+.cf-diagnostics-package-empty,
+.cf-handoff-report-history-item,
+.cf-handoff-report-empty {
+    min-width: 0;
+    padding: 9px 10px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(180, 190, 210, 0.42);
+}
+
+.cf-diagnostics-package-history-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 70px;
+    align-items: center;
+    gap: 10px;
+}
+
+.cf-handoff-report-history {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.cf-handoff-report-history-item {
+    display: block;
+}
+
+.cf-diagnostics-package-history-item strong,
+.cf-diagnostics-package-empty strong,
+.cf-handoff-report-history-item strong,
+.cf-handoff-report-empty strong {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.3;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-diagnostics-package-history-item > div > span,
+.cf-diagnostics-package-empty span,
+.cf-handoff-report-history-item span,
+.cf-handoff-report-empty span {
+    display: block;
+    min-width: 0;
+    margin-top: 3px;
+    overflow-wrap: anywhere;
+    color: #566174;
+    font-size: 10px;
+    line-height: 1.35;
+    font-weight: 780;
+}
+
+.cf-diagnostics-readout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.cf-diagnostics-readout > div,
+.cf-debug-status-line,
+.cf-diagnostics-export-row {
+    padding: 11px 12px;
+}
+
+.cf-diagnostics-readout strong,
+.cf-debug-status-line strong,
+.cf-diagnostics-export-row strong {
+    display: block;
+    min-width: 0;
+    margin-top: 4px;
+    overflow-wrap: anywhere;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.45;
+    font-weight: 800;
+}
+
+.cf-debug-command-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.cf-debug-command-grid button,
+.cf-diagnostics-export-row button {
+    min-height: 42px;
+    border-radius: 8px;
+    color: #ffffff;
+    background: #0d3d9e;
+    border: 1px solid rgba(13, 61, 158, 0.6);
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.cf-debug-status-line {
+    margin-top: 8px;
+}
+
+.cf-diagnostics-export-row {
+    display: grid;
+    grid-template-columns: 180px 160px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+}
+
+.cf-handoff-report-row {
+    grid-template-columns: 170px 160px minmax(0, 1fr);
+}
+
+@media (max-width: 980px) {
+    .cf-diagnostics-grid,
+    .cf-field-status-grid,
+    .cf-diagnostics-checklist,
+    .cf-diagnostics-package-meta,
+    .cf-handoff-report-meta,
+    .cf-maintenance-advice-list,
+    .cf-shift-task-list,
+    .cf-common-action-grid,
+    .cf-debug-command-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .cf-diagnostics-readout,
+    .cf-maintenance-history-item,
+    .cf-diagnostics-package-history-item,
+    .cf-diagnostics-export-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .cf-diagnostics-panel {
+        width: calc(100vw - 12px);
+        max-height: calc(100vh - 12px);
+        border-radius: 10px;
+    }
+
+    .cf-diagnostics-body {
+        padding: 12px;
+    }
+
+    .cf-diagnostics-grid,
+    .cf-field-status-grid,
+    .cf-diagnostics-checklist,
+    .cf-diagnostics-package-meta,
+    .cf-handoff-report-meta,
+    .cf-maintenance-advice-list,
+    .cf-shift-task-list,
+    .cf-common-action-grid,
+    .cf-debug-command-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .cf-diagnostic-tile {
+        min-height: 58px;
+    }
+}
+
 .stitch-status-lights {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1606,6 +2654,12 @@ input[type="range"]::-webkit-slider-runnable-track {
     cursor: crosshair;
 }
 
+#vision-debug-overlay {
+    z-index: 18;
+    pointer-events: none;
+    cursor: default;
+}
+
 .stitch-bounding-box {
     position: absolute;
     z-index: 16;
@@ -1733,6 +2787,19 @@ input[type="range"]::-webkit-slider-runnable-track {
     color: #7a0008;
     background: linear-gradient(180deg, #ffe0dc 0%, #ffd0ca 100%);
     border: 1px solid rgba(183, 28, 28, 0.25);
+}
+
+.cf-stitch-page .result-cycle-failed,
+.cf-stitch-page .cf-flow-row.cycle-failed .cf-flow-status {
+    width: auto;
+    min-width: 76px;
+    color: #7a0008;
+    background: linear-gradient(180deg, #ffe0dc 0%, #ffd0ca 100%);
+    border: 1px solid rgba(183, 28, 28, 0.35);
+}
+
+.cf-stitch-page .cf-flow-row.cycle-failed .cf-flow-rail {
+    background: #b91c1c;
 }
 
 .stitch-log-panel {
@@ -2070,6 +3137,108 @@ input[type="range"]::-webkit-slider-runnable-track {
 
     .stitch-camera-panel {
         padding: 20px;
+    }
+}
+
+@media (max-width: 760px) {
+    .cf-stitch-page {
+        overflow-x: hidden !important;
+    }
+
+    .stitch-topbar {
+        height: auto;
+        flex-basis: auto;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "brand actions"
+            "status status";
+        row-gap: 8px;
+        column-gap: 10px;
+        padding: 10px 12px;
+    }
+
+    .stitch-brand {
+        grid-area: brand;
+        gap: 8px;
+    }
+
+    .stitch-snow-mark {
+        width: 32px;
+        height: 32px;
+    }
+
+    .stitch-brand h1,
+    .stitch-brand h1 span {
+        font-size: 18px;
+    }
+
+    .stitch-nav-actions {
+        grid-area: actions;
+        gap: 6px;
+    }
+
+    .stitch-nav-actions button {
+        width: 32px;
+        height: 32px;
+    }
+
+    .stitch-top-status-lights {
+        grid-area: status;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        justify-content: stretch;
+        overflow-x: visible;
+        padding-bottom: 0;
+    }
+
+    .stitch-top-status-lights .stitch-status-lights {
+        width: 100%;
+        max-width: none;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-bottom: 0;
+    }
+
+    .stitch-top-status-lights .stitch-status-light {
+        min-width: 0;
+    }
+
+    .stitch-operator-chip {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+        flex: 0 0 auto;
+    }
+
+    .stitch-shell {
+        flex-direction: column !important;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    #left-panel.stitch-left-panel,
+    #camera-panel.stitch-camera-panel,
+    #right-panel.stitch-log-panel {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: 0 0 auto !important;
+        margin-left: 0;
+        margin-right: 0;
+        box-sizing: border-box;
+        border-left: 0;
+        border-right: 0;
+    }
+
+    #left-panel.stitch-left-panel {
+        overflow: visible;
+    }
+
+    #camera-panel.stitch-camera-panel {
+        min-height: 560px;
+    }
+
+    #right-panel.stitch-log-panel {
+        min-height: 420px;
     }
 }
 
@@ -2664,7 +3833,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page #settings-modal [data-settings-section="preset"] > h3::after {
-    content: "维护现场项目预设，并按历史记录收集训练数据集。";
+    content: "按工位模板载入相机、PLC、触发源和检测目标；确认后再手动保存到生产配置。";
 }
 
 .cf-stitch-page #settings-modal [data-settings-section="camera"] > h3::after {
@@ -3464,7 +4633,7 @@ input[type="range"]::-webkit-slider-runnable-track {
     height: min(760px, calc(100vh - 48px)) !important;
     display: grid !important;
     grid-template-columns: 248px minmax(0, 1fr);
-    grid-template-rows: 126px minmax(0, 1fr) 56px;
+    grid-template-rows: 126px auto minmax(0, 1fr) 56px;
     overflow: hidden;
     background: #f6f9fd !important;
     border: 1px solid rgba(203, 213, 225, 0.92) !important;
@@ -3625,6 +4794,45 @@ input[type="range"]::-webkit-slider-runnable-track {
     line-height: 1;
 }
 
+.cf-stitch-page #gallery-modal #replay-acceptance-panel {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 12px 30px !important;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 251, 255, 0.96)) !important;
+    border-bottom: 1px solid #e3e9f2 !important;
+}
+
+.cf-stitch-page #gallery-modal #replay-acceptance-panel > .grid {
+    display: grid !important;
+    grid-template-columns: minmax(230px, 0.95fr) minmax(360px, 1.35fr) minmax(300px, 1.05fr) !important;
+    gap: 14px !important;
+    min-width: 920px;
+    align-items: start;
+}
+
+.cf-stitch-page #gallery-modal #replay-acceptance-panel input,
+.cf-stitch-page #gallery-modal #replay-acceptance-panel select,
+.cf-stitch-page #gallery-modal #replay-acceptance-panel button {
+    min-width: 0;
+    min-height: 32px;
+    font-size: 11px;
+    line-height: 1.2;
+}
+
+.cf-stitch-page #gallery-modal #replay-acceptance-panel button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+}
+
+.cf-stitch-page #gallery-modal #replay-query-limit {
+    min-width: 68px;
+}
+
 .cf-stitch-page #gallery-modal > .cf-ornate-modal > .flex.flex-1 {
     grid-column: 1 / -1;
     grid-row: 1 / -1;
@@ -3703,7 +4911,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .cf-stitch-page #gallery-modal #ng-image-grid {
     grid-column: 2;
-    grid-row: 2;
+    grid-row: 3;
     display: grid !important;
     grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)) !important;
     align-content: start;
@@ -3717,7 +4925,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .cf-stitch-page #gallery-modal #trace-pagination {
     grid-column: 2;
-    grid-row: 3;
+    grid-row: 4;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -3771,6 +4979,7 @@ input[type="range"]::-webkit-slider-runnable-track {
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card {
+    min-width: 0;
     height: 284px;
     overflow: hidden;
     background: #ffffff;
@@ -3852,8 +5061,16 @@ input[type="range"]::-webkit-slider-runnable-track {
     line-height: 1.38;
 }
 
+.cf-stitch-page #gallery-modal .cf-trace-card-body > div {
+    min-width: 0;
+}
+
 .cf-stitch-page #gallery-modal .cf-trace-card-body p {
     margin: 0;
+    max-width: 178px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .cf-stitch-page #gallery-modal .cf-trace-card-body p:first-child {
@@ -3885,13 +5102,16 @@ input[type="range"]::-webkit-slider-runnable-track {
 
 .cf-stitch-page #gallery-modal .cf-trace-card button {
     float: none;
-    margin: 6px 13px 0 auto;
+    width: calc(100% - 26px);
+    margin: 6px 13px 0;
     display: block;
+    box-sizing: border-box;
     color: #1d5fcc;
     background: transparent;
     border: 0;
     font-size: 11px;
     font-weight: 800;
+    text-align: right;
 }
 
 .cf-stitch-page #gallery-modal #viewer-info {
@@ -4000,7 +5220,7 @@ input[type="range"]::-webkit-slider-runnable-track {
         width: calc(100vw - 20px) !important;
         height: calc(100vh - 20px) !important;
         grid-template-columns: 1fr;
-        grid-template-rows: auto 140px minmax(0, 1fr) 56px;
+        grid-template-rows: auto 120px auto minmax(0, 1fr) 56px;
     }
 
     .cf-stitch-page #gallery-modal header {
@@ -4024,6 +5244,16 @@ input[type="range"]::-webkit-slider-runnable-track {
         overflow: hidden;
     }
 
+    .cf-stitch-page #gallery-modal #replay-acceptance-panel {
+        grid-column: 1;
+        grid-row: 3;
+        padding: 10px 14px !important;
+    }
+
+    .cf-stitch-page #gallery-modal #replay-acceptance-panel > .grid {
+        min-width: 840px;
+    }
+
     .cf-stitch-page #gallery-modal .cf-trace-sidebar-head {
         display: none;
     }
@@ -4037,12 +5267,12 @@ input[type="range"]::-webkit-slider-runnable-track {
 
     .cf-stitch-page #gallery-modal #ng-image-grid {
         grid-column: 1;
-        grid-row: 3;
+        grid-row: 4;
     }
 
     .cf-stitch-page #gallery-modal #trace-pagination {
         grid-column: 1;
-        grid-row: 4;
+        grid-row: 5;
         padding: 0 14px;
     }
 }
@@ -4269,12 +5499,31 @@ input[type="range"]::-webkit-slider-runnable-track {
     border: 1px solid #fecdca !important;
 }
 
+.cf-stitch-page .result-cycle-failed,
+.cf-stitch-page .cf-flow-row.cycle-failed .cf-flow-status {
+    width: auto !important;
+    min-width: 76px !important;
+    color: #9f1b13 !important;
+    background: #fee4e2 !important;
+    border: 1px solid #fda29b !important;
+}
+
+.cf-stitch-page .cf-flow-row.cycle-failed {
+    border-color: #fecdca !important;
+    background: #fff8f7 !important;
+}
+
 .cf-stitch-page .cf-flow-rail {
     background: #0b5cab !important;
     box-shadow: none !important;
 }
 
 .cf-stitch-page .cf-flow-row.ng .cf-flow-rail {
+    background: #d92d20 !important;
+    box-shadow: none !important;
+}
+
+.cf-stitch-page .cf-flow-row.cycle-failed .cf-flow-rail {
     background: #d92d20 !important;
     box-shadow: none !important;
 }

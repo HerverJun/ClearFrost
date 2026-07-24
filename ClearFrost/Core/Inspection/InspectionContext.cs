@@ -16,6 +16,7 @@ namespace ClearFrost.Core.Inspection
         public DateTimeOffset TriggerTime { get; init; } = DateTimeOffset.Now;
         public string TriggerSource { get; init; } = string.Empty;
         public int? TriggerSeq { get; init; }
+        public bool PlcTriggerAccepted { get; set; }
         public int? ResultSeq { get; set; }
         public InspectionStage CurrentStage { get; set; } = InspectionStage.Unknown;
         public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;
@@ -34,6 +35,13 @@ namespace ClearFrost.Core.Inspection
         public long HandshakeStartMs { get; set; }
         public long PlcResultWriteMs { get; set; }
         public long HandshakeCompleteMs { get; set; }
+        public bool TerminalHandshakeAttempted { get; set; }
+        public bool TerminalHandshakeSucceeded { get; set; }
+        public string TerminalHandshakeErrorCode { get; set; } = string.Empty;
+        public string TerminalHandshakeSignalName { get; set; } = string.Empty;
+        public string TerminalHandshakeAddress { get; set; } = string.Empty;
+        public string TerminalHandshakeMessage { get; set; } = string.Empty;
+        public bool CycleSucceeded { get; set; }
         public string? ProductBarcode { get; set; }
         public bool? BarcodeReadSucceeded { get; set; }
         public string? BarcodeError { get; set; }

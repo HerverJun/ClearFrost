@@ -3,6 +3,7 @@ using ClearFrost.Core.Models;
 using ClearFrost.Hardware;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
+using ClearFrost.Yolo;
 using FluentAssertions;
 using System.Drawing;
 
@@ -16,13 +17,18 @@ public class StartupDiagnosticsTests
         string tempDir = CreateTempDirectory();
         try
         {
-            var config = new AppConfig { StoragePath = tempDir };
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false
+            };
             using var storage = new StorageService(tempDir);
 
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "Model registry" &&
@@ -65,13 +71,18 @@ public class StartupDiagnosticsTests
             });
             registry.HasBlockingErrors.Should().BeTrue();
 
-            var config = new AppConfig { StoragePath = tempDir };
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false
+            };
             using var storage = new StorageService(tempDir);
 
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                registry);
+                registry,
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "Model registry" &&
@@ -95,6 +106,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 PlcProtocol = PlcProtocolType.Mitsubishi_MC_ASCII.ToString(),
                 PlcTriggerAddress = "bad-address"
             };
@@ -126,6 +138,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 PlcProtocol = "Mitsubishi_MC_ASCI"
             };
             using var storage = new StorageService(tempDir);
@@ -133,7 +146,8 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "PLC address config" &&
@@ -157,6 +171,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 TriggerSource = TriggerSource.SerialPhotoelectric,
                 PlcProtocol = "Mitsubishi_MC_ASCI",
                 PlcTriggerAddress = "bad-address",
@@ -169,13 +184,76 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "PLC address config" &&
                 i.Status == StartupDiagnosticStatus.Pass &&
                 !i.IsBlocking &&
                 i.Details == TriggerSource.SerialPhotoelectric.ToString());
+            report.IsReady.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_审批开启但Gate缺失会阻塞Ready()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = true
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry());
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Replay evidence gate" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking);
+            report.IsReady.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_轻量模式写入非阻塞诊断摘要()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry(),
+                PassGate);
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Model approval mode" &&
+                i.Status == StartupDiagnosticStatus.Pass &&
+                !i.IsBlocking &&
+                i.Message == OperatorFaultMessages.FieldLightweightModeSummary);
             report.IsReady.Should().BeTrue();
         }
         finally
@@ -193,6 +271,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 PlcDriverProvider = "HaoCommunicaton"
             };
             using var storage = new StorageService(tempDir);
@@ -200,7 +279,8 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "PLC address config" &&
@@ -224,6 +304,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 BarcodeEnabled = true,
                 BarcodeAddress = "bad-address"
             };
@@ -232,7 +313,8 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "PLC address config" &&
@@ -254,6 +336,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 BarcodeEnabled = false,
                 BarcodeAddress = "bad-address"
             };
@@ -262,7 +345,8 @@ public class StartupDiagnosticsTests
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "PLC address config" &&
@@ -282,20 +366,114 @@ public class StartupDiagnosticsTests
         {
             var config = new AppConfig
             {
-                StoragePath = @"Z:\ClearFrost_Unavailable_Test_Path"
+                StoragePath = @"Z:\ClearFrost_Unavailable_Test_Path",
+                RequireApprovedModelsForProduction = false
             };
             using var storage = new FakeStorageService(tempDir);
 
             StartupDiagnosticReport report = new StartupDiagnostics().Run(
                 config,
                 storage,
-                new ModelRegistry());
+                new ModelRegistry(),
+                PassGate);
 
             report.Items.Should().Contain(i =>
                 i.Name == "Storage directory" &&
                 i.Status == StartupDiagnosticStatus.Pass &&
                 i.Details.Contains(tempDir, StringComparison.OrdinalIgnoreCase));
             report.IsReady.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Run_拒绝链接存储目录且不写入外部目标()
+    {
+        string tempDir = CreateTempDirectory();
+        string externalDir = CreateTempDirectory();
+        string linkedStoragePath = string.Empty;
+        try
+        {
+            linkedStoragePath = Path.Combine(tempDir, "linked-storage");
+            if (!TryCreateDirectorySymbolicLink(linkedStoragePath, externalDir))
+            {
+                return;
+            }
+
+            var config = new AppConfig
+            {
+                StoragePath = linkedStoragePath,
+                RequireApprovedModelsForProduction = false
+            };
+            using var storage = new FakeStorageService(linkedStoragePath);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry(),
+                PassGate);
+
+            report.Items.Should().Contain(i =>
+                i.Name == "Storage directory" &&
+                i.Status == StartupDiagnosticStatus.Fail &&
+                i.IsBlocking &&
+                i.Details.Contains("linked", StringComparison.OrdinalIgnoreCase));
+            report.IsReady.Should().BeFalse();
+            Directory.EnumerateFileSystemEntries(externalDir).Should().BeEmpty();
+        }
+        finally
+        {
+            TryDeleteDirectoryLink(linkedStoragePath);
+            DeleteDirectory(tempDir);
+            DeleteDirectory(externalDir);
+        }
+    }
+
+    [Fact]
+    public void Run_会检查关键证据目录可写性()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false
+            };
+            using var storage = new StorageService(tempDir);
+
+            StartupDiagnosticReport report = new StartupDiagnostics().Run(
+                config,
+                storage,
+                new ModelRegistry(),
+                PassGate);
+
+            report.Items.Should().Contain(i =>
+                i.Name == "System evidence directory" &&
+                i.Status == StartupDiagnosticStatus.Pass &&
+                i.IsBlocking &&
+                i.Details.Contains(storage.SystemPath, StringComparison.OrdinalIgnoreCase));
+            report.Items.Should().Contain(i =>
+                i.Name == "Audit outbox directory" &&
+                i.Status == StartupDiagnosticStatus.Pass &&
+                i.IsBlocking &&
+                i.Details.Contains(Path.Combine(storage.LogBasePath, "Outbox"), StringComparison.OrdinalIgnoreCase));
+            report.Items.Should().Contain(i =>
+                i.Name == "Diagnostic package directory" &&
+                i.Status == StartupDiagnosticStatus.Pass &&
+                !i.IsBlocking &&
+                i.Details.Contains(Path.Combine(storage.LogBasePath, "Diagnostics"), StringComparison.OrdinalIgnoreCase));
+            report.Items.Should().Contain(i =>
+                i.Name == "Handoff report directory" &&
+                i.Status == StartupDiagnosticStatus.Pass &&
+                !i.IsBlocking &&
+                i.Details.Contains(Path.Combine(storage.LogBasePath, "HandoffReports"), StringComparison.OrdinalIgnoreCase));
+            Directory.Exists(Path.Combine(storage.LogBasePath, "Outbox")).Should().BeTrue();
+            Directory.Exists(Path.Combine(storage.LogBasePath, "Diagnostics")).Should().BeTrue();
+            Directory.Exists(Path.Combine(storage.LogBasePath, "HandoffReports")).Should().BeTrue();
         }
         finally
         {
@@ -312,6 +490,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 PlcProtocol = PlcProtocolType.Mitsubishi_MC_Binary.ToString(),
                 PlcDriverProvider = "McpX",
                 PlcTriggerAddress = "M100",
@@ -344,6 +523,7 @@ public class StartupDiagnosticsTests
             var config = new AppConfig
             {
                 StoragePath = tempDir,
+                RequireApprovedModelsForProduction = false,
                 PlcProtocol = PlcProtocolType.Mitsubishi_MC_Binary.ToString(),
                 PlcDriverProvider = "HaoCommunication",
                 PlcTriggerAddress = "M100",
@@ -373,10 +553,61 @@ public class StartupDiagnosticsTests
         return path;
     }
 
+    private static ProductionModelReadinessResult PassGate(
+        ModelRole role,
+        ModelRegistryEntry entry,
+        ProductionModelReference reference)
+    {
+        return ProductionModelReadinessResult.Ok();
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteDirectoryLink(string linkPath)
+    {
+        if (string.IsNullOrWhiteSpace(linkPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new DirectoryInfo(linkPath);
+            info.Refresh();
+            if (info.Exists && (info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+        }
+    }
+
     private static void DeleteDirectory(string path)
     {
         if (Directory.Exists(path))
         {
+            var info = new DirectoryInfo(path);
+            info.Refresh();
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                info.Delete();
+                return;
+            }
+
             Directory.Delete(path, true);
         }
     }
@@ -393,6 +624,7 @@ public class StartupDiagnosticsTests
         public string ImageBasePath => Path.Combine(_basePath, "Images");
         public string LogBasePath => Path.Combine(_basePath, "Logs");
         public string SystemPath => Path.Combine(_basePath, "System");
+        public string BaseStoragePath => _basePath;
 
         public void SaveDetectionImage(Bitmap bitmap, bool isQualified) { }
         public void SaveDetectionImageAsync(Bitmap bitmap, bool isQualified) { }
@@ -403,6 +635,7 @@ public class StartupDiagnosticsTests
         public double GetDiskFreeSpaceGb() => 10;
         public double PerformEmergencyCleanup() => 10;
         public void EnsureDirectoriesExist() { }
+        public void UpdateStoragePath(string storagePath) { }
         public void Dispose() { }
     }
 }

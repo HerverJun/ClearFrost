@@ -21,36 +21,27 @@
 
         function updateCanvasLayout() {
             if (!img || !roiCanvas) return;
-            const imageWidth = img.naturalWidth || img.width || 1280;
-            const imageHeight = img.naturalHeight || img.height || 720;
-            if (imageWidth === 0) return;
-
+            const previewFrame = window.CF_STATE?.previewFrame || {};
             const containerRect = container.getBoundingClientRect();
-            const containerRatio = containerRect.width / containerRect.height;
-            const imageRatio = imageWidth / imageHeight;
-            let renderedWidth;
-            let renderedHeight;
-            let offsetX;
-            let offsetY;
+            const mapping = window.CF_COORDINATE_MAPPING?.calculateImageContentMapping({
+                containerWidth: containerRect.width,
+                containerHeight: containerRect.height,
+                previewWidth: Number(previewFrame.previewWidth || img.naturalWidth || img.width || 1280),
+                previewHeight: Number(previewFrame.previewHeight || img.naturalHeight || img.height || 720),
+                sourceWidth: Number(previewFrame.sourceWidth || img.naturalWidth || img.width || 1280),
+                sourceHeight: Number(previewFrame.sourceHeight || img.naturalHeight || img.height || 720),
+            });
+            if (!mapping?.valid) return;
 
-            if (containerRatio > imageRatio) {
-                renderedHeight = containerRect.height;
-                renderedWidth = containerRect.height * imageRatio;
-                offsetX = (containerRect.width - renderedWidth) / 2;
-                offsetY = 0;
-            } else {
-                renderedWidth = containerRect.width;
-                renderedHeight = containerRect.width / imageRatio;
-                offsetX = 0;
-                offsetY = (containerRect.height - renderedHeight) / 2;
-            }
-
-            roiCanvas.style.width = `${renderedWidth}px`;
-            roiCanvas.style.height = `${renderedHeight}px`;
-            roiCanvas.style.left = `${offsetX}px`;
-            roiCanvas.style.top = `${offsetY}px`;
-            roiCanvas.width = renderedWidth;
-            roiCanvas.height = renderedHeight;
+            const imageRect = mapping.imageRect;
+            roiCanvas.style.width = `${imageRect.width}px`;
+            roiCanvas.style.height = `${imageRect.height}px`;
+            roiCanvas.style.left = `${imageRect.x}px`;
+            roiCanvas.style.top = `${imageRect.y}px`;
+            roiCanvas.style.right = "auto";
+            roiCanvas.style.bottom = "auto";
+            roiCanvas.width = Math.max(1, Math.round(imageRect.width));
+            roiCanvas.height = Math.max(1, Math.round(imageRect.height));
             redrawROI();
         }
 
@@ -63,15 +54,15 @@
         roiCanvas.addEventListener("mousedown", (event) => {
             isDrawingROI = true;
             const rect = roiCanvas.getBoundingClientRect();
-            roiStartX = event.clientX - rect.left;
-            roiStartY = event.clientY - rect.top;
+            roiStartX = (event.clientX - rect.left) * (roiCanvas.width / Math.max(1, rect.width));
+            roiStartY = (event.clientY - rect.top) * (roiCanvas.height / Math.max(1, rect.height));
         });
 
         roiCanvas.addEventListener("mousemove", (event) => {
             if (!isDrawingROI || !roiCanvas) return;
             const rect = roiCanvas.getBoundingClientRect();
-            const currentX = event.clientX - rect.left;
-            const currentY = event.clientY - rect.top;
+            const currentX = (event.clientX - rect.left) * (roiCanvas.width / Math.max(1, rect.width));
+            const currentY = (event.clientY - rect.top) * (roiCanvas.height / Math.max(1, rect.height));
             const ctx = roiCanvas.getContext("2d");
             ctx.clearRect(0, 0, roiCanvas.width, roiCanvas.height);
 
@@ -89,8 +80,8 @@
             if (!isDrawingROI || !roiCanvas) return;
             isDrawingROI = false;
             const rect = roiCanvas.getBoundingClientRect();
-            const currentX = event.clientX - rect.left;
-            const currentY = event.clientY - rect.top;
+            const currentX = (event.clientX - rect.left) * (roiCanvas.width / Math.max(1, rect.width));
+            const currentY = (event.clientY - rect.top) * (roiCanvas.height / Math.max(1, rect.height));
             const x = Math.min(roiStartX, currentX);
             const y = Math.min(roiStartY, currentY);
             const w = Math.abs(currentX - roiStartX);

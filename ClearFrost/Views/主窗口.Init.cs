@@ -1,4 +1,4 @@
-using MVSDK_Net;
+﻿using MVSDK_Net;
 using ClearFrost.Config;
 using ClearFrost.Models;
 using ClearFrost.Hardware;
@@ -16,6 +16,8 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using ClearFrost.Core.Models;
+using ClearFrost.Core.Inspection;
 using System.Threading.Tasks;
 using ClearFrost.Core.Recipes;
 using ClearFrost.Core.Rules;
@@ -24,6 +26,7 @@ using ClearFrost.Yolo;
 using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
 using ClearFrost.Services;
+using ClearFrost.Services.Replay;
 
 namespace ClearFrost
 {
@@ -201,10 +204,32 @@ namespace ClearFrost
             _uiController.OnOpenSettings += (s, e) => InvokeOnUIThread(() => btnSettings_Logic());
             _uiController.OnCollectDataset += (s, e) => SafeFireAndForget(CollectDatasetAsync(), "数据集收集");
             _uiController.OnRunHistoryRulePreview += (s, json) => SafeFireAndForget(RunHistoryRulePreviewAsync(json), "历史图规则复判");
+            _uiController.OnQueryManualReviewRecords += (s, args) => SafeFireAndForget(QueryManualReviewRecordsAsync(args), "人工复核记录查询");
+            _uiController.OnSaveManualReview += (s, args) => SafeFireAndForget(SaveManualReviewAsync(args), "人工复核保存");
+            _uiController.OnCreateReplayDataset += (s, args) => SafeFireAndForget(CreateReplayDatasetAsync(args), "Replay Dataset冻结");
+            _uiController.OnRunReplayComparison += (s, args) => SafeFireAndForget(RunReplayComparisonAsync(args), "模型回放验收");
+            _uiController.OnApproveReplayCandidate += (s, args) => SafeFireAndForget(ApproveReplayCandidateAsync(args), "Replay Evidence批准");
+            _uiController.OnPreviewReplayDataset += (s, args) => SafeFireAndForget(PreviewReplayDatasetAsync(args), "Replay Dataset预览");
+            _uiController.OnQueryReplayDatasets += (s, args) => SafeFireAndForget(QueryReplayDatasetsAsync(args), "Replay Dataset查询");
+            _uiController.OnArchiveReplayDataset += (s, args) => SafeFireAndForget(ArchiveReplayDatasetAsync(args), "Replay Dataset归档");
+            _uiController.OnCancelReplayRun += (s, args) => SafeFireAndForget(CancelReplayRunAsync(args), "Replay取消");
+            _uiController.OnQueryReplayRuns += (s, args) => SafeFireAndForget(QueryReplayRunsAsync(args), "Replay Run查询");
+            _uiController.OnQueryReplayReport += (s, args) => SafeFireAndForget(QueryReplayReportAsync(args), "Replay报告查询");
+            _uiController.OnQueryModelApprovalEvidence += (s, args) => SafeFireAndForget(QueryModelApprovalEvidenceAsync(args), "Replay Evidence查询");
+            _uiController.OnRunReplayIntegrityScan += (s, args) => SafeFireAndForget(RunReplayIntegrityScanAsync(args), "Replay完整性扫描");
             _uiController.OnGetModelList += (s, e) => SafeFireAndForget(InitModelList(), "刷新模型列表");
             _uiController.OnChangeModel += (s, modelName) => InvokeOnUIThread(() => ChangeModel_Logic(modelName));
             _uiController.OnConnectPlc += (s, e) => SafeFireAndForget(ConnectPlcViaServiceAsync(), "PLC手动连接");
             _uiController.OnRequestHealthSnapshot += (s, e) => SafeFireAndForget(SendHealthSnapshotToFrontendAsync(showToast: true), "前端刷新健康快照");
+            _uiController.OnExportDiagnosticPackage += (s, args) => SafeFireAndForget(ExportDiagnosticPackageFromWebAsync(args), "导出诊断包");
+            _uiController.OnQueryDiagnosticPackages += (s, args) => SafeFireAndForget(QueryDiagnosticPackagesFromWebAsync(args), "查询诊断包历史");
+            _uiController.OnVerifyDiagnosticPackage += (s, args) => SafeFireAndForget(VerifyDiagnosticPackageFromWebAsync(args), "复核诊断包");
+            _uiController.OnMaintenanceAdviceAction += (s, args) => SafeFireAndForget(HandleMaintenanceAdviceActionFromWebAsync(args), "维护建议处理/复检");
+            _uiController.OnShiftTaskAction += (s, args) => SafeFireAndForget(HandleShiftTaskActionFromWebAsync(args), "班次待办处理/复检");
+            _uiController.OnExportFieldHandoffReport += (s, args) => SafeFireAndForget(ExportFieldHandoffReportFromWebAsync(args), "导出现场交接报告");
+            _uiController.OnQueryFieldHandoffReports += (s, args) => SafeFireAndForget(QueryFieldHandoffReportsFromWebAsync(args), "查询现场交接报告历史");
+            _uiController.OnFieldDebugCommand += (s, args) => SafeFireAndForget(HandleFieldDebugCommandAsync(args), "现场单步调试");
+            _uiController.OnVisionDebugCommand += (s, args) => SafeFireAndForget(HandleVisionDebugCommandAsync(args), "视觉算法调试");
             _uiController.OnThresholdChanged += (s, val) =>
             {
                 if (IsRuntimeMutationBlocked("ROI阈值更新")) return;
@@ -734,14 +759,14 @@ namespace ClearFrost
                     }).ToList();
 
                     var currentStats = _statisticsService.Current;
-                    string[] modelNames = GetModelNames();
+                    object[] modelNames = GetModelListPayload();
                     await _uiController.SendBootstrapSnapshot(
                         _appConfig,
                         cameras,
                         _cameraManager.ActiveCameraId ?? _appConfig.ActiveCameraId,
                         modelNames,
                         currentStats,
-                        _healthMonitor.GetSnapshot(),
+                        BuildFieldDiagnosticsSnapshot(),
                         _appConfig.StoragePath);
                     await _uiController.SendUiCommand("setRoi", new { rect = SnapshotCurrentROI() });
                     await _uiController.SendModelLabels(_detectionService.GetLabels());
@@ -808,52 +833,31 @@ namespace ClearFrost
                 try
                 {
                     if (!await EnsureRuntimeMutationAllowedAsync("辅助模型1更新")) return;
-                    if (string.IsNullOrEmpty(modelName))
+                    if (!string.IsNullOrEmpty(modelName))
                     {
-                        _detectionService.UnloadAuxiliary1Model();
-                        _appConfig.Auxiliary1ModelPath = "";
-                        if (_appConfig.Save())
-                        {
-                            TrySaveCurrentRecipeSnapshot("辅助模型1更新");
-                        }
-                        await _uiController.LogToFrontend("辅助模型1已卸载");
-                    }
-                    else
-                    {
-                        if (IsSameModelFile(modelName, _appConfig.CurrentModelFileName))
+                        if (IsSameModelFile(modelName, _appConfig.CurrentModelReference?.ToSelectionValue() ?? _appConfig.CurrentModelFileName))
                         {
                             await _uiController.LogToFrontend("辅助模型1不能与主模型相同", "warning");
                             return;
                         }
-                        if (IsSameModelFile(modelName, _appConfig.Auxiliary2ModelPath))
+                        if (IsSameModelFile(modelName, _appConfig.Auxiliary2ModelReference?.ToSelectionValue() ?? _appConfig.Auxiliary2ModelPath))
                         {
                             await _uiController.LogToFrontend("辅助模型1不能与辅助模型2相同", "warning");
                             return;
                         }
-
-                        string modelPath = Path.Combine(模型路径, modelName);
-                        if (File.Exists(modelPath))
-                        {
-                            bool ok = await _detectionService.LoadAuxiliary1ModelAsync(modelPath);
-                            if (ok)
-                            {
-                                _appConfig.Auxiliary1ModelPath = modelName;
-                                if (_appConfig.Save())
-                                {
-                                    TrySaveCurrentRecipeSnapshot("辅助模型1更新");
-                                }
-                                await _uiController.LogToFrontend($"? 辅助模型1已加载: {modelName}");
-                            }
-                            else
-                            {
-                                await _uiController.LogToFrontend($"辅助模型1加载失败，未保存配置: {modelName}", "error");
-                            }
-                        }
-                        else
-                        {
-                            await _uiController.LogToFrontend($"辅助模型1文件不存在: {modelName}", "error");
-                        }
                     }
+
+                    ProductionModelActivationResult result = await _modelActivationService.ActivateAuxiliaryAsync(
+                        1,
+                        modelName,
+                        "辅助模型1更新",
+                        _appConfig.EnableGpu,
+                        _appConfig.GpuIndex).ConfigureAwait(false);
+                    await _uiController.LogToFrontend(
+                        result.Succeeded
+                            ? (string.IsNullOrWhiteSpace(modelName) ? "辅助模型1已卸载" : $"辅助模型1已加载: {_appConfig.Auxiliary1ModelPath}")
+                            : $"辅助模型1更新失败: [{result.ErrorCode}] {result.Message}{FormatCompensationFailures(result)}",
+                        result.Succeeded ? "success" : "error");
                 }
                 catch (Exception ex)
                 {
@@ -866,52 +870,31 @@ namespace ClearFrost
                 try
                 {
                     if (!await EnsureRuntimeMutationAllowedAsync("辅助模型2更新")) return;
-                    if (string.IsNullOrEmpty(modelName))
+                    if (!string.IsNullOrEmpty(modelName))
                     {
-                        _detectionService.UnloadAuxiliary2Model();
-                        _appConfig.Auxiliary2ModelPath = "";
-                        if (_appConfig.Save())
-                        {
-                            TrySaveCurrentRecipeSnapshot("辅助模型2更新");
-                        }
-                        await _uiController.LogToFrontend("辅助模型2已卸载");
-                    }
-                    else
-                    {
-                        if (IsSameModelFile(modelName, _appConfig.CurrentModelFileName))
+                        if (IsSameModelFile(modelName, _appConfig.CurrentModelReference?.ToSelectionValue() ?? _appConfig.CurrentModelFileName))
                         {
                             await _uiController.LogToFrontend("辅助模型2不能与主模型相同", "warning");
                             return;
                         }
-                        if (IsSameModelFile(modelName, _appConfig.Auxiliary1ModelPath))
+                        if (IsSameModelFile(modelName, _appConfig.Auxiliary1ModelReference?.ToSelectionValue() ?? _appConfig.Auxiliary1ModelPath))
                         {
                             await _uiController.LogToFrontend("辅助模型2不能与辅助模型1相同", "warning");
                             return;
                         }
-
-                        string modelPath = Path.Combine(模型路径, modelName);
-                        if (File.Exists(modelPath))
-                        {
-                            bool ok = await _detectionService.LoadAuxiliary2ModelAsync(modelPath);
-                            if (ok)
-                            {
-                                _appConfig.Auxiliary2ModelPath = modelName;
-                                if (_appConfig.Save())
-                                {
-                                    TrySaveCurrentRecipeSnapshot("辅助模型2更新");
-                                }
-                                await _uiController.LogToFrontend($"? 辅助模型2已加载: {modelName}");
-                            }
-                            else
-                            {
-                                await _uiController.LogToFrontend($"辅助模型2加载失败，未保存配置: {modelName}", "error");
-                            }
-                        }
-                        else
-                        {
-                            await _uiController.LogToFrontend($"辅助模型2文件不存在: {modelName}", "error");
-                        }
                     }
+
+                    ProductionModelActivationResult result = await _modelActivationService.ActivateAuxiliaryAsync(
+                        2,
+                        modelName,
+                        "辅助模型2更新",
+                        _appConfig.EnableGpu,
+                        _appConfig.GpuIndex).ConfigureAwait(false);
+                    await _uiController.LogToFrontend(
+                        result.Succeeded
+                            ? (string.IsNullOrWhiteSpace(modelName) ? "辅助模型2已卸载" : $"辅助模型2已加载: {_appConfig.Auxiliary2ModelPath}")
+                            : $"辅助模型2更新失败: [{result.ErrorCode}] {result.Message}{FormatCompensationFailures(result)}",
+                        result.Succeeded ? "success" : "error");
                 }
                 catch (Exception ex)
                 {
@@ -948,6 +931,7 @@ namespace ClearFrost
             {
                 try
                 {
+                    if (!await EnsureRuntimeMutationAllowedAsync("项目预设保存")) return;
                     var snapshot = ProjectPresetStore.SavePreset(payloadJson);
                     await _uiController.SendProjectPresets(snapshot);
                     await _uiController.LogToFrontend($"项目预设已保存: {snapshot.Path}", "success");
@@ -962,6 +946,7 @@ namespace ClearFrost
             {
                 try
                 {
+                    if (!await EnsureRuntimeMutationAllowedAsync("项目预设删除")) return;
                     var snapshot = ProjectPresetStore.DeletePreset(presetId);
                     await _uiController.SendProjectPresets(snapshot);
                     await _uiController.LogToFrontend("项目预设已删除", "success");
@@ -985,12 +970,19 @@ namespace ClearFrost
             // 订阅配置保存事件
             _uiController.OnSaveSettings += async (sender, configJson) =>
             {
+                AppConfig previousConfig = AppConfig.FromJson(_appConfig.ToPortableJson());
+                bool configSaved = false;
+
                 try
                 {
                     bool hasSystemConfigChanges = CheckSystemConfigChanges(configJson);
                     if (hasSystemConfigChanges)
                     {
-                        if (!await EnsureRuntimeMutationAllowedAsync("系统设置保存和部署")) return;
+                        if (!await EnsureRuntimeMutationAllowedAsync("系统设置保存和部署"))
+                        {
+                            await _uiController.InitSettings(_appConfig);
+                            return;
+                        }
                     }
                     // 使用 JsonDocument 解析，允许部分更新
                     using (JsonDocument doc = JsonDocument.Parse(configJson))
@@ -1303,7 +1295,9 @@ namespace ClearFrost
                         {
                             throw new InvalidOperationException(_appConfig.LastError ?? "配置保存失败");
                         }
-                        SaveCurrentRecipeSnapshot();
+                        configSaved = true;
+                        _appRuntime.RefreshStoragePath();
+                        SaveCurrentRecipeSnapshot("系统设置保存");
 
                         // 更新相关路径
                         _uiController.ImageBasePath = Path_Images;
@@ -1327,6 +1321,12 @@ namespace ClearFrost
                 }
                 catch (Exception ex)
                 {
+                    if (!configSaved)
+                    {
+                        _appConfig.CopyFrom(previousConfig);
+                    }
+
+                    await _uiController.InitSettings(_appConfig);
                     await _uiController.SendUiCommand("alert", new { message = $"保存失败: {ex.Message}" });
                 }
             };
@@ -1537,10 +1537,11 @@ namespace ClearFrost
                 CameraInstance? activeCamera = _cameraManager.ActiveCamera;
                 cam = activeCamera?.Camera ?? new RealCamera();
 
-                SaveCurrentRecipeSnapshot();
+                SaveCurrentRecipeSnapshot("配置迁移导入");
                 YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
                 _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
                 _detectionService.SetTaskMode(_appConfig.TaskType);
+                _appRuntime.RefreshStoragePath();
 
                 _uiController.ImageBasePath = Path_Images;
                 _uiController.LogBasePath = Path_Logs;
@@ -1555,7 +1556,7 @@ namespace ClearFrost
 
                 await _uiController.UpdateCameraName(_appConfig.ActiveCamera?.DisplayName ?? "未配置");
                 await _uiController.InitSettings(_appConfig);
-                await _uiController.SendModelList(GetModelNames());
+                await _uiController.SendModelList(GetModelListPayload());
             }
 
             await _uiController.SendProjectPresets(ProjectPresetStore.Load());
@@ -1565,27 +1566,33 @@ namespace ClearFrost
 
         private async Task WarnMissingImportedModelFilesAsync()
         {
-            if (!Directory.Exists(模型路径))
+            try
             {
-                await _uiController.LogToFrontend($"模型目录不存在: {模型路径}", "warning");
+                _appRuntime.RefreshModelRegistry();
+            }
+            catch (Exception ex)
+            {
+                await _uiController.LogToFrontend($"模型注册表刷新失败: {ex.Message}", "warning");
                 return;
             }
 
-            var modelNames = new[]
+            var slots = new[]
             {
-                _appConfig.CurrentModelFileName,
-                _appConfig.Auxiliary1ModelPath,
-                _appConfig.Auxiliary2ModelPath
-            }
-                .Select(name => name?.Trim() ?? string.Empty)
-                .Where(name => !string.IsNullOrWhiteSpace(name))
-                .Distinct(StringComparer.OrdinalIgnoreCase);
+                ("主模型", _appConfig.CurrentModelReference, _appConfig.CurrentModelFileName, false),
+                ("辅助模型1", _appConfig.Auxiliary1ModelReference, _appConfig.Auxiliary1ModelPath, true),
+                ("辅助模型2", _appConfig.Auxiliary2ModelReference, _appConfig.Auxiliary2ModelPath, true)
+            };
 
-            foreach (string modelName in modelNames)
+            foreach (var slot in slots)
             {
-                if (!File.Exists(Path.Combine(模型路径, modelName)))
+                ProductionModelResolutionResult resolution = slot.Item2 != null && !slot.Item2.IsEmpty
+                    ? _modelRegistry.ResolveReference(slot.Item2, _appConfig.RequireApprovedModelsForProduction)
+                    : _modelRegistry.MigrateLegacyReference(slot.Item3, _appConfig.RequireApprovedModelsForProduction);
+                if (!resolution.Succeeded && !(slot.Item4 && string.IsNullOrWhiteSpace(slot.Item3)))
                 {
-                    await _uiController.LogToFrontend($"导入配置引用的模型文件不存在: {modelName}", "warning");
+                    await _uiController.LogToFrontend(
+                        $"导入配置引用的{slot.Item1}不可用: [{resolution.ErrorCode}] {resolution.Message}",
+                        "warning");
                 }
             }
         }
@@ -1617,15 +1624,15 @@ namespace ClearFrost
                 return;
             }
 
-            if (Interlocked.CompareExchange(ref _productionRunningState, 1, 0) != 0)
+            if (!await _appRuntime.ReplayCoordinator.TryBeginProductionAsync(_appShutdownCts.Token).ConfigureAwait(false))
             {
                 await _uiController.SendUiCommand("toast", new
                 {
-                    message = "系统已在检测中",
+                    message = _appRuntime.ReplayCoordinator.IsReplayRunning ? "Replay 运行中，已拒绝启动检测" : "系统已在检测中",
                     type = "warning",
                     durationMs = 1200
                 });
-                await SendSystemRunningStateAsync(true);
+                await SendSystemRunningStateAsync(IsProductionRunning);
                 return;
             }
 
@@ -1634,6 +1641,17 @@ namespace ClearFrost
             try
             {
                 await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
+                ProductionModelReadinessResult modelReadiness = _modelActivationService.EnsureReadyForProduction();
+                if (!modelReadiness.Succeeded)
+                {
+                    string message = $"启动系统已停止: 生产模型未就绪 [{modelReadiness.ErrorCode}] {modelReadiness.Message}";
+                    RecordHealthError("ProductionModel", message);
+                    await _uiController.LogToFrontend(message, "error");
+                    await SendHealthSnapshotToFrontendAsync();
+                    await MarkSystemStoppedAsync();
+                    return;
+                }
+
                 if (!await EnsureStartupReadyForProductionAsync("启动系统"))
                 {
                     await SendHealthSnapshotToFrontendAsync();
@@ -1724,7 +1742,7 @@ namespace ClearFrost
                 return;
             }
 
-            if (Interlocked.Exchange(ref _productionRunningState, 0) == 0)
+            if (!IsProductionRunning)
             {
                 await _uiController.SendUiCommand("toast", new
                 {
@@ -1787,13 +1805,14 @@ namespace ClearFrost
             }
             finally
             {
+                _appRuntime.ReplayCoordinator.EndProduction();
                 await SendSystemRunningStateAsync(false);
             }
         }
 
         private Task MarkSystemStoppedAsync()
         {
-            Interlocked.Exchange(ref _productionRunningState, 0);
+            _appRuntime.ReplayCoordinator.EndProduction();
             return SendSystemRunningStateAsync(false);
         }
 
@@ -1872,6 +1891,27 @@ namespace ClearFrost
             return false;
         }
 
+        private async Task<bool> EnsureReplayWriteAuthorizedAsync(
+            WebUiCommandEventArgs args,
+            string operation,
+            Func<Task> sendUnauthorizedResponseAsync)
+        {
+            if (ProductionAuthorizationService.Authorize(
+                    _appConfig.CurrentOperatorRole,
+                    ProductionOperation.EngineeringChange,
+                    out string denialReason))
+            {
+                return true;
+            }
+
+            await ReportUnauthorizedOperationAsync(
+                operation,
+                ProductionOperation.EngineeringChange,
+                denialReason).ConfigureAwait(false);
+            await sendUnauthorizedResponseAsync().ConfigureAwait(false);
+            return false;
+        }
+
         private async Task ReportUnauthorizedOperationAsync(
             string operation,
             ProductionOperation requiredOperation,
@@ -1905,6 +1945,14 @@ namespace ClearFrost
         /// </summary>
         private async Task<bool> StartTriggerSourceAsync()
         {
+            if (_appConfig.TriggerSource == TriggerSource.Manual)
+            {
+                _plcService.StopMonitoring();
+                _serialTriggerService.Stop();
+                await _uiController.LogToFrontend("手动检测模式已启用：自动生产触发未启动，可使用手动拍照检测", "info");
+                return true;
+            }
+
             if (_appConfig.TriggerSource == TriggerSource.SerialPhotoelectric)
             {
                 _plcService.StopMonitoring();
@@ -1946,11 +1994,9 @@ namespace ClearFrost
                 await _uiController.LogToFrontend("串口光电触发模式已跳过 PLC 连接、监听和写回", "info");
                 return true;
             }
-            else
-            {
-                _serialTriggerService.Stop();
-                return await StartPlcTriggerMonitoringIfReadyAsync();
-            }
+
+            _serialTriggerService.Stop();
+            return await StartPlcTriggerMonitoringIfReadyAsync();
         }
 
         /// <summary>
@@ -1964,6 +2010,14 @@ namespace ClearFrost
                 return false;
             }
 
+            if (ProductionModelReference.TryParseSelectionValue(a, out ProductionModelReference left) &&
+                ProductionModelReference.TryParseSelectionValue(b, out ProductionModelReference right) &&
+                !left.IsEmpty &&
+                !right.IsEmpty)
+            {
+                return left.IdentityEquals(right);
+            }
+
             string nameA = Path.GetFileNameWithoutExtension(a.Trim());
             string nameB = Path.GetFileNameWithoutExtension(b.Trim());
             return string.Equals(nameA, nameB, StringComparison.OrdinalIgnoreCase);
@@ -1973,24 +2027,16 @@ namespace ClearFrost
         {
             await _uiController.LogToFrontend("开始加载模型列表...");
 
-            if (!Directory.Exists(模型路径))
-            {
-                await _uiController.LogToFrontend($"模型目录不存在: {模型路径}", "warning");
-                await _uiController.SendModelList(Array.Empty<string>());
-                RefreshStartupDiagnostics();
-                return;
-            }
-
             await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
-            var names = GetModelNames();
-            await _uiController.LogToFrontend($"找到 {names.Length} 个ONNX模型文件");
+            object[] names = GetModelListPayload();
+            await _uiController.LogToFrontend($"找到 {names.Length} 个可选模型");
 
             await _uiController.LogToFrontend($"? 已通过 SendModelList 推送 {names.Length} 个模型");
         }
 
         private async Task RefreshRuntimeModelStateAsync(bool loadDefaultModelIfMissing, bool pushModelList)
         {
-            string[] names = GetModelNames();
+            object[] names = GetModelListPayload();
             if (pushModelList)
             {
                 await _uiController.SendModelList(names);
@@ -2000,30 +2046,36 @@ namespace ClearFrost
                 !_detectionService.IsModelLoaded &&
                 names.Length > 0)
             {
-                string? preferredModel = ResolvePreferredModelFileName();
-                if (!string.IsNullOrWhiteSpace(preferredModel))
-                {
-                    await _uiController.LogToFrontend($"检测到可用模型，正在加载: {preferredModel}", "info");
-                    await InitYoloAsync();
-                }
+                await _uiController.LogToFrontend("检测到可用模型配置，正在按 AppConfig 引用加载", "info");
+                await InitYoloAsync();
             }
 
             RefreshStartupDiagnostics();
         }
 
-        private string[] GetModelNames()
+        private object[] GetModelListPayload()
         {
-            if (!Directory.Exists(模型路径))
+            try
             {
-                return Array.Empty<string>();
+                return _modelActivationService.GetSelectionOptions()
+                    .Select(option => new
+                    {
+                        value = option.Value,
+                        text = option.Text,
+                        modelId = option.ModelId,
+                        version = option.Version,
+                        sha256 = option.Sha256,
+                        fileName = option.FileName,
+                        isApprovedPackage = option.IsApprovedPackage
+                    })
+                    .Cast<object>()
+                    .ToArray();
             }
-
-            return Directory.GetFiles(模型路径, "*.onnx")
-                .Select(Path.GetFileName)
-                .Where(n => !string.IsNullOrEmpty(n))
-                .Cast<string>()
-                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ModelList] 获取模型列表失败: {ex.Message}");
+                return Array.Empty<object>();
+            }
         }
 
         private void InitDirectories()
@@ -2335,7 +2387,7 @@ namespace ClearFrost
                     await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: true, pushModelList: true);
                 }
 
-                await _uiController.SendHealthSnapshot(_healthMonitor.GetSnapshot());
+                await _uiController.SendHealthSnapshot(BuildFieldDiagnosticsSnapshot());
                 if (showToast)
                 {
                     await _uiController.SendUiCommand("toast", new
@@ -2350,6 +2402,11 @@ namespace ClearFrost
             {
                 Debug.WriteLine($"[HealthMonitor] 推送健康快照失败: {ex.Message}");
             }
+        }
+
+        private FieldDiagnosticsSnapshot BuildFieldDiagnosticsSnapshot()
+        {
+            return _appRuntime.BuildFieldDiagnosticsSnapshot(_healthMonitor.GetSnapshot());
         }
 
         private static string FormatBytes(long bytes)
@@ -2578,6 +2635,737 @@ namespace ClearFrost
 
         #endregion
 
+        #region Replay闭环WebUI
+
+        private async Task PreviewReplayDatasetAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
+                string datasetId = GetString(document.RootElement, "datasetId", "DatasetId") ?? _lastReplayDatasetId;
+                ReplayDatasetSnapshot snapshot = await _appRuntime.ReplayDatasetStore
+                    .LoadSnapshotAsync(datasetId, _appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                await _uiController.SendReplayDatasetPreview(snapshot, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await SendReplayDatasetFailureAsync(args.RequestId, "ReplayDatasetPreviewFailed", ex.Message).ConfigureAwait(false);
+            }
+        }
+
+        private async Task QueryReplayDatasetsAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                IReadOnlyList<ReplayDatasetSummary> datasets = await _appRuntime.ReplayDatasetStore
+                    .ListSnapshotsAsync(_appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                await _uiController.SendReplayDatasets(datasets, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await _uiController.SendReplayDatasets(Array.Empty<ReplayDatasetSummary>(), args.RequestId).ConfigureAwait(false);
+                await _uiController.LogToFrontend($"Replay Dataset查询失败: {ex.Message}", "error").ConfigureAwait(false);
+            }
+        }
+
+        private async Task ArchiveReplayDatasetAsync(WebUiCommandEventArgs args)
+        {
+            if (!await EnsureReplayWriteAuthorizedAsync(
+                    args,
+                    "archive_replay_dataset",
+                    () => SendReplayDatasetFailureAsync(args.RequestId, "ReplayWriteUnauthorized", "Replay dataset archive requires engineering change permission."))
+                .ConfigureAwait(false))
+            {
+                return;
+            }
+
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
+                string datasetId = GetString(document.RootElement, "datasetId", "DatasetId") ?? _lastReplayDatasetId;
+                if (string.IsNullOrWhiteSpace(datasetId))
+                {
+                    await SendReplayDatasetFailureAsync(args.RequestId, "ReplayDatasetMissing", "Replay dataset id is required.").ConfigureAwait(false);
+                    return;
+                }
+
+                ReplayDatasetArchiveResult result = await _appRuntime.ReplayDatasetLifecycleService
+                    .ArchiveSnapshotAsync(datasetId, _appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                await _uiController.SendDatasetCreateStatus(result, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await SendReplayDatasetFailureAsync(args.RequestId, "ReplayDatasetArchiveFailed", ex.Message).ConfigureAwait(false);
+            }
+        }
+
+        private async Task CancelReplayRunAsync(WebUiCommandEventArgs args)
+        {
+            if (!await EnsureReplayWriteAuthorizedAsync(
+                    args,
+                    "cancel_replay_run",
+                    () => _uiController.SendReplayRunStatus(new ReplayRunProgress
+                    {
+                        RunId = _appRuntime.ReplayCoordinator.CurrentRun?.RunId ?? _lastReplayRunId,
+                        Status = ReplayRunStatuses.Failed,
+                        Phase = "authorization",
+                        Message = "ReplayWriteUnauthorized: Replay cancel requires engineering change permission."
+                    }, args.RequestId))
+                .ConfigureAwait(false))
+            {
+                return;
+            }
+
+            ReplayCancelRequestResult result = await _appRuntime.ReplayCoordinator
+                .RequestCancelAsync(_appShutdownCts.Token)
+                .ConfigureAwait(false);
+            if (!result.Succeeded)
+            {
+                await _uiController.SendReplayRunStatus(new ReplayRunProgress
+                {
+                    RunId = _appRuntime.ReplayCoordinator.CurrentRun?.RunId ?? _lastReplayRunId,
+                    Status = ReplayRunStatuses.Failed,
+                    Phase = "cancel",
+                    Message = $"{result.ErrorCode}: {result.Message}"
+                }, args.RequestId).ConfigureAwait(false);
+                return;
+            }
+
+            await _uiController.SendReplayRunStatus(result.Progress!, args.RequestId).ConfigureAwait(false);
+        }
+
+        private async Task QueryReplayRunsAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
+                int limit = GetInt32(document.RootElement, "limit", "Limit") ?? 100;
+                IReadOnlyList<ReplayRunRecord> runs = await _appRuntime.ReplayRunStore
+                    .ListRunRecordsAsync(limit, _appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                await _uiController.SendReplayRuns(runs, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await _uiController.SendReplayRuns(Array.Empty<ReplayRunRecord>(), args.RequestId).ConfigureAwait(false);
+                await _uiController.LogToFrontend($"Replay Run查询失败: {ex.Message}", "error").ConfigureAwait(false);
+            }
+        }
+
+        private async Task QueryReplayReportAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
+                string runId = GetString(document.RootElement, "runId", "RunId") ?? _lastReplayRunId;
+                ReplayRunReport report = await _appRuntime.ReplayRunStore
+                    .LoadReportAsync(runId, _appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                await _uiController.SendReplayReport(report, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await SendReplayRunFailureAsync(args.RequestId, "ReplayReportQueryFailed", ex.Message).ConfigureAwait(false);
+            }
+        }
+
+        private Task QueryModelApprovalEvidenceAsync(WebUiCommandEventArgs args)
+        {
+            IReadOnlyList<ModelApprovalEvidence> evidence = _appRuntime.ReplayApprovalApplicationService.ListEvidence();
+            return _uiController.SendModelApprovalEvidence(evidence, args.RequestId);
+        }
+
+        private async Task RunReplayIntegrityScanAsync(WebUiCommandEventArgs args)
+        {
+            ReplayIntegrityScanResult result = await _appRuntime.ReplayIntegrityScanner
+                .ScanApprovedModelsAsync(_appShutdownCts.Token)
+                .ConfigureAwait(false);
+            await _uiController.SendReplayIntegrityScan(result, args.RequestId).ConfigureAwait(false);
+        }
+
+        private async Task QueryManualReviewRecordsAsync(WebUiCommandEventArgs args)
+        {
+            try
+            {
+                ManualReviewQuery query = ParseManualReviewQuery(args.PayloadJson);
+                IReadOnlyList<ManualReviewTraceItem> records = await _appRuntime.ManualReviewStore
+                    .QueryAsync(query, _appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                await _uiController.SendManualReviewRecords(records, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await _uiController.SendManualReviewRecords(Array.Empty<ManualReviewTraceItem>(), args.RequestId)
+                    .ConfigureAwait(false);
+                await _uiController.LogToFrontend($"人工复核查询失败: {ex.Message}", "error").ConfigureAwait(false);
+            }
+        }
+
+        private async Task SaveManualReviewAsync(WebUiCommandEventArgs args)
+        {
+            if (!await EnsureReplayWriteAuthorizedAsync(
+                    args,
+                    "save_manual_review",
+                    () => _uiController.SendManualReviewResponse(
+                        ManualReviewSaveResult.Fail("ReplayWriteUnauthorized", "Manual review save requires engineering change permission."),
+                        args.RequestId))
+                .ConfigureAwait(false))
+            {
+                return;
+            }
+
+            try
+            {
+                ManualReviewSaveRequest request = ParseManualReviewSaveRequest(args.PayloadJson);
+                ManualReviewSaveResult result = await _appRuntime.ManualReviewStore
+                    .SaveReviewAsync(request, _appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                await _uiController.SendManualReviewResponse(result, args.RequestId).ConfigureAwait(false);
+                if (result.Succeeded)
+                {
+                    await QueryManualReviewRecordsAsync(new WebUiCommandEventArgs(args.RequestId, "{}")).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                await _uiController.SendManualReviewResponse(
+                    ManualReviewSaveResult.Fail("ManualReviewUiHandlerFailed", ex.Message),
+                    args.RequestId).ConfigureAwait(false);
+            }
+        }
+
+        private async Task CreateReplayDatasetAsync(WebUiCommandEventArgs args)
+        {
+            if (!await EnsureReplayWriteAuthorizedAsync(
+                    args,
+                    "create_replay_dataset",
+                    () => SendReplayDatasetFailureAsync(args.RequestId, "ReplayWriteUnauthorized", "Replay dataset creation requires engineering change permission."))
+                .ConfigureAwait(false))
+            {
+                return;
+            }
+
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
+                JsonElement root = document.RootElement;
+                DetectionReplayQuery replayQuery = ParseReplayQuery(root);
+                string recipeId = GetString(root, "recipeId", "RecipeId") ?? _recipeManager.CurrentRecipe.RecipeId;
+                string recipeVersion = GetString(root, "recipeVersion", "RecipeVersion") ?? _recipeManager.CurrentRecipe.Version;
+
+                if (!_recipeManager.TryLoadVersion(recipeId, recipeVersion, out Recipe recipe, out string recipeError))
+                {
+                    await SendReplayDatasetFailureAsync(args.RequestId, "ReplayRecipeVersionMissing", recipeError)
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                replayQuery.RecipeVersion = recipe.Version;
+                if (!TryResolveReplayModel(
+                        GetString(root, "baselineModel", "BaselineModel", "baselineSelection", "BaselineSelection"),
+                        requireApproved: true,
+                        candidateDefault: false,
+                        out ModelRegistryEntry baselineEntry,
+                        out string baselineError))
+                {
+                    await SendReplayDatasetFailureAsync(args.RequestId, "ReplayBaselineModelInvalid", baselineError)
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                if (!TryResolveReplayModel(
+                        GetString(root, "candidateModel", "CandidateModel", "candidateSelection", "CandidateSelection"),
+                        requireApproved: false,
+                        candidateDefault: true,
+                        out ModelRegistryEntry candidateEntry,
+                        out string candidateError))
+                {
+                    await SendReplayDatasetFailureAsync(args.RequestId, "ReplayCandidateModelInvalid", candidateError)
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                ManualReviewQuery reviewQuery = new ManualReviewQuery { ReplayQuery = replayQuery };
+                IReadOnlyList<ManualReviewTraceItem> reviewItems = await _appRuntime.ManualReviewStore
+                    .QueryAsync(reviewQuery, _appShutdownCts.Token)
+                    .ConfigureAwait(false);
+                Dictionary<long, ReplayManualReviewRecord> reviewsByRecordId = reviewItems
+                    .Where(item => item.Review != null && item.DetectionRecordId > 0)
+                    .ToDictionary(item => item.DetectionRecordId, item => item.Review!);
+
+                ReplayDatasetSnapshot snapshot = await _appRuntime.ReplayDatasetStore.CreateSnapshotAsync(
+                    new ReplayDatasetCreateRequest
+                    {
+                        DatasetId = GetString(root, "datasetId", "DatasetId") ?? $"dataset-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}",
+                        Query = replayQuery,
+                        Recipe = CreateReplayRecipeSnapshot(recipe),
+                        BaselineModel = ReplayModelIdentity.FromRegistryEntry(baselineEntry),
+                        CandidateModel = ReplayModelIdentity.FromRegistryEntry(candidateEntry),
+                        ManualReviewsByDetectionRecordId = reviewsByRecordId
+                    },
+                    _appShutdownCts.Token).ConfigureAwait(false);
+
+                _lastReplayDatasetId = snapshot.DatasetId;
+                _lastReplayBaselineModel = snapshot.BaselineModel;
+                _lastReplayCandidateModel = snapshot.CandidateModel;
+
+                await _uiController.SendDatasetCreateStatus(new
+                {
+                    succeeded = true,
+                    status = "Frozen",
+                    datasetId = snapshot.DatasetId,
+                    datasetHash = snapshot.DatasetHash,
+                    sampleCount = snapshot.Samples.Count,
+                    recipeId = snapshot.Recipe.RecipeId,
+                    recipeVersion = snapshot.Recipe.RecipeVersion,
+                    baselineModel = snapshot.BaselineModel,
+                    candidateModel = snapshot.CandidateModel,
+                    message = "Replay dataset frozen."
+                }, args.RequestId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await SendReplayDatasetFailureAsync(args.RequestId, "ReplayDatasetCreateFailed", ex.Message)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        private async Task RunReplayComparisonAsync(WebUiCommandEventArgs args)
+        {
+            if (!await EnsureReplayWriteAuthorizedAsync(
+                    args,
+                    "run_replay_comparison",
+                    () => SendReplayRunFailureAsync(args.RequestId, "ReplayWriteUnauthorized", "Replay comparison requires engineering change permission."))
+                .ConfigureAwait(false))
+            {
+                return;
+            }
+
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
+                JsonElement root = document.RootElement;
+                string datasetId = GetString(root, "datasetId", "DatasetId") ?? _lastReplayDatasetId;
+                if (string.IsNullOrWhiteSpace(datasetId))
+                {
+                    await SendReplayRunFailureAsync(args.RequestId, "ReplayDatasetMissing", "Replay dataset id is required.")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                ReplayModelIdentity baseline = await ResolveReplayRunModelAsync(
+                    root,
+                    datasetId,
+                    baseline: true,
+                    args.RequestId).ConfigureAwait(false);
+                ReplayModelIdentity candidate = await ResolveReplayRunModelAsync(
+                    root,
+                    datasetId,
+                    baseline: false,
+                    args.RequestId).ConfigureAwait(false);
+
+                string runId = GetString(root, "runId", "RunId") ?? $"replay-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}";
+                var progress = new Progress<ReplayRunProgress>(item =>
+                    SafeFireAndForget(_uiController.SendReplayRunStatus(item, args.RequestId), "Replay进度推送"));
+
+                ReplayRunReport report = await _appRuntime.ReplayCoordinator.StartAsync(
+                    new ReplayComparisonRequest
+                    {
+                        RunId = runId,
+                        DatasetId = datasetId,
+                        BaselineModel = baseline,
+                        CandidateModel = candidate
+                    },
+                    progress,
+                    _appShutdownCts.Token).ConfigureAwait(false);
+
+                _lastReplayRunId = report.RunId;
+                _lastReplayDatasetId = report.DatasetId;
+                _lastReplayBaselineModel = report.BaselineModel;
+                _lastReplayCandidateModel = report.CandidateModel;
+
+                ReplayApprovalDecision decision = _appRuntime.ReplayPolicy.Evaluate(report);
+                await _uiController.SendReplayRunCompleted(report, args.RequestId).ConfigureAwait(false);
+                await _uiController.SendModelApprovalAvailability(decision.Approved, decision.Reasons, args.RequestId)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                string errorCode = string.Equals(ex.Message, "ReplayProductionBusy", StringComparison.Ordinal)
+                    ? "ReplayProductionBusy"
+                    : string.Equals(ex.Message, "ReplayAlreadyRunning", StringComparison.Ordinal)
+                        ? "ReplayAlreadyRunning"
+                        : "ReplayRunFailed";
+                await SendReplayRunFailureAsync(args.RequestId, errorCode, ex.Message).ConfigureAwait(false);
+            }
+        }
+
+        private async Task ApproveReplayCandidateAsync(WebUiCommandEventArgs args)
+        {
+            if (!await EnsureReplayWriteAuthorizedAsync(
+                    args,
+                    "approve_replay_candidate",
+                    () => _uiController.SendReplayApprovalResponse(
+                        ReplayApprovalResult.Fail("ReplayWriteUnauthorized", "Replay approval requires engineering change permission."),
+                        args.RequestId))
+                .ConfigureAwait(false))
+            {
+                return;
+            }
+
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(args.PayloadJson);
+                JsonElement root = document.RootElement;
+                string runId = GetString(root, "runId", "RunId") ?? _lastReplayRunId;
+                if (string.IsNullOrWhiteSpace(runId))
+                {
+                    await _uiController.SendReplayApprovalResponse(
+                        ReplayApprovalResult.Fail("ReplayApprovalRunIdMissing", "Replay run id is required."),
+                        args.RequestId).ConfigureAwait(false);
+                    return;
+                }
+
+                ReplayApprovalResult result = await _appRuntime.ReplayApprovalApplicationService.ApproveCandidateAsync(
+                    new ReplayApprovalRequest
+                    {
+                        RunId = runId
+                    },
+                    _appShutdownCts.Token).ConfigureAwait(false);
+
+                await _uiController.SendReplayApprovalResponse(result, args.RequestId).ConfigureAwait(false);
+                await _uiController.SendModelApprovalAvailability(
+                    result.Succeeded,
+                    result.Succeeded ? Array.Empty<string>() : new[] { result.Message },
+                    args.RequestId).ConfigureAwait(false);
+
+                if (result.Succeeded)
+                {
+                    await RefreshRuntimeModelStateAsync(loadDefaultModelIfMissing: false, pushModelList: true)
+                        .ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                await _uiController.SendReplayApprovalResponse(
+                    ReplayApprovalResult.Fail("ReplayApprovalUiHandlerFailed", ex.Message),
+                    args.RequestId).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<ReplayModelIdentity> ResolveReplayRunModelAsync(
+            JsonElement root,
+            string datasetId,
+            bool baseline,
+            string requestId)
+        {
+            string? selection = baseline
+                ? GetString(root, "baselineModel", "BaselineModel", "baselineSelection", "BaselineSelection")
+                : GetString(root, "candidateModel", "CandidateModel", "candidateSelection", "CandidateSelection");
+            ReplayModelIdentity? remembered = baseline ? _lastReplayBaselineModel : _lastReplayCandidateModel;
+            if (!string.IsNullOrWhiteSpace(selection) &&
+                TryResolveReplayModel(selection, baseline, !baseline, out ModelRegistryEntry entry, out _))
+            {
+                return ReplayModelIdentity.FromRegistryEntry(entry);
+            }
+
+            if (remembered != null)
+            {
+                ModelRegistryEntry? rememberedEntry = ResolveEntryForIdentity(remembered);
+                if (rememberedEntry != null)
+                {
+                    return ReplayModelIdentity.FromRegistryEntry(rememberedEntry);
+                }
+
+                if (!string.IsNullOrWhiteSpace(remembered.ModelPath))
+                {
+                    return remembered;
+                }
+            }
+
+            ReplayDatasetSnapshot snapshot = await _appRuntime.ReplayDatasetStore
+                .LoadSnapshotAsync(datasetId, _appShutdownCts.Token)
+                .ConfigureAwait(false);
+            ReplayModelIdentity datasetIdentity = baseline ? snapshot.BaselineModel : snapshot.CandidateModel;
+            ModelRegistryEntry? datasetEntry = ResolveEntryForIdentity(datasetIdentity);
+            if (datasetEntry != null)
+            {
+                return ReplayModelIdentity.FromRegistryEntry(datasetEntry);
+            }
+
+            if (!string.IsNullOrWhiteSpace(datasetIdentity.ModelPath))
+            {
+                return datasetIdentity;
+            }
+
+            throw new InvalidOperationException(
+                baseline
+                    ? "Replay baseline package could not be resolved from dataset identity."
+                    : "Replay candidate package could not be resolved from dataset identity.");
+        }
+
+        private ManualReviewQuery ParseManualReviewQuery(string payloadJson)
+        {
+            using JsonDocument document = JsonDocument.Parse(payloadJson);
+            JsonElement root = document.RootElement;
+            return new ManualReviewQuery
+            {
+                ReplayQuery = ParseReplayQuery(root),
+                ReviewStatus = GetString(root, "reviewStatus", "ReviewStatus") ?? string.Empty
+            };
+        }
+
+        private ManualReviewSaveRequest ParseManualReviewSaveRequest(string payloadJson)
+        {
+            using JsonDocument document = JsonDocument.Parse(payloadJson);
+            JsonElement root = document.RootElement;
+            return new ManualReviewSaveRequest
+            {
+                DetectionRecordId = GetInt64(root, "detectionRecordId", "DetectionRecordId") ?? 0,
+                InspectionId = GetString(root, "inspectionId", "InspectionId") ?? string.Empty,
+                SampleId = GetString(root, "sampleId", "SampleId") ?? string.Empty,
+                GroundTruth = GetString(root, "groundTruth", "GroundTruth") ?? ReplayDecisions.OK,
+                Disposition = GetString(root, "disposition", "Disposition") ?? ReplayReviewDispositions.Pending,
+                ReviewerId = ResolveCurrentOperatorId(),
+                ReviewerRole = _appConfig.CurrentOperatorRole.ToString(),
+                ExpectedRevision = GetInt64(root, "expectedRevision", "ExpectedRevision"),
+                Notes = GetString(root, "notes", "Notes") ?? string.Empty
+            };
+        }
+
+        private DetectionReplayQuery ParseReplayQuery(JsonElement root)
+        {
+            return new DetectionReplayQuery
+            {
+                ProductOrBarcode = GetString(root, "productOrBarcode", "ProductOrBarcode", "barcode", "Barcode"),
+                IsQualified = GetBoolean(root, "isQualified", "IsQualified"),
+                ModelName = GetString(root, "modelName", "ModelName"),
+                ModelVersion = GetString(root, "modelVersion", "ModelVersion"),
+                RecipeVersion = GetString(root, "recipeVersion", "RecipeVersion"),
+                Limit = Math.Clamp(GetInt32(root, "limit", "Limit") ?? 100, 1, 10000),
+                StartTime = GetDateTime(root, "startTime", "StartTime"),
+                EndTime = GetDateTime(root, "endTime", "EndTime")
+            };
+        }
+
+        private ReplayRecipeSnapshot CreateReplayRecipeSnapshot(Recipe recipe)
+        {
+            string ruleSetJson = recipe.InspectionRuleSetJson ?? string.Empty;
+            return new ReplayRecipeSnapshot
+            {
+                RecipeId = recipe.RecipeId,
+                RecipeVersion = recipe.Version,
+                Confidence = recipe.Confidence,
+                IouThreshold = recipe.IouThreshold,
+                Roi = recipe.GetRoiSnapshot(),
+                RuleSetJson = ruleSetJson,
+                RuleSet = InspectionRuleSetSerializer.DeserializeOrDefault(ruleSetJson)
+            };
+        }
+
+        private bool TryResolveReplayModel(
+            string? selection,
+            bool requireApproved,
+            bool candidateDefault,
+            out ModelRegistryEntry entry,
+            out string error)
+        {
+            entry = new ModelRegistryEntry();
+            error = string.Empty;
+
+            ModelRegistryEntry? resolved = null;
+            if (!string.IsNullOrWhiteSpace(selection))
+            {
+                if (ProductionModelReference.TryParseSelectionValue(selection, out ProductionModelReference reference) &&
+                    !reference.IsEmpty)
+                {
+                    ProductionModelResolutionResult result = _modelRegistry.ResolveReference(reference, requireApproved);
+                    if (!result.Succeeded || result.Entry == null)
+                    {
+                        error = string.IsNullOrWhiteSpace(result.Message) ? result.ErrorCode : result.Message;
+                        return false;
+                    }
+
+                    resolved = result.Entry;
+                }
+                else
+                {
+                    resolved = _modelRegistry.Resolve(selection);
+                }
+            }
+
+            resolved ??= candidateDefault
+                ? _modelRegistry.Entries.FirstOrDefault(item =>
+                    item.IsPackage &&
+                    item.Status == ModelRegistryStatus.Ready &&
+                    !item.ApprovedForProduction)
+                : ResolveEntryForReference(_appConfig.CurrentModelReference) ??
+                  _modelRegistry.Entries.FirstOrDefault(item =>
+                      item.IsPackage &&
+                      item.Status == ModelRegistryStatus.Ready &&
+                      item.ApprovedForProduction);
+
+            if (resolved == null)
+            {
+                error = candidateDefault
+                    ? "No pending candidate package is available for replay."
+                    : "No approved baseline package is available for replay.";
+                return false;
+            }
+
+            if (!resolved.IsPackage || resolved.Status != ModelRegistryStatus.Ready)
+            {
+                error = $"Replay model must be a ready package: {resolved.ModelId}/{resolved.Version}.";
+                return false;
+            }
+
+            if (requireApproved && !resolved.ApprovedForProduction)
+            {
+                error = $"Baseline model is not approved for production: {resolved.ModelId}/{resolved.Version}.";
+                return false;
+            }
+
+            entry = resolved;
+            return true;
+        }
+
+        private ModelRegistryEntry? ResolveEntryForReference(ProductionModelReference? reference)
+        {
+            if (reference == null || reference.IsEmpty)
+            {
+                return null;
+            }
+
+            ProductionModelResolutionResult result = _modelRegistry.ResolveReference(reference, true);
+            return result.Succeeded ? result.Entry : null;
+        }
+
+        private ModelRegistryEntry? ResolveEntryForIdentity(ReplayModelIdentity identity)
+        {
+            return _modelRegistry.Entries.FirstOrDefault(entry =>
+                entry.IsPackage &&
+                string.Equals(entry.ModelId, identity.ModelId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(entry.Version, identity.Version, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(entry.ModelHash, identity.Sha256, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private Task SendReplayDatasetFailureAsync(string requestId, string errorCode, string message)
+        {
+            return _uiController.SendDatasetCreateStatus(new
+            {
+                succeeded = false,
+                status = "Failed",
+                errorCode,
+                message
+            }, requestId);
+        }
+
+        private Task SendReplayRunFailureAsync(string requestId, string errorCode, string message)
+        {
+            return _uiController.SendReplayRunStatus(new ReplayRunProgress
+            {
+                RunId = _lastReplayRunId,
+                Status = ReplayRunStatuses.Failed,
+                Phase = errorCode,
+                Message = message,
+                CompletedSamples = 0,
+                TotalSamples = 0
+            }, requestId);
+        }
+
+        private static string? GetString(JsonElement root, params string[] names)
+        {
+            foreach (string name in names)
+            {
+                if (root.ValueKind == JsonValueKind.Object &&
+                    root.TryGetProperty(name, out JsonElement element) &&
+                    element.ValueKind != JsonValueKind.Null &&
+                    element.ValueKind != JsonValueKind.Undefined)
+                {
+                    return element.ValueKind == JsonValueKind.String
+                        ? element.GetString()
+                        : element.ToString();
+                }
+            }
+
+            return null;
+        }
+
+        private static int? GetInt32(JsonElement root, params string[] names)
+        {
+            foreach (string name in names)
+            {
+                if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty(name, out JsonElement element))
+                {
+                    if (element.TryGetInt32(out int value)) return value;
+                    if (element.ValueKind == JsonValueKind.String &&
+                        int.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+                    {
+                        return value;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static long? GetInt64(JsonElement root, params string[] names)
+        {
+            foreach (string name in names)
+            {
+                if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty(name, out JsonElement element))
+                {
+                    if (element.TryGetInt64(out long value)) return value;
+                    if (element.ValueKind == JsonValueKind.String &&
+                        long.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+                    {
+                        return value;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static bool? GetBoolean(JsonElement root, params string[] names)
+        {
+            foreach (string name in names)
+            {
+                if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty(name, out JsonElement element))
+                {
+                    if (element.ValueKind == JsonValueKind.True) return true;
+                    if (element.ValueKind == JsonValueKind.False) return false;
+                    if (element.ValueKind == JsonValueKind.String &&
+                        bool.TryParse(element.GetString(), out bool value))
+                    {
+                        return value;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static DateTime? GetDateTime(JsonElement root, params string[] names)
+        {
+            foreach (string name in names)
+            {
+                string? value = GetString(root, name);
+                if (!string.IsNullOrWhiteSpace(value) &&
+                    DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime parsed))
+                {
+                    return parsed;
+                }
+            }
+
+            return null;
+        }
+
+        #endregion
+
         #region 数据集自动收集
 
         private async Task CollectDatasetAsync()
@@ -2586,7 +3374,7 @@ namespace ClearFrost
             {
                 var service = new ClearFrost.Services.DatasetCollectionService(
                     ClearFrost.Helpers.RuntimePaths.DatabasePath,
-                    _appConfig.StoragePath);
+                    BaseStoragePath);
 
                 var progress = new Progress<string>(msg =>
                 {
@@ -2635,7 +3423,7 @@ namespace ClearFrost
                     foreach (var property in root.EnumerateObject())
                     {
                         string name = property.Name;
-                        if (name == "CurrentOperatorId" || name == "CurrentOperatorRole")
+                        if (RuntimeConfigurationChangeClassifier.ShouldIgnoreForSystemConfigChange(name))
                         {
                             continue;
                         }

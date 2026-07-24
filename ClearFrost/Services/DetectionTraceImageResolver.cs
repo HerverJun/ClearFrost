@@ -26,7 +26,7 @@ namespace ClearFrost.Services
         {
             if (record == null) throw new ArgumentNullException(nameof(record));
 
-            fileExists ??= File.Exists;
+            fileExists ??= SafeFileExists;
             string imagePath = record.ImagePath ?? string.Empty;
             string renderedPath = record.RenderedImagePath ?? string.Empty;
 
@@ -69,7 +69,7 @@ namespace ClearFrost.Services
         {
             if (record == null) throw new ArgumentNullException(nameof(record));
 
-            fileExists ??= File.Exists;
+            fileExists ??= SafeFileExists;
             DetectionTraceImageResolution resolved = Resolve(record, fileExists);
             if (IsUsablePath(resolved.ImagePath, fileExists))
             {
@@ -104,6 +104,41 @@ namespace ClearFrost.Services
         private static bool IsUsablePath(string path, Func<string, bool> fileExists)
         {
             return !string.IsNullOrWhiteSpace(path) && fileExists(path);
+        }
+
+        private static bool SafeFileExists(string path)
+        {
+            try
+            {
+                return !string.IsNullOrWhiteSpace(path) &&
+                       File.Exists(path) &&
+                       IsSafeFilePath(path);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsSafeFilePath(string path)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(path);
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(directory) || DirectoryPathHasReparsePoint(directory))
+                {
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                return file.Exists && !HasReparsePoint(file);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static string TryBuildDerivedRenderedPath(string imagePath)
@@ -217,13 +252,58 @@ namespace ClearFrost.Services
                     return Array.Empty<string>();
                 }
 
+                if (DirectoryPathHasReparsePoint(directory))
+                {
+                    return Array.Empty<string>();
+                }
+
                 return Directory.EnumerateFiles(directory)
-                    .Where(IsImageFile)
+                    .Where(path => IsImageFile(path) && IsSafeFilePath(path))
                     .ToArray();
             }
             catch
             {
                 return Array.Empty<string>();
+            }
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
             }
         }
 

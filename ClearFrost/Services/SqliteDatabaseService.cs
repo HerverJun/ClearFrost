@@ -27,13 +27,24 @@ namespace ClearFrost.Services
             "InspectionId",
             "TriggerSource",
             "TriggerSeq",
+            "PlcTriggerSeq",
             "ResultSeq",
+            "TerminalHandshakeAttempted",
+            "TerminalHandshakeSucceeded",
+            "TerminalHandshakeErrorCode",
+            "TerminalHandshakeSignalName",
+            "TerminalHandshakeAddress",
+            "TerminalHandshakeMessage",
+            "CycleSucceeded",
             "ProductBarcode",
+            "Barcode",
             "BarcodeReadSucceeded",
             "BarcodeError",
             "TraceStatus",
+            "QueueStatus",
             "ImagePath",
             "RenderedImagePath",
+            "TraceImagePath",
             "ErrorStage",
             "ErrorCode",
             "ErrorMessage",
@@ -86,11 +97,7 @@ namespace ClearFrost.Services
                 _dbPath = dbPath;
             }
 
-            string directory = Path.GetDirectoryName(_dbPath) ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
+            EnsureDatabasePathSafe(_dbPath, "检测数据库");
 
             _connectionString = $"Data Source={_dbPath};Cache=Shared;Pooling=True;Default Timeout={BusyTimeoutMs / 1000}";
             Debug.WriteLine($"[SqliteDatabaseService] Database path: {_dbPath}");
@@ -104,6 +111,7 @@ namespace ClearFrost.Services
                     .Where(path => !string.IsNullOrWhiteSpace(path))
                     .Select(path => Path.GetFullPath(path))
                     .Where(path => !PathsEqual(path, runtimeDbPath) && File.Exists(path))
+                    .Where(IsSafeLegacyDatabaseForRead)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToArray();
 
@@ -112,7 +120,7 @@ namespace ClearFrost.Services
                     return;
                 }
 
-                EnsureDatabaseDirectory(runtimeDbPath);
+                EnsureDatabasePathSafe(runtimeDbPath, "检测数据库");
 
                 using var connection = OpenDatabase(runtimeDbPath);
                 EnsureSchema(connection);
@@ -231,6 +239,11 @@ namespace ClearFrost.Services
 
             foreach (string scopeDirectory in Directory.GetDirectories(appDataRoot))
             {
+                if (DirectoryPathHasReparsePoint(scopeDirectory))
+                {
+                    continue;
+                }
+
                 string candidate = Path.Combine(scopeDirectory, "Data", "detection.db");
                 if (!PathsEqual(candidate, runtimeFullPath) && File.Exists(candidate))
                 {
@@ -241,6 +254,7 @@ namespace ClearFrost.Services
 
         private static SqliteConnection OpenDatabase(string dbPath)
         {
+            EnsureDatabasePathSafe(dbPath, "检测数据库");
             var connection = new SqliteConnection($"Data Source={dbPath};Cache=Shared;Pooling=True;Default Timeout={BusyTimeoutMs / 1000}");
             connection.Open();
             ConfigureConnection(connection);
@@ -249,6 +263,7 @@ namespace ClearFrost.Services
 
         private async Task<SqliteConnection> OpenConnectionAsync()
         {
+            EnsureDatabasePathSafe(_dbPath, "检测数据库");
             var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync();
             await ConfigureConnectionAsync(connection);
@@ -279,10 +294,94 @@ namespace ClearFrost.Services
 
         private static void EnsureDatabaseDirectory(string dbPath)
         {
-            string directory = Path.GetDirectoryName(dbPath) ?? string.Empty;
+            EnsureDatabasePathSafe(dbPath, "检测数据库");
+        }
+
+        private static void EnsureDatabasePathSafe(string dbPath, string displayName)
+        {
+            if (string.IsNullOrWhiteSpace(dbPath))
+            {
+                throw new ArgumentException($"{displayName}路径为空。", nameof(dbPath));
+            }
+
+            string fullPath = Path.GetFullPath(dbPath);
+            string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(directory))
             {
+                if (DirectoryPathHasReparsePoint(directory))
+                {
+                    throw new IOException($"{displayName}目录包含链接目录，拒绝使用: {directory}");
+                }
+
                 Directory.CreateDirectory(directory);
+
+                var directoryInfo = new DirectoryInfo(directory);
+                directoryInfo.Refresh();
+                if (directoryInfo.Exists && HasReparsePoint(directoryInfo))
+                {
+                    throw new IOException($"{displayName}目录是链接目录，拒绝使用: {directory}");
+                }
+            }
+
+            var file = new FileInfo(fullPath);
+            file.Refresh();
+            if (file.Exists && HasReparsePoint(file))
+            {
+                throw new IOException($"{displayName}文件是链接文件，拒绝使用: {fullPath}");
+            }
+        }
+
+        private static bool IsSafeLegacyDatabaseForRead(string dbPath)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(dbPath);
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(directory) && DirectoryPathHasReparsePoint(directory))
+                {
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                return file.Exists && !HasReparsePoint(file);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            var current = new DirectoryInfo(Path.GetFullPath(directory));
+            while (current != null)
+            {
+                current.Refresh();
+                if (current.Exists && HasReparsePoint(current))
+                {
+                    return true;
+                }
+
+                current = current.Parent;
+            }
+
+            return false;
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
             }
         }
 
@@ -297,13 +396,24 @@ namespace ClearFrost.Services
                     InspectionId TEXT,
                     TriggerSource TEXT,
                     TriggerSeq INTEGER,
+                    PlcTriggerSeq INTEGER,
                     ResultSeq INTEGER,
+                    TerminalHandshakeAttempted INTEGER,
+                    TerminalHandshakeSucceeded INTEGER,
+                    TerminalHandshakeErrorCode TEXT,
+                    TerminalHandshakeSignalName TEXT,
+                    TerminalHandshakeAddress TEXT,
+                    TerminalHandshakeMessage TEXT,
+                    CycleSucceeded INTEGER,
                     ProductBarcode TEXT,
+                    Barcode TEXT,
                     BarcodeReadSucceeded INTEGER,
                     BarcodeError TEXT,
                     TraceStatus TEXT,
+                    QueueStatus TEXT,
                     ImagePath TEXT,
                     RenderedImagePath TEXT,
+                    TraceImagePath TEXT,
                     ErrorStage TEXT,
                     ErrorCode TEXT,
                     ErrorMessage TEXT,
@@ -345,13 +455,24 @@ namespace ClearFrost.Services
             AddColumnIfMissing(connection, existingColumns, "InspectionId", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "TriggerSource", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "TriggerSeq", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "PlcTriggerSeq", "INTEGER");
             AddColumnIfMissing(connection, existingColumns, "ResultSeq", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "TerminalHandshakeAttempted", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "TerminalHandshakeSucceeded", "INTEGER");
+            AddColumnIfMissing(connection, existingColumns, "TerminalHandshakeErrorCode", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "TerminalHandshakeSignalName", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "TerminalHandshakeAddress", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "TerminalHandshakeMessage", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "CycleSucceeded", "INTEGER");
             AddColumnIfMissing(connection, existingColumns, "ProductBarcode", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "Barcode", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "BarcodeReadSucceeded", "INTEGER");
             AddColumnIfMissing(connection, existingColumns, "BarcodeError", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "TraceStatus", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "QueueStatus", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "ImagePath", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "RenderedImagePath", "TEXT");
+            AddColumnIfMissing(connection, existingColumns, "TraceImagePath", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "ErrorStage", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "ErrorCode", "TEXT");
             AddColumnIfMissing(connection, existingColumns, "ErrorMessage", "TEXT");
@@ -383,6 +504,8 @@ namespace ClearFrost.Services
             indexCommand.CommandText = @"
                 CREATE INDEX IF NOT EXISTS idx_inspection_id ON DetectionRecords(InspectionId);
                 CREATE INDEX IF NOT EXISTS idx_product_barcode ON DetectionRecords(ProductBarcode);
+                CREATE INDEX IF NOT EXISTS idx_barcode ON DetectionRecords(Barcode);
+                CREATE INDEX IF NOT EXISTS idx_recipe_version ON DetectionRecords(RecipeVersion);
                 CREATE INDEX IF NOT EXISTS idx_trace_time_result
                     ON DetectionRecords(Timestamp DESC, IsQualified, Id DESC);
                 CREATE INDEX IF NOT EXISTS idx_trace_result_time
@@ -505,13 +628,24 @@ namespace ClearFrost.Services
                         InspectionId,
                         TriggerSource,
                         TriggerSeq,
+                        PlcTriggerSeq,
                         ResultSeq,
+                        TerminalHandshakeAttempted,
+                        TerminalHandshakeSucceeded,
+                        TerminalHandshakeErrorCode,
+                        TerminalHandshakeSignalName,
+                        TerminalHandshakeAddress,
+                        TerminalHandshakeMessage,
+                        CycleSucceeded,
                         ProductBarcode,
+                        Barcode,
                         BarcodeReadSucceeded,
                         BarcodeError,
                         TraceStatus,
+                        QueueStatus,
                         ImagePath,
                         RenderedImagePath,
+                        TraceImagePath,
                         ErrorStage,
                         ErrorCode,
                         ErrorMessage,
@@ -546,13 +680,24 @@ namespace ClearFrost.Services
                         @InspectionId,
                         @TriggerSource,
                         @TriggerSeq,
+                        @PlcTriggerSeq,
                         @ResultSeq,
+                        @TerminalHandshakeAttempted,
+                        @TerminalHandshakeSucceeded,
+                        @TerminalHandshakeErrorCode,
+                        @TerminalHandshakeSignalName,
+                        @TerminalHandshakeAddress,
+                        @TerminalHandshakeMessage,
+                        @CycleSucceeded,
                         @ProductBarcode,
+                        @Barcode,
                         @BarcodeReadSucceeded,
                         @BarcodeError,
                         @TraceStatus,
+                        @QueueStatus,
                         @ImagePath,
                         @RenderedImagePath,
+                        @TraceImagePath,
                         @ErrorStage,
                         @ErrorCode,
                         @ErrorMessage,
@@ -583,13 +728,25 @@ namespace ClearFrost.Services
                 ";
 
                 using var command = new SqliteCommand(insertSql, connection);
+                object plcTriggerSeq = record.PlcTriggerSeq.HasValue
+                    ? record.PlcTriggerSeq.Value
+                    : record.TriggerSeq.HasValue ? record.TriggerSeq.Value : DBNull.Value;
                 command.Parameters.AddWithValue("@Timestamp", record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"));
                 command.Parameters.AddWithValue("@IsQualified", record.IsQualified ? 1 : 0);
                 command.Parameters.AddWithValue("@InspectionId", record.InspectionId ?? "");
                 command.Parameters.AddWithValue("@TriggerSource", record.TriggerSource ?? "");
                 command.Parameters.AddWithValue("@TriggerSeq", (object?)record.TriggerSeq ?? DBNull.Value);
+                command.Parameters.AddWithValue("@PlcTriggerSeq", plcTriggerSeq);
                 command.Parameters.AddWithValue("@ResultSeq", (object?)record.ResultSeq ?? DBNull.Value);
+                command.Parameters.AddWithValue("@TerminalHandshakeAttempted", record.TerminalHandshakeAttempted ? 1 : 0);
+                command.Parameters.AddWithValue("@TerminalHandshakeSucceeded", record.TerminalHandshakeSucceeded ? 1 : 0);
+                command.Parameters.AddWithValue("@TerminalHandshakeErrorCode", record.TerminalHandshakeErrorCode ?? "");
+                command.Parameters.AddWithValue("@TerminalHandshakeSignalName", record.TerminalHandshakeSignalName ?? "");
+                command.Parameters.AddWithValue("@TerminalHandshakeAddress", record.TerminalHandshakeAddress ?? "");
+                command.Parameters.AddWithValue("@TerminalHandshakeMessage", record.TerminalHandshakeMessage ?? "");
+                command.Parameters.AddWithValue("@CycleSucceeded", record.CycleSucceeded ? 1 : 0);
                 command.Parameters.AddWithValue("@ProductBarcode", record.ProductBarcode ?? "");
+                command.Parameters.AddWithValue("@Barcode", string.IsNullOrWhiteSpace(record.Barcode) ? record.ProductBarcode ?? "" : record.Barcode);
                 command.Parameters.AddWithValue(
                     "@BarcodeReadSucceeded",
                     record.BarcodeReadSucceeded.HasValue
@@ -597,8 +754,14 @@ namespace ClearFrost.Services
                         : DBNull.Value);
                 command.Parameters.AddWithValue("@BarcodeError", record.BarcodeError ?? "");
                 command.Parameters.AddWithValue("@TraceStatus", record.TraceStatus.ToString());
+                command.Parameters.AddWithValue("@QueueStatus", record.QueueStatus ?? "");
                 command.Parameters.AddWithValue("@ImagePath", record.ImagePath ?? "");
                 command.Parameters.AddWithValue("@RenderedImagePath", record.RenderedImagePath ?? "");
+                command.Parameters.AddWithValue(
+                    "@TraceImagePath",
+                    string.IsNullOrWhiteSpace(record.TraceImagePath)
+                        ? (!string.IsNullOrWhiteSpace(record.RenderedImagePath) ? record.RenderedImagePath : record.ImagePath ?? "")
+                        : record.TraceImagePath);
                 command.Parameters.AddWithValue("@ErrorStage", record.ErrorStage ?? "");
                 command.Parameters.AddWithValue("@ErrorCode", record.ErrorCode ?? "");
                 command.Parameters.AddWithValue("@ErrorMessage", record.ErrorMessage ?? "");
@@ -678,13 +841,24 @@ namespace ClearFrost.Services
                         InspectionId = GetStringOrDefault(reader, "InspectionId"),
                         TriggerSource = GetStringOrDefault(reader, "TriggerSource"),
                         TriggerSeq = GetNullableInt32(reader, "TriggerSeq"),
+                        PlcTriggerSeq = GetNullableInt32(reader, "PlcTriggerSeq") ?? GetNullableInt32(reader, "TriggerSeq"),
                         ResultSeq = GetNullableInt32(reader, "ResultSeq"),
+                        TerminalHandshakeAttempted = GetInt32OrDefault(reader, "TerminalHandshakeAttempted") == 1,
+                        TerminalHandshakeSucceeded = GetInt32OrDefault(reader, "TerminalHandshakeSucceeded") == 1,
+                        TerminalHandshakeErrorCode = GetStringOrDefault(reader, "TerminalHandshakeErrorCode"),
+                        TerminalHandshakeSignalName = GetStringOrDefault(reader, "TerminalHandshakeSignalName"),
+                        TerminalHandshakeAddress = GetStringOrDefault(reader, "TerminalHandshakeAddress"),
+                        TerminalHandshakeMessage = GetStringOrDefault(reader, "TerminalHandshakeMessage"),
+                        CycleSucceeded = GetInt32OrDefault(reader, "CycleSucceeded") == 1,
                         ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
+                        Barcode = GetStringOrDefault(reader, "Barcode"),
                         BarcodeReadSucceeded = GetNullableBool(reader, "BarcodeReadSucceeded"),
                         BarcodeError = GetStringOrDefault(reader, "BarcodeError"),
                         TraceStatus = ParseTraceStatus(GetStringOrDefault(reader, "TraceStatus")),
+                        QueueStatus = GetStringOrDefault(reader, "QueueStatus"),
                         ImagePath = GetStringOrDefault(reader, "ImagePath"),
                         RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
+                        TraceImagePath = GetStringOrDefault(reader, "TraceImagePath"),
                         ErrorStage = GetStringOrDefault(reader, "ErrorStage"),
                         ErrorCode = GetStringOrDefault(reader, "ErrorCode"),
                         ErrorMessage = GetStringOrDefault(reader, "ErrorMessage"),
@@ -722,10 +896,189 @@ namespace ClearFrost.Services
             return records;
         }
 
+        public async Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
+        {
+            if (id <= 0)
+            {
+                return null;
+            }
+
+            if (!_initialized) await InitializeAsync();
+
+            try
+            {
+                using var connection = await OpenConnectionAsync();
+                using var command = connection.CreateCommand();
+                command.CommandText = "SELECT * FROM DetectionRecords WHERE Id = @Id LIMIT 1;";
+                command.Parameters.AddWithValue("@Id", id);
+                using var reader = await command.ExecuteReaderAsync();
+                return await reader.ReadAsync()
+                    ? ReadDetectionRecord(reader)
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SqliteDatabaseService] Exact record query error: {ex.Message}");
+                return null;
+            }
+        }
+
+        public async Task<List<DetectionRecord>> GetDetectionRecordsByInspectionIdAsync(string inspectionId)
+        {
+            if (string.IsNullOrWhiteSpace(inspectionId))
+            {
+                return new List<DetectionRecord>();
+            }
+
+            if (!_initialized) await InitializeAsync();
+
+            var records = new List<DetectionRecord>();
+            try
+            {
+                using var connection = await OpenConnectionAsync();
+                using var command = connection.CreateCommand();
+                command.CommandText = @"
+                    SELECT *
+                    FROM DetectionRecords
+                    WHERE InspectionId = @InspectionId
+                    ORDER BY Timestamp ASC, Id ASC;";
+                command.Parameters.AddWithValue("@InspectionId", inspectionId.Trim());
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    records.Add(ReadDetectionRecord(reader));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SqliteDatabaseService] InspectionId exact query error: {ex.Message}");
+            }
+
+            return records;
+        }
+
         public async Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
         {
             DetectionTracePage page = await GetTraceRecordPageAsync(query);
             return page.Records.ToList();
+        }
+
+        public async Task<List<DetectionRecord>> GetReplayRecordsAsync(DetectionReplayQuery query)
+        {
+            if (!_initialized) await InitializeAsync();
+
+            query ??= new DetectionReplayQuery();
+            int limit = Math.Clamp(query.Limit <= 0 ? 100 : query.Limit, 1, 1000);
+            var records = new List<DetectionRecord>(limit);
+
+            try
+            {
+                using var connection = await OpenConnectionAsync();
+                using var command = connection.CreateCommand();
+                var conditions = new List<string>();
+
+                if (query.StartTime.HasValue)
+                {
+                    conditions.Add("Timestamp >= @StartTime");
+                    command.Parameters.AddWithValue("@StartTime", FormatTimestamp(query.StartTime.Value));
+                }
+
+                if (query.EndTime.HasValue)
+                {
+                    conditions.Add("Timestamp <= @EndTime");
+                    command.Parameters.AddWithValue("@EndTime", FormatTimestamp(query.EndTime.Value));
+                }
+
+                if (query.IsQualified.HasValue)
+                {
+                    conditions.Add("IsQualified = @IsQualified");
+                    command.Parameters.AddWithValue("@IsQualified", query.IsQualified.Value ? 1 : 0);
+                }
+
+                if (!string.IsNullOrWhiteSpace(query.ProductOrBarcode))
+                {
+                    conditions.Add("(ProductBarcode = @ProductOrBarcode OR Barcode = @ProductOrBarcode)");
+                    command.Parameters.AddWithValue("@ProductOrBarcode", query.ProductOrBarcode.Trim());
+                }
+
+                AddTextFilter(command, conditions, "ModelName", query.ModelName);
+                AddTextFilter(command, conditions, "ModelVersion", query.ModelVersion);
+                AddTextFilter(command, conditions, "RecipeVersion", query.RecipeVersion);
+
+                string whereClause = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
+                command.CommandText = $@"
+                    SELECT *
+                    FROM DetectionRecords
+                    {whereClause}
+                    ORDER BY Timestamp DESC, Id DESC
+                    LIMIT @Limit;
+                ";
+                command.Parameters.AddWithValue("@Limit", limit);
+
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    records.Add(new DetectionRecord
+                    {
+                        Id = GetInt64OrDefault(reader, "Id"),
+                        Timestamp = ParseTimestamp(GetStringOrDefault(reader, "Timestamp")),
+                        IsQualified = GetInt32OrDefault(reader, "IsQualified") == 1,
+                        InspectionId = GetStringOrDefault(reader, "InspectionId"),
+                        TriggerSource = GetStringOrDefault(reader, "TriggerSource"),
+                        TriggerSeq = GetNullableInt32(reader, "TriggerSeq"),
+                        PlcTriggerSeq = GetNullableInt32(reader, "PlcTriggerSeq") ?? GetNullableInt32(reader, "TriggerSeq"),
+                        ResultSeq = GetNullableInt32(reader, "ResultSeq"),
+                        TerminalHandshakeAttempted = GetInt32OrDefault(reader, "TerminalHandshakeAttempted") == 1,
+                        TerminalHandshakeSucceeded = GetInt32OrDefault(reader, "TerminalHandshakeSucceeded") == 1,
+                        TerminalHandshakeErrorCode = GetStringOrDefault(reader, "TerminalHandshakeErrorCode"),
+                        TerminalHandshakeSignalName = GetStringOrDefault(reader, "TerminalHandshakeSignalName"),
+                        TerminalHandshakeAddress = GetStringOrDefault(reader, "TerminalHandshakeAddress"),
+                        TerminalHandshakeMessage = GetStringOrDefault(reader, "TerminalHandshakeMessage"),
+                        CycleSucceeded = GetInt32OrDefault(reader, "CycleSucceeded") == 1,
+                        ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
+                        Barcode = GetStringOrDefault(reader, "Barcode"),
+                        BarcodeReadSucceeded = GetNullableBool(reader, "BarcodeReadSucceeded"),
+                        BarcodeError = GetStringOrDefault(reader, "BarcodeError"),
+                        TraceStatus = ParseTraceStatus(GetStringOrDefault(reader, "TraceStatus")),
+                        QueueStatus = GetStringOrDefault(reader, "QueueStatus"),
+                        ImagePath = GetStringOrDefault(reader, "ImagePath"),
+                        RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
+                        TraceImagePath = GetStringOrDefault(reader, "TraceImagePath"),
+                        ErrorStage = GetStringOrDefault(reader, "ErrorStage"),
+                        ErrorCode = GetStringOrDefault(reader, "ErrorCode"),
+                        ErrorMessage = GetStringOrDefault(reader, "ErrorMessage"),
+                        TotalMs = GetInt64OrDefault(reader, "TotalMs"),
+                        CaptureMs = GetInt64OrDefault(reader, "CaptureMs"),
+                        RoiMs = GetInt64OrDefault(reader, "RoiMs"),
+                        PlcWriteMs = GetInt64OrDefault(reader, "PlcWriteMs"),
+                        SaveImageMs = GetInt64OrDefault(reader, "SaveImageMs"),
+                        SaveRecordMs = GetInt64OrDefault(reader, "SaveRecordMs"),
+                        RecipeId = GetStringOrDefault(reader, "RecipeId"),
+                        RecipeVersion = GetStringOrDefault(reader, "RecipeVersion"),
+                        ModelId = GetStringOrDefault(reader, "ModelId"),
+                        ModelVersion = GetStringOrDefault(reader, "ModelVersion"),
+                        ModelHash = GetStringOrDefault(reader, "ModelHash"),
+                        WasFallback = GetInt32OrDefault(reader, "WasFallback") == 1,
+                        UsedModelName = GetStringOrDefault(reader, "UsedModelName"),
+                        TargetLabel = GetStringOrDefault(reader, "TargetLabel"),
+                        ExpectedCount = GetInt32OrDefault(reader, "ExpectedCount"),
+                        ActualCount = GetInt32OrDefault(reader, "ActualCount"),
+                        InferenceMs = GetInt32OrDefault(reader, "InferenceMs"),
+                        ModelName = GetStringOrDefault(reader, "ModelName"),
+                        CameraId = GetStringOrDefault(reader, "CameraId"),
+                        RuleSummary = GetStringOrDefault(reader, "RuleSummary"),
+                        RuleResultJson = GetStringOrDefault(reader, "RuleResultJson"),
+                        RuleSetJson = GetStringOrDefault(reader, "RuleSetJson"),
+                        ResultJson = GetStringOrDefault(reader, "ResultJson")
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SqliteDatabaseService] Replay query error: {ex.Message}");
+            }
+
+            return records;
         }
 
         public async Task<DetectionTracePage> GetTraceRecordPageAsync(DetectionTraceQuery query)
@@ -750,6 +1103,7 @@ namespace ClearFrost.Services
 
                 AddTextFilter(command, conditions, "InspectionId", query.InspectionId);
                 AddTextFilter(command, conditions, "ProductBarcode", query.ProductBarcode);
+                AddTextFilter(command, conditions, "RecipeVersion", query.RecipeVersion);
                 AddTextFilter(command, conditions, "ModelVersion", query.ModelVersion);
                 AddTextFilter(command, conditions, "ModelName", query.ModelName);
                 AddTextFilter(command, conditions, "CameraId", query.CameraId);
@@ -787,6 +1141,7 @@ namespace ClearFrost.Services
                         IsQualified,
                         InspectionId,
                         ProductBarcode,
+                        RecipeVersion,
                         ModelVersion,
                         ModelName,
                         CameraId,
@@ -794,7 +1149,9 @@ namespace ClearFrost.Services
                         RenderedImagePath,
                         ErrorStage,
                         ErrorCode,
-                        ErrorMessage
+                        ErrorMessage,
+                        RuleSummary,
+                        ResultJson
                     FROM DetectionRecords
                     {whereClause}
                     ORDER BY Timestamp DESC, Id DESC
@@ -822,6 +1179,7 @@ namespace ClearFrost.Services
                         IsQualified = GetInt32OrDefault(reader, "IsQualified") == 1,
                         InspectionId = GetStringOrDefault(reader, "InspectionId"),
                         ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
+                        RecipeVersion = GetStringOrDefault(reader, "RecipeVersion"),
                         ModelVersion = GetStringOrDefault(reader, "ModelVersion"),
                         ModelName = GetStringOrDefault(reader, "ModelName"),
                         CameraId = GetStringOrDefault(reader, "CameraId"),
@@ -829,7 +1187,9 @@ namespace ClearFrost.Services
                         RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
                         ErrorStage = GetStringOrDefault(reader, "ErrorStage"),
                         ErrorCode = GetStringOrDefault(reader, "ErrorCode"),
-                        ErrorMessage = GetStringOrDefault(reader, "ErrorMessage")
+                        ErrorMessage = GetStringOrDefault(reader, "ErrorMessage"),
+                        RuleSummary = GetStringOrDefault(reader, "RuleSummary"),
+                        ResultJson = GetStringOrDefault(reader, "ResultJson")
                     });
                     lastTimestamp = timestampText;
                     lastId = id;
@@ -979,6 +1339,63 @@ namespace ClearFrost.Services
                 out DateTime parsed)
                     ? parsed
                     : DateTime.MinValue;
+        }
+
+        private static DetectionRecord ReadDetectionRecord(SqliteDataReader reader)
+        {
+            return new DetectionRecord
+            {
+                Id = GetInt64OrDefault(reader, "Id"),
+                Timestamp = ParseTimestamp(GetStringOrDefault(reader, "Timestamp")),
+                IsQualified = GetInt32OrDefault(reader, "IsQualified") == 1,
+                InspectionId = GetStringOrDefault(reader, "InspectionId"),
+                TriggerSource = GetStringOrDefault(reader, "TriggerSource"),
+                TriggerSeq = GetNullableInt32(reader, "TriggerSeq"),
+                PlcTriggerSeq = GetNullableInt32(reader, "PlcTriggerSeq") ?? GetNullableInt32(reader, "TriggerSeq"),
+                ResultSeq = GetNullableInt32(reader, "ResultSeq"),
+                TerminalHandshakeAttempted = GetInt32OrDefault(reader, "TerminalHandshakeAttempted") == 1,
+                TerminalHandshakeSucceeded = GetInt32OrDefault(reader, "TerminalHandshakeSucceeded") == 1,
+                TerminalHandshakeErrorCode = GetStringOrDefault(reader, "TerminalHandshakeErrorCode"),
+                TerminalHandshakeSignalName = GetStringOrDefault(reader, "TerminalHandshakeSignalName"),
+                TerminalHandshakeAddress = GetStringOrDefault(reader, "TerminalHandshakeAddress"),
+                TerminalHandshakeMessage = GetStringOrDefault(reader, "TerminalHandshakeMessage"),
+                CycleSucceeded = GetInt32OrDefault(reader, "CycleSucceeded") == 1,
+                ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
+                Barcode = GetStringOrDefault(reader, "Barcode"),
+                BarcodeReadSucceeded = GetNullableBool(reader, "BarcodeReadSucceeded"),
+                BarcodeError = GetStringOrDefault(reader, "BarcodeError"),
+                TraceStatus = ParseTraceStatus(GetStringOrDefault(reader, "TraceStatus")),
+                QueueStatus = GetStringOrDefault(reader, "QueueStatus"),
+                ImagePath = GetStringOrDefault(reader, "ImagePath"),
+                RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
+                TraceImagePath = GetStringOrDefault(reader, "TraceImagePath"),
+                ErrorStage = GetStringOrDefault(reader, "ErrorStage"),
+                ErrorCode = GetStringOrDefault(reader, "ErrorCode"),
+                ErrorMessage = GetStringOrDefault(reader, "ErrorMessage"),
+                TotalMs = GetInt64OrDefault(reader, "TotalMs"),
+                CaptureMs = GetInt64OrDefault(reader, "CaptureMs"),
+                RoiMs = GetInt64OrDefault(reader, "RoiMs"),
+                PlcWriteMs = GetInt64OrDefault(reader, "PlcWriteMs"),
+                SaveImageMs = GetInt64OrDefault(reader, "SaveImageMs"),
+                SaveRecordMs = GetInt64OrDefault(reader, "SaveRecordMs"),
+                RecipeId = GetStringOrDefault(reader, "RecipeId"),
+                RecipeVersion = GetStringOrDefault(reader, "RecipeVersion"),
+                ModelId = GetStringOrDefault(reader, "ModelId"),
+                ModelVersion = GetStringOrDefault(reader, "ModelVersion"),
+                ModelHash = GetStringOrDefault(reader, "ModelHash"),
+                WasFallback = GetInt32OrDefault(reader, "WasFallback") == 1,
+                UsedModelName = GetStringOrDefault(reader, "UsedModelName"),
+                TargetLabel = GetStringOrDefault(reader, "TargetLabel"),
+                ExpectedCount = GetInt32OrDefault(reader, "ExpectedCount"),
+                ActualCount = GetInt32OrDefault(reader, "ActualCount"),
+                InferenceMs = GetInt32OrDefault(reader, "InferenceMs"),
+                ModelName = GetStringOrDefault(reader, "ModelName"),
+                CameraId = GetStringOrDefault(reader, "CameraId"),
+                RuleSummary = GetStringOrDefault(reader, "RuleSummary"),
+                RuleResultJson = GetStringOrDefault(reader, "RuleResultJson"),
+                RuleSetJson = GetStringOrDefault(reader, "RuleSetJson"),
+                ResultJson = GetStringOrDefault(reader, "ResultJson")
+            };
         }
 
         private static string GetStringOrDefault(SqliteDataReader reader, string columnName)

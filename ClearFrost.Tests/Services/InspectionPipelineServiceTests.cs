@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using ClearFrost.Config;
 using ClearFrost.Core.Inspection;
@@ -145,6 +146,103 @@ public class InspectionPipelineServiceTests
             database.SavedRecords[0].IsQualified.Should().BeFalse();
             database.SavedRecords[0].ErrorCode.Should().Be("NoBarcode");
             database.SavedRecords[0].TraceStatus.Should().Be(TraceStatus.Partial);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_模型追溯优先按运行时路径解析()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "packages");
+            string packageDir = Path.Combine(packageRoot, "packaged-model");
+            string bareOnnxDir = Path.Combine(tempDir, "onnx");
+            Directory.CreateDirectory(packageDir);
+            Directory.CreateDirectory(bareOnnxDir);
+
+            string packageModelPath = Path.Combine(packageDir, "model.onnx");
+            string bareModelPath = Path.Combine(bareOnnxDir, "model.onnx");
+            File.WriteAllBytes(packageModelPath, new byte[] { 1, 2, 3, 4 });
+            File.WriteAllBytes(bareModelPath, new byte[] { 9, 8, 7, 6 });
+            string packageHash = ComputeSha256(packageModelPath);
+            string bareHash = ComputeSha256(bareModelPath);
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                System.Text.Json.JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "packaged-model",
+                    Version = "2026.07",
+                    ModelFileName = "model.onnx",
+                    ModelHash = packageHash,
+                    Labels = new List<string> { "part" },
+                    TaskType = "Detect",
+                    InputWidth = 640,
+                    InputHeight = 640
+                }));
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                OnnxDirectory = bareOnnxDir
+            });
+            registry.Resolve("model.onnx")!.ModelId.Should().Be("packaged-model");
+
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            var camera = new FakeCameraService(new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService();
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
+                    UsedModelName = "model.onnx",
+                    UsedModelLabels = new[] { "part" }
+                },
+                RuntimeModelSnapshot = new DetectionRuntimeModelSnapshot
+                {
+                    Primary = new DetectionModelSlotSnapshot
+                    {
+                        Role = ModelRole.Primary,
+                        IsLoaded = true,
+                        ModelPath = bareModelPath
+                    }
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue,
+                modelRegistry: registry);
+            InspectionContext context = CreateContext("CF-MODEL-TRACE", triggerSeq: null);
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("手动", context.InspectionId, context.TriggerSeq, context),
+                default);
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeTrue();
+            database.SavedRecords.Should().ContainSingle();
+            DetectionRecord record = database.SavedRecords[0];
+            record.UsedModelName.Should().Be("model.onnx");
+            record.ModelId.Should().Be("model");
+            record.ModelVersion.Should().Be("legacy");
+            record.ModelHash.Should().Be(bareHash);
         }
         finally
         {
@@ -398,6 +496,184 @@ public class InspectionPipelineServiceTests
         }
     }
 
+    [Fact]
+    public async Task ExecuteAsync_HandshakeV1_开始阶段不重复TriggerAck且完成后恢复Ready()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            config.PlcProtocolMode = PlcProtocolMode.HandshakeV1;
+            config.PlcResultAckTimeoutMs = 50;
+            var camera = new FakeCameraService(new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService();
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
+                    UsedModelName = "primary.onnx",
+                    UsedModelLabels = new[] { "part" }
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue);
+            InspectionContext context = CreateContext("CF-HANDSHAKE-001", triggerSeq: 42, triggerSource: "PLC");
+            context.PlcTriggerAccepted = true;
+            plc.ReadSequence.Enqueue((true, 0));
+            plc.ReadSequence.Enqueue((true, 1));
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("PLC", context.InspectionId, context.TriggerSeq, context),
+                default);
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeTrue();
+            plc.Writes.Should().Contain(write => write.Address == config.PlcVisionBusyAddress && write.Value == 0);
+            plc.Writes.Should().Contain(write => write.Address == config.PlcResultAddress && write.Value == config.PlcOkValue);
+            plc.Writes.Should().ContainSingle(write => write.Address == config.PlcResultValidAddress && write.Value == 1);
+            plc.Writes.Should().Contain(write => write.Address == config.PlcTriggerAckAddress && write.Value == 0);
+            plc.Writes.Last(write => write.Address == config.PlcVisionReadyAddress).Value.Should().Be(1);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_HandshakeV1_取消时仍执行一次终态握手()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            config.PlcProtocolMode = PlcProtocolMode.HandshakeV1;
+            config.PlcResultAckTimeoutMs = 50;
+            var camera = new FakeCameraService(new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService();
+            plc.ReadSequence.Enqueue((true, 0));
+            plc.ReadSequence.Enqueue((true, 1));
+            var detection = new FakeDetectionService
+            {
+                ThrowOnDetect = new OperationCanceledException("cancelled")
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue);
+            InspectionContext context = CreateContext("CF-HANDSHAKE-CANCEL", triggerSeq: 43, triggerSource: "PLC");
+            context.PlcTriggerAccepted = true;
+
+            Func<Task> act = async () => await service.ExecuteAsync(
+                new InspectionPipelineRequest("PLC", context.InspectionId, context.TriggerSeq, context),
+                default);
+
+            await act.Should().ThrowAsync<OperationCanceledException>();
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            plc.Writes.Should().ContainSingle(write => write.Address == config.PlcResultValidAddress && write.Value == 1);
+            plc.Writes.Should().ContainSingle(write => write.Address == config.PlcInspectionDoneAddress && write.Value == 1);
+            plc.Writes.Last(write => write.Address == config.PlcVisionReadyAddress).Value.Should().Be(1);
+            database.SavedRecords.Should().ContainSingle();
+            DetectionRecord record = database.SavedRecords[0];
+            record.ErrorCode.Should().Be("OperationCanceled");
+            record.TerminalHandshakeAttempted.Should().BeTrue();
+            record.TerminalHandshakeSucceeded.Should().BeTrue();
+            record.CycleSucceeded.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_HandshakeV1_产品Ok但Ack超时_CycleSucceeded为False并持久化终态错误()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            AppConfig config = CreateConfig(tempDir, barcodeEnabled: false, barcodeRequired: false);
+            config.PlcProtocolMode = PlcProtocolMode.HandshakeV1;
+            config.PlcResultAckTimeoutMs = 1;
+            var camera = new FakeCameraService(new Mat(32, 32, MatType.CV_8UC3, Scalar.All(120)));
+            var plc = new FakePlcService();
+            plc.ReadSequence.Enqueue((true, 0));
+            var detection = new FakeDetectionService
+            {
+                DetectionResult = new DetectionResultData
+                {
+                    Results = new List<YoloResult> { Detection(16, 16, 8, 8, 0.95f, 0) },
+                    UsedModelName = "primary.onnx",
+                    UsedModelLabels = new[] { "part" }
+                }
+            };
+            var statistics = new FakeStatisticsService();
+            var database = new RecordingDatabaseService();
+            using var imageQueue = new ImageSaveQueue();
+            using var recordQueue = new DetectionRecordQueue(database);
+            InspectionPipelineService service = CreateService(
+                config,
+                camera,
+                plc,
+                detection,
+                statistics,
+                database,
+                imageQueue,
+                recordQueue);
+            InspectionContext context = CreateContext("CF-HANDSHAKE-ACK-TIMEOUT", triggerSeq: 44, triggerSource: "PLC");
+            context.PlcTriggerAccepted = true;
+
+            using InspectionPipelineResult result = await service.ExecuteAsync(
+                new InspectionPipelineRequest("PLC", context.InspectionId, context.TriggerSeq, context),
+                default);
+            await recordQueue.StopAsync();
+            await imageQueue.StopAsync();
+
+            result.FinalQualified.Should().BeTrue();
+            result.StatusLevel.Should().Be("error");
+            result.StatusMessage.Should().Contain("产品判定为 OK").And.Contain("PLC 终态失败");
+            context.TerminalHandshakeAttempted.Should().BeTrue();
+            context.TerminalHandshakeSucceeded.Should().BeFalse();
+            context.TerminalHandshakeErrorCode.Should().Be("HandshakeV1.AckTimeout");
+            context.CycleSucceeded.Should().BeFalse();
+            database.SavedRecords.Should().ContainSingle();
+            DetectionRecord record = database.SavedRecords[0];
+            record.IsQualified.Should().BeTrue();
+            record.TerminalHandshakeAttempted.Should().BeTrue();
+            record.TerminalHandshakeSucceeded.Should().BeFalse();
+            record.TerminalHandshakeErrorCode.Should().Be("HandshakeV1.AckTimeout");
+            record.CycleSucceeded.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static InspectionPipelineService CreateService(
         AppConfig config,
         FakeCameraService camera,
@@ -407,12 +683,13 @@ public class InspectionPipelineServiceTests
         RecordingDatabaseService database,
         ImageSaveQueue imageQueue,
         DetectionRecordQueue recordQueue,
-        float[]? roiSnapshot = null)
+        float[]? roiSnapshot = null,
+        ModelRegistry? modelRegistry = null)
     {
         var storage = new FakeStorageService(config.StoragePath);
         var recipeManager = new RecipeManager(Path.Combine(config.StoragePath, "default_recipe.json"));
         recipeManager.LoadOrCreateDefault(config);
-        var modelRegistry = new ModelRegistry();
+        modelRegistry ??= new ModelRegistry();
         var healthMonitor = new HealthMonitor(
             camera,
             plc,
@@ -484,6 +761,13 @@ public class InspectionPipelineServiceTests
         var result = new YoloResult();
         result.SetDetectionData(centerX, centerY, width, height, confidence, classId);
         return result;
+    }
+
+    private static string ComputeSha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var sha256 = SHA256.Create();
+        return Convert.ToHexString(sha256.ComputeHash(stream)).ToLowerInvariant();
     }
 
     private static string CreateTempDirectory()
@@ -600,6 +884,8 @@ public class InspectionPipelineServiceTests
         public string? LastError { get; init; }
         public string BarcodeValue { get; init; } = "SN-DEFAULT";
         public List<short> WrittenValues { get; } = new List<short>();
+        public List<(string Address, short Value)> Writes { get; } = new List<(string Address, short Value)>();
+        public Queue<(bool Success, short Value)> ReadSequence { get; } = new Queue<(bool Success, short Value)>();
         public int ReadStringCalls { get; private set; }
 
         public Task<bool> ConnectAsync(PlcConnectionOptions options) => Task.FromResult(true);
@@ -614,17 +900,31 @@ public class InspectionPipelineServiceTests
         }
 
         public void StopMonitoring() { }
-        public Task<bool> WriteResultAsync(string resultAddress, bool isQualified) => Task.FromResult(true);
+        public Task StopMonitoringAsync(System.Threading.CancellationToken cancellationToken = default)
+        {
+            StopMonitoring();
+            return Task.CompletedTask;
+        }
+        public Task<bool> WriteResultAsync(string resultAddress, bool isQualified)
+            => WriteResultAsync(resultAddress, (short)(isQualified ? 1 : 0));
 
         public Task<bool> WriteResultAsync(string resultAddress, short valueToWrite)
         {
+            Writes.Add((resultAddress, valueToWrite));
             WrittenValues.Add(valueToWrite);
             return Task.FromResult(true);
         }
 
         public Task<bool> WriteReleaseSignalAsync(string resultAddress) => Task.FromResult(true);
         public Task<(bool Success, short Value)> ReadWordAsync(string address)
-            => Task.FromResult((true, (short)1));
+        {
+            if (ReadSequence.Count > 0)
+            {
+                return Task.FromResult(ReadSequence.Dequeue());
+            }
+
+            return Task.FromResult((true, (short)0));
+        }
         public Task<(bool Success, string Value)> ReadStringAsync(string startAddress, int wordLength, string encodingName)
         {
             ReadStringCalls++;
@@ -645,6 +945,7 @@ public class InspectionPipelineServiceTests
             UsedModelName = "fake.onnx",
             UsedModelLabels = new[] { "part" }
         };
+        public Exception? ThrowOnDetect { get; init; }
 
         public int DetectMatCalls { get; private set; }
         public bool IsModelLoaded => true;
@@ -652,6 +953,7 @@ public class InspectionPipelineServiceTests
         public IReadOnlyList<string> AvailableModels => Array.Empty<string>();
         public long LastInferenceMs => 0;
         public DetectionRuntimeStatus RuntimeStatus { get; } = new DetectionRuntimeStatus();
+        public DetectionRuntimeModelSnapshot RuntimeModelSnapshot { get; init; } = new DetectionRuntimeModelSnapshot();
 
         public Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
         public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
@@ -665,6 +967,11 @@ public class InspectionPipelineServiceTests
             MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
             DetectMatCalls++;
+            if (ThrowOnDetect != null)
+            {
+                throw ThrowOnDetect;
+            }
+
             return Task.FromResult(DetectionResult);
         }
 
@@ -682,6 +989,7 @@ public class InspectionPipelineServiceTests
         public void SetEnableFallback(bool enabled) { }
         public Task<bool> LoadAuxiliary1ModelAsync(string modelPath) => Task.FromResult(true);
         public Task<bool> LoadAuxiliary2ModelAsync(string modelPath) => Task.FromResult(true);
+        public void UnloadPrimaryModel() { }
         public void UnloadAuxiliary1Model() { }
         public void UnloadAuxiliary2Model() { }
         public string[] GetLabels() => new[] { "part" };
@@ -729,6 +1037,7 @@ public class InspectionPipelineServiceTests
         public void SaveAll() { }
         public void ClearHistory() { }
         public void LoadAll() { }
+        public void UpdateStoragePath(string basePath) { }
         public (StatisticsHistory history, DetectionStatistics stats) GetStatisticsData() => (_history, _stats);
         public void Dispose() { }
     }
@@ -740,6 +1049,7 @@ public class InspectionPipelineServiceTests
             ImageBasePath = Path.Combine(basePath, "Images");
             LogBasePath = Path.Combine(basePath, "Logs");
             SystemPath = Path.Combine(basePath, "System");
+            BaseStoragePath = basePath;
             Directory.CreateDirectory(ImageBasePath);
             Directory.CreateDirectory(LogBasePath);
             Directory.CreateDirectory(SystemPath);
@@ -748,6 +1058,7 @@ public class InspectionPipelineServiceTests
         public string ImageBasePath { get; }
         public string LogBasePath { get; }
         public string SystemPath { get; }
+        public string BaseStoragePath { get; private set; }
         public List<string> DetectionLogs { get; } = new List<string>();
         public List<string> ErrorLogs { get; } = new List<string>();
 
@@ -760,6 +1071,7 @@ public class InspectionPipelineServiceTests
         public double GetDiskFreeSpaceGb() => 100.0;
         public double PerformEmergencyCleanup() => 100.0;
         public void EnsureDirectoriesExist() { }
+        public void UpdateStoragePath(string storagePath) => BaseStoragePath = storagePath;
         public void Dispose() { }
     }
 
@@ -778,11 +1090,20 @@ public class InspectionPipelineServiceTests
         public Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100)
             => Task.FromResult(new List<DetectionRecord>());
 
+        public Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id)
+            => Task.FromResult<DetectionRecord?>(null);
+
+        public Task<List<DetectionRecord>> GetDetectionRecordsByInspectionIdAsync(string inspectionId)
+            => Task.FromResult(new List<DetectionRecord>());
+
         public Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query)
             => Task.FromResult(new List<DetectionTraceRecord>());
 
         public Task<DetectionTracePage> GetTraceRecordPageAsync(DetectionTraceQuery query)
             => Task.FromResult(new DetectionTracePage());
+
+        public Task<List<DetectionRecord>> GetReplayRecordsAsync(DetectionReplayQuery query)
+            => Task.FromResult(new List<DetectionRecord>());
 
         public Task<List<string>> GetTraceDateKeysAsync(bool? isQualified = null, int limit = 60)
             => Task.FromResult(new List<string>());

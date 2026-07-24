@@ -11,6 +11,7 @@ namespace ClearFrost.Hardware
     public enum TriggerSource
     {
         PLC,
-        SerialPhotoelectric
+        SerialPhotoelectric,
+        Manual
     }
 }

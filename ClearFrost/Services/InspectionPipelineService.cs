@@ -18,6 +18,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Config;
+using ClearFrost.Core.DeepLearning;
 using ClearFrost.Core.Inspection;
 using ClearFrost.Core.Models;
 using ClearFrost.Core.Recipes;
@@ -109,8 +110,11 @@ namespace ClearFrost.Services
         public Mat? Frame { get; set; }
         public Mat? RenderedFrame { get; set; }
         public bool DetectionFailed { get; set; }
+        public bool ProductFlowSucceeded { get; set; }
         public object? DetectionMetrics { get; set; }
         public InspectionJudgeResult? JudgeResult { get; set; }
+        public DetectionPersistencePayload? PendingRecordPayload { get; set; }
+        public bool PendingRecordImageQueued { get; set; }
 
         public bool HasFrame => Frame != null && !Frame.Empty();
 
@@ -155,9 +159,12 @@ namespace ClearFrost.Services
         private readonly HealthMonitor _healthMonitor;
         private readonly Func<float[]?> _roiSnapshotProvider;
         private readonly Func<string> _activeCameraIdProvider;
+        private readonly IInspectionDecisionEvaluator _decisionEvaluator;
         private readonly Action<string>? _diagLog;
         private const int RuntimeCameraRecoverySettleMs = 150;
         private const int RuntimeCameraReconnectSettleMs = 250;
+        private const int ShortFrameQuickRetryCount = 2;
+        private const int ShortFrameQuickRetryDelayMs = 30;
 
         public InspectionPipelineService(
             AppConfig appConfig,
@@ -173,6 +180,7 @@ namespace ClearFrost.Services
             HealthMonitor healthMonitor,
             Func<float[]?> roiSnapshotProvider,
             Func<string> activeCameraIdProvider,
+            IInspectionDecisionEvaluator? decisionEvaluator = null,
             Action<string>? diagLog = null)
         {
             _appConfig = appConfig ?? throw new ArgumentNullException(nameof(appConfig));
@@ -188,6 +196,7 @@ namespace ClearFrost.Services
             _healthMonitor = healthMonitor ?? throw new ArgumentNullException(nameof(healthMonitor));
             _roiSnapshotProvider = roiSnapshotProvider ?? throw new ArgumentNullException(nameof(roiSnapshotProvider));
             _activeCameraIdProvider = activeCameraIdProvider ?? throw new ArgumentNullException(nameof(activeCameraIdProvider));
+            _decisionEvaluator = decisionEvaluator ?? new InspectionDecisionEvaluator();
             _diagLog = diagLog;
         }
 
@@ -206,6 +215,30 @@ namespace ClearFrost.Services
             };
 
             bool finalHandshakeWritten = false;
+            async Task CompleteTerminalHandshakeOnceAsync(bool isQualified)
+            {
+                if (finalHandshakeWritten || !ShouldWriteTerminalHandshake(context))
+                {
+                    context.CycleSucceeded = pipelineResult.ProductFlowSucceeded;
+                    return;
+                }
+
+                finalHandshakeWritten = true;
+                PlcHandshakeV1Result result = await WriteHandshakeDetectionCompletedAsync(context, isQualified).ConfigureAwait(false);
+                pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
+                ApplyTerminalHandshakeResult(pipelineResult, result);
+            }
+
+            async Task FinalizeTerminalAndRecordAsync()
+            {
+                await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
+                await CompleteTerminalHandshakeOnceAsync(pipelineResult.FinalQualified).ConfigureAwait(false);
+                pipelineResult.Timings.DbWriteMs = await EnqueuePendingDetectionRecordAsync(
+                    pipelineResult,
+                    progressAsync).ConfigureAwait(false);
+                await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
+            }
+
             try
             {
                 bool isManualTrigger = IsManualTriggerSource(request.TriggerSource);
@@ -218,8 +251,6 @@ namespace ClearFrost.Services
                         "info").ConfigureAwait(false);
                 }
 
-                await WriteHandshakeDetectionStartedAsync(context).ConfigureAwait(false);
-                pipelineResult.Timings.HandshakeStartMs = context.HandshakeStartMs;
                 await PublishUpdateAsync(
                     progressAsync,
                     context,
@@ -235,10 +266,7 @@ namespace ClearFrost.Services
                         progressAsync).ConfigureAwait(false);
                     if (shouldStop)
                     {
-                        await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
-                        await WriteHandshakeDetectionCompletedAsync(context, pipelineResult.FinalQualified).ConfigureAwait(false);
-                        pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
-                        finalHandshakeWritten = true;
+                        await FinalizeTerminalAndRecordAsync().ConfigureAwait(false);
                         return pipelineResult;
                     }
                 }
@@ -250,10 +278,7 @@ namespace ClearFrost.Services
                     cancellationToken).ConfigureAwait(false);
                 if (frameToProcess == null)
                 {
-                    await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
-                    await WriteHandshakeDetectionCompletedAsync(context, pipelineResult.FinalQualified).ConfigureAwait(false);
-                    pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
-                    finalHandshakeWritten = true;
+                    await FinalizeTerminalAndRecordAsync().ConfigureAwait(false);
                     return pipelineResult;
                 }
 
@@ -277,14 +302,30 @@ namespace ClearFrost.Services
                     }
                 }
 
-                await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
-                await WriteHandshakeDetectionCompletedAsync(context, pipelineResult.FinalQualified).ConfigureAwait(false);
-                pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
-                finalHandshakeWritten = true;
+                await FinalizeTerminalAndRecordAsync().ConfigureAwait(false);
                 return pipelineResult;
             }
             catch (OperationCanceledException)
             {
+                context.MarkFailed(context.CurrentStage, "OperationCanceled", "检测已取消");
+                pipelineResult.FinalQualified = false;
+                pipelineResult.FinalResultCount = 0;
+                pipelineResult.StatusMessage = "检测已取消";
+                pipelineResult.StatusLevel = "error";
+                pipelineResult.AddStage(context.CurrentStage, false, 0, "检测已取消", "OperationCanceled");
+                pipelineResult.PendingRecordPayload ??= BuildDetectionPersistencePayload(
+                    context,
+                    null,
+                    new List<YoloResult>(),
+                    0,
+                    false,
+                    JsonSerializer.Serialize(new
+                    {
+                        Error = "检测已取消",
+                        Stage = context.CurrentStage.ToString(),
+                        context.InspectionId
+                    }));
+                await FinalizeTerminalAndRecordAsync().ConfigureAwait(false);
                 throw;
             }
             catch (Exception ex)
@@ -303,8 +344,19 @@ namespace ClearFrost.Services
 
                 if (!finalHandshakeWritten)
                 {
-                    await WriteHandshakeDetectionCompletedAsync(context, false).ConfigureAwait(false);
-                    pipelineResult.Timings.HandshakeCompleteMs = context.HandshakeCompleteMs;
+                    pipelineResult.PendingRecordPayload ??= BuildDetectionPersistencePayload(
+                        context,
+                        null,
+                        new List<YoloResult>(),
+                        0,
+                        false,
+                        JsonSerializer.Serialize(new
+                        {
+                            Error = ex.Message,
+                            Stage = failedStage.ToString(),
+                            context.InspectionId
+                        }));
+                    await FinalizeTerminalAndRecordAsync().ConfigureAwait(false);
                 }
 
                 await FinalizePipelineAsync(pipelineResult).ConfigureAwait(false);
@@ -402,11 +454,7 @@ namespace ClearFrost.Services
                     context.InspectionId,
                     ProductBarcode = pipelineResult.ProductBarcode ?? string.Empty
                 }));
-            pipelineResult.Timings.DbWriteMs = await EnqueueDetectionRecordAsync(
-                context,
-                barcodeFailurePayload,
-                imageQueued: false,
-                progressAsync).ConfigureAwait(false);
+            SetPendingDetectionRecord(pipelineResult, barcodeFailurePayload, imageQueued: false);
             context.CurrentStage = InspectionStage.Failed;
             pipelineResult.FinalQualified = false;
             pipelineResult.FinalResultCount = 0;
@@ -444,11 +492,33 @@ namespace ClearFrost.Services
                         break;
                     }
 
+                    CameraCaptureFailureKind failureKind = GetCameraCaptureFailureKind();
+                    if (failureKind == CameraCaptureFailureKind.ShortFrame)
+                    {
+                        frameToProcess = await TryQuickRetryShortFrameAsync(
+                            request,
+                            context,
+                            progressAsync,
+                            cancellationToken).ConfigureAwait(false);
+                        if (frameToProcess != null)
+                        {
+                            break;
+                        }
+
+                        failureKind = GetCameraCaptureFailureKind();
+                    }
+
+                    bool forceReconnect = failureKind == CameraCaptureFailureKind.ShortFrame;
+                    string? recoveryReason = forceReconnect
+                        ? GetCameraErrorOrDefault("连续短帧")
+                        : null;
                     var recovery = await TryRecoverCameraForCaptureAsync(
                         request,
                         context,
                         progressAsync,
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken,
+                        forceReconnect,
+                        recoveryReason).ConfigureAwait(false);
                     if (recovery)
                     {
                         frameToProcess = _cameraService.CaptureFrame(3000);
@@ -533,11 +603,7 @@ namespace ClearFrost.Services
                     Stage = "Capture",
                     context.InspectionId
                 }));
-            pipelineResult.Timings.DbWriteMs = await EnqueueDetectionRecordAsync(
-                context,
-                captureFailurePayload,
-                imageQueued: false,
-                progressAsync).ConfigureAwait(false);
+            SetPendingDetectionRecord(pipelineResult, captureFailurePayload, imageQueued: false);
             context.CurrentStage = InspectionStage.Failed;
             pipelineResult.FinalQualified = false;
             pipelineResult.FinalResultCount = 0;
@@ -546,27 +612,81 @@ namespace ClearFrost.Services
             return null;
         }
 
-        private async Task<bool> TryRecoverCameraForCaptureAsync(
+        private async Task<Mat?> TryQuickRetryShortFrameAsync(
             InspectionPipelineRequest request,
             InspectionContext context,
             Func<InspectionPipelineProgress, Task>? progressAsync,
             CancellationToken cancellationToken)
         {
-            string firstError = GetCameraErrorOrDefault("取图失败");
-            DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机取图失败，尝试运行期恢复: {firstError}");
+            string firstError = GetCameraErrorOrDefault("SDK 返回短帧");
+            DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 相机短帧已丢弃，准备快速补拍: {firstError}");
             await PublishLogAsync(
                 progressAsync,
                 context,
-                $"相机取图失败，正在自动恢复: {firstError}",
+                $"相机返回短帧，已丢弃并快速补拍: {firstError}",
                 "warning").ConfigureAwait(false);
 
-            if (TryRestartCameraCapture(out string restartError))
+            for (int quickAttempt = 1; quickAttempt <= ShortFrameQuickRetryCount; quickAttempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (ShortFrameQuickRetryDelayMs > 0)
+                {
+                    await Task.Delay(ShortFrameQuickRetryDelayMs, cancellationToken).ConfigureAwait(false);
+                }
+
+                Mat? frame = _cameraService.CaptureFrame(3000);
+                CameraCaptureFailureKind failureKind = GetCameraCaptureFailureKind();
+                DiagLog(
+                    $"[{request.TriggerSource}] [{request.InspectionId}] 短帧快速补拍 {quickAttempt}/{ShortFrameQuickRetryCount}: {(frame != null ? "OK" : $"FAIL ({failureKind})")}");
+
+                if (frame != null)
+                {
+                    await PublishLogAsync(
+                        progressAsync,
+                        context,
+                        "短帧已丢弃，快速补拍成功",
+                        "info").ConfigureAwait(false);
+                    return frame;
+                }
+
+                if (failureKind != CameraCaptureFailureKind.ShortFrame)
+                {
+                    return null;
+                }
+            }
+
+            return null;
+        }
+
+        private async Task<bool> TryRecoverCameraForCaptureAsync(
+            InspectionPipelineRequest request,
+            InspectionContext context,
+            Func<InspectionPipelineProgress, Task>? progressAsync,
+            CancellationToken cancellationToken,
+            bool forceReconnect = false,
+            string? recoveryReason = null)
+        {
+            string firstError = string.IsNullOrWhiteSpace(recoveryReason)
+                ? GetCameraErrorOrDefault("取图失败")
+                : recoveryReason!;
+            string recoveryMessage = forceReconnect
+                ? $"相机连续返回短帧，正在重连相机: {firstError}"
+                : $"相机取图失败，正在自动恢复: {firstError}";
+            DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] {recoveryMessage}");
+            await PublishLogAsync(
+                progressAsync,
+                context,
+                recoveryMessage,
+                "warning").ConfigureAwait(false);
+
+            string restartError = string.Empty;
+            if (!forceReconnect && TryRestartCameraCapture(out restartError))
             {
                 await Task.Delay(RuntimeCameraRecoverySettleMs, cancellationToken).ConfigureAwait(false);
                 return true;
             }
 
-            if (!string.IsNullOrWhiteSpace(restartError))
+            if (!forceReconnect && !string.IsNullOrWhiteSpace(restartError))
             {
                 DiagLog($"[{request.TriggerSource}] [{request.InspectionId}] 恢复采集失败: {restartError}");
             }
@@ -583,7 +703,9 @@ namespace ClearFrost.Services
                 await PublishLogAsync(
                     progressAsync,
                     context,
-                    "相机采集未恢复，正在尝试重连相机",
+                    forceReconnect
+                        ? "连续短帧，正在尝试重连相机"
+                        : "相机采集未恢复，正在尝试重连相机",
                     "warning").ConfigureAwait(false);
 
                 if (_cameraService is CameraService concreteCameraService)
@@ -648,6 +770,24 @@ namespace ClearFrost.Services
             }
         }
 
+        private CameraCaptureFailureKind GetCameraCaptureFailureKind()
+        {
+            if (_cameraService is ICameraCaptureDiagnostics diagnostics)
+            {
+                return diagnostics.LastCaptureFailureKind;
+            }
+
+            return IsShortFrameError(_cameraService.LastError)
+                ? CameraCaptureFailureKind.ShortFrame
+                : CameraCaptureFailureKind.None;
+        }
+
+        private static bool IsShortFrameError(string? message)
+        {
+            return !string.IsNullOrWhiteSpace(message) &&
+                message.TrimStart().StartsWith("SDK 帧长度不足", StringComparison.Ordinal);
+        }
+
         private string GetCameraErrorOrDefault(string fallback)
         {
             return string.IsNullOrWhiteSpace(_cameraService.LastError)
@@ -676,17 +816,21 @@ namespace ClearFrost.Services
                 string ruleSetJson = InspectionRuleSetSerializer.Serialize(ruleSet);
                 InspectionFallbackGoal? fallbackGoal = InspectionRuleEngine.GetFallbackGoal(ruleSet);
                 float[]? roiSnapshot = _roiSnapshotProvider();
-                MultiModelCandidateEvaluator candidateEvaluator = CreateRuleCandidateEvaluator(
+                MultiModelCandidateEvaluator candidateEvaluator = _decisionEvaluator.CreateCandidateEvaluator(
                     ruleSet,
                     frameToProcess.Width,
                     frameToProcess.Height,
                     roiSnapshot);
-                DetectionResultData result = await _detectionService.DetectAsync(
-                    frameToProcess,
-                    _appConfig.Confidence,
-                    _appConfig.IouThreshold,
-                    fallbackGoal,
-                    candidateEvaluator).ConfigureAwait(false);
+                DetectionResultData result;
+                using (await DetectionRuntimeConcurrencyGate.EnterAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    result = await _detectionService.DetectAsync(
+                        frameToProcess,
+                        _appConfig.Confidence,
+                        _appConfig.IouThreshold,
+                        fallbackGoal,
+                        candidateEvaluator).ConfigureAwait(false);
+                }
                 ApplyRuleTraceSnapshot(result, ruleSetJson, fallbackGoal);
                 inferSw.Stop();
                 pipelineResult.Timings.InferenceMs = inferSw.ElapsedMilliseconds;
@@ -714,15 +858,47 @@ namespace ClearFrost.Services
 
                 context.CurrentStage = InspectionStage.RoiFilter;
                 var roiSw = Stopwatch.StartNew();
-                results = FilterResultsByROI(results, frameToProcess.Width, frameToProcess.Height, roiSnapshot);
+                InspectionDecisionResult decision = _decisionEvaluator.Evaluate(new InspectionDecisionRequest
+                {
+                    RuleSet = ruleSet,
+                    Detections = results,
+                    Labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>(),
+                    ImageWidth = frameToProcess.Width,
+                    ImageHeight = frameToProcess.Height,
+                    Roi = roiSnapshot
+                });
+                results = decision.FilteredDetections.ToList();
                 roiSw.Stop();
                 pipelineResult.Timings.RoiFilterMs = roiSw.ElapsedMilliseconds;
                 context.RoiMs = pipelineResult.Timings.RoiFilterMs;
                 pipelineResult.FinalResultCount = results.Count;
-                pipelineResult.AddStage(InspectionStage.RoiFilter, true, roiSw.ElapsedMilliseconds, $"ROI 后目标数: {results.Count}");
+                pipelineResult.AddStage(
+                    InspectionStage.RoiFilter,
+                    decision.Succeeded,
+                    roiSw.ElapsedMilliseconds,
+                    decision.Succeeded ? $"ROI 后目标数: {results.Count}" : decision.Message,
+                    decision.Succeeded ? null : decision.ErrorCode);
 
                 string[] labels = result.UsedModelLabels ?? _detectionService.GetLabels() ?? Array.Empty<string>();
-                if (detectionFailed)
+                if (!decision.Succeeded)
+                {
+                    isQualified = false;
+                    result.JudgeResult = decision.JudgeResult;
+                    pipelineResult.JudgeResult = decision.JudgeResult;
+                    result.IsRuleEvaluated = true;
+                    result.IsQualified = false;
+                    if (string.IsNullOrWhiteSpace(context.ErrorCode))
+                    {
+                        context.SetError(InspectionStage.RoiFilter, decision.ErrorCode, decision.Message);
+                    }
+
+                    await PublishLogAsync(
+                        progressAsync,
+                        context,
+                        $"ROI/规则判定失败({request.InspectionId})，已强制判定为不合格: {decision.Message}",
+                        "error").ConfigureAwait(false);
+                }
+                else if (detectionFailed)
                 {
                     isQualified = false;
                     if (string.IsNullOrWhiteSpace(context.ErrorCode))
@@ -738,7 +914,7 @@ namespace ClearFrost.Services
                 }
                 else
                 {
-                    InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(ruleSet, results, labels);
+                    InspectionJudgeResult judgeResult = decision.JudgeResult;
                     result.JudgeResult = judgeResult;
                     pipelineResult.JudgeResult = judgeResult;
                     result.IsRuleEvaluated = true;
@@ -762,6 +938,7 @@ namespace ClearFrost.Services
                 }
 
                 pipelineResult.FinalQualified = isQualified;
+                pipelineResult.ProductFlowSucceeded = !detectionFailed;
                 context.ResultSeq = context.TriggerSeq;
 
                 await ExecutePlcResultWriteStageAsync(
@@ -774,7 +951,7 @@ namespace ClearFrost.Services
                 Mat? renderedMat = TryRenderDetectionMat(frameToProcess, results, labels);
                 _statisticsService.RecordDetection(isQualified);
 
-                string objDesc = GetDetailedDetectionLog(results, labels);
+                string objDesc = GetDetailedDetectionLog(results, labels, result.JudgeResult);
                 string modelInfo = BuildFallbackStatus(result);
                 string ruleInfo = BuildRuleStatus(result.JudgeResult);
                 pipelineResult.StatusMessage = detectionFailed
@@ -854,11 +1031,7 @@ namespace ClearFrost.Services
                         Stage = failedStage.ToString(),
                         context.InspectionId
                     }));
-                pipelineResult.Timings.DbWriteMs = await EnqueueDetectionRecordAsync(
-                    context,
-                    errorPayload,
-                    errorImageQueued,
-                    progressAsync).ConfigureAwait(false);
+                SetPendingDetectionRecord(pipelineResult, errorPayload, errorImageQueued);
                 context.CurrentStage = InspectionStage.Failed;
                 pipelineResult.FinalQualified = false;
                 pipelineResult.FinalResultCount = 0;
@@ -884,11 +1057,7 @@ namespace ClearFrost.Services
             {
                 persistencePayload.TotalMs = context.TotalMs;
                 persistencePayload.SaveImageMs = context.SaveImageMs;
-                pipelineResult.Timings.DbWriteMs = await EnqueueDetectionRecordAsync(
-                    context,
-                    persistencePayload,
-                    imageQueuedForRecord,
-                    progressAsync).ConfigureAwait(false);
+                SetPendingDetectionRecord(pipelineResult, persistencePayload, imageQueuedForRecord);
             }
             else
             {
@@ -1104,6 +1273,44 @@ namespace ClearFrost.Services
             return (imageQueued, context.SaveImageMs);
         }
 
+        private static void SetPendingDetectionRecord(
+            InspectionPipelineResult pipelineResult,
+            DetectionPersistencePayload payload,
+            bool imageQueued)
+        {
+            InspectionContext context = pipelineResult.Context;
+            pipelineResult.PendingRecordPayload = payload;
+            pipelineResult.PendingRecordImageQueued = imageQueued;
+            context.TraceStatus = ResolveTraceStatus(imageQueued, recordQueued: false);
+            payload.TraceStatus = context.TraceStatus;
+            payload.QueueStatus = BuildQueueStatus(context, imageQueued, recordQueued: false);
+        }
+
+        private async Task<long> EnqueuePendingDetectionRecordAsync(
+            InspectionPipelineResult pipelineResult,
+            Func<InspectionPipelineProgress, Task>? progressAsync)
+        {
+            if (pipelineResult.PendingRecordPayload == null)
+            {
+                return 0;
+            }
+
+            DetectionPersistencePayload payload = pipelineResult.PendingRecordPayload;
+            InspectionContext context = pipelineResult.Context;
+            payload.TerminalHandshakeAttempted = context.TerminalHandshakeAttempted;
+            payload.TerminalHandshakeSucceeded = context.TerminalHandshakeSucceeded;
+            payload.TerminalHandshakeErrorCode = context.TerminalHandshakeErrorCode;
+            payload.TerminalHandshakeSignalName = context.TerminalHandshakeSignalName;
+            payload.TerminalHandshakeAddress = context.TerminalHandshakeAddress;
+            payload.TerminalHandshakeMessage = context.TerminalHandshakeMessage;
+            payload.CycleSucceeded = context.CycleSucceeded;
+            return await EnqueueDetectionRecordAsync(
+                context,
+                payload,
+                pipelineResult.PendingRecordImageQueued,
+                progressAsync).ConfigureAwait(false);
+        }
+
         private async Task<long> EnqueueDetectionRecordAsync(
             InspectionContext context,
             DetectionPersistencePayload payload,
@@ -1113,12 +1320,16 @@ namespace ClearFrost.Services
             context.CurrentStage = InspectionStage.SaveRecord;
             payload.ImagePath = context.ImagePath ?? string.Empty;
             payload.RenderedImagePath = context.RenderedImagePath ?? string.Empty;
+            payload.TraceImagePath = string.IsNullOrWhiteSpace(context.RenderedImagePath)
+                ? context.ImagePath ?? string.Empty
+                : context.RenderedImagePath;
             payload.ErrorStage = context.ErrorStage ?? string.Empty;
             payload.ErrorCode = context.ErrorCode ?? string.Empty;
             payload.ErrorMessage = context.ErrorMessage ?? string.Empty;
             payload.TotalMs = context.TotalMs;
             payload.SaveImageMs = context.SaveImageMs;
             payload.TraceStatus = ResolveTraceStatus(imageQueued, recordQueued: true);
+            payload.QueueStatus = BuildQueueStatus(context, imageQueued, recordQueued: true);
 
             var dbSw = Stopwatch.StartNew();
             bool dbQueued = _detectionRecordQueue.Enqueue(payload);
@@ -1126,6 +1337,7 @@ namespace ClearFrost.Services
             context.SaveRecordMs = dbSw.ElapsedMilliseconds;
             payload.SaveRecordMs = context.SaveRecordMs;
             context.TraceStatus = ResolveTraceStatus(imageQueued, dbQueued);
+            payload.QueueStatus = BuildQueueStatus(context, imageQueued, dbQueued);
             context.RecordQueuePending = _detectionRecordQueue.PendingCount;
 
             if (!dbQueued)
@@ -1152,7 +1364,9 @@ namespace ClearFrost.Services
             string? resultJsonOverride = null)
         {
             string usedModelName = result?.UsedModelName ?? _detectionService.CurrentModelName;
-            ModelRegistryEntry? modelEntry = _modelRegistry.Resolve(usedModelName);
+            ModelRegistryEntry? modelEntry = ResolveRuntimeModelRegistryEntry(
+                usedModelName,
+                result?.WasFallback ?? false);
             string fallbackModelId = string.IsNullOrWhiteSpace(usedModelName)
                 ? string.Empty
                 : Path.GetFileNameWithoutExtension(usedModelName);
@@ -1171,13 +1385,26 @@ namespace ClearFrost.Services
                 InspectionId = context.InspectionId,
                 TriggerSource = context.TriggerSource,
                 TriggerSeq = context.TriggerSeq,
+                PlcTriggerSeq = context.TriggerSeq,
                 ResultSeq = context.ResultSeq,
+                TerminalHandshakeAttempted = context.TerminalHandshakeAttempted,
+                TerminalHandshakeSucceeded = context.TerminalHandshakeSucceeded,
+                TerminalHandshakeErrorCode = context.TerminalHandshakeErrorCode,
+                TerminalHandshakeSignalName = context.TerminalHandshakeSignalName,
+                TerminalHandshakeAddress = context.TerminalHandshakeAddress,
+                TerminalHandshakeMessage = context.TerminalHandshakeMessage,
+                CycleSucceeded = context.CycleSucceeded,
                 ProductBarcode = context.ProductBarcode ?? string.Empty,
+                Barcode = context.ProductBarcode ?? string.Empty,
                 BarcodeReadSucceeded = context.BarcodeReadSucceeded,
                 BarcodeError = context.BarcodeError ?? string.Empty,
                 TraceStatus = context.TraceStatus,
+                QueueStatus = BuildQueueStatus(context, imageQueued: false, recordQueued: false),
                 ImagePath = context.ImagePath ?? string.Empty,
                 RenderedImagePath = context.RenderedImagePath ?? string.Empty,
+                TraceImagePath = string.IsNullOrWhiteSpace(context.RenderedImagePath)
+                    ? context.ImagePath ?? string.Empty
+                    : context.RenderedImagePath,
                 ErrorStage = context.ErrorStage ?? string.Empty,
                 ErrorCode = context.ErrorCode ?? string.Empty,
                 ErrorMessage = context.ErrorMessage ?? string.Empty,
@@ -1203,143 +1430,148 @@ namespace ClearFrost.Services
                 RuleSummary = result?.JudgeResult?.Summary ?? string.Empty,
                 RuleResultJson = SerializeRuleResults(result?.JudgeResult),
                 RuleSetJson = ruleSetJson,
-                ResultJson = resultJsonOverride ?? SerializeDetectionResults(results)
+                ResultJson = resultJsonOverride ?? SerializeDetectionResults(results, result?.UsedModelLabels)
             };
         }
 
-        private async Task WriteHandshakeDetectionStartedAsync(InspectionContext context)
+        private ModelRegistryEntry? ResolveRuntimeModelRegistryEntry(string? usedModelName, bool wasFallback)
         {
-            if (!ShouldUsePlcIo())
+            foreach (DetectionModelSlotSnapshot slot in EnumerateRuntimeSlots(wasFallback))
             {
-                return;
+                if (!slot.IsLoaded || string.IsNullOrWhiteSpace(slot.ModelPath))
+                {
+                    continue;
+                }
+
+                if (!ModelNameMatchesSlot(usedModelName, slot.ModelPath))
+                {
+                    continue;
+                }
+
+                ModelRegistryEntry? entry = _modelRegistry.Resolve(slot.ModelPath);
+                if (entry != null)
+                {
+                    return entry;
+                }
             }
 
-            if (_appConfig.PlcProtocolMode != PlcProtocolMode.HandshakeV1)
-            {
-                return;
-            }
-
-            var handshakeSw = Stopwatch.StartNew();
-            await WriteHandshakeWordAsync(_appConfig.PlcVisionOnlineAddress, 1, "VisionOnline", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcVisionReadyAddress, 1, "VisionReady", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcVisionBusyAddress, 1, "VisionBusy", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcInspectionDoneAddress, 0, "InspectionDone", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcResultValidAddress, 0, "ResultValid", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcTraceSavedAddress, 0, "TraceSaved", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcErrorCodeAddress, 0, "ErrorCode", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(
-                _appConfig.PlcTriggerAckAddress,
-                context.TriggerSeq.HasValue ? ClampIntToShort(context.TriggerSeq.Value) : (short)1,
-                "TriggerAck",
-                context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcHeartbeatAddress, 1, "Heartbeat", context).ConfigureAwait(false);
-            handshakeSw.Stop();
-            context.HandshakeStartMs = handshakeSw.ElapsedMilliseconds;
+            return _modelRegistry.Resolve(usedModelName);
         }
 
-        private async Task WriteHandshakeDetectionCompletedAsync(InspectionContext context, bool isQualified)
+        private IEnumerable<DetectionModelSlotSnapshot> EnumerateRuntimeSlots(bool wasFallback)
         {
-            if (!ShouldUsePlcIo())
+            DetectionRuntimeModelSnapshot snapshot = _detectionService.RuntimeModelSnapshot;
+            if (wasFallback)
             {
-                return;
+                yield return snapshot.Auxiliary1;
+                yield return snapshot.Auxiliary2;
+                yield return snapshot.Primary;
             }
-
-            if (_appConfig.PlcProtocolMode != PlcProtocolMode.HandshakeV1)
+            else
             {
-                return;
+                yield return snapshot.Primary;
+                yield return snapshot.Auxiliary1;
+                yield return snapshot.Auxiliary2;
             }
-
-            var handshakeSw = Stopwatch.StartNew();
-            if (!context.ResultSeq.HasValue && context.TriggerSeq.HasValue)
-            {
-                context.ResultSeq = context.TriggerSeq;
-            }
-
-            short errorCode = MapHandshakeErrorCode(context);
-            short traceSaved = context.TraceStatus is TraceStatus.Queued or TraceStatus.Full ? (short)1 : (short)0;
-
-            await WriteHandshakeWordAsync(_appConfig.PlcVisionBusyAddress, 0, "VisionBusy", context).ConfigureAwait(false);
-            if (context.ResultSeq.HasValue)
-            {
-                await WriteHandshakeWordAsync(
-                    _appConfig.PlcResultSeqAddress,
-                    ClampIntToShort(context.ResultSeq.Value),
-                    "ResultSeq",
-                    context).ConfigureAwait(false);
-            }
-
-            await WriteHandshakeWordAsync(_appConfig.PlcErrorCodeAddress, errorCode, "ErrorCode", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcTraceSavedAddress, traceSaved, "TraceSaved", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcResultValidAddress, 1, "ResultValid", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcInspectionDoneAddress, 1, "InspectionDone", context).ConfigureAwait(false);
-            await WriteHandshakeWordAsync(_appConfig.PlcHeartbeatAddress, 1, "Heartbeat", context).ConfigureAwait(false);
-            await WaitForPlcResultAckAsync(context).ConfigureAwait(false);
-            handshakeSw.Stop();
-            context.HandshakeCompleteMs = handshakeSw.ElapsedMilliseconds;
-
-            DiagLog($"HandshakeV1完成[{context.InspectionId}]: Result={(isQualified ? "OK" : "NG")}, ResultSeq={context.ResultSeq?.ToString() ?? "-"}, TraceSaved={traceSaved}, ErrorCode={errorCode}");
         }
 
-        private async Task<bool> WriteHandshakeWordAsync(
-            string address,
-            short value,
-            string signalName,
-            InspectionContext context)
+        private static bool ModelNameMatchesSlot(string? usedModelName, string modelPath)
         {
-            if (string.IsNullOrWhiteSpace(address))
+            if (string.IsNullOrWhiteSpace(usedModelName) || string.IsNullOrWhiteSpace(modelPath))
             {
                 return false;
             }
 
+            string used = usedModelName.Trim();
+            if (IsPathLike(used))
+            {
+                return string.Equals(
+                    GetFullPathSafe(used),
+                    GetFullPathSafe(modelPath),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            string usedFileName = Path.GetFileName(used);
+            string slotFileName = Path.GetFileName(modelPath);
+            return string.Equals(usedFileName, slotFileName, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(
+                       Path.GetFileNameWithoutExtension(usedFileName),
+                       Path.GetFileNameWithoutExtension(slotFileName),
+                       StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsPathLike(string value)
+        {
+            return Path.IsPathRooted(value) ||
+                   value.Contains(Path.DirectorySeparatorChar) ||
+                   value.Contains(Path.AltDirectorySeparatorChar);
+        }
+
+        private static string GetFullPathSafe(string value)
+        {
             try
             {
-                bool success = await _plcService.WriteResultAsync(address, value).ConfigureAwait(false);
-                if (!success)
-                {
-                    string message = $"HandshakeV1写入失败: {signalName}@{address}={value}";
-                    DiagLog($"[{context.TriggerSource}] [{context.InspectionId}] {message}");
-                    RecordHealthError("PLC.HandshakeV1", message, context.InspectionId);
-                }
-
-                return success;
+                return Path.GetFullPath(value);
             }
-            catch (Exception ex)
+            catch
             {
-                string message = $"HandshakeV1写入异常: {signalName}@{address}={value}, {ex.Message}";
-                DiagLog($"[{context.TriggerSource}] [{context.InspectionId}] {message}");
-                RecordHealthError("PLC.HandshakeV1", message, context.InspectionId);
-                return false;
+                return value;
             }
         }
 
-        private async Task WaitForPlcResultAckAsync(InspectionContext context)
+        private void ApplyTerminalHandshakeResult(
+            InspectionPipelineResult pipelineResult,
+            PlcHandshakeV1Result result)
         {
-            if (string.IsNullOrWhiteSpace(_appConfig.PlcResultAckAddress) ||
-                _appConfig.PlcResultAckTimeoutMs <= 0)
-            {
-                return;
-            }
+            InspectionContext context = pipelineResult.Context;
+            context.TerminalHandshakeAttempted = true;
+            context.TerminalHandshakeSucceeded = result.Succeeded;
+            context.TerminalHandshakeErrorCode = result.ErrorCode ?? string.Empty;
+            context.TerminalHandshakeSignalName = result.SignalName ?? string.Empty;
+            context.TerminalHandshakeAddress = result.Address ?? string.Empty;
+            context.TerminalHandshakeMessage = result.Message ?? string.Empty;
+            context.CycleSucceeded = pipelineResult.ProductFlowSucceeded && result.Succeeded;
 
-            var sw = Stopwatch.StartNew();
-            int timeoutMs = Math.Clamp(_appConfig.PlcResultAckTimeoutMs, 0, 30000);
-            while (sw.ElapsedMilliseconds <= timeoutMs)
+            if (!result.Succeeded)
             {
-                var (success, value) = await _plcService.ReadWordAsync(_appConfig.PlcResultAckAddress).ConfigureAwait(false);
-                if (success && value != 0)
+                string productJudgement = pipelineResult.FinalQualified ? "OK" : "NG";
+                pipelineResult.StatusLevel = "error";
+                pipelineResult.StatusMessage =
+                    $"产品判定为 {productJudgement}，但 PLC 终态失败: [{result.ErrorCode}] {result.Message}";
+            }
+        }
+
+        private async Task<PlcHandshakeV1Result> WriteHandshakeDetectionCompletedAsync(InspectionContext context, bool isQualified)
+        {
+            if (!ShouldWriteTerminalHandshake(context))
+            {
+                return new PlcHandshakeV1Result
                 {
-                    await WriteHandshakeWordAsync(_appConfig.PlcResultValidAddress, 0, "ResultValid.Reset", context).ConfigureAwait(false);
-                    await WriteHandshakeWordAsync(_appConfig.PlcInspectionDoneAddress, 0, "InspectionDone.Reset", context).ConfigureAwait(false);
-                    await WriteHandshakeWordAsync(_appConfig.PlcTriggerAckAddress, 0, "TriggerAck.Reset", context).ConfigureAwait(false);
-                    DiagLog($"HandshakeV1收到PLC ResultAck[{context.InspectionId}]: Ack={value}");
-                    return;
-                }
-
-                await Task.Delay(50).ConfigureAwait(false);
+                    Succeeded = true,
+                    Message = "HandshakeV1 skipped."
+                };
             }
 
-            string message = $"HandshakeV1等待PLC ResultAck超时: {_appConfig.PlcResultAckAddress}, {timeoutMs}ms";
-            DiagLog($"[{context.TriggerSource}] [{context.InspectionId}] {message}");
-            RecordHealthError("PLC.HandshakeV1", message, context.InspectionId);
+            var coordinator = new PlcHandshakeV1Coordinator(_plcService, DiagLog);
+            PlcHandshakeV1Result result = await coordinator.CompleteInspectionAsync(
+                PlcHandshakeV1Addresses.FromConfig(_appConfig),
+                context,
+                isQualified).ConfigureAwait(false);
+            context.HandshakeCompleteMs = result.ElapsedMs;
+            if (!result.Succeeded)
+            {
+                RecordHealthError("PLC.HandshakeV1", result.Message, context.InspectionId);
+            }
+
+            DiagLog($"HandshakeV1完成[{context.InspectionId}]: Result={(isQualified ? "OK" : "NG")}, ResultSeq={context.ResultSeq?.ToString() ?? "-"}, Ack={result.ResultAckReceived}");
+            return result;
+        }
+
+        private bool ShouldWriteTerminalHandshake(InspectionContext context)
+        {
+            return context.PlcTriggerAccepted &&
+                   ShouldUsePlcIo() &&
+                   _appConfig.PlcProtocolMode == PlcProtocolMode.HandshakeV1;
         }
 
         private async Task<bool> WriteDetectionResultToPlcAsync(
@@ -1367,6 +1599,12 @@ namespace ClearFrost.Services
                     $"PLC未连接，检测结果未写入({context.InspectionId})",
                     "error").ConfigureAwait(false);
                 return false;
+            }
+
+            if (_appConfig.PlcProtocolMode == PlcProtocolMode.HandshakeV1)
+            {
+                DiagLog($"[{context.TriggerSource}] [{context.InspectionId}] HandshakeV1结果写入延迟到终态握手");
+                return true;
             }
 
             try
@@ -1521,6 +1759,18 @@ namespace ClearFrost.Services
             };
         }
 
+        private static string BuildQueueStatus(InspectionContext context, bool imageQueued, bool recordQueued)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                TraceStatus = ResolveTraceStatus(imageQueued, recordQueued).ToString(),
+                ImageQueued = imageQueued,
+                RecordQueued = recordQueued,
+                ImageQueuePending = context.ImageQueuePending,
+                RecordQueuePending = context.RecordQueuePending
+            });
+        }
+
         private static string SerializeHealthSnapshot(HealthSnapshot snapshot)
         {
             return JsonSerializer.Serialize(snapshot, new JsonSerializerOptions
@@ -1529,19 +1779,16 @@ namespace ClearFrost.Services
             });
         }
 
-        private static string GetDetailedDetectionLog(List<YoloResult> results, string[]? labels)
+        private static string GetDetailedDetectionLog(
+            List<YoloResult> results,
+            string[]? labels,
+            InspectionJudgeResult? judgeResult = null)
         {
-            if (results == null || results.Count == 0) return "未检测到目标";
-
-            var details = results.Select(r =>
-            {
-                string label = (labels != null && r.ClassId >= 0 && r.ClassId < labels.Length)
-                    ? labels[r.ClassId]
-                    : $"Class_{r.ClassId}";
-                return $"{label} {r.Confidence:F2}";
-            });
-
-            return $"Found {results.Count}: {string.Join(", ", details)}";
+            return DeepLearningResultSummarizer.CreateTaskAwareLogSummary(
+                results,
+                labels,
+                judgeResult?.IsQualified,
+                GetRulePrimaryReason(judgeResult));
         }
 
         private static string BuildRuleStatus(InspectionJudgeResult? judgeResult)
@@ -1615,71 +1862,6 @@ namespace ClearFrost.Services
             result.ExpectedCount = fallbackGoal?.TargetCount ?? 0;
         }
 
-        private static MultiModelCandidateEvaluator CreateRuleCandidateEvaluator(
-            InspectionRuleSet ruleSet,
-            int imageWidth,
-            int imageHeight,
-            float[]? roiSnapshot)
-        {
-            return candidate =>
-            {
-                var rawResults = candidate.Results?.ToList() ?? new List<YoloResult>();
-                List<YoloResult> filteredResults = FilterResultsByROI(rawResults, imageWidth, imageHeight, roiSnapshot);
-                InspectionJudgeResult judgeResult = InspectionRuleEngine.Evaluate(ruleSet, filteredResults, candidate.Labels);
-
-                return new MultiModelCandidateEvaluation
-                {
-                    IsMatch = judgeResult.IsQualified,
-                    Score = ScoreRuleCandidate(judgeResult, filteredResults.Count),
-                    Summary = judgeResult.Summary
-                };
-            };
-        }
-
-        private static int ScoreRuleCandidate(InspectionJudgeResult judgeResult, int filteredCount)
-        {
-            int matchedRules = judgeResult.RuleResults.Count(result => result.IsMatch);
-            int failedRules = judgeResult.RuleResults.Count - matchedRules;
-            int score = matchedRules * 1000 - failedRules * 100 + Math.Min(filteredCount, 100);
-            return judgeResult.IsQualified ? score + 1_000_000 : score;
-        }
-
-        private static List<YoloResult> FilterResultsByROI(
-            List<YoloResult> results,
-            int imageWidth,
-            int imageHeight,
-            float[]? roi)
-        {
-            if (roi == null || roi.Length != 4 || roi[2] <= 0.001f || roi[3] <= 0.001f)
-            {
-                return results;
-            }
-
-            float roiX = roi[0] * imageWidth;
-            float roiY = roi[1] * imageHeight;
-            float roiW = roi[2] * imageWidth;
-            float roiH = roi[3] * imageHeight;
-
-            Debug.WriteLine($"[ROI过滤] ROI区域: X={roiX:F0}, Y={roiY:F0}, W={roiW:F0}, H={roiH:F0}");
-
-            var filtered = results.Where(r =>
-            {
-                float centerX = r.CenterX;
-                float centerY = r.CenterY;
-                bool inROI = centerX >= roiX && centerX <= roiX + roiW &&
-                             centerY >= roiY && centerY <= roiY + roiH;
-                if (!inROI)
-                {
-                    Debug.WriteLine($"[ROI过滤] 过滤掉: 中心点({centerX:F0},{centerY:F0}) 不在ROI内");
-                }
-
-                return inROI;
-            }).ToList();
-
-            Debug.WriteLine($"[ROI过滤] 过滤前: {results.Count} 个, 过滤后: {filtered.Count} 个");
-            return filtered;
-        }
-
         private static int ClampLongToInt(long value)
         {
             if (value > int.MaxValue)
@@ -1695,7 +1877,7 @@ namespace ClearFrost.Services
             return (int)value;
         }
 
-        private static string SerializeDetectionResults(IEnumerable<YoloResult> results)
+        private static string SerializeDetectionResults(IEnumerable<YoloResult> results, IReadOnlyList<string>? labels)
         {
             List<YoloResult> resultList = results?.ToList() ?? new List<YoloResult>();
             if (resultList.Count == 0)
@@ -1703,18 +1885,27 @@ namespace ClearFrost.Services
                 return string.Empty;
             }
 
-            return JsonSerializer.Serialize(resultList.Select(r => new
+            return JsonSerializer.Serialize(new
             {
-                r.ClassId,
-                r.Confidence,
-                BoundingBox = new
+                Results = resultList.Select(r => new
                 {
-                    X = r.BoundingBox.X,
-                    Y = r.BoundingBox.Y,
-                    Width = r.BoundingBox.Width,
-                    Height = r.BoundingBox.Height
-                }
-            }));
+                    DataKind = r.DataKind.ToString(),
+                    r.ClassId,
+                    Label = DeepLearningResultSummarizer.ResolveLabel(r.ClassId, labels),
+                    r.Confidence,
+                    r.Angle,
+                    HasMask = r.MaskData != null && !r.MaskData.Empty(),
+                    KeyPointCount = r.KeyPoints?.Length ?? 0,
+                    BoundingBox = new
+                    {
+                        X = r.BoundingBox.X,
+                        Y = r.BoundingBox.Y,
+                        Width = r.BoundingBox.Width,
+                        Height = r.BoundingBox.Height
+                    }
+                }),
+                DeepLearningSummary = DeepLearningResultSummarizer.CreateTraceSummary(resultList, labels)
+            });
         }
 
         private static string SerializeRuleResults(InspectionJudgeResult? judgeResult)
@@ -1854,33 +2045,7 @@ namespace ClearFrost.Services
             return (short)value;
         }
 
-        private string BaseStoragePath
-        {
-            get
-            {
-                string? path = _appConfig.StoragePath;
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    return @"C:\GreeVisionData";
-                }
-
-                try
-                {
-                    string? root = Path.GetPathRoot(path);
-                    if (!string.IsNullOrEmpty(root) && !Directory.Exists(root))
-                    {
-                        return @"C:\GreeVisionData";
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Error checking drive: {ex.Message}");
-                    return @"C:\GreeVisionData";
-                }
-
-                return path;
-            }
-        }
+        private string BaseStoragePath => _storageService.BaseStoragePath;
 
         private string Path_Images => Path.Combine(BaseStoragePath, "Images");
 

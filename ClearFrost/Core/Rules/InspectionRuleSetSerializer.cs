@@ -137,6 +137,15 @@ namespace ClearFrost.Core.Rules
                 rule.Operator = NormalizeOperator(rule.Operator);
                 rule.Count = Math.Max(0, rule.Count);
                 rule.MinConfidence = Math.Clamp(rule.MinConfidence, 0.0, 1.0);
+                rule.ExpectedLabel = rule.ExpectedLabel?.Trim() ?? string.Empty;
+                rule.AllowedLabels = ParseLabels(rule.AllowedLabels);
+                rule.MinArea = Math.Max(0, rule.MinArea);
+                rule.MaxArea = Math.Max(0, rule.MaxArea);
+                rule.MinCoverage = Math.Clamp(rule.MinCoverage, 0.0, 1.0);
+                rule.MaxCoverage = Math.Clamp(rule.MaxCoverage, 0.0, 1.0);
+                rule.MinAngle = ClampAngle(rule.MinAngle);
+                rule.MaxAngle = ClampAngle(rule.MaxAngle);
+                rule.MinKeyPointConfidence = Math.Clamp(rule.MinKeyPointConfidence, 0.0, 1.0);
                 rule.ExpectedLabels = ParseLabels(rule.ExpectedLabels);
                 rule.SortBy = string.IsNullOrWhiteSpace(rule.SortBy) ? "CenterX" : rule.SortBy.Trim();
                 rule.Direction = string.IsNullOrWhiteSpace(rule.Direction) ? "LeftToRight" : rule.Direction.Trim();
@@ -169,6 +178,10 @@ namespace ClearFrost.Core.Rules
         {
             if (string.Equals(value, InspectionRuleTypes.OrderedLabels, StringComparison.OrdinalIgnoreCase)) return InspectionRuleTypes.OrderedLabels;
             if (string.Equals(value, InspectionRuleTypes.RelativePosition, StringComparison.OrdinalIgnoreCase)) return InspectionRuleTypes.RelativePosition;
+            if (string.Equals(value, InspectionRuleTypes.Classification, StringComparison.OrdinalIgnoreCase)) return InspectionRuleTypes.Classification;
+            if (string.Equals(value, InspectionRuleTypes.SegmentationArea, StringComparison.OrdinalIgnoreCase)) return InspectionRuleTypes.SegmentationArea;
+            if (string.Equals(value, InspectionRuleTypes.ObbAngle, StringComparison.OrdinalIgnoreCase)) return InspectionRuleTypes.ObbAngle;
+            if (string.Equals(value, InspectionRuleTypes.PoseKeypoints, StringComparison.OrdinalIgnoreCase)) return InspectionRuleTypes.PoseKeypoints;
             return InspectionRuleTypes.Count;
         }
 
@@ -188,6 +201,16 @@ namespace ClearFrost.Core.Rules
             if (string.Equals(value, InspectionRuleRelations.Above, StringComparison.OrdinalIgnoreCase)) return InspectionRuleRelations.Above;
             if (string.Equals(value, InspectionRuleRelations.Below, StringComparison.OrdinalIgnoreCase)) return InspectionRuleRelations.Below;
             return InspectionRuleRelations.LeftOf;
+        }
+
+        private static double ClampAngle(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+            {
+                return 0;
+            }
+
+            return Math.Clamp(value, -360.0, 360.0);
         }
     }
 }

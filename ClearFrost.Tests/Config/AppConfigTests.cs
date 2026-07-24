@@ -4,13 +4,16 @@
 using ClearFrost.Config;
 using ClearFrost.Core.Rules;
 using ClearFrost.Hardware;
+using ClearFrost.Helpers;
 using FluentAssertions;
+using System.IO;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace ClearFrost.Tests.Config;
 
+[Collection("RuntimePaths")]
 public class AppConfigTests
 {
     [Fact]
@@ -45,6 +48,7 @@ public class AppConfigTests
         config.IouThreshold.Should().BeApproximately(0.3f, 0.001f);
         config.ModelPackageDirectory.Should().Be("models");
         config.StrictModelPackageMode.Should().BeFalse();
+        config.RequireApprovedModelsForProduction.Should().BeFalse();
         config.IsDebugMode.Should().BeFalse();
         config.TargetCount.Should().Be(4);
         config.VisionMode.Should().Be(0);
@@ -93,6 +97,7 @@ public class AppConfigTests
         config!.OnDeserialized();
 
         config.PlcProtocolMode.Should().Be(PlcProtocolMode.Legacy);
+        config.RequireApprovedModelsForProduction.Should().BeFalse();
         config.PlcTriggerSeqAddress.Should().Be("D557");
         config.PlcVisionBusyAddress.Should().Be("D561");
         config.BarcodeAddress.Should().Be("D570");
@@ -500,6 +505,128 @@ public class AppConfigTests
     }
 
     [Fact]
+    public void 严格模型审批_旧配置缺失字段时默认不自动开启()
+    {
+        const string json = """
+        {
+          "PlcIp": "192.168.1.20",
+          "CurrentModelFileName": "legacy.onnx"
+        }
+        """;
+
+        AppConfig config = AppConfig.FromJson(json);
+
+        config.RequireApprovedModelsForProduction.Should().BeFalse();
+        config.StrictModelPackageMode.Should().BeFalse();
+    }
+
+    [Fact]
+    public void 严格模型审批_已有V6显式开启时保留用户选择()
+    {
+        const string json = """
+        {
+          "RequireApprovedModelsForProduction": true,
+          "StrictModelPackageMode": false,
+          "CurrentModelFileName": "approved.onnx"
+        }
+        """;
+
+        AppConfig config = AppConfig.FromJson(json);
+
+        config.RequireApprovedModelsForProduction.Should().BeTrue();
+        config.StrictModelPackageMode.Should().BeFalse();
+    }
+
+    [Fact]
+    public void 保存配置文件_拒绝链接目标且不修改外部文件()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string externalConfig = Path.Combine(tempDir, "external.json");
+            string linkedConfig = Path.Combine(tempDir, "config.json");
+            File.WriteAllText(externalConfig, "{\"external\":true}");
+            if (!TryCreateFileSymbolicLink(linkedConfig, externalConfig))
+            {
+                return;
+            }
+
+            Action act = () => InvokeWriteConfigAtomically(linkedConfig, "{\"changed\":true}");
+
+            act.Should()
+                .Throw<TargetInvocationException>()
+                .WithInnerException<IOException>()
+                .WithMessage("*链接文件*");
+            File.ReadAllText(externalConfig).Should().Be("{\"external\":true}");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void 保存配置文件_拒绝链接父目录且不写入外部目录()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string externalDirectory = Path.Combine(tempDir, "external");
+            string linkedDirectory = Path.Combine(tempDir, "linked");
+            Directory.CreateDirectory(externalDirectory);
+            if (!TryCreateDirectorySymbolicLink(linkedDirectory, externalDirectory))
+            {
+                return;
+            }
+
+            string targetPath = Path.Combine(linkedDirectory, "config.json");
+
+            Action act = () => InvokeWriteConfigAtomically(targetPath, "{\"changed\":true}");
+
+            act.Should()
+                .Throw<TargetInvocationException>()
+                .WithInnerException<IOException>()
+                .WithMessage("*链接目录*");
+            Directory.EnumerateFileSystemEntries(externalDirectory).Should().BeEmpty();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Load_跳过链接运行配置并使用备份配置()
+    {
+        string tempDir = CreateTempDirectory();
+        string? previousRoot = Environment.GetEnvironmentVariable("CLEARFROST_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("CLEARFROST_APPDATA_ROOT", tempDir);
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(RuntimePaths.ConfigPath)!);
+            string externalConfig = Path.Combine(tempDir, "external-config.json");
+            File.WriteAllText(externalConfig, new AppConfig { PlcNgValue = 77 }.ToPortableJson());
+            if (!TryCreateFileSymbolicLink(RuntimePaths.ConfigPath, externalConfig))
+            {
+                return;
+            }
+
+            File.WriteAllText(RuntimePaths.ConfigPath + ".bak", new AppConfig { PlcNgValue = 12 }.ToPortableJson());
+
+            AppConfig loaded = AppConfig.Load();
+
+            loaded.PlcNgValue.Should().Be(12);
+            AppConfig.FromJson(File.ReadAllText(externalConfig)).PlcNgValue.Should().Be(77);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CLEARFROST_APPDATA_ROOT", previousRoot);
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void 相机像素格式_旧Mono8配置保持显式黑白()
     {
         const string json = """
@@ -577,5 +704,57 @@ public class AppConfigTests
         config.Should().NotBeNull();
         config!.ActiveCamera.Should().NotBeNull();
         config.ActiveCamera!.PixelFormat.Should().Be(expected);
+    }
+
+    private static void InvokeWriteConfigAtomically(string targetPath, string json)
+    {
+        MethodInfo? method = typeof(AppConfig).GetMethod(
+            "WriteConfigAtomically",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        method.Should().NotBeNull();
+        method!.Invoke(null, new object[] { targetPath, json });
+    }
+
+    private static string CreateTempDirectory()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(AppConfigTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static bool TryCreateDirectorySymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = Directory.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCreateFileSymbolicLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            FileSystemInfo link = File.CreateSymbolicLink(linkPath, targetPath);
+            link.Refresh();
+            return link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static void DeleteDirectory(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
+        }
     }
 }

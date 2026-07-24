@@ -16,13 +16,24 @@ namespace ClearFrost.Interfaces
         public string InspectionId { get; set; } = "";
         public string TriggerSource { get; set; } = "";
         public int? TriggerSeq { get; set; }
+        public int? PlcTriggerSeq { get; set; }
         public int? ResultSeq { get; set; }
+        public bool TerminalHandshakeAttempted { get; set; }
+        public bool TerminalHandshakeSucceeded { get; set; }
+        public string TerminalHandshakeErrorCode { get; set; } = "";
+        public string TerminalHandshakeSignalName { get; set; } = "";
+        public string TerminalHandshakeAddress { get; set; } = "";
+        public string TerminalHandshakeMessage { get; set; } = "";
+        public bool CycleSucceeded { get; set; }
         public string ProductBarcode { get; set; } = "";
+        public string Barcode { get; set; } = "";
         public bool? BarcodeReadSucceeded { get; set; }
         public string BarcodeError { get; set; } = "";
         public TraceStatus TraceStatus { get; set; } = TraceStatus.Unknown;
+        public string QueueStatus { get; set; } = "";
         public string ImagePath { get; set; } = "";
         public string RenderedImagePath { get; set; } = "";
+        public string TraceImagePath { get; set; } = "";
         public string ErrorStage { get; set; } = "";
         public string ErrorCode { get; set; } = "";
         public string ErrorMessage { get; set; } = "";
@@ -61,6 +72,7 @@ namespace ClearFrost.Interfaces
         public bool IsQualified { get; set; }
         public string InspectionId { get; set; } = "";
         public string ProductBarcode { get; set; } = "";
+        public string RecipeVersion { get; set; } = "";
         public string ModelVersion { get; set; } = "";
         public string ModelName { get; set; } = "";
         public string CameraId { get; set; } = "";
@@ -69,6 +81,8 @@ namespace ClearFrost.Interfaces
         public string ErrorStage { get; set; } = "";
         public string ErrorCode { get; set; } = "";
         public string ErrorMessage { get; set; } = "";
+        public string RuleSummary { get; set; } = "";
+        public string ResultJson { get; set; } = "";
     }
 
     /// <summary>
@@ -78,6 +92,7 @@ namespace ClearFrost.Interfaces
     {
         public string? InspectionId { get; set; }
         public string? ProductBarcode { get; set; }
+        public string? RecipeVersion { get; set; }
         public string? ModelVersion { get; set; }
         public string? ModelName { get; set; }
         public string? CameraId { get; set; }
@@ -99,6 +114,21 @@ namespace ClearFrost.Interfaces
         public int PageSize { get; set; }
         public string? NextCursorTimestamp { get; set; }
         public long? NextCursorId { get; set; }
+    }
+
+    /// <summary>
+    /// 离线 replay 输入样本查询条件。
+    /// </summary>
+    public class DetectionReplayQuery
+    {
+        public DateTime? StartTime { get; set; }
+        public DateTime? EndTime { get; set; }
+        public string? ProductOrBarcode { get; set; }
+        public bool? IsQualified { get; set; }
+        public string? ModelName { get; set; }
+        public string? ModelVersion { get; set; }
+        public string? RecipeVersion { get; set; }
+        public int Limit { get; set; } = 100;
     }
 
     /// <summary>
@@ -126,6 +156,16 @@ namespace ClearFrost.Interfaces
         Task<List<DetectionRecord>> GetRecordsAsync(DateTime? startDate = null, DateTime? endDate = null, bool? isQualified = null, int limit = 100);
 
         /// <summary>
+        /// 按数据库主键精确读取单条检测记录。
+        /// </summary>
+        Task<DetectionRecord?> GetDetectionRecordByIdAsync(long id);
+
+        /// <summary>
+        /// 按 InspectionId 精确读取全部检测记录。
+        /// </summary>
+        Task<List<DetectionRecord>> GetDetectionRecordsByInspectionIdAsync(string inspectionId);
+
+        /// <summary>
         /// 查询追溯页轻量记录。
         /// </summary>
         Task<List<DetectionTraceRecord>> GetTraceRecordsAsync(DetectionTraceQuery query);
@@ -134,6 +174,11 @@ namespace ClearFrost.Interfaces
         /// 查询追溯页分页结果。
         /// </summary>
         Task<DetectionTracePage> GetTraceRecordPageAsync(DetectionTraceQuery query);
+
+        /// <summary>
+        /// 查询离线 replay 样本输入。
+        /// </summary>
+        Task<List<DetectionRecord>> GetReplayRecordsAsync(DetectionReplayQuery query);
 
         /// <summary>
         /// 查询追溯页可用日期键（yyyy-MM-dd）。

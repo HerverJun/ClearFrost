@@ -50,7 +50,7 @@ function Pause-IfNeeded {
 
 function Get-DefaultVersion {
     if (-not (Test-Path -LiteralPath $script:ProjectPath)) {
-        return "5.7.0"
+        return "6.0.0"
     }
 
     $content = Get-Content -LiteralPath $script:ProjectPath -Raw -Encoding UTF8
@@ -58,7 +58,7 @@ function Get-DefaultVersion {
         return $Matches.version.Trim()
     }
 
-    return "5.7.0"
+    return "6.0.0"
 }
 
 function Get-AssemblyName {
@@ -81,7 +81,7 @@ function Convert-VersionSpec([string]$Spec) {
     }
 
     if ($normalized -notmatch "^\d+(\.\d+){1,3}$") {
-        throw "Invalid version '$Spec'. Use 5.7, 5.7.0, or 5.7.0.1."
+        throw "Invalid version '$Spec'. Use 6.0, 6.0.0, or 6.0.0.1."
     }
 
     $parts = @()

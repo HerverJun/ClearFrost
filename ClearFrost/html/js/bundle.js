@@ -119,6 +119,7 @@
         modelList: [],
         modelLabels: [],
         cameraList: [],
+        connections: {},
         activeCameraId: "",
         history: {
             dates: [],
@@ -127,15 +128,54 @@
             detectionLogs: [],
             statistics: [],
         },
+        replay: {
+            dataset: {},
+            runs: {},
+            approval: {},
+            datasets: [],
+            evidence: [],
+            integrity: {},
+        },
+        manualReview: {
+            records: [],
+            lastResponse: {},
+        },
+        fieldDebug: {},
+        visionDebug: {},
+        maintenanceAdviceHistory: [],
+        diagnosticPackage: {},
+        diagnosticPackageHistory: [],
+        fieldHandoffReport: {},
+        fieldHandoffReportHistory: [],
         metrics: {},
         previewFrameId: 0,
+        previewFrame: {},
     };
 
     state.stats = state.stats || { total: 0, ok: 0, ng: 0 };
     state.inspection = state.inspection || {};
     state.health = state.health || {};
     state.recentInspections = state.recentInspections || [];
+    state.connections = state.connections || {};
     state.history = state.history || {};
+    state.replay = state.replay || { dataset: {}, runs: {}, approval: {} };
+    state.replay.dataset = state.replay.dataset || {};
+    state.replay.runs = state.replay.runs || {};
+    state.replay.approval = state.replay.approval || {};
+    state.replay.datasets = state.replay.datasets || [];
+    state.replay.evidence = state.replay.evidence || [];
+    state.replay.integrity = state.replay.integrity || {};
+    state.manualReview = state.manualReview || { records: [], lastResponse: {} };
+    state.manualReview.records = state.manualReview.records || [];
+    state.manualReview.lastResponse = state.manualReview.lastResponse || {};
+    state.fieldDebug = state.fieldDebug || {};
+    state.visionDebug = state.visionDebug || {};
+    state.maintenanceAdviceHistory = state.maintenanceAdviceHistory || [];
+    state.diagnosticPackage = state.diagnosticPackage || {};
+    state.diagnosticPackageHistory = state.diagnosticPackageHistory || [];
+    state.fieldHandoffReport = state.fieldHandoffReport || {};
+    state.fieldHandoffReportHistory = state.fieldHandoffReportHistory || [];
+    state.previewFrame = state.previewFrame || {};
     window.CF_STATE = state;
 
     function pickValue(source, ...keys) {
@@ -161,12 +201,18 @@
         CaptureFrameFailed: "检查相机连接/曝光/触发线",
         NoBarcode: "检查 PLC 条码地址或扫码枪",
         BarcodeReadFailed: "检查 PLC 通讯、条码地址或扫码枪",
-        PlcNotConnected: "检查 PLC 网络/IP/端口及通讯线",
+        PlcNotConnected: "PLC 未连接：请检查 PLC IP、端口和网线。",
         PlcWriteFailed: "检查 PLC 结果地址、写入权限或握手时序",
         PlcWriteException: "检查 PLC 通讯、地址配置或驱动状态",
         DetectionServiceError: "检查模型文件、GPU 推理环境或输入图像",
         DetectionCycleException: "检查检测规则、ROI、模型配置或运行日志",
         UnhandledDetectionException: "查看系统日志并联系维护人员",
+        ReplayEvidenceGateMissing: "当前模型未完成上线验证，请联系工程师完成模型验证，或切换回已验证模型。",
+        ReplayEvidencePackageRequired: "当前模型未完成上线验证，请联系工程师完成模型验证，或切换回已验证模型。",
+        PrimaryModelReferenceEmpty: "模型未加载：请先在左侧选择主模型。",
+        ModelNotLoaded: "模型未加载：请先在左侧选择主模型。",
+        CameraNotReady: "相机未启动：请点击右下角“启动系统”，或检查相机网线/电源。",
+        StartupBlocked: "当前还不能生产：请先处理诊断中心列出的待处理问题。",
     });
 
     const StageFallbackAdviceMap = Object.freeze({
@@ -201,14 +247,16 @@
         const data = source?.inspection || source || {};
         const mapped = getMappedAdvice(
             cleanText(pickValue(data, "errorCode", "ErrorCode")) ||
-            cleanText(pickValue(data, "barcodeError", "BarcodeError")),
+            cleanText(pickValue(data, "barcodeError", "BarcodeError")) ||
+            cleanText(pickValue(data, "terminalHandshakeErrorCode", "TerminalHandshakeErrorCode")),
         );
         const errorStage = cleanText(pickValue(data, "errorStage", "ErrorStage"));
         const stageAdvice = StageFallbackAdviceMap[errorStage.toLowerCase()] || "";
         return {
             code: mapped.code,
             stage: errorStage,
-            message: cleanText(pickValue(data, "errorMessage", "ErrorMessage", "message", "Message")),
+            message: cleanText(pickValue(data, "errorMessage", "ErrorMessage", "message", "Message")) ||
+                cleanText(pickValue(data, "terminalHandshakeMessage", "TerminalHandshakeMessage")),
             advice: mapped.advice || stageAdvice,
         };
     }
@@ -252,6 +300,13 @@
             handshakeStartMs: pickValue(data, "handshakeStartMs", "HandshakeStartMs"),
             plcResultWriteMs: pickValue(data, "plcResultWriteMs", "PlcResultWriteMs"),
             handshakeCompleteMs: pickValue(data, "handshakeCompleteMs", "HandshakeCompleteMs"),
+            terminalHandshakeAttempted: pickValue(data, "terminalHandshakeAttempted", "TerminalHandshakeAttempted"),
+            terminalHandshakeSucceeded: pickValue(data, "terminalHandshakeSucceeded", "TerminalHandshakeSucceeded"),
+            terminalHandshakeErrorCode: pickValue(data, "terminalHandshakeErrorCode", "TerminalHandshakeErrorCode"),
+            terminalHandshakeSignalName: pickValue(data, "terminalHandshakeSignalName", "TerminalHandshakeSignalName"),
+            terminalHandshakeAddress: pickValue(data, "terminalHandshakeAddress", "TerminalHandshakeAddress"),
+            terminalHandshakeMessage: pickValue(data, "terminalHandshakeMessage", "TerminalHandshakeMessage"),
+            cycleSucceeded: pickValue(data, "cycleSucceeded", "CycleSucceeded"),
             usedModelName: pickValue(data, "usedModelName", "UsedModelName"),
             wasFallback: pickValue(data, "wasFallback", "WasFallback"),
             fallbackAttemptCount: pickValue(data, "fallbackAttemptCount", "FallbackAttemptCount"),
@@ -264,6 +319,67 @@
             ruleSummary: pickValue(data, "ruleSummary", "RuleSummary"),
             rulePrimaryReason: pickValue(data, "rulePrimaryReason", "RulePrimaryReason"),
             ruleDetails: pickValue(data, "ruleDetails", "RuleDetails"),
+        };
+    }
+
+    function normalizeReplayMessage(payload) {
+        const data = payload?.replay || payload || {};
+        const metrics = pickValue(data, "metrics", "Metrics") || {};
+        const rejectionReasons = pickValue(data, "rejectionReasons", "RejectionReasons", "reasons", "Reasons") || [];
+        return {
+            datasetId: pickValue(data, "datasetId", "DatasetId"),
+            datasetHash: pickValue(data, "datasetHash", "DatasetHash"),
+            runId: pickValue(data, "runId", "RunId"),
+            status: pickValue(data, "status", "Status"),
+            phase: pickValue(data, "phase", "Phase"),
+            completedSamples: pickValue(data, "completedSamples", "CompletedSamples"),
+            totalSamples: pickValue(data, "totalSamples", "TotalSamples"),
+            message: pickValue(data, "message", "Message"),
+            errorCode: pickValue(data, "errorCode", "ErrorCode"),
+            succeeded: pickValue(data, "succeeded", "Succeeded"),
+            approvalAvailable: pickValue(data, "approvalAvailable", "ApprovalAvailable"),
+            rejectionReasons: Array.isArray(rejectionReasons) ? rejectionReasons : [String(rejectionReasons || "")].filter(Boolean),
+            reportJsonPath: pickValue(data, "reportJsonPath", "ReportJsonPath"),
+            reportCsvPath: pickValue(data, "reportCsvPath", "ReportCsvPath"),
+            reportHash: pickValue(data, "reportHash", "ReportHash"),
+            policyHash: pickValue(data, "policyHash", "PolicyHash"),
+            recipeHash: pickValue(data, "recipeHash", "RecipeHash"),
+            ruleSetHash: pickValue(data, "ruleSetHash", "RuleSetHash"),
+            evidenceId: pickValue(data, "evidenceId", "EvidenceId"),
+            evidenceHash: pickValue(data, "evidenceHash", "EvidenceHash"),
+            datasets: pickValue(data, "datasets", "Datasets"),
+            runs: pickValue(data, "runs", "Runs"),
+            evidence: pickValue(data, "evidence", "Evidence"),
+            integrityStatus: pickValue(data, "status", "Status"),
+            findings: pickValue(data, "findings", "Findings"),
+            metrics: {
+                sampleCount: pickValue(metrics, "sampleCount", "SampleCount"),
+                candidateNewMissedDetectionCount: pickValue(metrics, "candidateNewMissedDetectionCount", "CandidateNewMissedDetectionCount"),
+                candidateFixedMissedDetectionCount: pickValue(metrics, "candidateFixedMissedDetectionCount", "CandidateFixedMissedDetectionCount"),
+                candidateNewFalseRejectCount: pickValue(metrics, "candidateNewFalseRejectCount", "CandidateNewFalseRejectCount"),
+                candidateFixedFalseRejectCount: pickValue(metrics, "candidateFixedFalseRejectCount", "CandidateFixedFalseRejectCount"),
+                changedDecisionCount: pickValue(metrics, "changedDecisionCount", "ChangedDecisionCount"),
+                baselineAccuracy: pickValue(metrics, "baselineAccuracy", "BaselineAccuracy"),
+                candidateAccuracy: pickValue(metrics, "candidateAccuracy", "CandidateAccuracy"),
+                baselineP95ElapsedMs: pickValue(metrics, "baselineP95ElapsedMs", "BaselineP95ElapsedMs"),
+                candidateP95ElapsedMs: pickValue(metrics, "candidateP95ElapsedMs", "CandidateP95ElapsedMs"),
+            },
+        };
+    }
+
+    function normalizeManualReviewMessage(payload) {
+        const data = payload?.manualReview || payload || {};
+        const record = pickValue(data, "record", "Record") || {};
+        return {
+            succeeded: pickValue(data, "succeeded", "Succeeded"),
+            errorCode: pickValue(data, "errorCode", "ErrorCode"),
+            message: pickValue(data, "message", "Message"),
+            detectionRecordId: pickValue(data, "detectionRecordId", "DetectionRecordId") || pickValue(record, "detectionRecordId", "DetectionRecordId"),
+            inspectionId: pickValue(data, "inspectionId", "InspectionId") || pickValue(record, "inspectionId", "InspectionId"),
+            reviewStatus: pickValue(data, "reviewStatus", "ReviewStatus"),
+            groundTruth: pickValue(data, "groundTruth", "GroundTruth") || pickValue(record, "groundTruth", "GroundTruth"),
+            revision: pickValue(data, "revision", "Revision") || pickValue(record, "revision", "Revision"),
+            reviewerId: pickValue(data, "reviewerId", "ReviewerId") || pickValue(record, "reviewerId", "ReviewerId"),
         };
     }
 
@@ -330,10 +446,255 @@
         notify("stats");
     }
 
+    function applyReplayUpdate(payload) {
+        const replay = normalizeReplayMessage(payload);
+        const cleanReplay = Object.fromEntries(
+            Object.entries(replay).filter(([, value]) => value !== undefined),
+        );
+
+        if (cleanReplay.datasetId || cleanReplay.datasetHash) {
+            state.replay.dataset = { ...state.replay.dataset, ...cleanReplay };
+        }
+
+        if (Array.isArray(cleanReplay.datasets)) {
+            state.replay.datasets = cleanReplay.datasets;
+        }
+
+        if (Array.isArray(cleanReplay.runs)) {
+            cleanReplay.runs.forEach((run) => {
+                const runId = pickValue(run, "runId", "RunId");
+                if (runId) {
+                    state.replay.runs[runId] = {
+                        ...(state.replay.runs[runId] || {}),
+                        ...normalizeReplayMessage(run),
+                    };
+                }
+            });
+        }
+
+        if (Array.isArray(cleanReplay.evidence)) {
+            state.replay.evidence = cleanReplay.evidence;
+        }
+
+        if (cleanReplay.integrityStatus || cleanReplay.findings) {
+            state.replay.integrity = {
+                status: cleanReplay.integrityStatus || state.replay.integrity.status || "",
+                findings: cleanReplay.findings || state.replay.integrity.findings || [],
+            };
+        }
+
+        if (cleanReplay.runId) {
+            state.replay.runs[cleanReplay.runId] = {
+                ...(state.replay.runs[cleanReplay.runId] || {}),
+                ...cleanReplay,
+            };
+            state.replay.currentRunId = cleanReplay.runId;
+        }
+
+        if (
+            cleanReplay.approvalAvailable !== undefined ||
+            cleanReplay.rejectionReasons ||
+            cleanReplay.succeeded !== undefined ||
+            cleanReplay.evidenceId ||
+            cleanReplay.errorCode
+        ) {
+            state.replay.approval = {
+                ...state.replay.approval,
+                ...cleanReplay,
+                available: cleanReplay.approvalAvailable !== undefined
+                    ? cleanReplay.approvalAvailable
+                    : state.replay.approval.available,
+                rejectionReasons: cleanReplay.rejectionReasons || state.replay.approval.rejectionReasons || [],
+            };
+        }
+
+        notify("replay");
+    }
+
+    function applyManualReviewUpdate(payload) {
+        const records = pickValue(payload, "records", "Records");
+        if (Array.isArray(records)) {
+            state.manualReview.records = records.map(normalizeManualReviewMessage);
+        } else {
+            state.manualReview.lastResponse = normalizeManualReviewMessage(payload);
+        }
+
+        notify("manualReview");
+    }
+
     function applyHealthSnapshot(snapshot) {
         if (!snapshot) return;
         state.health = snapshot;
+        const adviceHistory = pickValue(snapshot, "maintenanceAdviceHistory", "MaintenanceAdviceHistory");
+        if (Array.isArray(adviceHistory)) {
+            state.maintenanceAdviceHistory = adviceHistory;
+        }
         notify("health");
+    }
+
+    function applyFieldDebugResult(payload) {
+        if (!payload) return;
+        state.fieldDebug = {
+            ...(state.fieldDebug || {}),
+            ...payload,
+        };
+        notify("fieldDebug");
+    }
+
+    function applyVisionDebugResult(payload) {
+        if (!payload) return;
+        const status = pickValue(payload, "status", "Status") || "";
+        const records = pickValue(payload, "records", "Records");
+        const snapshot = pickValue(payload, "snapshot", "Snapshot");
+        state.visionDebug = {
+            ...(state.visionDebug || {}),
+            ...payload,
+            status,
+            records: Array.isArray(records) ? records : (state.visionDebug?.records || []),
+            snapshot: snapshot || state.visionDebug?.snapshot || null,
+        };
+        notify("visionDebug");
+    }
+
+    function applyDiagnosticPackageExportResult(payload) {
+        if (!payload) return;
+        state.diagnosticPackage = {
+            ...(state.diagnosticPackage || {}),
+            ...payload,
+        };
+        notify("fieldDebug");
+    }
+
+    function applyDiagnosticPackageHistoryResult(payload) {
+        if (!payload) return;
+        const packages = pickValue(payload, "packages", "Packages");
+        state.diagnosticPackageHistory = Array.isArray(packages) ? packages : [];
+        state.diagnosticPackageHistoryStatus = {
+            succeeded: pickValue(payload, "succeeded", "Succeeded"),
+            message: pickValue(payload, "message", "Message") || "",
+            updatedAt: new Date().toISOString(),
+        };
+        notify("fieldDebug");
+    }
+
+    function applyDiagnosticPackageVerificationResult(payload) {
+        if (!payload) return;
+        state.diagnosticPackage = {
+            ...(state.diagnosticPackage || {}),
+            ...payload,
+        };
+
+        const verifiedPath = String(pickValue(payload, "path", "Path") || "");
+        if (verifiedPath && Array.isArray(state.diagnosticPackageHistory)) {
+            state.diagnosticPackageHistory = state.diagnosticPackageHistory.map((item) => {
+                const itemPath = String(pickValue(item, "packagePath", "PackagePath", "path", "Path") || "");
+                if (itemPath.toLowerCase() !== verifiedPath.toLowerCase()) return item;
+                return {
+                    ...item,
+                    integrityStatus: pickValue(payload, "integrityStatus", "IntegrityStatus") || item.integrityStatus || item.IntegrityStatus,
+                    verifiedEntryCount: pickValue(payload, "verifiedEntryCount", "VerifiedEntryCount"),
+                    integrityEntryCount: pickValue(payload, "integrityEntryCount", "IntegrityEntryCount"),
+                    integrityFindingCount: pickValue(payload, "integrityFindingCount", "IntegrityFindingCount"),
+                    verifiedAt: pickValue(payload, "verifiedAt", "VerifiedAt"),
+                    packageSha256: pickValue(payload, "packageSha256", "PackageSha256"),
+                    indexSha256: pickValue(payload, "indexSha256", "IndexSha256"),
+                };
+            });
+        }
+
+        notify("fieldDebug");
+    }
+
+    function applyMaintenanceAdviceActionResult(payload) {
+        if (!payload) return;
+        const history = pickValue(payload, "history", "History");
+        if (Array.isArray(history)) {
+            state.maintenanceAdviceHistory = history;
+        }
+
+        state.maintenanceAdviceAction = {
+            succeeded: pickValue(payload, "succeeded", "Succeeded"),
+            cleared: pickValue(payload, "cleared", "Cleared"),
+            adviceId: pickValue(payload, "adviceId", "AdviceId"),
+            status: pickValue(payload, "status", "Status"),
+            message: pickValue(payload, "message", "Message") || "",
+            record: pickValue(payload, "record", "Record") || null,
+            updatedAt: new Date().toISOString(),
+        };
+        notify("fieldDebug");
+    }
+
+    function applyShiftTaskActionResult(payload) {
+        if (!payload) return;
+        const history = pickValue(payload, "history", "History");
+        if (Array.isArray(history)) {
+            state.maintenanceAdviceHistory = history;
+        }
+
+        const tasks = pickValue(payload, "tasks", "Tasks");
+        if (Array.isArray(tasks)) {
+            state.health = {
+                ...(state.health || {}),
+                shiftTasks: tasks,
+                ShiftTasks: tasks,
+            };
+        }
+
+        state.shiftTaskAction = {
+            succeeded: pickValue(payload, "succeeded", "Succeeded"),
+            cleared: pickValue(payload, "cleared", "Cleared"),
+            taskId: pickValue(payload, "taskId", "TaskId"),
+            linkedAdviceId: pickValue(payload, "linkedAdviceId", "LinkedAdviceId"),
+            status: pickValue(payload, "status", "Status"),
+            message: pickValue(payload, "message", "Message") || "",
+            record: pickValue(payload, "record", "Record") || null,
+            updatedAt: new Date().toISOString(),
+        };
+        notify("fieldDebug");
+    }
+
+    function applyFieldHandoffReportResult(payload) {
+        if (!payload) return;
+        state.fieldHandoffReport = {
+            ...(state.fieldHandoffReport || {}),
+            ...payload,
+            updatedAt: new Date().toISOString(),
+        };
+
+        const succeeded = pickValue(payload, "succeeded", "Succeeded") !== false;
+        const path = pickValue(payload, "path", "Path", "reportPath", "ReportPath") || "";
+        if (succeeded && path) {
+            const report = {
+                reportPath: path,
+                fileName: pickValue(payload, "fileName", "FileName") || String(path).split(/[\\/]/).pop() || "",
+                sizeBytes: pickValue(payload, "sizeBytes", "SizeBytes") || 0,
+                generatedAt: pickValue(payload, "generatedAt", "GeneratedAt") || "",
+                lastWriteTime: pickValue(payload, "generatedAt", "GeneratedAt") || "",
+                overallStatus: pickValue(payload, "overallStatus", "OverallStatus") || "Pending",
+                shiftTaskCount: pickValue(payload, "shiftTaskCount", "ShiftTaskCount") || 0,
+            };
+            const normalizedPath = String(path).toLowerCase();
+            state.fieldHandoffReportHistory = [
+                report,
+                ...(state.fieldHandoffReportHistory || []).filter((item) => {
+                    const itemPath = String(pickValue(item, "reportPath", "ReportPath", "path", "Path") || "").toLowerCase();
+                    return itemPath !== normalizedPath;
+                }),
+            ].slice(0, 8);
+        }
+        notify("fieldDebug");
+    }
+
+    function applyFieldHandoffReportHistoryResult(payload) {
+        if (!payload) return;
+        const reports = pickValue(payload, "reports", "Reports");
+        state.fieldHandoffReportHistory = Array.isArray(reports) ? reports : [];
+        state.fieldHandoffReportHistoryStatus = {
+            succeeded: pickValue(payload, "succeeded", "Succeeded"),
+            message: pickValue(payload, "message", "Message") || "",
+            updatedAt: new Date().toISOString(),
+        };
+        notify("fieldDebug");
     }
 
     function applyBootstrapSnapshot(snapshot) {
@@ -369,6 +730,8 @@
         escapeHtml,
         normalizeHealthLevel,
         normalizeInspection,
+        normalizeManualReviewMessage,
+        normalizeReplayMessage,
     };
 
     window.CF_ERROR_ADVICE = {
@@ -382,10 +745,193 @@
         subscribe,
         notify,
         applyInspectionUpdate,
+        applyManualReviewUpdate,
         applyStatsUpdate,
+        applyReplayUpdate,
         applyHealthSnapshot,
+        applyFieldDebugResult,
+        applyVisionDebugResult,
+        applyDiagnosticPackageExportResult,
+        applyDiagnosticPackageHistoryResult,
+        applyDiagnosticPackageVerificationResult,
+        applyMaintenanceAdviceActionResult,
+        applyShiftTaskActionResult,
+        applyFieldHandoffReportResult,
+        applyFieldHandoffReportHistoryResult,
         applyBootstrapSnapshot,
     };
+})();
+
+// ==========================================
+// ClearFrost image/overlay coordinate mapping
+// ==========================================
+(function () {
+    "use strict";
+
+    const root = typeof window !== "undefined" ? window : globalThis;
+
+    function positiveNumber(value, fallback = 0) {
+        const number = Number(value);
+        return Number.isFinite(number) && number > 0 ? number : fallback;
+    }
+
+    function calculateContainedRect(outerWidth, outerHeight, innerWidth, innerHeight) {
+        outerWidth = positiveNumber(outerWidth);
+        outerHeight = positiveNumber(outerHeight);
+        innerWidth = positiveNumber(innerWidth);
+        innerHeight = positiveNumber(innerHeight);
+        if (!outerWidth || !outerHeight || !innerWidth || !innerHeight) {
+            return { x: 0, y: 0, width: 0, height: 0, scale: 0 };
+        }
+
+        const scale = Math.min(outerWidth / innerWidth, outerHeight / innerHeight);
+        const width = innerWidth * scale;
+        const height = innerHeight * scale;
+        return {
+            x: (outerWidth - width) / 2,
+            y: (outerHeight - height) / 2,
+            width,
+            height,
+            scale,
+        };
+    }
+
+    function calculateImageContentMapping(input = {}) {
+        const containerWidth = positiveNumber(input.containerWidth);
+        const containerHeight = positiveNumber(input.containerHeight);
+        const previewWidth = positiveNumber(input.previewWidth, positiveNumber(input.naturalWidth));
+        const previewHeight = positiveNumber(input.previewHeight, positiveNumber(input.naturalHeight));
+        const sourceWidth = positiveNumber(input.sourceWidth, previewWidth);
+        const sourceHeight = positiveNumber(input.sourceHeight, previewHeight);
+
+        if (!containerWidth || !containerHeight || !previewWidth || !previewHeight || !sourceWidth || !sourceHeight) {
+            return {
+                valid: false,
+                sourceWidth,
+                sourceHeight,
+                previewRect: { x: 0, y: 0, width: 0, height: 0 },
+                imageRect: { x: 0, y: 0, width: 0, height: 0 },
+                scaleX: 0,
+                scaleY: 0,
+            };
+        }
+
+        const previewRect = calculateContainedRect(containerWidth, containerHeight, previewWidth, previewHeight);
+        const sourceInPreviewRect = calculateContainedRect(previewWidth, previewHeight, sourceWidth, sourceHeight);
+        const previewScaleX = previewRect.width / previewWidth;
+        const previewScaleY = previewRect.height / previewHeight;
+        const imageRect = {
+            x: previewRect.x + sourceInPreviewRect.x * previewScaleX,
+            y: previewRect.y + sourceInPreviewRect.y * previewScaleY,
+            width: sourceInPreviewRect.width * previewScaleX,
+            height: sourceInPreviewRect.height * previewScaleY,
+        };
+
+        return {
+            valid: imageRect.width > 0 && imageRect.height > 0,
+            sourceWidth,
+            sourceHeight,
+            previewWidth,
+            previewHeight,
+            previewRect,
+            sourceInPreviewRect,
+            imageRect,
+            scaleX: imageRect.width / sourceWidth,
+            scaleY: imageRect.height / sourceHeight,
+        };
+    }
+
+    function mapImagePoint(mapping, point = {}) {
+        const x = Number(point.x ?? point.X ?? 0);
+        const y = Number(point.y ?? point.Y ?? 0);
+        return {
+            x: x * mapping.scaleX,
+            y: y * mapping.scaleY,
+        };
+    }
+
+    function mapImageRect(mapping, rect = {}) {
+        const x = Number(rect.x ?? rect.X ?? 0);
+        const y = Number(rect.y ?? rect.Y ?? 0);
+        const width = Number(rect.width ?? rect.Width ?? rect.w ?? rect.W ?? 0);
+        const height = Number(rect.height ?? rect.Height ?? rect.h ?? rect.H ?? 0);
+        return {
+            x: x * mapping.scaleX,
+            y: y * mapping.scaleY,
+            width: width * mapping.scaleX,
+            height: height * mapping.scaleY,
+        };
+    }
+
+    const CoordinateMappingTestCases = Object.freeze([
+        {
+            name: "16:9 source without bars",
+            input: { containerWidth: 1200, containerHeight: 675, previewWidth: 960, previewHeight: 540, sourceWidth: 1280, sourceHeight: 720 },
+            rect: { x: 0, y: 0, width: 1280, height: 720 },
+            expectedRect: { x: 0, y: 0, width: 1200, height: 675 },
+        },
+        {
+            name: "4:3 source in 16:9 backend preview",
+            input: { containerWidth: 960, containerHeight: 540, previewWidth: 960, previewHeight: 540, sourceWidth: 1024, sourceHeight: 768 },
+            rect: { x: 0, y: 0, width: 1024, height: 768 },
+            expectedImageRect: { x: 120, y: 0, width: 720, height: 540 },
+            expectedRect: { x: 0, y: 0, width: 720, height: 540 },
+        },
+        {
+            name: "portrait source in scaled preview",
+            input: { containerWidth: 480, containerHeight: 270, previewWidth: 960, previewHeight: 540, sourceWidth: 720, sourceHeight: 1280 },
+            rect: { x: 0, y: 0, width: 720, height: 1280 },
+            expectedImageRect: { x: 164.0625, y: 0, width: 151.875, height: 270 },
+            expectedRect: { x: 0, y: 0, width: 151.875, height: 270 },
+        },
+        {
+            name: "wide source with browser object-fit bars",
+            input: { containerWidth: 1000, containerHeight: 800, previewWidth: 960, previewHeight: 540, sourceWidth: 2000, sourceHeight: 500 },
+            rect: { x: 0, y: 0, width: 2000, height: 500 },
+            expectedImageRect: { x: 0, y: 275, width: 1000, height: 250 },
+            expectedRect: { x: 0, y: 0, width: 1000, height: 250 },
+        },
+    ]);
+
+    function assertClose(actual, expected, label) {
+        if (Math.abs(actual - expected) > 0.001) {
+            throw new Error(`${label}: expected ${expected}, got ${actual}`);
+        }
+    }
+
+    function runCoordinateMappingSelfTests() {
+        CoordinateMappingTestCases.forEach((testCase) => {
+            const mapping = calculateImageContentMapping(testCase.input);
+            if (!mapping.valid) throw new Error(`${testCase.name}: mapping invalid`);
+            if (testCase.expectedImageRect) {
+                assertClose(mapping.imageRect.x, testCase.expectedImageRect.x, `${testCase.name} imageRect.x`);
+                assertClose(mapping.imageRect.y, testCase.expectedImageRect.y, `${testCase.name} imageRect.y`);
+                assertClose(mapping.imageRect.width, testCase.expectedImageRect.width, `${testCase.name} imageRect.width`);
+                assertClose(mapping.imageRect.height, testCase.expectedImageRect.height, `${testCase.name} imageRect.height`);
+            }
+
+            const mappedRect = mapImageRect(mapping, testCase.rect);
+            assertClose(mappedRect.x, testCase.expectedRect.x, `${testCase.name} rect.x`);
+            assertClose(mappedRect.y, testCase.expectedRect.y, `${testCase.name} rect.y`);
+            assertClose(mappedRect.width, testCase.expectedRect.width, `${testCase.name} rect.width`);
+            assertClose(mappedRect.height, testCase.expectedRect.height, `${testCase.name} rect.height`);
+        });
+        return { ok: true, count: CoordinateMappingTestCases.length };
+    }
+
+    const api = {
+        CoordinateMappingTestCases,
+        calculateContainedRect,
+        calculateImageContentMapping,
+        mapImagePoint,
+        mapImageRect,
+        runCoordinateMappingSelfTests,
+    };
+
+    root.CF_COORDINATE_MAPPING = api;
+    if (typeof module !== "undefined" && module.exports) {
+        module.exports = api;
+    }
 })();
 
 // ==========================================
@@ -394,7 +940,7 @@
 (function () {
     "use strict";
 
-    const { escapeHtml } = window.CF_UTILS;
+    const { escapeHtml, pickValue } = window.CF_UTILS;
     const store = window.CF_STORE;
     const errorAdvice = window.CF_ERROR_ADVICE;
     const domCache = new Map();
@@ -420,7 +966,42 @@
     let exitAppPending = false;
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
-    const KnownRenderReasons = new Set(["inspection", "stats", "health", "bootstrap", "state"]);
+    const KnownRenderReasons = new Set(["inspection", "stats", "health", "replay", "manualReview", "fieldDebug", "visionDebug", "bootstrap", "state"]);
+    const InspectionStageLabels = Object.freeze({
+        Unknown: "未知",
+        Triggered: "已触发",
+        Barcode: "读取条码",
+        Capture: "取图",
+        Inference: "推理中",
+        RoiFilter: "规则判定",
+        PlcWrite: "写入 PLC",
+        RenderToUi: "刷新界面",
+        SaveImage: "保存图像",
+        SaveRecord: "保存记录",
+        Completed: "完成",
+        Failed: "失败",
+        IDLE: "空闲",
+    });
+    const ReplayRunStatusLabels = Object.freeze({
+        Pending: "待处理",
+        Preparing: "准备中",
+        BaselineRunning: "基准模型运行中",
+        CandidateRunning: "候选模型运行中",
+        Reporting: "生成报告中",
+        Running: "运行中",
+        CancelRequested: "正在取消",
+        Completed: "已完成",
+        Failed: "已失败",
+        Canceled: "已取消",
+        Interrupted: "已中断",
+        Frozen: "已生成验证样本集",
+        Invalid: "无效",
+    });
+    const ApprovalStatusLabels = Object.freeze({
+        Approved: "已批准",
+        Rejected: "已拒绝",
+        Available: "可审批",
+    });
     const KeyLogPatterns = [
         /PLC/i,
         /Plc/i,
@@ -466,6 +1047,15 @@
         if ("title" in node && node.title !== text) node.title = text;
     }
 
+    function setHtml(id, html, fallback = "") {
+        const node = el(id);
+        if (!node) return;
+        const content = html === undefined || html === null || html === "" ? fallback : String(html);
+        if (node.innerHTML !== content) node.innerHTML = content;
+        const text = node.textContent || "";
+        if ("title" in node && node.title !== text) node.title = text;
+    }
+
     function toggleClass(node, className, force) {
         if (!node) return;
         node.classList.toggle(className, force);
@@ -479,32 +1069,72 @@
         dot.classList.add(state);
     }
 
+    function formatInspectionStage(stage) {
+        const value = String(stage || "").trim();
+        return InspectionStageLabels[value] || value || "空闲";
+    }
+
+    function formatReplayRunStatus(status) {
+        const value = String(status || "").trim();
+        return ReplayRunStatusLabels[value] || value;
+    }
+
+    function formatApprovalStatus(status) {
+        const value = String(status || "").trim();
+        return ApprovalStatusLabels[value] || value;
+    }
+
+    function formatFallbackReason(reason) {
+        const value = String(reason || "").trim();
+        if (value === "FallbackDisabled") return "备用模型未启用";
+        return value;
+    }
+
     function renderInspectionContext(state) {
         const inspection = state.inspection || {};
-        setText("camera-phase", inspection.currentStage, "IDLE");
+        setText("camera-phase", formatInspectionStage(inspection.currentStage), "空闲");
         setText("feed-sn", getTraceIdentityLabel(inspection), "条码: -");
         const isStandaloneSource = !!inspection.sourceLabel && !inspection.inspectionId;
         setText(
             "feed-trigger-seq",
             isStandaloneSource
-                ? "LOCAL"
-                : `T${inspection.triggerSeq ?? "-"} / R${inspection.resultSeq ?? "-"}`,
-            "T- / R-",
+                ? "本地"
+                : `触发${inspection.triggerSeq ?? "-"} / 结果${inspection.resultSeq ?? "-"}`,
+            "触发- / 结果-",
         );
     }
 
     function getTraceIdentityLabel(item) {
-        if (item?.productBarcode) return `SN: ${item.productBarcode}`;
+        if (item?.productBarcode) return `条码: ${item.productBarcode}`;
         if (item?.sourceLabel) return item.sourceLabel;
         if (item?.barcodeEnabled === true) {
             return item?.barcodeReadSucceeded === false ? "条码未读取" : "等待条码";
         }
-        if (item?.inspectionId) return `ID: ${item.inspectionId}`;
+        if (item?.inspectionId) return `单号: ${item.inspectionId}`;
         return "条码: -";
     }
 
+    function hasTerminalHandshakeFailure(item) {
+        return item?.terminalHandshakeAttempted === true && item?.terminalHandshakeSucceeded === false;
+    }
+
+    function getProductJudgementText(item) {
+        if (item?.isOk === true) return "OK";
+        if (item?.isOk === false) return "NG";
+        return "未知";
+    }
+
+    function getTerminalFailureMessage(item) {
+        if (!hasTerminalHandshakeFailure(item)) return "";
+        const code = item?.terminalHandshakeErrorCode || "-";
+        const signal = item?.terminalHandshakeSignalName || "-";
+        const address = item?.terminalHandshakeAddress || "-";
+        const detail = item?.terminalHandshakeMessage ? `: ${item.terminalHandshakeMessage}` : "";
+        return `产品判定 ${getProductJudgementText(item)}，PLC 终态失败 [${code}] ${signal}@${address}${detail}`;
+    }
+
     function isFailedInspection(item) {
-        return item?.isOk === false || item?.currentStage === "Failed";
+        return hasTerminalHandshakeFailure(item) || item?.isOk === false || item?.currentStage === "Failed";
     }
 
     function getInspectionAdvice(item, prefix = "处理建议", includeCode = false) {
@@ -514,7 +1144,7 @@
 
     function logCriticalInspectionAdvice(item) {
         const resolved = errorAdvice?.resolve?.(item);
-        const hasErrorCode = Boolean(item?.errorCode);
+        const hasErrorCode = Boolean(item?.errorCode || (hasTerminalHandshakeFailure(item) && item?.terminalHandshakeErrorCode));
         if (!resolved?.advice || (!isFailedInspection(item) && !hasErrorCode)) return;
 
         const key = [
@@ -548,7 +1178,7 @@
 
         const fallbackCount = inspections.filter((item) => item.wasFallback === true).length;
         const ratio = fallbackCount / inspections.length * 100;
-        return `近${inspections.length}次 fallback ${fallbackCount}次 (${ratio.toFixed(1)}%)`;
+        return `近${inspections.length}次备用模型 ${fallbackCount}次 (${ratio.toFixed(1)}%)`;
     }
 
     function getFallbackBadge(inspection, recentInspections) {
@@ -559,16 +1189,16 @@
 
         if (inspection?.wasFallback === true) {
             return {
-                text: attempts > 1 ? `FALLBACK x${attempts}` : "FALLBACK",
-                title: `fallback命中，模型: ${inspection.usedModelName || "-"}，推理: ${inferenceMs}ms${ratioSuffix}`,
+                text: attempts > 1 ? `备用模型 x${attempts}` : "备用模型",
+                title: `备用模型命中，模型: ${inspection.usedModelName || "-"}，推理: ${inferenceMs}ms${ratioSuffix}`,
             };
         }
 
         const skippedReason = String(inspection?.fallbackSkippedReason || "").trim();
         if (skippedReason && skippedReason !== "FallbackDisabled") {
             return {
-                text: "FB SKIP",
-                title: `fallback未命中或跳过: ${skippedReason}${ratioSuffix}`,
+                text: "备用跳过",
+                title: `备用模型未命中或跳过: ${formatFallbackReason(skippedReason)}${ratioSuffix}`,
             };
         }
 
@@ -584,14 +1214,14 @@
 
         const attempts = Math.max(0, Math.trunc(toFiniteNumber(item?.fallbackAttemptCount)));
         if (item?.wasFallback === true) {
-            parts.push(`fallback ${attempts > 0 ? attempts : "?"}模型`);
+            parts.push(`备用模型 ${attempts > 0 ? attempts : "?"}次`);
         } else if (attempts > 1) {
             parts.push(`模型尝试${attempts}次`);
         }
 
         const skippedReason = String(item?.fallbackSkippedReason || "").trim();
         if (skippedReason && skippedReason !== "FallbackDisabled" && item?.wasFallback !== true) {
-            parts.push(`FB:${skippedReason}`);
+            parts.push(`备用跳过:${formatFallbackReason(skippedReason)}`);
         }
 
         const imagePending = Math.max(0, Math.trunc(toFiniteNumber(item?.imageQueuePending)));
@@ -619,7 +1249,7 @@
         const ratioText = getFallbackRatioText(recentInspections);
         const ratioSuffix = ratioText ? `，${ratioText}` : "";
         addDetectionLog(
-            `Fallback命中: ${item.usedModelName || "-"}，尝试${attempts > 0 ? attempts : "-"}模型，推理${item.inferenceMs ?? "-"}ms${ratioSuffix}`,
+            `备用模型命中: ${item.usedModelName || "-"}，尝试${attempts > 0 ? attempts : "-"}次，推理${item.inferenceMs ?? "-"}ms${ratioSuffix}`,
             "warning",
         );
     }
@@ -636,6 +1266,9 @@
     }
 
     function getDetectionSummary(item) {
+        const terminalMessage = getTerminalFailureMessage(item);
+        if (terminalMessage) return terminalMessage;
+
         const advice = getInspectionAdvice(item, "建议");
         if (advice) return advice;
 
@@ -647,32 +1280,35 @@
         if (item?.barcodeError) return item.barcodeError;
         if (item?.errorCode) return item.errorCode;
         if (item?.actualCount !== undefined && item?.actualCount !== null) return `检出 ${item.actualCount}`;
-        return item?.currentStage || "-";
+        return formatInspectionStage(item?.currentStage) || "-";
     }
 
     function renderCameraResult(state) {
         const inspection = state.inspection || {};
         const isOk = inspection.isOk;
+        const terminalFailed = hasTerminalHandshakeFailure(inspection);
         const pill = el("camera-result-pill");
         if (pill) {
-            const className = isOk === true ? "result-ok" : isOk === false ? "result-ng" : "result-idle";
-            const text = isOk === true ? "OK" : isOk === false ? "NG" : "WAIT";
+            const className = terminalFailed ? "result-cycle-failed" : isOk === true ? "result-ok" : isOk === false ? "result-ng" : "result-idle";
+            const text = terminalFailed ? "周期失败" : isOk === true ? "OK" : isOk === false ? "NG" : "等待";
             if (pill.dataset.cfResult !== className) {
                 pill.dataset.cfResult = className;
-                pill.classList.remove("result-idle", "result-ok", "result-ng");
+                pill.classList.remove("result-idle", "result-ok", "result-ng", "result-cycle-failed");
                 pill.classList.add(className);
             }
             if (pill.textContent !== text) pill.textContent = text;
         }
 
+        const terminalMessage = getTerminalFailureMessage(inspection);
         const adviceMessage = getInspectionAdvice(inspection);
         const ruleReason = isOk === false ? inspection.rulePrimaryReason : "";
         const message = adviceMessage || ruleReason || inspection.message || (isOk === true ? "检测通过" : isOk === false ? "检测未通过" : "等待检测结果");
         setText("camera-result-text", message, "等待检测结果");
+        setText("camera-result-text", terminalMessage || message, "等待检测结果");
         setText("camera-total-ms", `${inspection.totalMs || 0}ms`, "0ms");
         setText("camera-target-count", inspection.actualCount ?? 0, "0");
         setText("camera-model", inspection.usedModelName, "-");
-        setText("feed-model-name", inspection.usedModelName ? `MODEL ${inspection.usedModelName}` : "MODEL -", "MODEL -");
+        setText("feed-model-name", inspection.usedModelName ? `模型 ${inspection.usedModelName}` : "模型 -", "模型 -");
         const fallbackBadge = el("camera-fallback");
         const fallbackMeta = getFallbackBadge(inspection, state.recentInspections || []);
         if (fallbackBadge && fallbackMeta) {
@@ -704,8 +1340,9 @@
         const usedNodes = new Set();
         list.forEach((item, index) => {
             const isOk = item.isOk === true;
-            const statusClass = isOk ? "ok" : item.isOk === false ? "ng" : "run";
-            const statusText = isOk ? "OK" : item.isOk === false ? "NG" : "RUN";
+            const terminalFailed = hasTerminalHandshakeFailure(item);
+            const statusClass = terminalFailed ? "cycle-failed" : isOk ? "ok" : item.isOk === false ? "ng" : "run";
+            const statusText = terminalFailed ? "周期失败" : isOk ? "OK" : item.isOk === false ? "NG" : "运行中";
             const identity = getTraceIdentityLabel(item);
             const title = item.productBarcode || item.sourceLabel || item.inspectionId || item.barcodeError || "-";
             const detectionSummary = getDetectionSummary(item);
@@ -841,6 +1478,321 @@
         return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
     }
 
+    function formatBytesCompact(bytes) {
+        const value = toFiniteNumber(bytes);
+        if (value <= 0) return "-";
+        if (value >= 1024 * 1024 * 1024) return `${(value / 1024 / 1024 / 1024).toFixed(2)}GB`;
+        if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)}MB`;
+        if (value >= 1024) return `${(value / 1024).toFixed(1)}KB`;
+        return `${Math.trunc(value)}B`;
+    }
+
+    function shortHash(hash) {
+        const value = String(hash || "").trim();
+        return value ? value.slice(0, 12) : "-";
+    }
+
+    function formatDiagnosticDateTime(value) {
+        if (!value) return "-";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return date.toLocaleString();
+    }
+
+    function getDiagnosticPackagePath(pkg) {
+        return getDiagnosticPackageValue(pkg, "path", "Path", "") ||
+            getDiagnosticPackageValue(pkg, "packagePath", "PackagePath", "");
+    }
+
+    function getDiagnosticPackageFileName(pkg) {
+        const explicitName = getDiagnosticPackageValue(pkg, "fileName", "FileName", "");
+        if (explicitName) return explicitName;
+        const path = getDiagnosticPackagePath(pkg);
+        return String(path || "").split(/[\\/]/).pop() || "-";
+    }
+
+    function getDiagnosticPackageValue(pkg, camelName, pascalName, fallback = "") {
+        return pkg?.[camelName] ?? pkg?.[pascalName] ?? fallback;
+    }
+
+    function buildDiagnosticPackageSummaryText(pkg) {
+        const path = getDiagnosticPackagePath(pkg);
+        const packageSha = getDiagnosticPackageValue(pkg, "packageSha256", "PackageSha256", "");
+        const indexSha = getDiagnosticPackageValue(pkg, "indexSha256", "IndexSha256", "");
+        const sizeBytes = getDiagnosticPackageValue(pkg, "sizeBytes", "SizeBytes", "");
+        const integrityStatus = getDiagnosticPackageValue(pkg, "integrityStatus", "IntegrityStatus", "");
+        const integrityEntries = getDiagnosticPackageValue(pkg, "integrityEntryCount", "IntegrityEntryCount", "");
+        const verifiedEntries = getDiagnosticPackageValue(pkg, "verifiedEntryCount", "VerifiedEntryCount", "");
+        const findingCount = getDiagnosticPackageValue(pkg, "integrityFindingCount", "IntegrityFindingCount", "");
+        const exportedAt = getDiagnosticPackageValue(pkg, "exportedAt", "ExportedAt", "");
+
+        return [
+            "ClearFrost 诊断包核验摘要",
+            `路径: ${path || "-"}`,
+            `包 SHA-256: ${packageSha || "-"}`,
+            `索引 SHA-256: ${indexSha || "-"}`,
+            `大小: ${sizeBytes ? `${sizeBytes} bytes (${formatBytesCompact(sizeBytes)})` : "-"}`,
+            `自检状态: ${integrityStatus || "-"}`,
+            `索引条目: ${integrityEntries || "-"}`,
+            `已验证条目: ${verifiedEntries || "-"}`,
+            `异常数量: ${findingCount === "" ? "-" : findingCount}`,
+            `导出时间: ${exportedAt || "-"}`,
+        ].join("\n");
+    }
+
+    function getFieldHandoffReportValue(report, camelName, pascalName, fallback = "") {
+        return report?.[camelName] ?? report?.[pascalName] ?? fallback;
+    }
+
+    function getFieldHandoffReportPath(report) {
+        return getFieldHandoffReportValue(report, "path", "Path", "") ||
+            getFieldHandoffReportValue(report, "reportPath", "ReportPath", "");
+    }
+
+    function getFieldHandoffReportFileName(report) {
+        const explicitName = getFieldHandoffReportValue(report, "fileName", "FileName", "");
+        if (explicitName) return explicitName;
+        const path = getFieldHandoffReportPath(report);
+        return String(path || "").split(/[\\/]/).pop() || "-";
+    }
+
+    function buildFieldHandoffReportSummaryText(report) {
+        const path = getFieldHandoffReportPath(report);
+        const status = getFieldHandoffReportValue(report, "overallStatus", "OverallStatus", "");
+        const sizeBytes = getFieldHandoffReportValue(report, "sizeBytes", "SizeBytes", "");
+        const generatedAt = getFieldHandoffReportValue(report, "generatedAt", "GeneratedAt", "");
+        const activeAdviceCount = getFieldHandoffReportValue(report, "activeAdviceCount", "ActiveAdviceCount", "");
+        const shiftTaskCount = getFieldHandoffReportValue(report, "shiftTaskCount", "ShiftTaskCount", "");
+        const failedRecheckCount = getFieldHandoffReportValue(report, "failedRecheckCount", "FailedRecheckCount", "");
+        const diagnosticPackageCount = getFieldHandoffReportValue(report, "diagnosticPackageCount", "DiagnosticPackageCount", "");
+        const recentAuditCount = getFieldHandoffReportValue(report, "recentAuditCount", "RecentAuditCount", "");
+
+        return [
+            "ClearFrost 现场交接报告摘要",
+            `路径: ${path || "-"}`,
+            `交接结论: ${status || "-"}`,
+            `大小: ${sizeBytes ? `${sizeBytes} bytes (${formatBytesCompact(sizeBytes)})` : "-"}`,
+            `生成时间: ${generatedAt || "-"}`,
+            `当前维护建议: ${activeAdviceCount === "" ? "-" : activeAdviceCount}`,
+            `班次待办: ${shiftTaskCount === "" ? "-" : shiftTaskCount}`,
+            `复检失败: ${failedRecheckCount === "" ? "-" : failedRecheckCount}`,
+            `诊断包数量: ${diagnosticPackageCount === "" ? "-" : diagnosticPackageCount}`,
+            `关键审计数量: ${recentAuditCount === "" ? "-" : recentAuditCount}`,
+        ].join("\n");
+    }
+
+    function getCurrentStationName() {
+        const settings = store.state.settings || {};
+        return String(
+            el("cfg-cam-name")?.value ||
+            settings.StationName ||
+            settings.stationName ||
+            settings.CameraName ||
+            settings.cameraName ||
+            settings.name ||
+            "").trim();
+    }
+
+    function getFaultAdviceItems(health) {
+        const triggerSource = getCurrentTriggerSource(health);
+        const items = getVisibleMaintenanceAdvice(health).map((item) => ({
+            title: item.title || item.Title || "待处理问题",
+            advice: item.advice || item.Advice || "请工程师查看现场诊断中心。",
+            code: item.code || item.Code || "",
+        }));
+
+        if (triggerSource === "SerialPhotoelectric" && !isSerialTriggerConnected()) {
+            items.push({
+                title: "串口光电触发器未连接",
+                advice: "请确认 COM 口、光电触发器供电和串口线后重新启动系统。",
+                code: "SerialTriggerNotConnected",
+            });
+        }
+
+        return items;
+    }
+
+    function buildFaultSummaryText(state = store.state) {
+        const health = state?.health || {};
+        const modelProbe = health.modelProbe || health.ModelProbe || {};
+        const currentModel = getFieldValue(health, "currentModelName", "CurrentModelName") ||
+            modelProbe.currentModelName || modelProbe.CurrentModelName ||
+            getFieldValue(health, "modelStatus", "ModelStatus");
+        const triggerSource = getCurrentTriggerSource(health);
+        const triggerLabel = formatTriggerSourceLabel(triggerSource);
+        const faultItems = getFaultAdviceItems(health);
+        const stationName = getCurrentStationName() || "未设置";
+        const cameraStatus = formatFieldCameraStatus(getFieldValue(health, "cameraStatus", "CameraStatus"));
+        const plcStatus = formatFieldPlcStatus(getFieldValue(health, "plcStatus", "PlcStatus"), triggerSource);
+        const modelStatus = isModelReady(modelProbe, currentModel) ? "已加载" : "未加载";
+        const storageStatus = formatFieldStorageStatus(health);
+        const conclusion = faultItems.length > 0 ? "需要处理" : "暂无待处理";
+
+        const lines = [
+            "【ClearFrost现场故障摘要】",
+            `时间：${new Date().toLocaleString()}`,
+            `工位：${stationName}`,
+            `触发源：${triggerLabel}`,
+            `当前结论：${conclusion}`,
+            `相机：${cameraStatus}`,
+            `PLC：${plcStatus}`,
+            `模型：${modelStatus}`,
+            `存储：${storageStatus}`,
+            "待处理：",
+        ];
+
+        if (faultItems.length === 0) {
+            lines.push("当前暂无待处理问题，设备状态可以继续生产。");
+            lines.push("下一步：继续按当前工位配置生产；如需排查历史问题，可导出诊断包给工程师。");
+            return lines.join("\n");
+        }
+
+        faultItems.slice(0, 6).forEach((item, index) => {
+            const title = String(item.title || "待处理问题").trim();
+            const advice = String(item.advice || "请工程师查看现场诊断中心。").trim();
+            lines.push(`${index + 1}. ${title}：${advice}`);
+        });
+        lines.push("下一步：请工程师检查相机连接、模型选择和触发源通讯。");
+        return lines.join("\n");
+    }
+
+    async function writeClipboardText(text) {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return;
+        }
+
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "readonly");
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        if (!copied) {
+            throw new Error("ClipboardUnavailable");
+        }
+    }
+
+    async function copyFaultSummary() {
+        try {
+            await writeClipboardText(buildFaultSummaryText(store.state));
+            showToast("故障摘要已复制", "success", 1600);
+            addLog("故障摘要已复制", "success");
+        } catch {
+            showToast("复制失败，请手动记录故障摘要", "error", 1800);
+            addLog("故障摘要复制失败", "error");
+        }
+    }
+
+    async function copyDiagnosticPackageSummary() {
+        const pkg = store.state?.diagnosticPackage || {};
+        const path = getDiagnosticPackagePath(pkg);
+        if (!path) {
+            showToast("暂无诊断包摘要", "warning", 1400);
+            addLog("暂无可复制的诊断包核验摘要", "warning");
+            return;
+        }
+
+        try {
+            await writeClipboardText(buildDiagnosticPackageSummaryText(pkg));
+            showToast("诊断包核验摘要已复制", "success", 1600);
+            addLog("诊断包核验摘要已复制", "success");
+        } catch {
+            showToast("复制失败，请手动记录核验摘要", "error", 1800);
+            addLog("诊断包核验摘要复制失败", "error");
+        }
+    }
+
+    async function copyFieldHandoffReportSummary() {
+        const report = store.state?.fieldHandoffReport || {};
+        const path = getFieldHandoffReportPath(report);
+        if (!path) {
+            showToast("暂无交接报告摘要", "warning", 1400);
+            addLog("暂无可复制的交接报告摘要", "warning");
+            return;
+        }
+
+        try {
+            await writeClipboardText(buildFieldHandoffReportSummaryText(report));
+            showToast("交接报告摘要已复制", "success", 1600);
+            addLog("交接报告摘要已复制", "success");
+        } catch {
+            showToast("复制失败，请手动记录交接报告摘要", "error", 1800);
+            addLog("交接报告摘要复制失败", "error");
+        }
+    }
+
+    function requestDiagnosticPackageHistory() {
+        window.sendCommand("query_diagnostic_packages");
+        addLog("正在刷新诊断包历史...", "info");
+    }
+
+    function requestFieldHandoffReportHistory() {
+        window.sendCommand("query_field_handoff_reports");
+        addLog("正在刷新交接报告历史...", "info");
+    }
+
+    function verifyDiagnosticPackage(path) {
+        const packagePath = String(path || "").trim();
+        if (!packagePath) {
+            showToast("未选择诊断包", "warning", 1400);
+            return;
+        }
+
+        window.sendCommand("verify_diagnostic_package", { path: packagePath });
+        addLog("正在复核诊断包完整性...", "info");
+        showToast("正在复核诊断包...", "info", 1200);
+    }
+
+    function exportFieldHandoffReport() {
+        window.sendCommand("export_field_handoff_report");
+        addLog("正在导出现场交接报告...", "info");
+        showToast("正在导出交接报告...", "info", 1200);
+    }
+
+    function sendMaintenanceAdviceAction(adviceId, action) {
+        const id = String(adviceId || "").trim();
+        if (!id) {
+            showToast("维护建议标识为空", "warning", 1400);
+            return;
+        }
+
+        window.sendCommand("maintenance_advice_action", { adviceId: id, action });
+        addLog(action === "recheck" ? "维护建议复检请求已发送" : "维护建议处理记录已提交", "info");
+    }
+
+    function acknowledgeMaintenanceAdvice(adviceId) {
+        sendMaintenanceAdviceAction(adviceId, "acknowledge");
+    }
+
+    function recheckMaintenanceAdvice(adviceId) {
+        sendMaintenanceAdviceAction(adviceId, "recheck");
+    }
+
+    function sendShiftTaskAction(payload, action) {
+        const task = payload && typeof payload === "object" ? payload : { linkedAdviceId: payload };
+        const taskId = String(task.taskId || task.TaskId || "").trim();
+        const linkedAdviceId = String(task.linkedAdviceId || task.LinkedAdviceId || task.adviceId || task.AdviceId || "").trim();
+        if (!taskId && !linkedAdviceId) {
+            showToast("班次待办标识为空", "warning", 1400);
+            return;
+        }
+
+        window.sendCommand("shift_task_action", { taskId, linkedAdviceId, action });
+        addLog(action === "recheck" ? "班次待办复检请求已发送" : "班次待办处理记录已提交", "info");
+    }
+
+    function acknowledgeShiftTask(payload) {
+        sendShiftTaskAction(payload, "acknowledge");
+    }
+
+    function recheckShiftTask(payload) {
+        sendShiftTaskAction(payload, "recheck");
+    }
+
     function logQueuePressureAdvice(health) {
         const items = getQueuePressureItems(health);
         if (items.length === 0) {
@@ -866,7 +1818,1415 @@
         if (plcStatus) {
             updateConnection("plc", /^Connected/i.test(String(plcStatus)));
         }
+        updateTriggerSourceStatus(getCurrentTriggerSource(health));
         logQueuePressureAdvice(health);
+        renderFieldDiagnostics(state);
+    }
+
+    function getNestedHealthSnapshot(health) {
+        return health?.healthSnapshot || health?.HealthSnapshot || health || {};
+    }
+
+    function getFieldValue(health, camelName, pascalName, fallback = "") {
+        const nested = getNestedHealthSnapshot(health);
+        return health?.[camelName] ?? health?.[pascalName] ?? nested?.[camelName] ?? nested?.[pascalName] ?? fallback;
+    }
+
+    function getFieldArray(health, camelName, pascalName) {
+        const nested = getNestedHealthSnapshot(health);
+        const value = health?.[camelName] ?? health?.[pascalName] ?? nested?.[camelName] ?? nested?.[pascalName];
+        return Array.isArray(value) ? value : [];
+    }
+
+    function formatQueueText(pending, capacity) {
+        const p = Math.max(0, Math.trunc(toFiniteNumber(pending)));
+        const c = Math.max(0, Math.trunc(toFiniteNumber(capacity)));
+        return c > 0 ? `${p}/${c}` : `${p}/-`;
+    }
+
+    function getLastFieldError(health) {
+        const errors = getFieldArray(health, "recentErrors", "RecentErrors");
+        if (errors.length === 0) return "";
+        const last = errors[errors.length - 1] || {};
+        const source = last.source || last.Source || "系统";
+        const message = last.message || last.Message || "";
+        return `${source}: ${message}`;
+    }
+
+    function getLastTimingText(health) {
+        const timings = getFieldArray(health, "recentInspectionTimings", "RecentInspectionTimings");
+        const lastTiming = health.lastInspectionTiming || health.LastInspectionTiming ||
+            getNestedHealthSnapshot(health).lastInspectionTiming || getNestedHealthSnapshot(health).LastInspectionTiming ||
+            timings[timings.length - 1];
+        if (!lastTiming) return "等待检测";
+
+        const parts = [
+            lastTiming.captureMs || lastTiming.CaptureMs ? `取图${lastTiming.captureMs ?? lastTiming.CaptureMs}ms` : "",
+            lastTiming.inferenceMs || lastTiming.InferenceMs ? `推理${lastTiming.inferenceMs ?? lastTiming.InferenceMs}ms` : "",
+            lastTiming.roiFilterMs || lastTiming.RoiFilterMs ? `规则${lastTiming.roiFilterMs ?? lastTiming.RoiFilterMs}ms` : "",
+            lastTiming.plcWriteMs || lastTiming.PlcWriteMs ? `PLC${lastTiming.plcWriteMs ?? lastTiming.PlcWriteMs}ms` : "",
+        ].filter(Boolean);
+        return parts.length ? parts.join(" / ") : "暂无阶段耗时";
+    }
+
+    function getFieldObject(health, camelName, pascalName) {
+        const nested = getNestedHealthSnapshot(health);
+        const value = health?.[camelName] ?? health?.[pascalName] ?? nested?.[camelName] ?? nested?.[pascalName];
+        return value && typeof value === "object" ? value : {};
+    }
+
+    function normalizeTriggerSource(value) {
+        const raw = String(value || "").trim();
+        const lower = raw.toLowerCase();
+        if (!raw || lower === "plc") return "PLC";
+        if (lower === "serialphotoelectric" || lower.includes("serial") || lower.includes("串口")) {
+            return "SerialPhotoelectric";
+        }
+        if (lower === "manual" || lower.includes("手动")) return "Manual";
+        return raw;
+    }
+
+    function getCurrentTriggerSource(health = null) {
+        const settings = store.state.settings || {};
+        const selectValue = el("cfg-trigger-source")?.value || "";
+        const healthValue = health
+            ? getFieldValue(health, "triggerSource", "TriggerSource", "")
+            : "";
+        return normalizeTriggerSource(
+            healthValue ||
+            settings.TriggerSource ||
+            settings.triggerSource ||
+            selectValue ||
+            "PLC");
+    }
+
+    function formatTriggerSourceLabel(triggerSource) {
+        const normalized = normalizeTriggerSource(triggerSource);
+        if (normalized === "PLC") return "PLC触发";
+        if (normalized === "SerialPhotoelectric") return "串口光电";
+        if (normalized === "Manual") return "手动检测";
+        return normalized || "PLC触发";
+    }
+
+    function isSerialTriggerConnected() {
+        return Boolean(store.state.connections?.serialTrigger);
+    }
+
+    function updateTriggerSourceStatus(triggerSource = null) {
+        const normalized = normalizeTriggerSource(triggerSource || getCurrentTriggerSource());
+        const label = formatTriggerSourceLabel(normalized);
+        setText("status-trigger-source-text", label, "PLC触发");
+        setText("diag-trigger-source", label, "PLC触发");
+        setDotState("status-trigger-source-dot", normalized === "Manual" ? "status-warning" : "status-on");
+
+        const root = el("status-trigger-source");
+        if (root) {
+            root.setAttribute("aria-label", `当前触发源: ${label}`);
+            root.title = `当前触发源: ${label}`;
+        }
+    }
+
+    function isPlcNotConnectedAdvice(item) {
+        const code = String(item.code || item.Code || "").trim();
+        const source = String(item.source || item.Source || "").trim();
+        const title = String(item.title || item.Title || "").trim();
+        return code === "PlcNotConnected" ||
+            (source.toLowerCase() === "plc" && title.includes("PLC") && title.includes("未连接"));
+    }
+
+    function getVisibleMaintenanceAdvice(health) {
+        const triggerSource = getCurrentTriggerSource(health);
+        const advice = getFieldArray(health, "maintenanceAdvice", "MaintenanceAdvice");
+        if (triggerSource === "PLC") return advice;
+        return advice.filter((item) => !isPlcNotConnectedAdvice(item));
+    }
+
+    function isStartupFailStatus(status) {
+        const value = String(status ?? "").trim().toLowerCase();
+        return value === "fail" || value === "2";
+    }
+
+    function getRoleLabel(role) {
+        const value = String(role || "");
+        if (value === "Primary") return "主模型";
+        if (value === "Auxiliary1") return "子模型1";
+        if (value === "Auxiliary2") return "子模型2";
+        return value || "模型";
+    }
+
+    function getRegistryMatchLabel(strategy) {
+        const value = String(strategy || "");
+        if (value === "ModelPath") return "路径匹配";
+        if (value === "UsedModelName") return "名称匹配";
+        if (value === "ModelFileName") return "文件名匹配";
+        return value || "未匹配";
+    }
+
+    function renderModelSlotChecklist(modelProbe) {
+        const slots = Array.isArray(modelProbe.slots) ? modelProbe.slots :
+            Array.isArray(modelProbe.Slots) ? modelProbe.Slots : [];
+        const loadedSlots = slots.filter((slot) => (slot.isLoaded ?? slot.IsLoaded) === true);
+        if (loadedSlots.length === 0) return "未加载";
+
+        return loadedSlots.map((slot) => {
+            const role = getRoleLabel(slot.role ?? slot.Role);
+            const fileName = slot.modelFileName || slot.ModelFileName || "-";
+            const modelId = slot.modelId || slot.ModelId || "";
+            const version = slot.version || slot.Version || "";
+            const hash = slot.modelHashPrefix || slot.ModelHashPrefix || "";
+            const matched = (slot.registryMatched ?? slot.RegistryMatched) === true;
+            const strategy = getRegistryMatchLabel(slot.registryMatchStrategy || slot.RegistryMatchStrategy);
+            const identity = [modelId && version ? `${modelId}@${version}` : modelId || "", hash ? `#${hash}` : ""]
+                .filter(Boolean)
+                .join(" ");
+            const badgeClass = matched ? "" : " warning";
+            return `<span class="cf-diagnostic-line">${escapeHtml(role)}: ${escapeHtml(fileName)} ${identity ? `· ${escapeHtml(identity)}` : ""} <em class="cf-diagnostic-badge${badgeClass}">${escapeHtml(strategy)}</em></span>`;
+        }).join("");
+    }
+
+    function renderRecipeChecklist(health) {
+        const recipeId = getFieldValue(health, "recipeId", "RecipeId", "");
+        const recipeVersion = getFieldValue(health, "recipeVersion", "RecipeVersion", "");
+        if (!recipeId && !recipeVersion) return "未加载";
+
+        const targetLabel = getFieldValue(health, "recipeTargetLabel", "RecipeTargetLabel", "");
+        const targetCount = getFieldValue(health, "recipeTargetCount", "RecipeTargetCount", "");
+        const target = targetLabel ? ` · ${targetLabel} x${targetCount || 0}` : "";
+        return `${escapeHtml(recipeId || "default")} / ${escapeHtml(recipeVersion || "-")}${escapeHtml(target)}`;
+    }
+
+    function renderStartupBlockersChecklist(health) {
+        const startup = getFieldObject(health, "startupDiagnostics", "StartupDiagnostics");
+        const items = Array.isArray(startup.items) ? startup.items :
+            Array.isArray(startup.Items) ? startup.Items : [];
+        const blockers = items.filter((item) => {
+            const isBlocking = (item.isBlocking ?? item.IsBlocking) === true;
+            return isBlocking && isStartupFailStatus(item.status ?? item.Status);
+        });
+        if (blockers.length === 0) return `<em class="cf-diagnostic-badge">无阻断</em>`;
+
+        const names = blockers
+            .slice(0, 3)
+            .map((item) => item.name || item.Name || item.message || item.Message || "阻断项")
+            .join(" / ");
+        const suffix = blockers.length > 3 ? ` +${blockers.length - 3}` : "";
+        return `<em class="cf-diagnostic-badge error">${blockers.length}项</em> ${escapeHtml(names + suffix)}`;
+    }
+
+    function renderQueueChecklist(health) {
+        const queues = getFieldObject(health, "queues", "Queues");
+        const imagePending = queues.imagePending ?? queues.ImagePending ?? getFieldValue(health, "imageQueueLength", "ImageQueueLength", 0);
+        const imageCapacity = queues.imageCapacity ?? queues.ImageCapacity ?? getFieldValue(health, "imageQueueCapacity", "ImageQueueCapacity", 0);
+        const recordPending = queues.recordPending ?? queues.RecordPending ?? getFieldValue(health, "recordQueueLength", "RecordQueueLength", 0);
+        const recordCapacity = queues.recordCapacity ?? queues.RecordCapacity ?? getFieldValue(health, "recordQueueCapacity", "RecordQueueCapacity", 0);
+        const imageFailures = toFiniteNumber(queues.imageDroppedCount ?? queues.ImageDroppedCount) +
+            toFiniteNumber(queues.imageFailedCount ?? queues.ImageFailedCount);
+        const recordFailures = toFiniteNumber(queues.recordDroppedCount ?? queues.RecordDroppedCount) +
+            toFiniteNumber(queues.recordFailedCount ?? queues.RecordFailedCount);
+        const backlog = String(queues.backlogLevel || queues.BacklogLevel || "").toLowerCase();
+        const warning = backlog === "warning" || imageFailures > 0 || recordFailures > 0;
+        const badge = warning
+            ? `<em class="cf-diagnostic-badge warning">需关注</em>`
+            : `<em class="cf-diagnostic-badge">正常</em>`;
+        const failures = imageFailures + recordFailures > 0 ? ` · 异常 ${imageFailures + recordFailures}` : "";
+        return `${badge} 图像 ${formatQueueText(imagePending, imageCapacity)} · 记录 ${formatQueueText(recordPending, recordCapacity)}${failures}`;
+    }
+
+    function renderAuditChainChecklist(health) {
+        const audit = getFieldObject(health, "auditChain", "AuditChain");
+        const status = String(audit.status || audit.Status || "NotChecked");
+        const checkedAt = audit.checkedAt || audit.CheckedAt || "";
+        const totalRecords = audit.totalRecords ?? audit.TotalRecords ?? 0;
+        const verifiedRecords = audit.verifiedRecords ?? audit.VerifiedRecords ?? 0;
+        const findingCount = audit.findingCount ?? audit.FindingCount ?? 0;
+        const lastHash = audit.lastRecordSha256 || audit.LastRecordSha256 || "";
+        const statusLower = status.toLowerCase();
+        if (!checkedAt || statusLower === "notchecked") {
+            return `<em class="cf-diagnostic-badge pending">未校验</em>`;
+        }
+
+        const badgeClass = statusLower === "healthy"
+            ? ""
+            : statusLower === "warning"
+                ? " warning"
+                : " error";
+        const hashText = lastHash ? ` · Last ${shortHash(lastHash)}` : "";
+        return `<em class="cf-diagnostic-badge${badgeClass}">${escapeHtml(status)}</em> Verified ${escapeHtml(verifiedRecords)}/${escapeHtml(totalRecords)} · Findings ${escapeHtml(findingCount)}${escapeHtml(hashText)}`;
+    }
+
+    function renderFieldAcceptanceChecklist(health, modelProbe) {
+        setHtml("diag-model-slot-list", renderModelSlotChecklist(modelProbe), "等待模型快照");
+        setHtml("diag-recipe-version", renderRecipeChecklist(health), "未加载");
+        setHtml("diag-startup-blockers", renderStartupBlockersChecklist(health), "无阻断项");
+        setHtml("diag-queue-health", renderQueueChecklist(health), "正常");
+        setHtml("diag-audit-chain", renderAuditChainChecklist(health), "未校验");
+    }
+
+    function getAdviceLevelClass(level) {
+        const value = String(level || "").trim().toLowerCase();
+        if (value === "critical" || value === "error") return "critical";
+        if (value === "warning") return "warning";
+        return "ok";
+    }
+
+    function renderMaintenanceAdviceList(health) {
+        const advice = getVisibleMaintenanceAdvice(health);
+        if (advice.length === 0) {
+            setHtml(
+                "diag-maintenance-advice",
+                `<div class="cf-maintenance-advice-item ok"><strong>暂无建议</strong><span>当前没有需要处理的诊断建议</span></div>`,
+            );
+            return;
+        }
+
+        const html = advice.slice(0, 4).map((item) => {
+            const levelClass = getAdviceLevelClass(item.level || item.Level);
+            const title = item.title || item.Title || "维护建议";
+            const action = item.advice || item.Advice || "";
+            const code = item.code || item.Code || "";
+            const adviceId = item.adviceId || item.AdviceId || "";
+            const resolutionStatus = item.resolutionStatus || item.ResolutionStatus || "Open";
+            const lastActionMessage = item.lastActionMessage || item.LastActionMessage || "";
+            const statusBadge = resolutionStatus && resolutionStatus !== "Open"
+                ? `<em class="cf-diagnostic-badge pending">${escapeHtml(resolutionStatus)}</em>`
+                : "";
+            const actionHtml = adviceId
+                ? `<div class="cf-maintenance-actions">
+                    <button type="button" data-action="acknowledgeMaintenanceAdvice" data-value="${escapeHtml(JSON.stringify(adviceId))}">
+                        <span>已处理</span>
+                    </button>
+                    <button type="button" data-action="recheckMaintenanceAdvice" data-value="${escapeHtml(JSON.stringify(adviceId))}">
+                        <span>复检</span>
+                    </button>
+                </div>`
+                : "";
+            return `<div class="cf-maintenance-advice-item ${levelClass}" data-code="${escapeHtml(code)}">
+                <strong>${escapeHtml(title)} ${statusBadge}</strong>
+                <em>下一步：${escapeHtml(action || "请打开工程师详情查看诊断信息。")}</em>
+                ${lastActionMessage ? `<span>${escapeHtml(lastActionMessage)}</span>` : ""}
+                ${actionHtml}
+            </div>`;
+        }).join("");
+        setHtml("diag-maintenance-advice", html);
+    }
+
+    function renderMaintenanceHistoryRecheckButton(adviceId) {
+        const id = String(adviceId || "").trim();
+        if (!id) return "";
+
+        return `<button type="button" data-action="recheckMaintenanceAdvice" data-value="${escapeHtml(JSON.stringify(id))}">
+            <span>复检</span>
+        </button>`;
+    }
+
+    function renderMaintenanceAdviceHistory(state, health) {
+        const fromState = Array.isArray(state?.maintenanceAdviceHistory) ? state.maintenanceAdviceHistory : [];
+        const fromHealth = getFieldArray(health, "maintenanceAdviceHistory", "MaintenanceAdviceHistory");
+        const history = fromState.length > 0 ? fromState : fromHealth;
+        if (history.length === 0) {
+            setHtml(
+                "diag-maintenance-history",
+                `<div class="cf-maintenance-history-empty">
+                    <strong>暂无处理记录</strong>
+                    <span>处理或复检维护建议后会出现在这里</span>
+                </div>`,
+            );
+            return;
+        }
+
+        const html = history.slice(0, 5).map((record) => {
+            const adviceId = record.adviceId || record.AdviceId || "";
+            const title = record.title || record.Title || "维护建议";
+            const status = record.status || record.Status || "-";
+            const message = record.message || record.Message || "";
+            const actionAt = record.actionAt || record.ActionAt || "";
+            const operatorId = record.operatorId || record.OperatorId || "";
+            const recheckButton = renderMaintenanceHistoryRecheckButton(adviceId);
+            return `<div class="cf-maintenance-history-item">
+                <div>
+                    <strong>${escapeHtml(title)}</strong>
+                    <span>${escapeHtml(status)} · ${escapeHtml(operatorId || "-")} · ${escapeHtml(formatDiagnosticDateTime(actionAt))}</span>
+                    ${message ? `<em>${escapeHtml(message)}</em>` : ""}
+                </div>
+                ${recheckButton}
+            </div>`;
+        }).join("");
+        setHtml("diag-maintenance-history", html);
+    }
+
+    function renderShiftTaskBoard(health) {
+        const tasks = getFieldArray(health, "shiftTasks", "ShiftTasks");
+        if (tasks.length === 0) {
+            setHtml(
+                "diag-shift-task-list",
+                `<div class="cf-shift-task-empty">
+                    <strong>暂无班次待办</strong>
+                    <span>当前无需要交接跟进的诊断任务</span>
+                </div>`,
+            );
+            return;
+        }
+
+        const html = tasks.slice(0, 6).map((task) => {
+            const levelClass = getAdviceLevelClass(task.level || task.Level);
+            const status = task.status || task.Status || "Open";
+            const source = task.source || task.Source || "Diagnostics";
+            const title = task.title || task.Title || "班次待办";
+            const evidence = task.evidence || task.Evidence || "";
+            const action = task.action || task.Action || "";
+            const owner = task.suggestedOwner || task.SuggestedOwner || "现场班组";
+            const firstSeenAt = task.firstSeenAt || task.FirstSeenAt || "";
+            const dueAt = task.dueAt || task.DueAt || "";
+            const escalation = task.escalationLevel || task.EscalationLevel || "Normal";
+            const isOverdue = (task.isOverdue ?? task.IsOverdue) === true;
+            const adviceId = task.linkedAdviceId || task.LinkedAdviceId || "";
+            const taskId = task.taskId || task.TaskId || "";
+            const taskPayload = { taskId, linkedAdviceId: adviceId };
+            const actionHtml = adviceId
+                ? `<div class="cf-maintenance-actions">
+                    <button type="button" data-action="acknowledgeShiftTask" data-value="${escapeHtml(JSON.stringify(taskPayload))}">
+                        <span>已处理</span>
+                    </button>
+                    <button type="button" data-action="recheckShiftTask" data-value="${escapeHtml(JSON.stringify(taskPayload))}">
+                        <span>复检</span>
+                    </button>
+                </div>`
+                : "";
+            const overdueBadge = isOverdue
+                ? `<em class="cf-diagnostic-badge error">超时</em>`
+                : `<em class="cf-diagnostic-badge ${escalation === "High" ? "warning" : ""}">${escapeHtml(escalation)}</em>`;
+            return `<div class="cf-shift-task-item ${levelClass}${isOverdue ? " overdue" : ""}">
+                <strong>${escapeHtml(title)}</strong>
+                <span><em class="cf-diagnostic-badge ${levelClass === "critical" ? "error" : levelClass === "warning" ? "warning" : ""}">${escapeHtml(status)}</em>${overdueBadge}${escapeHtml(source)} · ${escapeHtml(owner)}</span>
+                ${firstSeenAt ? `<span>首次 ${escapeHtml(formatDiagnosticDateTime(firstSeenAt))}</span>` : ""}
+                <span>截止 ${escapeHtml(formatDiagnosticDateTime(dueAt))}</span>
+                ${evidence ? `<span>${escapeHtml(evidence)}</span>` : ""}
+                ${action ? `<em>${escapeHtml(action)}</em>` : ""}
+                ${actionHtml}
+            </div>`;
+        }).join("");
+        setHtml("diag-shift-task-list", html);
+    }
+
+    function renderDiagnosticPackageHistory(state) {
+        const packages = Array.isArray(state?.diagnosticPackageHistory) ? state.diagnosticPackageHistory : [];
+        if (packages.length === 0) {
+            setHtml(
+                "diag-package-history",
+                `<div class="cf-diagnostics-package-empty">
+                    <strong>暂无历史诊断包</strong>
+                    <span>导出诊断包后会出现在这里</span>
+                </div>`,
+            );
+            return;
+        }
+
+        const html = packages.slice(0, 8).map((pkg) => {
+            const path = getDiagnosticPackagePath(pkg);
+            const fileName = getDiagnosticPackageFileName(pkg);
+            const sizeBytes = getDiagnosticPackageValue(pkg, "sizeBytes", "SizeBytes", 0);
+            const lastWriteTime = getDiagnosticPackageValue(pkg, "lastWriteTime", "LastWriteTime", "");
+            const status = getDiagnosticPackageValue(pkg, "integrityStatus", "IntegrityStatus", "Pending");
+            const verifiedEntries = getDiagnosticPackageValue(pkg, "verifiedEntryCount", "VerifiedEntryCount", "");
+            const integrityEntries = getDiagnosticPackageValue(pkg, "integrityEntryCount", "IntegrityEntryCount", "");
+            const findingCount = getDiagnosticPackageValue(pkg, "integrityFindingCount", "IntegrityFindingCount", "");
+            const verifiedAt = getDiagnosticPackageValue(pkg, "verifiedAt", "VerifiedAt", "");
+            const statusLower = String(status || "").toLowerCase();
+            const statusClass = statusLower === "healthy"
+                ? "ok"
+                : statusLower === "pending"
+                    ? "pending"
+                    : "warning";
+            const entryText = integrityEntries
+                ? `${verifiedEntries || 0}/${integrityEntries}`
+                : "待复核";
+            const findingText = findingCount === "" || findingCount === undefined
+                ? ""
+                : ` · 异常 ${findingCount}`;
+            const verifiedText = verifiedAt ? ` · ${formatDiagnosticDateTime(verifiedAt)}` : "";
+            return `<div class="cf-diagnostics-package-history-item">
+                <div>
+                    <strong title="${escapeHtml(path)}">${escapeHtml(fileName)}</strong>
+                    <span>${escapeHtml(formatBytesCompact(sizeBytes))} · ${escapeHtml(formatDiagnosticDateTime(lastWriteTime))}</span>
+                    <em class="cf-diagnostic-badge ${statusClass}">${escapeHtml(status || "Pending")} · ${escapeHtml(entryText)}${escapeHtml(findingText)}${escapeHtml(verifiedText)}</em>
+                </div>
+                <button type="button" data-action="verifyDiagnosticPackage" data-value="${escapeHtml(JSON.stringify(path))}">
+                    <span>复核</span>
+                </button>
+            </div>`;
+        }).join("");
+        setHtml("diag-package-history", html);
+    }
+
+    function renderFieldHandoffReportHistory(state) {
+        const reports = Array.isArray(state?.fieldHandoffReportHistory) ? state.fieldHandoffReportHistory : [];
+        if (reports.length === 0) {
+            setHtml(
+                "diag-handoff-report-history",
+                `<div class="cf-handoff-report-empty">
+                    <strong>暂无历史交接报告</strong>
+                    <span>导出交接报告后会出现在这里</span>
+                </div>`,
+            );
+            return;
+        }
+
+        const html = reports.slice(0, 5).map((report) => {
+            const path = getFieldHandoffReportPath(report);
+            const fileName = getFieldHandoffReportFileName(report);
+            const sizeBytes = getFieldHandoffReportValue(report, "sizeBytes", "SizeBytes", 0);
+            const status = getFieldHandoffReportValue(report, "overallStatus", "OverallStatus", "Pending");
+            const shiftTaskCount = getFieldHandoffReportValue(report, "shiftTaskCount", "ShiftTaskCount", "");
+            const generatedAt = getFieldHandoffReportValue(report, "generatedAt", "GeneratedAt", "") ||
+                getFieldHandoffReportValue(report, "lastWriteTime", "LastWriteTime", "");
+            const statusLower = String(status || "").toLowerCase();
+            const statusClass = statusLower === "ready"
+                ? "ok"
+                : statusLower === "blocked"
+                    ? "error"
+                    : "warning";
+            return `<div class="cf-handoff-report-history-item">
+                <div>
+                    <strong title="${escapeHtml(path)}">${escapeHtml(fileName)}</strong>
+                    <span>${escapeHtml(formatBytesCompact(sizeBytes))} · ${escapeHtml(formatDiagnosticDateTime(generatedAt))}${shiftTaskCount === "" ? "" : ` · 待办 ${escapeHtml(shiftTaskCount)}`}</span>
+                    <em class="cf-diagnostic-badge ${statusClass}">${escapeHtml(status || "Pending")}</em>
+                </div>
+            </div>`;
+        }).join("");
+        setHtml("diag-handoff-report-history", html);
+    }
+
+    function getStartupBlockingItems(health) {
+        const startup = getFieldObject(health, "startupDiagnostics", "StartupDiagnostics");
+        const items = Array.isArray(startup.items) ? startup.items :
+            Array.isArray(startup.Items) ? startup.Items : [];
+        return items.filter((item) => {
+            const isBlocking = (item.isBlocking ?? item.IsBlocking) === true;
+            return isBlocking && isStartupFailStatus(item.status ?? item.Status);
+        });
+    }
+
+    function isCameraReadyStatus(status) {
+        const value = String(status || "").trim().toLowerCase();
+        return value === "open" || value === "grabbing" || value === "connected";
+    }
+
+    function isPlcReadyStatus(status) {
+        return String(status || "").trim().toLowerCase().startsWith("connected");
+    }
+
+    function formatFieldCameraStatus(status) {
+        const value = String(status || "").trim();
+        if (isCameraReadyStatus(value)) return "正常";
+        if (!value || value === "Closed" || value === "Disconnected") return "未连接";
+        return "异常";
+    }
+
+    function formatFieldPlcStatus(status, triggerSource = getCurrentTriggerSource()) {
+        const value = String(status || "").trim();
+        if (isPlcReadyStatus(value)) return "正常";
+        if (normalizeTriggerSource(triggerSource) !== "PLC") return "未使用";
+        if (!value || value === "Disconnected" || value === "NotConnected") return "未连接";
+        return "异常";
+    }
+
+    function formatFieldStorageStatus(health) {
+        const status = String(getFieldValue(health, "storageStatus", "StorageStatus", "") || "").trim();
+        const freeDisk = Number(getFieldValue(health, "freeDiskGb", "FreeDiskGb", 0));
+        if (Number.isFinite(freeDisk) && freeDisk > 0 && freeDisk < 2) return "空间不足";
+        if (status.toLowerCase() === "writable" || status === "正常") return "正常";
+        if (!status) return "正常";
+        return "异常";
+    }
+
+    function isModelReady(modelProbe, currentModel) {
+        const loaded = modelProbe.isModelLoaded ?? modelProbe.IsModelLoaded;
+        if (loaded !== undefined) return Boolean(loaded);
+        const name = String(currentModel || "").trim();
+        return Boolean(name) && name !== "未加载";
+    }
+
+    function renderProductionReadiness(health, modelProbe, currentModel) {
+        const triggerSource = getCurrentTriggerSource(health);
+        const blockers = getStartupBlockingItems(health);
+        const advice = getVisibleMaintenanceAdvice(health);
+        const hasIssues = blockers.length > 0 || advice.some((item) => {
+            const level = String(item.level || item.Level || "").toLowerCase();
+            return level === "critical" || level === "warning";
+        });
+        const needsEngineer = advice.some((item) => {
+            const text = `${item.title || item.Title || ""} ${item.advice || item.Advice || ""} ${item.code || item.Code || ""}`;
+            return text.includes("严格模型验证") || text.includes("模型未完成上线验证") || text.includes("StartupBlocked");
+        });
+        const cameraReady = isCameraReadyStatus(getFieldValue(health, "cameraStatus", "CameraStatus"));
+        const plcReady = isPlcReadyStatus(getFieldValue(health, "plcStatus", "PlcStatus"));
+        const serialReady = isSerialTriggerConnected();
+        const modelReady = isModelReady(modelProbe, currentModel);
+        const storageReady = formatFieldStorageStatus(health) === "正常";
+        const commonReady = cameraReady && modelReady && storageReady;
+
+        if (needsEngineer) {
+            setText("diag-production-readiness", "工程师检查");
+            setText("diag-production-guidance", "模型上线验证或启动诊断需要工程师处理。");
+            return;
+        }
+
+        if (triggerSource === "Manual") {
+            setText("diag-production-readiness", commonReady && !hasIssues ? "可手动检测" : "需要处理");
+            setText("diag-production-guidance", "可进行手动检测；自动生产触发未启用。");
+            return;
+        }
+
+        if (triggerSource === "SerialPhotoelectric" && !serialReady) {
+            setText("diag-production-readiness", "需要处理");
+            setText("diag-production-guidance", "需要连接串口光电触发器后才能自动生产。");
+            return;
+        }
+
+        if (triggerSource === "PLC" && !plcReady) {
+            setText("diag-production-readiness", "需要处理");
+            setText("diag-production-guidance", "需要连接 PLC 后才能自动生产。");
+            return;
+        }
+
+        if (hasIssues || !commonReady) {
+            setText("diag-production-readiness", "需要处理");
+            setText("diag-production-guidance", "请先查看待处理问题，并按下一步建议处理。");
+            return;
+        }
+
+        setText("diag-production-readiness", "可以生产");
+        setText(
+            "diag-production-guidance",
+            triggerSource === "SerialPhotoelectric"
+                ? "串口光电触发器已连接，设备、模型和存储状态正常。"
+                : "设备、模型和存储状态正常。");
+    }
+
+    function renderFieldDiagnostics(state) {
+        const health = state?.health || {};
+        const modelProbe = health.modelProbe || health.ModelProbe || {};
+        const currentModel = getFieldValue(health, "currentModelName", "CurrentModelName") ||
+            modelProbe.currentModelName || modelProbe.CurrentModelName ||
+            getFieldValue(health, "modelStatus", "ModelStatus");
+
+        setText("diag-camera-status", formatFieldCameraStatus(getFieldValue(health, "cameraStatus", "CameraStatus")), "未连接");
+        const triggerSource = getCurrentTriggerSource(health);
+        updateTriggerSourceStatus(triggerSource);
+        setText("diag-plc-status", formatFieldPlcStatus(getFieldValue(health, "plcStatus", "PlcStatus"), triggerSource), "未连接");
+        setText("diag-current-model", isModelReady(modelProbe, currentModel) ? "已加载" : "未加载", "未加载");
+        setText("diag-storage-status", formatFieldStorageStatus(health), "正常");
+        renderProductionReadiness(health, modelProbe, currentModel);
+        setText("diag-last-inspection-id", getFieldValue(health, "lastInspectionId", "LastInspectionId"), "-");
+        setText("diag-p95", `${getFieldValue(health, "recentInspectionP95Ms", "RecentInspectionP95Ms", 0)}ms`, "0ms");
+        setText("diag-p99", `${getFieldValue(health, "recentInspectionP99Ms", "RecentInspectionP99Ms", 0)}ms`, "0ms");
+        setText(
+            "diag-image-queue",
+            formatQueueText(
+                getFieldValue(health, "imageQueueLength", "ImageQueueLength", 0),
+                getFieldValue(health, "imageQueueCapacity", "ImageQueueCapacity", 0),
+            ),
+            "0/-",
+        );
+        setText(
+            "diag-record-queue",
+            formatQueueText(
+                getFieldValue(health, "recordQueueLength", "RecordQueueLength", 0),
+                getFieldValue(health, "recordQueueCapacity", "RecordQueueCapacity", 0),
+            ),
+            "0/-",
+        );
+        setText("diag-free-disk", `${getFieldValue(health, "freeDiskGb", "FreeDiskGb", 0)}GB`, "0GB");
+        setText("diag-memory", `${getFieldValue(health, "memoryMb", "MemoryMb", 0)}MB`, "0MB");
+        setText("diag-last-error", getLastFieldError(health), "暂无错误");
+        setText("diag-stage-timing", getLastTimingText(health), "等待检测");
+        renderFieldAcceptanceChecklist(health, modelProbe);
+        renderMaintenanceAdviceList(health);
+        renderMaintenanceAdviceHistory(state, health);
+        renderShiftTaskBoard(health);
+
+        const debug = state?.fieldDebug || {};
+        const debugMessage = debug.message || debug.Message || "等待调试命令";
+        const debugCode = debug.errorCode || debug.ErrorCode || "";
+        setText("diag-debug-status", debugCode ? `${debugMessage} [${debugCode}]` : debugMessage, "等待调试命令");
+
+        const pkg = state?.diagnosticPackage || {};
+        setText("diag-package-path", pkg.path || pkg.Path || pkg.message || pkg.Message || "", "尚未导出");
+        const packageSha = getDiagnosticPackageValue(pkg, "packageSha256", "PackageSha256", "");
+        const indexSha = getDiagnosticPackageValue(pkg, "indexSha256", "IndexSha256", "");
+        const integrityStatus = getDiagnosticPackageValue(pkg, "integrityStatus", "IntegrityStatus", "");
+        const integrityEntries = getDiagnosticPackageValue(pkg, "integrityEntryCount", "IntegrityEntryCount", "");
+        const verifiedEntries = getDiagnosticPackageValue(pkg, "verifiedEntryCount", "VerifiedEntryCount", "");
+        setText("diag-package-sha", shortHash(packageSha), "-");
+        setText("diag-index-sha", shortHash(indexSha), "-");
+        setText("diag-package-size", formatBytesCompact(pkg.sizeBytes ?? pkg.SizeBytes), "-");
+        setText("diag-integrity-status", integrityStatus, "-");
+        setText(
+            "diag-index-entry-count",
+            integrityEntries && verifiedEntries !== "" ? `${verifiedEntries}/${integrityEntries}` : integrityEntries,
+            "-",
+        );
+        const packageShaEl = el("diag-package-sha");
+        const indexShaEl = el("diag-index-sha");
+        if (packageShaEl) packageShaEl.title = packageSha || "";
+        if (indexShaEl) indexShaEl.title = indexSha || "";
+        renderDiagnosticPackageHistory(state);
+
+        const handoff = state?.fieldHandoffReport || {};
+        const handoffPath = handoff.path || handoff.Path || handoff.reportPath || handoff.ReportPath || "";
+        const handoffStatus = handoff.overallStatus || handoff.OverallStatus || "-";
+        const handoffGeneratedAt = handoff.generatedAt || handoff.GeneratedAt || "";
+        const handoffSize = handoff.sizeBytes ?? handoff.SizeBytes;
+        setText("diag-handoff-report-path", handoffPath || handoff.message || handoff.Message || "", "尚未导出");
+        setText("diag-handoff-status", handoffStatus, "-");
+        setText("diag-handoff-size", formatBytesCompact(handoffSize), "-");
+        setText("diag-handoff-generated-at", formatDiagnosticDateTime(handoffGeneratedAt), "-");
+        renderFieldHandoffReportHistory(state);
+    }
+
+    function openFieldDiagnosticsPanel() {
+        const modal = el("field-diagnostics-modal");
+        if (!modal) return;
+        modal.classList.remove("hidden");
+        updateTriggerSourceStatus();
+        window.sendCommand("request_health_snapshot");
+        requestDiagnosticPackageHistory();
+        requestFieldHandoffReportHistory();
+    }
+
+    function closeFieldDiagnosticsPanel() {
+        el("field-diagnostics-modal")?.classList.add("hidden");
+    }
+
+    function getVisionDebugSettings() {
+        return store.state.settings || {};
+    }
+
+    const VisionDebugPreprocessHints = Object.freeze({
+        StandardLetterBox: {
+            text: "StandardLetterBox：生产默认等比缩放 + 居中填充，适合标准 YOLO 导出模型。",
+            risk: "",
+        },
+        IndustrialFast: {
+            text: "IndustrialFast：历史工业快速模式，减少插值开销，适合低配 IPC 做临时调试。",
+            risk: "风险：与标准 letterbox 坐标契约不同，窄图/竖图/小目标可能出现框位偏移或召回下降；仅建议对比验证，不改变生产默认。",
+        },
+    });
+
+    function getVisionDebugRuleSetJson() {
+        return String(el("vision-debug-rule-set")?.value || "").trim();
+    }
+
+    function setVisionDebugRuleSetJson(value) {
+        const node = el("vision-debug-rule-set");
+        if (node && node.value !== value) node.value = value || "";
+        updateVisionDebugRuleSummary();
+        validateVisionDebugRuleJson(false);
+    }
+
+    function getVisionDebugTemplateId() {
+        return String(el("vision-debug-template-select")?.value || "screw_count");
+    }
+
+    function setVisionDebugImageEmptyVisible(visible) {
+        const node = el("vision-debug-image-empty");
+        if (node) node.classList.toggle("hidden", !visible);
+    }
+
+    function parseVisionDebugRuleSet() {
+        const raw = getVisionDebugRuleSetJson();
+        if (!raw) return null;
+        return JSON.parse(raw);
+    }
+
+    function validateVisionDebugRuleJson(showToastOnError = true) {
+        const status = el("vision-debug-rule-json-status");
+        try {
+            parseVisionDebugRuleSet();
+            if (status) {
+                status.textContent = "规则 JSON 格式正确。";
+                status.classList.remove("error");
+            }
+            return true;
+        } catch (ex) {
+            const message = `规则 JSON 无效：${ex.message}`;
+            if (status) {
+                status.textContent = message;
+                status.classList.add("error");
+            }
+            if (showToastOnError) showToast(message, "error", 1800);
+            return false;
+        }
+    }
+
+    function formatVisionDebugRuleSummary(ruleSet) {
+        const settings = getVisionDebugSettings();
+        const fallbackLabel = String(settings.TargetLabel ?? settings.targetLabel ?? "screw");
+        const fallbackCount = Number(settings.TargetCount ?? settings.targetCount ?? 4);
+        const rules = ruleSet?.Rules || ruleSet?.rules || [];
+        if (!Array.isArray(rules) || rules.length === 0) {
+            return [`目标：${fallbackLabel || "screw"}，数量：${Number.isFinite(fallbackCount) ? fallbackCount : 4}，最低置信度：0.0`];
+        }
+
+        return rules.slice(0, 4).map((rule) => {
+            const type = String(rule.Type || rule.type || "");
+            const label = rule.Label || rule.label || rule.TargetLabel || rule.targetLabel || fallbackLabel || "screw";
+            const count = rule.Count ?? rule.count ?? rule.ExpectedCount ?? rule.expectedCount ?? fallbackCount;
+            const minConfidence = rule.MinConfidence ?? rule.minConfidence ?? 0;
+            const expectedLabels = rule.ExpectedLabels || rule.expectedLabels || [];
+            if (type === "Classification") {
+                const expectedLabel = rule.ExpectedLabel || rule.expectedLabel || label || "OK";
+                const allowedLabels = rule.AllowedLabels || rule.allowedLabels || [];
+                const allowedText = Array.isArray(allowedLabels) && allowedLabels.length
+                    ? `，允许：${allowedLabels.join(", ")}`
+                    : "";
+                return `分类判定：期望 ${expectedLabel}，最低置信度：${minConfidence}${allowedText}`;
+            }
+
+            if (type === "SegmentationArea") {
+                const minArea = rule.MinArea ?? rule.minArea ?? 0;
+                const maxArea = rule.MaxArea ?? rule.maxArea ?? 0;
+                const minCoverage = rule.MinCoverage ?? rule.minCoverage ?? 0;
+                const maxCoverage = rule.MaxCoverage ?? rule.maxCoverage ?? 0;
+                return `分割面积：${label}，数量：${count ?? 0}，面积 ${minArea || "-"}~${maxArea || "-"}，覆盖率 ${minCoverage || "-"}~${maxCoverage || "-"}`;
+            }
+
+            if (type === "ObbAngle") {
+                const minAngle = rule.MinAngle ?? rule.minAngle ?? -180;
+                const maxAngle = rule.MaxAngle ?? rule.maxAngle ?? 180;
+                return `OBB 角度：${label}，范围 ${minAngle}°~${maxAngle}°`;
+            }
+
+            if (type === "PoseKeypoints") {
+                const minKeyPointConfidence = rule.MinKeyPointConfidence ?? rule.minKeyPointConfidence ?? 0;
+                return `姿态关键点：${label}，目标数：${count ?? 0}，关键点最低置信度：${minKeyPointConfidence}`;
+            }
+
+            if (type === "OrderedLabels" || expectedLabels.length > 0) {
+                const labels = Array.isArray(expectedLabels)
+                    ? expectedLabels.join(" → ")
+                    : String(expectedLabels).split(",").map((item) => item.trim()).filter(Boolean).join(" → ");
+                return `顺序：${labels || "未配置"}`;
+            }
+
+            if (type === "RelativePosition") {
+                const primary = rule.PrimaryLabel || rule.primaryLabel || label;
+                const reference = rule.ReferenceLabel || rule.referenceLabel || "参考目标";
+                return `相对位置：${primary} 对 ${reference}`;
+            }
+
+            return `目标：${label}，数量：${count ?? 0}，最低置信度：${minConfidence}`;
+        });
+    }
+
+    function updateVisionDebugRuleSummary() {
+        const list = el("vision-debug-rule-summary");
+        if (!list) return;
+        let lines;
+        try {
+            lines = formatVisionDebugRuleSummary(parseVisionDebugRuleSet());
+        } catch {
+            lines = ["规则 JSON 无效，请展开高级区域修正后再保存。"];
+        }
+        list.innerHTML = lines.map((line) => `<div>${escapeHtml(line)}</div>`).join("");
+    }
+
+    function populateVisionDebugControls() {
+        const settings = getVisionDebugSettings();
+        const confidence = Number(settings.Confidence ?? settings.confidence ?? 0.5);
+        const iou = Number(settings.IouThreshold ?? settings.iouThreshold ?? 0.3);
+        const targetLabel = String(settings.TargetLabel ?? settings.targetLabel ?? "");
+        const targetCount = Number(settings.TargetCount ?? settings.targetCount ?? 0);
+        const ruleSetJson = settings.InspectionRuleSetJson || settings.inspectionRuleSetJson || "";
+        const labels = Array.isArray(store.state.modelLabels) ? store.state.modelLabels : [];
+        const confNode = el("vision-debug-confidence");
+        const iouNode = el("vision-debug-iou");
+        const targetCountNode = el("vision-debug-target-count");
+        const targetSelect = el("vision-debug-target-label");
+        const roiNode = el("vision-debug-roi-enabled");
+        const preprocessNode = el("vision-debug-preprocess-mode");
+        if (confNode) confNode.value = String(Math.max(0, Math.min(1, confidence)));
+        if (iouNode) iouNode.value = String(Math.max(0, Math.min(1, iou)));
+        if (targetCountNode) targetCountNode.value = String(Math.max(0, Math.trunc(targetCount || 0)));
+        if (roiNode) roiNode.checked = true;
+        if (preprocessNode) preprocessNode.value = "StandardLetterBox";
+        if (targetSelect) {
+            const options = [`<option value="">全部目标</option>`]
+                .concat(labels.map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`));
+            if (targetLabel && !labels.includes(targetLabel)) {
+                options.push(`<option value="${escapeHtml(targetLabel)}">${escapeHtml(targetLabel)}</option>`);
+            }
+            targetSelect.innerHTML = options.join("");
+            targetSelect.value = targetLabel;
+        }
+        if (!getVisionDebugRuleSetJson()) setVisionDebugRuleSetJson(ruleSetJson);
+        updateVisionDebugRuleSummary();
+        updateVisionDebugSliderLabels();
+        updateVisionDebugPreprocessHint();
+    }
+
+    function updateVisionDebugSliderLabels() {
+        const conf = Number(el("vision-debug-confidence")?.value ?? 0);
+        const iou = Number(el("vision-debug-iou")?.value ?? 0);
+        setText("vision-debug-confidence-value", conf.toFixed(2), "0.50");
+        setText("vision-debug-iou-value", iou.toFixed(2), "0.30");
+    }
+
+    function updateVisionDebugPreprocessHint(snapshot = null) {
+        const mode = String(el("vision-debug-preprocess-mode")?.value || snapshot?.preprocessingMode || snapshot?.PreprocessingMode || "StandardLetterBox");
+        const hint = VisionDebugPreprocessHints[mode] || VisionDebugPreprocessHints.StandardLetterBox;
+        const failed = snapshot && (snapshot.succeeded === false || snapshot.Succeeded === false);
+        const errorText = failed
+            ? `失败: ${snapshot.errorCode || snapshot.ErrorCode || ""} ${snapshot.message || snapshot.Message || snapshot.primaryFailureReason || snapshot.PrimaryFailureReason || ""}`.trim()
+            : "";
+        setText(
+            "vision-debug-preprocess-help",
+            [hint.text, hint.risk, errorText].filter(Boolean).join(" "),
+            hint.text,
+        );
+    }
+
+    function openVisionDebugPanel() {
+        populateVisionDebugControls();
+        const role = String(getVisionDebugSettings().CurrentOperatorRole || getVisionDebugSettings().currentOperatorRole || "Operator");
+        const note = el("vision-debug-operator-note");
+        if (note) note.classList.toggle("hidden", role !== "Operator");
+        if (role === "Operator") {
+            showToast("这是工程师调试工具，生产操作无需进入。", "info", 1800);
+        }
+        el("vision-debug-modal")?.classList.remove("hidden");
+        requestVisionDebugRecentRecords();
+        setVisionDebugImageEmptyVisible(true);
+        redrawVisionDebugOverlay();
+    }
+
+    function closeVisionDebugPanel() {
+        el("vision-debug-modal")?.classList.add("hidden");
+    }
+
+    function collectVisionDebugParams(extra = {}) {
+        return {
+            confidence: Number(el("vision-debug-confidence")?.value ?? 0.5),
+            iouThreshold: Number(el("vision-debug-iou")?.value ?? 0.3),
+            targetLabel: String(el("vision-debug-target-label")?.value || ""),
+            targetCount: Number(el("vision-debug-target-count")?.value ?? 0),
+            preprocessingMode: String(el("vision-debug-preprocess-mode")?.value || "StandardLetterBox"),
+            roiEnabled: Boolean(el("vision-debug-roi-enabled")?.checked),
+            ruleSetJson: getVisionDebugRuleSetJson(),
+            ...extra,
+        };
+    }
+
+    function requestVisionDebugRecentRecords() {
+        window.sendCommand("vision_debug_query_recent", {});
+    }
+
+    function applySelectedVisionDebugTemplate() {
+        const templateId = getVisionDebugTemplateId();
+        if (templateId === "custom_rule") {
+            showToast("自定义规则可在高级区域编辑 JSON。", "info", 1400);
+            updateVisionDebugRuleSummary();
+            return;
+        }
+
+        applyVisionDebugTemplate(templateId);
+    }
+
+    function showVisionDebugLocalImageNotice() {
+        showToast("本地图片导入暂未开放，请先使用当前相机或历史样本。", "info", 1800);
+    }
+
+    function runVisionDebugCurrent() {
+        if (!validateVisionDebugRuleJson()) return;
+        setText("vision-debug-primary-reason", "正在重跑当前帧...");
+        window.sendCommand("vision_debug_run_current", collectVisionDebugParams());
+        window.handleCommandDispatched?.("vision_debug_run_current");
+    }
+
+    function runVisionDebugHistory() {
+        const recordId = Number(el("vision-debug-history-select")?.value || 0);
+        if (!recordId) {
+            showToast("请选择历史样本", "warning", 1200);
+            return;
+        }
+        if (!validateVisionDebugRuleJson()) return;
+        setText("vision-debug-history-status", "正在用当前调试参数重跑历史样本...");
+        window.sendCommand("vision_debug_run_history", collectVisionDebugParams({ recordId }));
+        window.handleCommandDispatched?.("vision_debug_run_history");
+    }
+
+    function runVisionDebugBatch() {
+        if (!validateVisionDebugRuleJson()) return;
+        const rawLimit = Number(el("vision-debug-batch-limit")?.value || 20);
+        const batchLimit = Math.max(1, Math.min(50, Math.trunc(rawLimit || 20)));
+        const batchResult = String(el("vision-debug-batch-result")?.value || "All");
+        setText("vision-debug-history-status", `正在批量回放最近 ${batchLimit} 条样本...`);
+        window.sendCommand("vision_debug_run_batch", collectVisionDebugParams({ batchLimit, batchResult }));
+        window.handleCommandDispatched?.("vision_debug_run_batch");
+    }
+
+    function saveVisionDebugParams() {
+        if (!validateVisionDebugRuleJson()) return;
+        window.sendCommand("vision_debug_save_params", collectVisionDebugParams());
+        window.handleCommandDispatched?.("vision_debug_save_params");
+    }
+
+    function applyVisionDebugTemplate(templateId) {
+        const templateSelect = el("vision-debug-template-select");
+        if (templateSelect && Array.from(templateSelect.options || []).some((option) => option.value === templateId)) {
+            templateSelect.value = templateId;
+        }
+        const projectDefaultTemplates = new Set([
+            "w5_screw_count",
+            "w6_screw_count",
+            "n5_remote_missing_part",
+            "n6_remote_missing_part",
+            "electric_heating_screw_count",
+        ]);
+        const labels = projectDefaultTemplates.has(String(templateId || "").toLowerCase())
+            ? []
+            : Array.from(el("vision-debug-target-label")?.options || [])
+                .map((option) => option.value)
+                .filter(Boolean);
+        window.sendCommand("vision_debug_apply_template", collectVisionDebugParams({ templateId, labels }));
+        window.handleCommandDispatched?.("vision_debug_apply_template");
+    }
+
+    function renderVisionDebugRecentRecords(records) {
+        const select = el("vision-debug-history-select");
+        if (!select) return;
+        if (!Array.isArray(records) || records.length === 0) {
+            select.innerHTML = `<option value="">暂无历史记录</option>`;
+            setText("vision-debug-history-status", "未查询到可回放样本");
+            setVisionDebugImageEmptyVisible(true);
+            return;
+        }
+        select.innerHTML = records.map((record) => {
+            const id = pickValue(record, "id", "Id") || "";
+            const time = pickValue(record, "timestamp", "Timestamp") || "";
+            const inspectionId = pickValue(record, "inspectionId", "InspectionId") || "-";
+            const result = pickValue(record, "result", "Result") || "";
+            return `<option value="${escapeHtml(id)}">${escapeHtml(time)} · ${escapeHtml(result)} · ${escapeHtml(inspectionId)}</option>`;
+        }).join("");
+        setText("vision-debug-history-status", `${records.length} 条最近样本，使用当前调试参数重跑`);
+        setVisionDebugImageEmptyVisible(false);
+    }
+
+    function renderVisionDebugResult(state) {
+        const debug = state?.visionDebug || {};
+        if (Array.isArray(debug.records)) renderVisionDebugRecentRecords(debug.records);
+        if (debug.status === "templateApplied") {
+            setVisionDebugRuleSetJson(debug.ruleSetJson || debug.RuleSetJson || "");
+            setText("vision-debug-primary-reason", debug.message || "场景模板已生成");
+            return;
+        }
+        if (debug.status === "paramsSaved") {
+            setText("vision-debug-primary-reason", debug.message || "算法调试参数已保存");
+            showToast(debug.message || "算法调试参数已保存", "success", 1500);
+            return;
+        }
+        if (debug.status === "batchCompleted") {
+            renderVisionDebugBatchReplay(debug.batchReplay || debug.BatchReplay);
+            setText("vision-debug-history-status", debug.message || "批量回放完成");
+            showToast(debug.message || "批量回放完成", "success", 1800);
+            return;
+        }
+        if (debug.status === "failed") {
+            const message = debug.message || debug.Message || "算法调试失败";
+            const code = debug.errorCode || debug.ErrorCode || "";
+            renderVisionDebugFailure(message, code);
+            addLog(message, "error");
+            return;
+        }
+        const snapshot = debug.snapshot || debug.Snapshot;
+        if (!snapshot) return;
+        setVisionDebugImageEmptyVisible(false);
+        const finalOk = Boolean(snapshot.finalOk ?? snapshot.FinalOk);
+        const pill = el("vision-debug-final-result");
+        if (pill) {
+            pill.textContent = finalOk ? "OK" : "NG";
+            pill.classList.remove("ok", "ng", "error");
+            pill.classList.add(finalOk ? "ok" : "ng");
+        }
+        setText("vision-debug-primary-reason", snapshot.primaryFailureReason || snapshot.PrimaryFailureReason || (finalOk ? "规则判定 OK" : "规则判定 NG"));
+        setText("vision-debug-count-all", (snapshot.allDetections || snapshot.AllDetections || []).length, "0");
+        setText("vision-debug-count-in", (snapshot.roiIncludedDetections || snapshot.RoiIncludedDetections || []).length, "0");
+        setText("vision-debug-count-out", (snapshot.roiExcludedDetections || snapshot.RoiExcludedDetections || []).length, "0");
+        setText("vision-debug-elapsed", `${snapshot.elapsedMs ?? snapshot.ElapsedMs ?? 0}ms`, "0ms");
+        const imageWarning = snapshot.imageSourceWarning || snapshot.ImageSourceWarning || snapshot.comparison?.imageWarning || snapshot.Comparison?.ImageWarning || "";
+        setText("vision-debug-image-warning", imageWarning, "");
+        renderVisionDebugParameterComparison(snapshot);
+        renderVisionDebugDeepLearning(snapshot);
+        renderVisionDebugBoxes(snapshot);
+        renderVisionDebugRules(snapshot);
+        renderVisionDebugComparison(snapshot);
+        updateVisionDebugPreprocessHint(snapshot);
+        redrawVisionDebugOverlay();
+    }
+
+    function renderVisionDebugFailure(message, errorCode = "") {
+        const emptyFrame = String(errorCode || "").toLowerCase() === "nocurrentframe";
+        const displayMessage = emptyFrame
+            ? "还没有可调试图片。请先启动相机并获取一帧，或从历史记录选择样本。"
+            : message || "算法调试失败";
+        const pill = el("vision-debug-final-result");
+        if (pill) {
+            pill.textContent = emptyFrame ? "等待" : "错误";
+            pill.classList.remove("ok", "ng", "error");
+            if (!emptyFrame) pill.classList.add("error");
+        }
+        setVisionDebugImageEmptyVisible(emptyFrame);
+        setText("vision-debug-primary-reason", displayMessage);
+        updateVisionDebugPreprocessHint({ succeeded: false, message: displayMessage });
+    }
+
+    function renderVisionDebugBoxes(snapshot) {
+        const list = el("vision-debug-box-list");
+        if (!list) return;
+        const boxes = snapshot.allDetections || snapshot.AllDetections || [];
+        if (!boxes.length) {
+            list.innerHTML = `<div>未检测到目标</div>`;
+            return;
+        }
+        list.innerHTML = boxes.map((box) => {
+            const filtered = Boolean(box.filteredOutByRoi ?? box.FilteredOutByRoi);
+            const label = box.label || box.Label || `Class_${box.classId ?? box.ClassId}`;
+            const confidence = Number(box.confidence ?? box.Confidence ?? 0);
+            const centerX = Number(box.centerX ?? box.CenterX ?? 0);
+            const centerY = Number(box.centerY ?? box.CenterY ?? 0);
+            const index = box.index ?? box.Index ?? "-";
+            const angle = box.angle ?? box.Angle;
+            const maskArea = Number(box.maskArea ?? box.MaskArea ?? 0);
+            const maskCoverage = Number(box.maskCoverage ?? box.MaskCoverage ?? 0);
+            const keyPointCount = Number(box.keyPointCount ?? box.KeyPointCount ?? 0);
+            const extra = [
+                angle !== null && angle !== undefined ? `角度 ${Number(angle).toFixed(1)}°` : "",
+                maskArea > 0 ? `mask面积 ${maskArea.toFixed(0)}` : "",
+                maskCoverage > 0 ? `覆盖率 ${(maskCoverage * 100).toFixed(1)}%` : "",
+                keyPointCount > 0 ? `关键点 ${keyPointCount}` : "",
+            ].filter(Boolean).join(" · ");
+            return `<div class="${filtered ? "cf-vision-debug-box-muted" : ""}">
+                <strong>#${index} ${escapeHtml(label)}</strong>
+                <span>${confidence.toFixed(2)} · 中心(${centerX.toFixed(0)}, ${centerY.toFixed(0)})${extra ? ` · ${escapeHtml(extra)}` : ""}${filtered ? " · ROI外过滤" : ""}</span>
+            </div>`;
+        }).join("");
+    }
+
+    function renderVisionDebugDeepLearning(snapshot) {
+        const list = el("vision-debug-task-summary");
+        if (!list) return;
+        const classification = snapshot.classificationSummary || snapshot.ClassificationSummary || snapshot.deepLearningSummary?.classification || snapshot.DeepLearningSummary?.Classification || {};
+        const segmentation = snapshot.segmentationSummary || snapshot.SegmentationSummary || snapshot.deepLearningSummary?.segmentation || snapshot.DeepLearningSummary?.Segmentation || {};
+        const obb = snapshot.obbSummary || snapshot.ObbSummary || snapshot.deepLearningSummary?.obb || snapshot.DeepLearningSummary?.Obb || {};
+        const pose = snapshot.poseSummary || snapshot.PoseSummary || snapshot.deepLearningSummary?.pose || snapshot.DeepLearningSummary?.Pose || {};
+        const rows = [];
+        const topK = classification.topK || classification.TopK || [];
+        if (topK.length) {
+            const top1Label = classification.top1Label || classification.Top1Label || "-";
+            const top1Confidence = Number(classification.top1Confidence ?? classification.Top1Confidence ?? 0);
+            const topKText = topK.map((item) => {
+                const label = item.label || item.Label || `Class_${item.classId ?? item.ClassId ?? ""}`;
+                const confidence = Number(item.confidence ?? item.Confidence ?? 0);
+                return `${label} ${confidence.toFixed(2)}`;
+            }).join(", ");
+            rows.push(`<div><strong>分类 Top1</strong><span>${escapeHtml(top1Label)} ${top1Confidence.toFixed(2)}；TopK ${escapeHtml(topKText)}</span></div>`);
+        }
+
+        const segmentInstances = segmentation.instances || segmentation.Instances || [];
+        if (segmentInstances.length) {
+            const preview = segmentInstances.slice(0, 4).map((item) => {
+                const label = item.label || item.Label || `Class_${item.classId ?? item.ClassId ?? ""}`;
+                const area = Number(item.maskArea ?? item.MaskArea ?? 0);
+                const coverage = Number(item.maskCoverage ?? item.MaskCoverage ?? 0);
+                return `${label} area=${area.toFixed(0)} coverage=${(coverage * 100).toFixed(1)}%`;
+            }).join("；");
+            rows.push(`<div><strong>分割</strong><span>实例 ${segmentInstances.length}；${escapeHtml(preview)}</span></div>`);
+        }
+
+        const obbInstances = obb.instances || obb.Instances || [];
+        if (obbInstances.length) {
+            const angles = obbInstances.slice(0, 5).map((item) => {
+                const label = item.label || item.Label || `Class_${item.classId ?? item.ClassId ?? ""}`;
+                const angle = item.angle ?? item.Angle;
+                return `${label} ${angle === null || angle === undefined ? "NA" : `${Number(angle).toFixed(1)}°`}`;
+            }).join(", ");
+            rows.push(`<div><strong>OBB</strong><span>旋转框 ${obbInstances.length}；${escapeHtml(angles)}</span></div>`);
+        }
+
+        const poseInstances = pose.instances || pose.Instances || [];
+        if (poseInstances.length) {
+            const totalKeyPoints = Number(pose.totalKeyPointCount ?? pose.TotalKeyPointCount ?? 0);
+            const lowCount = Number(pose.lowConfidenceKeyPointCount ?? pose.LowConfidenceKeyPointCount ?? 0);
+            rows.push(`<div><strong>姿态</strong><span>目标 ${poseInstances.length}；关键点 ${totalKeyPoints}；低置信度 ${lowCount}</span></div>`);
+        }
+
+        if (!rows.length) {
+            const message = classification.message || classification.Message || segmentation.message || segmentation.Message || "暂无分类、分割、OBB 或姿态摘要";
+            rows.push(`<div>${escapeHtml(message)}</div>`);
+        }
+
+        list.innerHTML = rows.join("");
+    }
+
+    function renderVisionDebugRules(snapshot) {
+        const list = el("vision-debug-rule-details");
+        if (!list) return;
+        const rules = snapshot.ruleResults || snapshot.RuleResults || [];
+        if (!rules.length) {
+            list.innerHTML = `<div>未启用规则或规则判定失败</div>`;
+            return;
+        }
+        list.innerHTML = rules.map((rule) => {
+            const ok = Boolean(rule.isMatch ?? rule.IsMatch);
+            const name = rule.ruleName || rule.RuleName || rule.ruleType || rule.RuleType || "规则";
+            const expected = rule.expected || rule.Expected || "";
+            const actual = rule.actual || rule.Actual || "";
+            const reason = rule.reason || rule.Reason || rule.message || rule.Message || "";
+            const associated = rule.associationSummary || rule.AssociationSummary || "";
+            const indexes = rule.associatedBoxIndexes || rule.AssociatedBoxIndexes || [];
+            const associationText = associated || (Array.isArray(indexes) && indexes.length ? `关联目标框: ${indexes.map((index) => `#${index}`).join(", ")}` : "关联目标框: 无");
+            return `<div>
+                <strong>${ok ? "OK" : "NG"} · ${escapeHtml(name)}</strong>
+                <span>期望: ${escapeHtml(expected)} | 实际: ${escapeHtml(actual)}</span>
+                <span>原因: ${escapeHtml(reason)}</span>
+                <span>${escapeHtml(associationText)}</span>
+            </div>`;
+        }).join("");
+    }
+
+    function renderVisionDebugParameterComparison(snapshot) {
+        const list = el("vision-debug-param-diff");
+        if (!list) return;
+        const comparison = snapshot.parameterComparison || snapshot.ParameterComparison;
+        const items = comparison?.items || comparison?.Items || [];
+        if (!Array.isArray(items) || !items.length) {
+            list.innerHTML = `<div>等待试运行后生成参数对比</div>`;
+            return;
+        }
+
+        list.innerHTML = items.map((item) => {
+            const changed = Boolean(item.isDifferent ?? item.IsDifferent);
+            const name = item.displayName || item.DisplayName || item.field || item.Field || "参数";
+            const productionValue = item.productionValue || item.ProductionValue || "";
+            const trialValue = item.trialValue || item.TrialValue || "";
+            return `<div class="${changed ? "" : "cf-vision-debug-box-muted"}">
+                <strong>${changed ? "变更" : "一致"} · ${escapeHtml(name)}</strong>
+                <span>生产: ${escapeHtml(productionValue)}</span>
+                <span>试运行: ${escapeHtml(trialValue)}</span>
+            </div>`;
+        }).join("");
+    }
+
+    function renderVisionDebugBatchReplay(summary) {
+        const list = el("vision-debug-batch-summary");
+        if (!list) return;
+        if (!summary) {
+            list.innerHTML = `<div>等待批量回放</div>`;
+            return;
+        }
+
+        const stats = [
+            `旧 OK ${summary.oldOkCount ?? summary.OldOkCount ?? 0}`,
+            `旧 NG ${summary.oldNgCount ?? summary.OldNgCount ?? 0}`,
+            `新 OK ${summary.newOkCount ?? summary.NewOkCount ?? 0}`,
+            `新 NG ${summary.newNgCount ?? summary.NewNgCount ?? 0}`,
+            `变化 ${summary.changedCount ?? summary.ChangedCount ?? 0}`,
+            `NG→OK ${summary.ngToOkCount ?? summary.NgToOkCount ?? 0}`,
+            `OK→NG ${summary.okToNgCount ?? summary.OkToNgCount ?? 0}`,
+            `缺图 ${summary.missingImageCount ?? summary.MissingImageCount ?? 0}`,
+            `渲染图 ${summary.renderedFallbackCount ?? summary.RenderedFallbackCount ?? 0}`,
+        ];
+        const reasonStats = summary.failureReasonStats || summary.FailureReasonStats || {};
+        const reasonText = Object.keys(reasonStats).length
+            ? Object.keys(reasonStats).map((key) => `${key} ${reasonStats[key]}`).join("；")
+            : "无失败原因";
+        const items = summary.items || summary.Items || [];
+        const previewRows = Array.isArray(items)
+            ? items.slice(0, 8).map((item) => {
+                const oldResult = item.oldResult || item.OldResult || "";
+                const newResult = item.newResult || item.NewResult || "";
+                const warning = item.imageWarning || item.ImageWarning || item.failureReason || item.FailureReason || "";
+                return `<span>${escapeHtml(item.inspectionId || item.InspectionId || item.recordId || item.RecordId)} · ${escapeHtml(oldResult || "-")}→${escapeHtml(newResult || "-")} ${warning ? `· ${escapeHtml(warning)}` : ""}</span>`;
+            }).join("")
+            : "";
+        list.innerHTML = `<div>
+            <strong>完成 ${summary.completedCount ?? summary.CompletedCount ?? 0}/${summary.totalRecords ?? summary.TotalRecords ?? 0} · 上限 ${summary.effectiveLimit ?? summary.EffectiveLimit ?? 50}</strong>
+            <span>${stats.join(" | ")}</span>
+            <span>失败统计: ${escapeHtml(reasonText)}</span>
+            ${previewRows}
+        </div>`;
+    }
+
+    function renderVisionDebugComparison(snapshot) {
+        const comparison = snapshot.comparison || snapshot.Comparison;
+        if (!comparison) return;
+        const oldResult = comparison.oldResult || comparison.OldResult || "";
+        const newResult = comparison.newResult || comparison.NewResult || "";
+        setText("vision-debug-history-status", `旧判定 ${oldResult || "-"} / 新判定 ${newResult || "-"}`);
+    }
+
+    function getVisionDebugOverlayLayout(snapshot) {
+        const image = el("camera-view");
+        const container = el("camera-container");
+        const canvas = el("vision-debug-overlay");
+        if (!image || !container || !canvas) return null;
+        const previewFrame = window.CF_STATE.previewFrame || {};
+        const sourceWidth = Number(snapshot?.imageWidth ?? snapshot?.ImageWidth ?? previewFrame.sourceWidth ?? image.naturalWidth ?? image.width ?? 1280);
+        const sourceHeight = Number(snapshot?.imageHeight ?? snapshot?.ImageHeight ?? previewFrame.sourceHeight ?? image.naturalHeight ?? image.height ?? 720);
+        const previewWidth = Number(previewFrame.previewWidth || image.naturalWidth || image.width || sourceWidth || 1280);
+        const previewHeight = Number(previewFrame.previewHeight || image.naturalHeight || image.height || sourceHeight || 720);
+        const containerRect = container.getBoundingClientRect();
+        const mapping = window.CF_COORDINATE_MAPPING?.calculateImageContentMapping({
+            containerWidth: containerRect.width,
+            containerHeight: containerRect.height,
+            previewWidth,
+            previewHeight,
+            sourceWidth,
+            sourceHeight,
+        });
+        if (!mapping?.valid) return null;
+        const imageRect = mapping.imageRect;
+        canvas.style.width = `${imageRect.width}px`;
+        canvas.style.height = `${imageRect.height}px`;
+        canvas.style.left = `${imageRect.x}px`;
+        canvas.style.top = `${imageRect.y}px`;
+        canvas.style.right = "auto";
+        canvas.style.bottom = "auto";
+        canvas.width = Math.max(1, Math.round(imageRect.width));
+        canvas.height = Math.max(1, Math.round(imageRect.height));
+        return {
+            canvas,
+            sourceWidth,
+            sourceHeight,
+            mapping: {
+                ...mapping,
+                scaleX: canvas.width / Math.max(1, sourceWidth),
+                scaleY: canvas.height / Math.max(1, sourceHeight),
+            },
+        };
+    }
+
+    function clearVisionDebugOverlay() {
+        const canvas = el("vision-debug-overlay");
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function redrawVisionDebugOverlay() {
+        const snapshot = store.state.visionDebug?.snapshot || store.state.visionDebug?.Snapshot;
+        const layout = getVisionDebugOverlayLayout(snapshot);
+        if (!layout) return;
+        const { canvas, mapping } = layout;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!snapshot) return;
+        drawVisionDebugRoi(ctx, snapshot, mapping);
+        const boxes = snapshot.allDetections || snapshot.AllDetections || [];
+        boxes.forEach((box) => {
+            const filtered = Boolean(box.filteredOutByRoi ?? box.FilteredOutByRoi);
+            const mappedRect = window.CF_COORDINATE_MAPPING.mapImageRect(mapping, {
+                x: box.x ?? box.X ?? 0,
+                y: box.y ?? box.Y ?? 0,
+                width: box.width ?? box.Width ?? 0,
+                height: box.height ?? box.Height ?? 0,
+            });
+            const mappedCenter = window.CF_COORDINATE_MAPPING.mapImagePoint(mapping, {
+                x: box.centerX ?? box.CenterX ?? 0,
+                y: box.centerY ?? box.CenterY ?? 0,
+            });
+            const { x, y, width, height } = mappedRect;
+            const index = box.index ?? box.Index ?? "";
+            const label = box.label || box.Label || `Class_${box.classId ?? box.ClassId}`;
+            const confidence = Number(box.confidence ?? box.Confidence ?? 0);
+            ctx.save();
+            ctx.globalAlpha = filtered ? 0.45 : 1;
+            ctx.strokeStyle = filtered ? "rgba(100, 116, 139, 0.9)" : "rgba(22, 163, 74, 0.96)";
+            ctx.fillStyle = filtered ? "rgba(100, 116, 139, 0.12)" : "rgba(22, 163, 74, 0.08)";
+            ctx.lineWidth = filtered ? 1.5 : 2.5;
+            ctx.setLineDash(filtered ? [6, 4] : []);
+            ctx.strokeRect(x, y, width, height);
+            ctx.fillRect(x, y, width, height);
+            ctx.beginPath();
+            ctx.arc(mappedCenter.x, mappedCenter.y, filtered ? 3 : 4, 0, Math.PI * 2);
+            ctx.fillStyle = filtered ? "rgba(100, 116, 139, 0.95)" : "rgba(220, 38, 38, 0.95)";
+            ctx.fill();
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+            const caption = `#${index} ${label} ${confidence.toFixed(2)} (${Math.round(Number(box.centerX ?? box.CenterX ?? 0))},${Math.round(Number(box.centerY ?? box.CenterY ?? 0))})`;
+            ctx.font = "12px Microsoft YaHei, sans-serif";
+            const textWidth = ctx.measureText(caption).width + 10;
+            const textY = Math.max(0, y - 20);
+            ctx.fillStyle = filtered ? "rgba(51, 65, 85, 0.85)" : "rgba(21, 128, 61, 0.92)";
+            ctx.fillRect(x, textY, textWidth, 18);
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(caption, x + 5, textY + 13);
+            ctx.restore();
+        });
+    }
+
+    function drawVisionDebugRoi(ctx, snapshot, mapping) {
+        const roi = snapshot.roi || snapshot.Roi;
+        if (!Array.isArray(roi) || roi.length !== 4) return;
+        const sourceWidth = Number(snapshot.imageWidth ?? snapshot.ImageWidth ?? mapping.sourceWidth ?? 0);
+        const sourceHeight = Number(snapshot.imageHeight ?? snapshot.ImageHeight ?? mapping.sourceHeight ?? 0);
+        const x = Number(roi[0] || 0) * sourceWidth;
+        const y = Number(roi[1] || 0) * sourceHeight;
+        const width = Number(roi[2] || 0) * sourceWidth;
+        const height = Number(roi[3] || 0) * sourceHeight;
+        if (width <= 0 || height <= 0) return;
+        const rect = window.CF_COORDINATE_MAPPING.mapImageRect(mapping, { x, y, width, height });
+        ctx.save();
+        ctx.strokeStyle = "rgba(164, 22, 26, 0.96)";
+        ctx.fillStyle = "rgba(164, 22, 26, 0.08)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 5]);
+        ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        ctx.restore();
+    }
+
+    function renderReplayStatus(state) {
+        const replay = state?.replay || {};
+        const run = replay.currentRunId ? replay.runs?.[replay.currentRunId] : null;
+        const dataset = replay.dataset || {};
+        const approval = replay.approval || {};
+        const approvalAvailable = approval.approvalAvailable ?? approval.available;
+        const metrics = run?.metrics || dataset?.metrics || {};
+
+        setText("replay-dataset-id", dataset.datasetId || run?.datasetId || "");
+        setText("replay-dataset-hash", dataset.datasetHash || run?.datasetHash || "");
+        setText("replay-dataset-count", Array.isArray(replay.datasets) ? replay.datasets.length : "");
+        setText("replay-run-status", formatReplayRunStatus(run?.status || dataset.status || ""));
+        setText("replay-run-progress", run ? `${run.completedSamples ?? 0}/${run.totalSamples ?? 0}` : "");
+        setText("replay-changed-count", metrics.changedDecisionCount ?? "");
+        setText("replay-new-missed-count", metrics.candidateNewMissedDetectionCount ?? "");
+        setText("replay-fixed-missed-count", metrics.candidateFixedMissedDetectionCount ?? "");
+        setText("replay-new-false-reject-count", metrics.candidateNewFalseRejectCount ?? "");
+        setText("replay-fixed-false-reject-count", metrics.candidateFixedFalseRejectCount ?? "");
+        setText("replay-run-count", replay.runs ? Object.keys(replay.runs).length : "");
+        setText("replay-integrity-status", formatReplayRunStatus(replay.integrity?.status || ""));
+        setText("replay-approval-status",
+            approval.succeeded === true
+                ? formatApprovalStatus("Approved")
+                : approval.succeeded === false
+                    ? (approval.errorCode || formatApprovalStatus("Rejected"))
+                    : approvalAvailable === true
+                        ? formatApprovalStatus("Available")
+                        : approvalAvailable === false
+                            ? formatApprovalStatus("Rejected")
+                            : "");
+        setText("replay-rejection-reasons", (approval.rejectionReasons || []).join("; ") || approval.message || approval.evidenceHash || "");
+    }
+
+    function renderManualReviewStatus(state) {
+        const review = state?.manualReview || {};
+        const response = review.lastResponse || {};
+        setText("manual-review-count", Array.isArray(review.records) ? review.records.length : "");
+        setText("manual-review-response", response.message || response.errorCode || "");
+        setText("manual-review-revision", response.revision ?? "");
+        setText("manual-review-ground-truth", response.groundTruth || "");
     }
 
     function renderAll(state, reasons = []) {
@@ -880,6 +3240,18 @@
         }
         if (hasRenderReason(reasons, "health")) {
             renderHealthSnapshot(state);
+        }
+        if (hasRenderReason(reasons, "replay")) {
+            renderReplayStatus(state);
+        }
+        if (hasRenderReason(reasons, "manualReview")) {
+            renderManualReviewStatus(state);
+        }
+        if (hasRenderReason(reasons, "fieldDebug")) {
+            renderFieldDiagnostics(state);
+        }
+        if (hasRenderReason(reasons, "visionDebug")) {
+            renderVisionDebugResult(state);
         }
     }
 
@@ -1006,6 +3378,14 @@
 
     function updateConnection(type, isConnected) {
         const normalizedType = String(type || "").toLowerCase();
+        store.state.connections = store.state.connections || {};
+        if (normalizedType === "serialtrigger" || normalizedType === "serialphotoelectric" || normalizedType === "serial") {
+            store.state.connections.serialTrigger = Boolean(isConnected);
+            updateTriggerSourceStatus();
+            renderFieldDiagnostics(store.state);
+            return;
+        }
+
         const indicator =
             normalizedType === "cam" || normalizedType === "camera"
                 ? { root: "status-cam", dot: "status-cam-dot", text: "status-cam-text", label: "相机" }
@@ -1091,7 +3471,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M8 5v14l11-7-11-7Z" />
                 </svg>
-                ${systemBusy ? "正在启动..." : "启动系统 (Start System)"}`;
+                ${systemBusy ? "正在启动..." : "启动系统"}`;
     }
 
     function requestStartSystem() {
@@ -1138,7 +3518,7 @@
         return requestStartSystem();
     }
 
-    function updatePreviewImage({ url, base64, frameId }) {
+    function updatePreviewImage({ url, base64, frameId, sourceWidth, sourceHeight, previewWidth, previewHeight }) {
         const image = el("camera-view");
         if (!image) return;
 
@@ -1146,6 +3526,12 @@
         if (normalizedFrameId < lastPreviewFrameId) return;
         lastPreviewFrameId = normalizedFrameId;
         window.CF_STATE.previewFrameId = normalizedFrameId;
+        window.CF_STATE.previewFrame = {
+            sourceWidth: Number(sourceWidth || 0),
+            sourceHeight: Number(sourceHeight || 0),
+            previewWidth: Number(previewWidth || 0),
+            previewHeight: Number(previewHeight || 0),
+        };
 
         const src = url || (base64 ? (String(base64).startsWith("data:image") ? base64 : `data:image/jpeg;base64,${base64}`) : "");
         if (!src || image.src === src) return;
@@ -1155,6 +3541,7 @@
             image.onerror = null;
             window.requestAnimationFrame(() => {
                 if (typeof window.redrawROI === "function") window.redrawROI();
+                redrawVisionDebugOverlay();
             });
         };
         image.onerror = () => {
@@ -1182,8 +3569,8 @@
         try {
             store.applyStatsUpdate(data);
         } catch (error) {
-            console.error("Status Update Error:", error);
-            addLog("Status Parse Error", "error");
+            console.error("状态更新失败:", error);
+            addLog("状态解析失败", "error");
         }
     }
 
@@ -1274,6 +3661,86 @@
         }
     }
 
+    function handleCommandError(data, envelope) {
+        const cmd = data?.cmd || data?.Cmd || "";
+        const errorCode = data?.errorCode || data?.ErrorCode || "CommandError";
+        const message = data?.message || data?.Message || `前端命令处理失败: ${cmd || errorCode}`;
+        const requestId = envelope?.requestId ? ` (${envelope.requestId})` : "";
+
+        addLog(`${message}${requestId}`, "error");
+        if (window.__CF_DEV_MODE) console.warn("Command error:", data, envelope);
+    }
+
+    function handleFieldDebugResult(data) {
+        store.applyFieldDebugResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const message = data?.message || data?.Message || "";
+        if (message) addLog(message, succeeded === false ? "error" : "info");
+    }
+
+    function handleDiagnosticPackageExportResult(data) {
+        store.applyDiagnosticPackageExportResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const message = data?.message || data?.Message || "";
+        if (message) addLog(message, succeeded === false ? "error" : "info");
+    }
+
+    function handleDiagnosticPackageHistoryResult(data) {
+        store.applyDiagnosticPackageHistoryResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const message = data?.message || data?.Message || "";
+        if (message && succeeded === false) addLog(message, "error");
+    }
+
+    function handleDiagnosticPackageVerificationResult(data) {
+        store.applyDiagnosticPackageVerificationResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const message = data?.message || data?.Message || "";
+        if (message) {
+            addLog(message, succeeded === false ? "warning" : "success");
+            showToast(message, succeeded === false ? "warning" : "success", 1600);
+        }
+    }
+
+    function handleMaintenanceAdviceActionResult(data) {
+        store.applyMaintenanceAdviceActionResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const cleared = data?.cleared ?? data?.Cleared;
+        const message = data?.message || data?.Message || "";
+        if (message) {
+            addLog(message, succeeded === false ? "error" : cleared ? "success" : "warning");
+            showToast(message, succeeded === false ? "error" : cleared ? "success" : "warning", 1600);
+        }
+    }
+
+    function handleShiftTaskActionResult(data) {
+        store.applyShiftTaskActionResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const cleared = data?.cleared ?? data?.Cleared;
+        const message = data?.message || data?.Message || "";
+        if (message) {
+            addLog(message, succeeded === false ? "error" : cleared ? "success" : "warning");
+            showToast(message, succeeded === false ? "error" : cleared ? "success" : "warning", 1600);
+        }
+    }
+
+    function handleFieldHandoffReportResult(data) {
+        store.applyFieldHandoffReportResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const message = data?.message || data?.Message || "";
+        if (message) {
+            addLog(message, succeeded === false ? "error" : "success");
+            showToast(succeeded === false ? "交接报告导出失败" : "交接报告已导出", succeeded === false ? "error" : "success", 1600);
+        }
+    }
+
+    function handleFieldHandoffReportHistoryResult(data) {
+        store.applyFieldHandoffReportHistoryResult(data);
+        const succeeded = data?.succeeded ?? data?.Succeeded;
+        const message = data?.message || data?.Message || "";
+        if (message && succeeded === false) addLog(message, "error");
+    }
+
     function handleCommandDispatched(cmd) {
         switch (cmd) {
             case "manual_detect":
@@ -1284,6 +3751,50 @@
                 addLog("强制放行申请已提交", "warning");
                 showToast("强制放行申请已提交", "warning", 1200);
                 break;
+            case "export_diagnostic_package":
+                addLog("正在导出诊断包...", "info");
+                showToast("正在导出诊断包...", "info", 1200);
+                break;
+            case "query_diagnostic_packages":
+                addLog("诊断包历史刷新请求已发送", "info");
+                break;
+            case "verify_diagnostic_package":
+                addLog("诊断包复核请求已发送", "info");
+                break;
+            case "maintenance_advice_action":
+                addLog("维护建议处理/复检请求已发送", "info");
+                break;
+            case "shift_task_action":
+                addLog("班次待办处理/复检请求已发送", "info");
+                break;
+            case "export_field_handoff_report":
+                addLog("现场交接报告导出请求已发送", "info");
+                break;
+            case "query_field_handoff_reports":
+                addLog("交接报告历史刷新请求已发送", "info");
+                break;
+            case "field_debug_step_capture":
+            case "field_debug_step_infer":
+            case "field_debug_plc_write_test":
+            case "field_debug_barcode_read_test":
+            case "field_debug_simulate_trigger":
+                addLog("现场调试命令已发送", "info");
+                break;
+            case "vision_debug_run_current":
+                addLog("算法调试当前帧重跑已发送", "info");
+                break;
+            case "vision_debug_run_history":
+                addLog("历史样本算法调试已发送", "info");
+                break;
+            case "vision_debug_run_batch":
+                addLog("批量历史样本回放已发送", "info");
+                break;
+            case "vision_debug_save_params":
+                addLog("算法调试参数保存请求已发送", "info");
+                break;
+            case "vision_debug_apply_template":
+                addLog("场景模板生成请求已发送", "info");
+                break;
             default:
                 break;
         }
@@ -1291,6 +3802,7 @@
 
     function handleDetectionFrame(data) {
         if (!data) return;
+        clearVisionDebugOverlay();
         if (typeof data.isOk === "boolean") updateResult(data.isOk);
         if (data.stats) updateStatus(data.stats);
         if (data.log?.message) addDetectionLog(data.log.message, data.log.type);
@@ -1311,6 +3823,13 @@
             handshakeStartMs: data.inspection?.handshakeStartMs ?? data.handshakeStartMs,
             plcResultWriteMs: data.inspection?.plcResultWriteMs ?? data.plcResultWriteMs,
             handshakeCompleteMs: data.inspection?.handshakeCompleteMs ?? data.handshakeCompleteMs,
+            terminalHandshakeAttempted: data.inspection?.terminalHandshakeAttempted ?? data.terminalHandshakeAttempted,
+            terminalHandshakeSucceeded: data.inspection?.terminalHandshakeSucceeded ?? data.terminalHandshakeSucceeded,
+            terminalHandshakeErrorCode: data.inspection?.terminalHandshakeErrorCode ?? data.terminalHandshakeErrorCode,
+            terminalHandshakeSignalName: data.inspection?.terminalHandshakeSignalName ?? data.terminalHandshakeSignalName,
+            terminalHandshakeAddress: data.inspection?.terminalHandshakeAddress ?? data.terminalHandshakeAddress,
+            terminalHandshakeMessage: data.inspection?.terminalHandshakeMessage ?? data.terminalHandshakeMessage,
+            cycleSucceeded: data.inspection?.cycleSucceeded ?? data.cycleSucceeded,
             ruleSummary: data.inspection?.ruleSummary ?? data.ruleSummary,
             rulePrimaryReason: data.inspection?.rulePrimaryReason ?? data.rulePrimaryReason,
             ruleDetails: data.inspection?.ruleDetails ?? data.ruleDetails,
@@ -1335,15 +3854,41 @@
         addDetectionLog,
         clearLogs,
         clearDetectionLogs,
+        acknowledgeMaintenanceAdvice,
+        acknowledgeShiftTask,
+        closeFieldDiagnosticsPanel,
+        copyDiagnosticPackageSummary,
+        copyFieldHandoffReportSummary,
+        copyFaultSummary,
         escapeHtml,
+        exportFieldHandoffReport,
         flashPlcTrigger,
         handleInspectionUpdate,
+        openFieldDiagnosticsPanel,
+        openVisionDebugPanel,
         renderHealthSnapshot: handleHealthSnapshot,
+        renderFieldDiagnostics: () => renderFieldDiagnostics(window.CF_STATE),
+        renderVisionDebugResult: () => renderVisionDebugResult(window.CF_STATE),
         renderInspectionContext: () => renderInspectionContext(window.CF_STATE),
+        renderManualReviewStatus: () => renderManualReviewStatus(window.CF_STATE),
+        renderReplayStatus: () => renderReplayStatus(window.CF_STATE),
         renderRecentInspections: () => renderRecentInspections(window.CF_STATE),
+        requestDiagnosticPackageHistory,
+        requestFieldHandoffReportHistory,
         requestExitApp,
         requestOpenCamera,
+        requestVisionDebugRecentRecords,
         requestStartSystem,
+        recheckMaintenanceAdvice,
+        recheckShiftTask,
+        runVisionDebugCurrent,
+        runVisionDebugHistory,
+        runVisionDebugBatch,
+        verifyDiagnosticPackage,
+        saveVisionDebugParams,
+        applySelectedVisionDebugTemplate,
+        applyVisionDebugTemplate,
+        showVisionDebugLocalImageNotice,
         startSystem,
         handleCommandDispatched,
         setStartSystemButtonState,
@@ -1352,11 +3897,14 @@
         showToast,
         updateCameraName,
         updateConnection,
+        updateTriggerSourceStatus,
         updateImage,
         updateImageUrl,
         updateInferenceMetrics,
         updateResult,
         updateStatus,
+        closeVisionDebugPanel,
+        redrawVisionDebugOverlay,
         receiveDetectionResult,
     });
 
@@ -1378,8 +3926,49 @@
     bridge.registerMessageHandler("updateCameraName", (data) => updateCameraName(data?.name ?? data));
     bridge.registerMessageHandler("inspectionUpdate", handleInspectionUpdate);
     bridge.registerMessageHandler("healthSnapshot", handleHealthSnapshot);
+    bridge.registerMessageHandler("fieldDebugResult", handleFieldDebugResult);
+    bridge.registerMessageHandler("visionDebugResult", (data) => store.applyVisionDebugResult(data));
+    bridge.registerMessageHandler("diagnosticPackageExportResult", handleDiagnosticPackageExportResult);
+    bridge.registerMessageHandler("diagnosticPackageHistoryResult", handleDiagnosticPackageHistoryResult);
+    bridge.registerMessageHandler("diagnosticPackageVerificationResult", handleDiagnosticPackageVerificationResult);
+    bridge.registerMessageHandler("maintenanceAdviceActionResult", handleMaintenanceAdviceActionResult);
+    bridge.registerMessageHandler("shiftTaskActionResult", handleShiftTaskActionResult);
+    bridge.registerMessageHandler("fieldHandoffReportResult", handleFieldHandoffReportResult);
+    bridge.registerMessageHandler("fieldHandoffReportHistoryResult", handleFieldHandoffReportHistoryResult);
+    bridge.registerMessageHandler("manualReviewRecords", (data) => store.applyManualReviewUpdate(data));
+    bridge.registerMessageHandler("manualReviewResponse", (data) => store.applyManualReviewUpdate(data));
+    bridge.registerMessageHandler("datasetCreateStatus", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunStatus", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunProgress", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunCompleted", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunFailed", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayRunCanceled", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("modelApprovalAvailability", (data) => store.applyReplayUpdate(data));
+    bridge.registerMessageHandler("replayApprovalResponse", (data) => store.applyReplayUpdate(data));
     bridge.registerMessageHandler("detectionFrame", handleDetectionFrame);
     bridge.registerMessageHandler("uiCommand", handleUiCommand);
+    bridge.registerMessageHandler("commandError", handleCommandError);
+
+    document.addEventListener("input", (event) => {
+        const target = event.target;
+        if (target?.id === "vision-debug-confidence" || target?.id === "vision-debug-iou") {
+            updateVisionDebugSliderLabels();
+        }
+        if (target?.id === "vision-debug-preprocess-mode") {
+            updateVisionDebugPreprocessHint();
+        }
+        if (target?.id === "vision-debug-rule-set") {
+            updateVisionDebugRuleSummary();
+            validateVisionDebugRuleJson(false);
+        }
+    });
+
+    document.addEventListener("change", (event) => {
+        const target = event.target;
+        if (target?.id === "vision-debug-preprocess-mode") {
+            updateVisionDebugPreprocessHint();
+        }
+    });
 })();
 
 // ==========================================
@@ -1416,17 +4005,26 @@
 
     let PROJECT_PRESETS = {
         N5_remote: {
-            name: "N5遥控器漏装视觉检测",
+            name: "N5 遥控器漏装",
+            StationName: "N5 遥控器漏装",
+            DetectionType: "遥控器漏装",
             PlcIp: "10.182.82.19",
             PlcPort: 2700,
             PlcTriggerAddress: "D100",
             PlcResultAddress: "D102",
             CameraSerialNumber: "5G087BAGAK00018",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_Binary",
+            TriggerSource: "PLC",
             TargetLabel: "remote",
+            TargetLabels: ["remote"],
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -1444,6 +4042,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -1456,20 +4055,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         N5_screw: {
-            name: "N5螺钉视觉检测",
+            name: "N5 螺钉检测",
+            StationName: "N5 螺钉检测",
+            DetectionType: "螺钉检测",
             PlcIp: "10.182.82.19",
             PlcPort: 3000,
             PlcTriggerAddress: "D90",
             PlcResultAddress: "D92",
             CameraSerialNumber: "EF59601AAK00030",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_Binary",
+            TriggerSource: "PLC",
             TargetLabel: "screw",
+            TargetLabels: ["screw"],
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -1487,6 +4095,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -1499,20 +4108,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         N6_remote: {
-            name: "N6遥控器漏装视觉检测",
+            name: "N6 遥控器漏装",
+            StationName: "N6 遥控器漏装",
+            DetectionType: "遥控器漏装",
             PlcIp: "192.168.100.122",
             PlcPort: 5777,
             PlcTriggerAddress: "D6607",
             PlcResultAddress: "D6608",
             CameraSerialNumber: "AM01040AAK00040",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_Binary",
+            TriggerSource: "PLC",
             TargetLabel: "remote",
+            TargetLabels: ["remote"],
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -1530,6 +4148,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -1542,20 +4161,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         N6_screw: {
-            name: "N6螺钉视觉检测",
+            name: "N6 螺钉检测",
+            StationName: "N6 螺钉检测",
+            DetectionType: "螺钉检测",
             PlcIp: "10.182.82.3",
             PlcPort: 4300,
             PlcTriggerAddress: "D100",
             PlcResultAddress: "D102",
             CameraSerialNumber: "",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_Binary",
+            TriggerSource: "PLC",
             TargetLabel: "screw",
+            TargetLabels: ["screw"],
             TargetCount: 1,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -1573,6 +4201,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -1585,20 +4214,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         W5_screw: {
-            name: "W5螺钉视觉检测",
+            name: "W5 螺钉检测",
+            StationName: "W5 螺钉检测",
+            DetectionType: "螺钉检测",
             PlcIp: "192.168.22.44",
             PlcPort: 4999,
             PlcTriggerAddress: "D555",
             PlcResultAddress: "D556",
             CameraSerialNumber: "EF59632AAK00291",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_ASCII",
+            TriggerSource: "PLC",
             TargetLabel: "screw",
+            TargetLabels: ["screw"],
             TargetCount: 4,
             ExposureTime: 50000,
             Gain: 1.1,
+            GainRaw: 1.1,
+            RecommendedExposureTime: 50000,
+            RecommendedGainRaw: 1.1,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -1616,6 +4254,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -1628,20 +4267,29 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
-            CameraManufacturer: "Huaray",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
         W6_screw: {
-            name: "W6螺钉视觉检测",
+            name: "W6 螺钉检测",
+            StationName: "W6 螺钉检测",
+            DetectionType: "螺钉检测",
             PlcIp: "192.168.250.1",
             PlcPort: 5999,
             PlcTriggerAddress: "D555",
             PlcResultAddress: "D556",
             CameraSerialNumber: "EF59632AAK00291",
+            CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
             PlcProtocol: "Mitsubishi_MC_ASCII",
+            TriggerSource: "PLC",
             TargetLabel: "screw",
+            TargetLabels: ["screw"],
             TargetCount: 4,
             ExposureTime: 3500,
             Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
             PlcDriverProvider: "HaoCommunication",
             PlcProtocolMode: "Legacy",
             PlcTriggerDelayMs: 800,
@@ -1659,6 +4307,7 @@
             PlcHeartbeatAddress: "D565",
             PlcResetFaultAddress: "D566",
             BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
             BarcodeAddress: "D570",
             BarcodeWordLength: 16,
             BarcodeEncoding: "ASCII",
@@ -1671,7 +4320,60 @@
             MaxRetryCount: 1,
             RetryIntervalMs: 2000,
             StoragePath: "C:\\GreeVisionData",
+            DefaultStoragePath: "C:\\GreeVisionData",
+        },
+        electric_heating_screw: {
+            name: "电加热螺钉检测",
+            StationName: "电加热螺钉检测",
+            DetectionType: "螺钉检测",
+            PlcIp: "",
+            PlcPort: 0,
+            PlcTriggerAddress: "D555",
+            PlcResultAddress: "D556",
+            CameraSerialNumber: "",
             CameraManufacturer: "Huaray",
+            CameraBrand: "Huaray",
+            PlcProtocol: "Mitsubishi_MC_ASCII",
+            TriggerSource: "PLC",
+            TargetLabel: "screw",
+            TargetLabels: ["screw"],
+            TargetCount: 4,
+            ExposureTime: 3500,
+            Gain: 1.5,
+            GainRaw: 1.5,
+            RecommendedExposureTime: 3500,
+            RecommendedGainRaw: 1.5,
+            PlcDriverProvider: "HaoCommunication",
+            PlcProtocolMode: "Legacy",
+            PlcTriggerDelayMs: 800,
+            PlcPollingIntervalMs: 500,
+            PlcOkValue: 1,
+            PlcNgValue: 0,
+            PlcTriggerSeqAddress: "D557",
+            PlcResultSeqAddress: "D558",
+            PlcVisionOnlineAddress: "D559",
+            PlcVisionReadyAddress: "D560",
+            PlcVisionBusyAddress: "D561",
+            PlcInspectionDoneAddress: "D562",
+            PlcErrorCodeAddress: "D563",
+            PlcTraceSavedAddress: "D564",
+            PlcHeartbeatAddress: "D565",
+            PlcResetFaultAddress: "D566",
+            BarcodeEnabled: false,
+            EnableMultiModelFallback: false,
+            BarcodeAddress: "D570",
+            BarcodeWordLength: 16,
+            BarcodeEncoding: "ASCII",
+            BarcodeRequired: false,
+            PlcSiemensCpuModel: "S1200",
+            PlcSiemensRack: 0,
+            PlcSiemensSlot: 2,
+            EnableGpu: false,
+            IndustrialRenderMode: true,
+            MaxRetryCount: 1,
+            RetryIntervalMs: 2000,
+            StoragePath: "C:\\GreeVisionData",
+            DefaultStoragePath: "C:\\GreeVisionData",
         },
     };
 
@@ -2168,6 +4870,8 @@
         const triggerSource = byId("cfg-trigger-source")?.value || "PLC";
         const serialSection = byId("cfg-serial-trigger-section");
         if (serialSection) serialSection.classList.toggle("hidden", triggerSource !== "SerialPhotoelectric");
+        store.state.settings = { ...(store.state.settings || {}), TriggerSource: triggerSource };
+        window.updateTriggerSourceStatus?.(triggerSource);
     }
 
     function normalizeSerialPortName(value) {
@@ -2562,9 +5266,15 @@
         updateTriggerSourceUi();
         window.updateOperatorStatus?.();
         if (store.state.modelList?.length) {
-            selectModelOption(byId("model-select"), data.CurrentModelFileName);
-            selectModelOption(byId("auxiliary1-select"), data.Auxiliary1ModelPath);
-            selectModelOption(byId("auxiliary2-select"), data.Auxiliary2ModelPath);
+            selectModelOption(
+                byId("model-select"),
+                modelSelectionValueFromReference(data.CurrentModelReference, data.CurrentModelFileName));
+            selectModelOption(
+                byId("auxiliary1-select"),
+                modelSelectionValueFromReference(data.Auxiliary1ModelReference, data.Auxiliary1ModelPath));
+            selectModelOption(
+                byId("auxiliary2-select"),
+                modelSelectionValueFromReference(data.Auxiliary2ModelReference, data.Auxiliary2ModelPath));
         }
     }
 
@@ -2595,7 +5305,7 @@
 
         const emptyOption = document.createElement("option");
         emptyOption.value = "";
-        emptyOption.text = "-- 选择预设项目（可选）--";
+        emptyOption.text = "-- 选择工位模板（可选）--";
         select.add(emptyOption);
 
         Object.entries(PROJECT_PRESETS)
@@ -2609,6 +5319,13 @@
 
         if (currentValue && PROJECT_PRESETS[currentValue]) {
             select.value = currentValue;
+        }
+    }
+
+    function setProjectPresetLoadHint(message) {
+        const hint = byId("project-preset-load-hint");
+        if (hint) {
+            hint.textContent = message || "选择后只载入模板，不会自动保存；请确认相机序列号、PLC IP 和模型后再保存。";
         }
     }
 
@@ -2866,15 +5583,58 @@
             select.value = preferred;
             return;
         }
+        const preferredFileMatch = preferred ? options.find((option) => option.dataset.fileName === preferred) : null;
+        if (preferredFileMatch) {
+            select.value = preferredFileMatch.value;
+            return;
+        }
         if (fallback && options.some((option) => option.value === fallback)) {
             select.value = fallback;
+            return;
+        }
+        const fallbackFileMatch = fallback ? options.find((option) => option.dataset.fileName === fallback) : null;
+        if (fallbackFileMatch) {
+            select.value = fallbackFileMatch.value;
             return;
         }
         select.selectedIndex = options.length ? 0 : -1;
     }
 
+    function encodeModelIdentityPart(value) {
+        const bytes = encodeURIComponent(String(value || "")).replace(/%([0-9A-F]{2})/g, (_, hex) =>
+            String.fromCharCode(parseInt(hex, 16)));
+        return btoa(bytes).replace(/=+$/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+    }
+
+    function modelSelectionValueFromReference(reference, legacyValue = "") {
+        if (!reference) return String(legacyValue || "").trim();
+        const type = String(reference.Type || reference.type || "");
+        const modelId = reference.ModelId || reference.modelId || "";
+        const version = reference.Version || reference.version || "";
+        const sha256 = String(reference.Sha256 || reference.sha256 || "").trim().toLowerCase();
+        const legacyFileName = reference.LegacyFileName || reference.legacyFileName || legacyValue || "";
+        if ((type === "ApprovedPackage" || type === "1") && modelId && version && sha256) {
+            return `approved:${encodeModelIdentityPart(modelId)}:${encodeModelIdentityPart(version)}:${sha256}`;
+        }
+        if ((type === "LegacyOnnx" || type === "2") && legacyFileName) {
+            return `legacy:${encodeModelIdentityPart(legacyFileName)}:${sha256}`;
+        }
+        return String(legacyValue || "").trim();
+    }
+
+    function normalizeModelOption(item) {
+        if (typeof item === "string") {
+            return { value: item, text: item, fileName: item };
+        }
+        const value = String(item?.value || item?.Value || "").trim();
+        const text = String(item?.text || item?.Text || item?.fileName || item?.FileName || value).trim();
+        const fileName = String(item?.fileName || item?.FileName || text).trim();
+        return { value, text, fileName };
+    }
+
     function initModelList(files, notifyBackend = false) {
-        const models = Array.isArray(files) ? files : (files?.models || files?.Models || []);
+        const rawModels = Array.isArray(files) ? files : (files?.models || files?.Models || []);
+        const models = rawModels.map(normalizeModelOption).filter((model) => model.value);
         store.state.modelList = models;
         const select = byId("model-select");
         if (!select) return;
@@ -2893,28 +5653,39 @@
             return;
         }
 
-        models.forEach((fileName) => {
+        models.forEach((model) => {
             const option = document.createElement("option");
-            option.value = fileName;
-            option.text = fileName;
+            option.value = model.value;
+            option.text = model.text;
+            option.dataset.fileName = model.fileName;
             select.add(option);
         });
-        selectModelOption(select, settings.CurrentModelFileName, previousPrimary);
+        selectModelOption(
+            select,
+            modelSelectionValueFromReference(settings.CurrentModelReference, settings.CurrentModelFileName),
+            previousPrimary);
 
         ["auxiliary1-select", "auxiliary2-select"].forEach((id) => {
             const auxSelect = byId(id);
             if (!auxSelect) return;
             auxSelect.innerHTML = '<option value="">不使用</option>';
-            models.forEach((fileName) => {
+            models.forEach((model) => {
                 const option = document.createElement("option");
-                option.value = fileName;
-                option.text = fileName;
+                option.value = model.value;
+                option.text = model.text;
+                option.dataset.fileName = model.fileName;
                 auxSelect.add(option);
             });
         });
 
-        selectModelOption(byId("auxiliary1-select"), settings.Auxiliary1ModelPath, previousAux1);
-        selectModelOption(byId("auxiliary2-select"), settings.Auxiliary2ModelPath, previousAux2);
+        selectModelOption(
+            byId("auxiliary1-select"),
+            modelSelectionValueFromReference(settings.Auxiliary1ModelReference, settings.Auxiliary1ModelPath),
+            previousAux1);
+        selectModelOption(
+            byId("auxiliary2-select"),
+            modelSelectionValueFromReference(settings.Auxiliary2ModelReference, settings.Auxiliary2ModelPath),
+            previousAux2);
         if (notifyBackend) bridge.sendCommand("change_model", select.value);
         window.addLog?.(`成功加载 ${models.length} 个模型`, "info");
     }
@@ -2963,6 +5734,7 @@
     function loadProjectPreset(presetId) {
         if (!presetId) {
             syncProjectPresetName();
+            setProjectPresetLoadHint("");
             return;
         }
 
@@ -3043,8 +5815,15 @@
         updateTriggerSourceUi();
         store.state.inspectionRuleSet = normalizeInspectionRuleSet(preset.InspectionRuleSetJson, preset);
         renderInspectionRules();
+        if (preset.EnableMultiModelFallback !== undefined) {
+            applyMultiModelUiState(!!preset.EnableMultiModelFallback);
+        }
         syncProjectPresetName();
-        window.addLog?.(`已加载预设: ${getPresetDisplayName(presetId, preset)}`, "success");
+        const templateName = getPresetDisplayName(presetId, preset);
+        const message = `已载入 ${templateName}模板，请确认相机序列号、PLC IP 和模型后保存。`;
+        setProjectPresetLoadHint(message);
+        window.showToast?.(message, "success", 1800);
+        window.addLog?.(message, "success");
     }
 
     function handleConfigSnapshot(data) {
@@ -3526,9 +6305,77 @@
     const TRACE_DEFAULT_PAGE_SIZE = 100;
     let tracePagerState = createTracePagerState();
     let activeTraceRecord = null;
+    const AuditStatusLabels = Object.freeze({
+        Requested: "已请求",
+        Denied: "已拒绝",
+        Succeeded: "已成功",
+        Failed: "已失败",
+    });
+    const AuditOperationLabels = Object.freeze({
+        ManualRelease: "强制放行",
+        ManualReview: "人工复核",
+        ReplayApproval: "回放审批",
+        ReplayIntegrityScan: "回放完整性扫描",
+        archive_replay_dataset: "归档回放数据集",
+        create_replay_dataset: "创建回放数据集",
+        preview_replay_dataset: "预览回放数据集",
+        query_replay_datasets: "查询回放数据集",
+        run_replay_comparison: "对比新旧模型",
+        cancel_replay_run: "取消回放运行",
+        query_replay_runs: "查询回放运行",
+        query_replay_report: "查询回放报告",
+        query_model_approval_evidence: "查询模型验证记录",
+        run_replay_integrity_scan: "运行验证记录扫描",
+        approve_replay_candidate: "审批候选模型",
+        query_manual_review_records: "查询人工复核记录",
+        save_manual_review: "保存人工复核",
+    });
+    const ProductionRoleLabels = Object.freeze({
+        Operator: "操作员",
+        ShiftLead: "班组长",
+        Engineer: "工程师",
+    });
 
     function byId(id) {
         return document.getElementById(id);
+    }
+
+    function formatAuditStatus(status) {
+        const value = String(status || "").trim();
+        return AuditStatusLabels[value] || value;
+    }
+
+    function formatProductionRole(role) {
+        const value = String(role || "").trim();
+        return ProductionRoleLabels[value] || value;
+    }
+
+    function formatAuditOperation(operation) {
+        const value = String(operation || "").trim();
+        return AuditOperationLabels[value] || value;
+    }
+
+    function formatAuditText(value) {
+        let text = String(value || "").trim();
+        if (!text) return "";
+
+        Object.entries(AuditOperationLabels).forEach(([raw, label]) => {
+            text = text.split(raw).join(label);
+        });
+        Object.entries(AuditStatusLabels).forEach(([raw, label]) => {
+            text = text.split(raw).join(label);
+        });
+        Object.entries(ProductionRoleLabels).forEach(([raw, label]) => {
+            text = text.split(`RequiredRole=${raw}`).join(`需要${label}权限`);
+            text = text.split(raw).join(label);
+        });
+        return text;
+    }
+
+    function shortAuditHash(value) {
+        const text = String(value || "").trim();
+        if (!text) return "";
+        return text.length <= 12 ? text : `${text.slice(0, 12)}...`;
     }
 
     function createTracePagerState() {
@@ -3566,6 +6413,19 @@
         if (value === undefined || value === null || value === "") return null;
         const numberValue = Number(value);
         return Number.isFinite(numberValue) ? numberValue : null;
+    }
+
+    const TRACE_DATE_ITEM_CLASS = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
+    const TRACE_DATE_ITEM_ACTIVE_CLASS = "p-2.5 bg-celadon-50 text-celadon-700 cursor-pointer rounded-xl text-[11px] font-black transition-[background-color,border-color,color,box-shadow] shadow-sm border border-celadon-200 mb-1";
+    const TRACE_HOUR_ITEM_CLASS = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group";
+    const TRACE_HOUR_ITEM_ACTIVE_CLASS = "px-4 py-2 bg-celadon-600 border-celadon-600 text-white rounded-xl text-[11px] cursor-pointer transition-[background-color,border-color,color,box-shadow] font-bold shadow-md flex items-center justify-between";
+
+    function traceDateItemClass(isActive = false) {
+        return isActive ? TRACE_DATE_ITEM_ACTIVE_CLASS : TRACE_DATE_ITEM_CLASS;
+    }
+
+    function traceHourItemClass(isActive = false) {
+        return isActive ? TRACE_HOUR_ITEM_ACTIVE_CLASS : TRACE_HOUR_ITEM_CLASS;
     }
 
     function setTraceLoadingState(isLoading) {
@@ -3643,8 +6503,12 @@
             const reviewLabel = record.hasRenderedImage ? "复查图" : "无复查图";
             const model = record.modelVersion || record.modelName || "-";
             const adviceText = getTraceAdviceText(record, "建议");
+            const deepLearningText = record.deepLearningTraceSummary || "";
             const adviceMarkup = adviceText
                 ? `<p class="cf-trace-advice">${escapeHtml(adviceText)}</p>`
+                : "";
+            const deepLearningMarkup = deepLearningText
+                ? `<p>深度学习: ${escapeHtml(deepLearningText)}</p>`
                 : "";
             const imageMarkup = url
                 ? `<img src="${url}" loading="lazy" decoding="async" alt="${escapeHtml(record.inspectionId)}">`
@@ -3662,6 +6526,7 @@
                         <p>ID: ${escapeHtml(record.inspectionId || "-")}</p>
                         <p>模型: ${escapeHtml(model)}</p>
                         <p>相机: ${escapeHtml(record.cameraId || "-")}</p>
+                        ${deepLearningMarkup}
                         ${adviceMarkup}
                     </div>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
@@ -3692,7 +6557,8 @@
     function requestTracePage(direction = "initial") {
         syncTraceControls();
         const date = byId("gallery-date-picker")?.value || window.currentNGDate;
-        const hour = byId("trace-hour-select")?.value || window.currentNGHour || "";
+        const hourSelect = byId("trace-hour-select");
+        const hour = hourSelect ? hourSelect.value : (window.currentNGHour || "");
         if (!date) return;
 
         window.currentNGDate = date;
@@ -3738,7 +6604,7 @@
     function syncLogHistoryChrome() {
         if (!document.body.classList.contains("cf-stitch-page")) return;
         const title = document.querySelector("#log-history-modal .cf-ornate-header h3");
-        if (title) title.textContent = "检测日志 (Detection Logs)";
+        if (title) title.textContent = "检测日志";
     }
 
     function openLogHistoryModal() {
@@ -3755,6 +6621,38 @@
         }
     }
 
+    function setTraceDateSelection(date) {
+        const selectedDate = date || "";
+        window.currentNGDate = selectedDate;
+        const dateInput = byId("gallery-date-picker");
+        if (dateInput && dateInput.value !== selectedDate) {
+            dateInput.value = selectedDate;
+        }
+
+        const list = byId("ng-date-list");
+        if (!list) return;
+        Array.from(list.children).forEach((child) => {
+            if (!child.dataset?.traceDate) return;
+            child.className = traceDateItemClass(child.dataset.traceDate === selectedDate);
+        });
+    }
+
+    function setTraceHourSelection(hour) {
+        const selectedHour = hour ?? "";
+        window.currentNGHour = selectedHour;
+        const hourSelect = byId("trace-hour-select");
+        if (hourSelect && hourSelect.value !== selectedHour) {
+            hourSelect.value = selectedHour;
+        }
+
+        const list = byId("ng-hour-list");
+        if (!list) return;
+        Array.from(list.children).forEach((child) => {
+            if (!child.dataset?.traceHour) return;
+            child.className = traceHourItemClass(child.dataset.traceHour === selectedHour);
+        });
+    }
+
     function closeLogHistoryModal() {
         byId("log-history-modal")?.classList.add("hidden");
     }
@@ -3764,7 +6662,7 @@
         syncTraceControls();
         resetTracePagerState();
         const badge = byId("gallery-count");
-        if (badge) badge.textContent = "0 张";
+        if (badge) badge.textContent = "0 条";
         bridge.sendCommand("get_ng_dates");
     }
 
@@ -3859,9 +6757,163 @@
         }).join("");
     }
 
+    function buildAuditQuery() {
+        return {
+            startTime: byId("audit-start-time")?.value || "",
+            endTime: byId("audit-end-time")?.value || "",
+            operation: byId("audit-operation-filter")?.value || "",
+            operatorId: byId("audit-operator-filter")?.value || "",
+            status: byId("audit-status-filter")?.value || "",
+            limit: 500,
+        };
+    }
+
+    function openAuditModal() {
+        byId("audit-modal")?.classList.remove("hidden");
+        queryAuditRecords();
+        verifyAuditChain();
+    }
+
+    function closeAuditModal() {
+        byId("audit-modal")?.classList.add("hidden");
+    }
+
+    function setAuditError(message) {
+        const node = byId("audit-error");
+        if (!node) return;
+        node.textContent = message || "";
+        node.classList.toggle("hidden", !message);
+    }
+
+    function queryAuditRecords() {
+        setAuditError("");
+        const tbody = byId("audit-table");
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">正在加载审计记录...</td></tr>';
+        }
+        bridge.sendCommand("query_audit_records", buildAuditQuery());
+    }
+
+    function exportAuditRecords() {
+        setAuditError("");
+        bridge.sendCommand("export_audit_records", buildAuditQuery());
+    }
+
+    function verifyAuditChain() {
+        setAuditError("");
+        const badge = byId("audit-chain-badge");
+        if (badge) {
+            badge.textContent = "校验中";
+            badge.className = "px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-bold";
+        }
+        bridge.sendCommand("verify_audit_chain", {});
+    }
+
+    function updateAuditChainVerification(data) {
+        const error = data?.error || data?.Error || "";
+        const status = String(data?.status || data?.Status || (error ? "Unavailable" : "Unknown"));
+        const totalRecords = data?.totalRecords ?? data?.TotalRecords ?? 0;
+        const verifiedRecords = data?.verifiedRecords ?? data?.VerifiedRecords ?? 0;
+        const findingCount = data?.findingCount ?? data?.FindingCount ?? 0;
+        const lastHash = data?.lastRecordSha256 || data?.LastRecordSha256 || "";
+        const findings = Array.isArray(data?.findings) ? data.findings : (data?.Findings || []);
+        const badge = byId("audit-chain-badge");
+        const countNode = byId("audit-chain-count");
+        const findingNode = byId("audit-chain-findings");
+        const hashNode = byId("audit-chain-last-hash");
+        const messageNode = byId("audit-chain-message");
+
+        const statusClass = status === "Healthy"
+            ? "bg-bamboo-50 text-bamboo-700 border border-bamboo-100"
+            : status === "Warning"
+                ? "bg-amber-50 text-amber-700 border border-amber-100"
+                : "bg-rouge-50 text-rouge-700 border border-rouge-100";
+
+        if (badge) {
+            badge.textContent = status;
+            badge.className = `px-2 py-0.5 rounded-full font-bold ${statusClass}`;
+        }
+        if (countNode) countNode.textContent = `Verified ${verifiedRecords}/${totalRecords}`;
+        if (findingNode) findingNode.textContent = `Findings ${findingCount}`;
+        if (hashNode) {
+            hashNode.textContent = `Last ${shortAuditHash(lastHash) || "-"}`;
+            hashNode.title = lastHash || "";
+        }
+        if (messageNode) {
+            const firstFinding = findings[0] || {};
+            const summary = firstFinding.errorCode || firstFinding.ErrorCode || error || "";
+            const line = firstFinding.lineNumber || firstFinding.LineNumber || "";
+            messageNode.textContent = summary ? `${summary}${line ? ` @${line}` : ""}` : "";
+        }
+        if (error) {
+            setAuditError(error);
+        }
+    }
+
+    function updateAuditRecords(data) {
+        const records = Array.isArray(data) ? data : (data?.records || data?.Records || []);
+        const error = data?.error || data?.Error || "";
+        const tbody = byId("audit-table");
+        const badge = byId("audit-count-badge");
+        if (!tbody) return;
+
+        if (error) {
+            setAuditError(error);
+        }
+
+        if (badge) badge.textContent = `${records.length} 条`;
+        if (!records.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">未匹配到审计记录</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = records.map((record) => {
+            const status = String(record.status || "");
+            const statusClass = status === "Failed" || status === "Denied"
+                ? "bg-rouge-50 text-rouge-600 border-rouge-200"
+                : "bg-bamboo-50 text-bamboo-600 border-bamboo-200";
+            return `
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-3 py-3 whitespace-nowrap">${escapeHtml(record.timestamp || "-")}</td>
+                    <td class="px-3 py-3">${escapeHtml(formatAuditOperation(record.operation) || "-")}</td>
+                    <td class="px-3 py-3"><span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusClass}">${escapeHtml(formatAuditStatus(status) || "-")}</span></td>
+                    <td class="px-3 py-3">${escapeHtml(record.operatorId || "-")}</td>
+                    <td class="px-3 py-3">${escapeHtml(formatProductionRole(record.role) || "-")}</td>
+                    <td class="px-3 py-3">${escapeHtml(record.inspectionId || "-")}</td>
+                    <td class="px-3 py-3 max-w-[130px] truncate" title="${escapeHtml(record.recordSha256 || "")}">${escapeHtml(shortAuditHash(record.recordSha256) || "-")}</td>
+                    <td class="px-3 py-3 max-w-md whitespace-normal break-words">${escapeHtml(formatAuditText(record.details || record.reason) || "-")}</td>
+                    <td class="px-3 py-3 max-w-xs whitespace-normal break-words">${escapeHtml(formatAuditText(record.failureBlocker) || "-")}</td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    function updateAuditExport(data) {
+        const error = data?.error || data?.Error || "";
+        const path = data?.path || data?.Path || "";
+        if (error) {
+            setAuditError(error);
+            return;
+        }
+
+        const node = byId("audit-export-path");
+        if (node) node.textContent = path ? `已导出: ${path}` : "";
+        window.showToast?.("审计 CSV 已导出", "success", 1600);
+    }
+
     function updateNGDates(data) {
         if (data === undefined) {
-            bridge.sendCommand("get_ng_dates");
+            const selectedDate = byId("gallery-date-picker")?.value || "";
+            if (selectedDate) {
+                setTraceDateSelection(selectedDate);
+                setTraceHourSelection("");
+                resetTracePagerState();
+                if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
+                if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
+                bridge.sendCommand("get_ng_hours", selectedDate);
+            } else {
+                bridge.sendCommand("get_ng_dates");
+            }
             return;
         }
         const dates = Array.isArray(data) ? data : (data?.dates || data?.Dates || []);
@@ -3879,24 +6931,35 @@
 
         dates.forEach((date) => {
             const div = document.createElement("div");
-            div.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
+            div.className = traceDateItemClass();
+            div.dataset.traceDate = date;
+            div.tabIndex = 0;
             div.innerText = date;
-            div.onclick = () => {
-                Array.from(list.children).forEach((child) => {
-                    child.className = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
-                });
-                div.className = "p-2.5 bg-celadon-50 text-celadon-700 cursor-pointer rounded-xl text-[11px] font-black transition-[background-color,border-color,color,box-shadow] shadow-sm border border-celadon-200 mb-1";
-                window.currentNGDate = date;
-                window.currentNGHour = "";
+            const selectDate = () => {
+                setTraceDateSelection(date);
+                setTraceHourSelection("");
                 resetTracePagerState();
                 if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
                 if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
                 bridge.sendCommand("get_ng_hours", date);
             };
+            div.onclick = selectDate;
+            div.onkeydown = (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectDate();
+                }
+            };
             list.appendChild(div);
         });
 
-        list.firstElementChild?.click?.();
+        const selectedInputDate = byId("gallery-date-picker")?.value || "";
+        const preferredDate = dates.includes(window.currentNGDate)
+            ? window.currentNGDate
+            : (dates.includes(selectedInputDate) ? selectedInputDate : dates[0]);
+        Array.from(list.children)
+            .find((child) => child.dataset?.traceDate === preferredDate)
+            ?.click?.();
     }
 
     function updateNGHours(data) {
@@ -3926,38 +6989,51 @@
                 hourSelect.appendChild(option);
             }
             const div = document.createElement("div");
-            div.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group";
+            div.className = traceHourItemClass();
+            div.dataset.traceHour = hour;
+            div.tabIndex = 0;
             div.innerHTML = `<span>${escapeHtml(hour)}:00 时段</span><span class="opacity-0 group-hover:opacity-100">›</span>`;
-            div.onclick = () => {
-                Array.from(list.children).forEach((child) => {
-                    child.className = "px-4 py-2 bg-white/60 border border-slate-100 rounded-xl text-[11px] cursor-pointer hover:bg-white hover:text-celadon-600 hover:border-celadon-200 transition-[background-color,border-color,color,box-shadow] font-bold text-ink-500 shadow-sm flex items-center justify-between group";
-                });
-                div.className = "px-4 py-2 bg-celadon-600 border-celadon-600 text-white rounded-xl text-[11px] cursor-pointer transition-[background-color,border-color,color,box-shadow] font-bold shadow-md flex items-center justify-between";
-                window.currentNGHour = hour;
+            const selectHour = () => {
+                setTraceHourSelection(hour);
                 resetTracePagerState();
                 if (byId("ng-image-grid")) {
                     byId("ng-image-grid").innerHTML = '<div class="col-span-full h-full flex flex-col items-center justify-center py-20 text-ink-300 opacity-50"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-celadon-500 mb-4"></div><span class="text-xs font-serif italic">正在索引影像档案...</span></div>';
                 }
                 requestTracePage("initial");
             };
+            div.onclick = selectHour;
+            div.onkeydown = (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectHour();
+                }
+            };
             list.appendChild(div);
         });
 
-        if (!window.currentNGHour) {
-            list.firstElementChild?.click?.();
-        }
+        const preferredHour = hours.includes(window.currentNGHour) ? window.currentNGHour : hours[0];
+        Array.from(list.children)
+            .find((child) => child.dataset?.traceHour === preferredHour)
+            ?.click?.();
     }
 
     function selectTraceHour(hour) {
-        window.currentNGHour = hour || byId("trace-hour-select")?.value || window.currentNGHour;
+        const selectedHour = hour ?? byId("trace-hour-select")?.value ?? "";
+        setTraceHourSelection(selectedHour);
+        resetTracePagerState();
+        if (byId("ng-image-grid")) {
+            byId("ng-image-grid").innerHTML = '<div class="col-span-full h-full flex flex-col items-center justify-center py-20 text-ink-300 opacity-50"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-celadon-500 mb-4"></div><span class="text-xs font-serif italic">正在索引影像档案...</span></div>';
+        }
+        requestTracePage("initial");
     }
 
     function searchTraceImages() {
         syncTraceControls();
         const date = byId("gallery-date-picker")?.value || window.currentNGDate;
-        const hour = byId("trace-hour-select")?.value || window.currentNGHour || "";
-        if (date) window.currentNGDate = date;
-        window.currentNGHour = hour;
+        const hourSelect = byId("trace-hour-select");
+        const hour = hourSelect ? hourSelect.value : (window.currentNGHour || "");
+        if (date) setTraceDateSelection(date);
+        setTraceHourSelection(hour);
         resetTracePagerState();
         requestTracePage("initial");
     }
@@ -3967,6 +7043,82 @@
         for (const key of keys) {
             if (source[key] !== undefined && source[key] !== null) return source[key];
         }
+        return "";
+    }
+
+    function parseJsonObject(value) {
+        if (!value) return null;
+        if (typeof value === "object") return value;
+        if (typeof value !== "string") return null;
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === "object" ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
+    function getSummarySection(source, pascalName, camelName) {
+        if (!source || typeof source !== "object") return null;
+        return source[pascalName] || source[camelName] || null;
+    }
+
+    function extractDeepLearningSummary(resultJson) {
+        const parsed = parseJsonObject(resultJson);
+        if (!parsed) return null;
+        return parsed.DeepLearningSummary || parsed.deepLearningSummary || null;
+    }
+
+    function formatNumber(value, digits = 2) {
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? numberValue.toFixed(digits) : "";
+    }
+
+    function firstArrayItem(source, pascalName, camelName) {
+        const items = source?.[pascalName] || source?.[camelName] || [];
+        return Array.isArray(items) && items.length > 0 ? items[0] : null;
+    }
+
+    function formatTraceDeepLearningSummary(record) {
+        const summary = record?.deepLearningSummary;
+        if (!summary) return "";
+
+        const classification = getSummarySection(summary, "Classification", "classification");
+        const top1Label = classification?.Top1Label || classification?.top1Label || "";
+        const top1Confidence = classification?.Top1Confidence ?? classification?.top1Confidence;
+        if (top1Label) {
+            const confidence = formatNumber(top1Confidence);
+            return confidence ? `分类 Top1=${top1Label} ${confidence}` : `分类 Top1=${top1Label}`;
+        }
+
+        const segmentation = getSummarySection(summary, "Segmentation", "segmentation");
+        const segmentationCount = Number(segmentation?.InstanceCount ?? segmentation?.instanceCount ?? 0);
+        if (segmentationCount > 0) {
+            const instance = firstArrayItem(segmentation, "Instances", "instances");
+            const area = formatNumber(instance?.MaskArea ?? instance?.maskArea, 0);
+            const coverageValue = Number(instance?.MaskCoverage ?? instance?.maskCoverage);
+            const coverage = Number.isFinite(coverageValue) ? (coverageValue * 100).toFixed(1) : "";
+            const detail = [area ? `面积 ${area}` : "", coverage ? `覆盖率 ${coverage}%` : ""].filter(Boolean).join("，");
+            return detail ? `分割 ${segmentationCount} 个，${detail}` : `分割 ${segmentationCount} 个`;
+        }
+
+        const obb = getSummarySection(summary, "Obb", "obb");
+        const obbCount = Number(obb?.InstanceCount ?? obb?.instanceCount ?? 0);
+        if (obbCount > 0) {
+            const instance = firstArrayItem(obb, "Instances", "instances");
+            const label = instance?.Label || instance?.label || "";
+            const angle = formatNumber(instance?.Angle ?? instance?.angle, 1);
+            const angleText = angle ? `角度 ${angle}°` : "角度未提供";
+            return `OBB ${label ? `${label} ` : ""}${angleText}`;
+        }
+
+        const pose = getSummarySection(summary, "Pose", "pose");
+        const poseCount = Number(pose?.InstanceCount ?? pose?.instanceCount ?? 0);
+        const keyPointCount = Number(pose?.TotalKeyPointCount ?? pose?.totalKeyPointCount ?? 0);
+        if (poseCount > 0 || keyPointCount > 0) {
+            return `姿态 ${poseCount} 个，关键点 ${keyPointCount} 个`;
+        }
+
         return "";
     }
 
@@ -3985,6 +7137,10 @@
                 displayImageUrl: url,
                 hasRenderedImage: false,
                 missingRenderedImage: true,
+                ruleSummary: "",
+                resultJson: "",
+                deepLearningSummary: null,
+                deepLearningTraceSummary: "",
             };
         }
 
@@ -3993,11 +7149,14 @@
         const renderedImageUrl = pickTraceValue(record, "renderedImageUrl", "RenderedImageUrl");
         const missingRenderedImageValue = pickTraceValue(record, "missingRenderedImage", "MissingRenderedImage");
         const hasRenderedImageValue = pickTraceValue(record, "hasRenderedImage", "HasRenderedImage");
+        const resultJson = pickTraceValue(record, "resultJson", "ResultJson") || "";
+        const deepLearningSummary = extractDeepLearningSummary(resultJson);
         const hasRenderedImage = hasRenderedImageValue !== ""
             ? toBoolean(hasRenderedImageValue)
             : Boolean(renderedImageUrl) && !toBoolean(missingRenderedImageValue);
-        return {
+        const normalized = {
             inspectionId: pickTraceValue(record, "inspectionId", "InspectionId") || "-",
+            detectionRecordId: toNullableNumber(pickTraceValue(record, "detectionRecordId", "DetectionRecordId", "id", "Id")),
             productBarcode: pickTraceValue(record, "productBarcode", "ProductBarcode") || "-",
             timestamp: pickTraceValue(record, "timestamp", "Timestamp") || "-",
             isQualified: toBoolean(pickTraceValue(record, "isQualified", "IsQualified")),
@@ -4009,6 +7168,9 @@
             errorMessage: pickTraceValue(record, "errorMessage", "ErrorMessage") || "",
             imagePath: pickTraceValue(record, "imagePath", "ImagePath") || "",
             renderedImagePath: pickTraceValue(record, "renderedImagePath", "RenderedImagePath") || "",
+            ruleSummary: pickTraceValue(record, "ruleSummary", "RuleSummary") || "",
+            resultJson,
+            deepLearningSummary,
             imageUrl,
             renderedImageUrl,
             thumbnailUrl: pickTraceValue(record, "thumbnailUrl", "ThumbnailUrl") || renderedImageUrl || imageUrl,
@@ -4016,6 +7178,8 @@
             hasRenderedImage,
             missingRenderedImage: hasRenderedImageValue !== "" ? !toBoolean(hasRenderedImageValue) : !renderedImageUrl || toBoolean(missingRenderedImageValue),
         };
+        normalized.deepLearningTraceSummary = formatTraceDeepLearningSummary(normalized);
+        return normalized;
     }
 
     function getTraceAdviceText(record, prefix = "处理建议") {
@@ -4148,6 +7312,10 @@
             const statusText = normalized.hasRenderedImage ? "复查图" : "无复查图";
             const canRulePreview = Boolean(normalized.imagePath || normalized.renderedImagePath || originalUrl || reviewUrl);
             const adviceText = getTraceAdviceText(normalized);
+            const summaryLine = [
+                normalized.deepLearningTraceSummary ? `深度学习: ${normalized.deepLearningTraceSummary}` : "",
+                normalized.ruleSummary ? `规则: ${normalized.ruleSummary}` : "",
+            ].filter(Boolean).join(" · ");
             info.innerHTML = `
                 <div class="cf-trace-viewer-toolbar">
                     <div class="cf-trace-viewer-meta">
@@ -4161,6 +7329,7 @@
                         <button type="button" data-trace-action="rule-preview" data-can-preview="${canRulePreview ? "true" : "false"}" ${canRulePreview ? "" : "disabled"}>当前规则复判</button>
                     </div>
                 </div>
+                <div class="cf-trace-preview-status ${summaryLine ? "" : "hidden"}">${escapeHtml(summaryLine)}</div>
                 <div class="cf-trace-preview-status error ${adviceText ? "" : "hidden"}">${escapeHtml(adviceText)}</div>
                 <div id="history-rule-preview-status" class="cf-trace-preview-status hidden"></div>`;
 
@@ -4209,22 +7378,152 @@
         renderTracePage(page);
     }
 
+    function getReplayLimit() {
+        const raw = Number(byId("replay-query-limit")?.value || 100);
+        if (!Number.isFinite(raw)) return 100;
+        return Math.max(1, Math.min(10000, Math.trunc(raw)));
+    }
+
+    function getReplayPanelPayload() {
+        return {
+            limit: getReplayLimit(),
+            datasetId: String(byId("replay-dataset-input")?.value || "").trim(),
+            runId: String(byId("replay-run-input")?.value || "").trim(),
+            baselineModel: String(byId("replay-baseline-model")?.value || "").trim(),
+            candidateModel: String(byId("replay-candidate-model")?.value || "").trim(),
+            recipeVersion: activeTraceRecord?.recipeVersion || "",
+        };
+    }
+
+    function setReplayPanelStatus(id, text) {
+        const node = byId(id);
+        if (node) node.textContent = text || "";
+    }
+
+    function queryManualReviewRecords() {
+        const requestId = bridge.sendCommand("query_manual_review_records", {
+            limit: getReplayLimit(),
+            recipeVersion: activeTraceRecord?.recipeVersion || "",
+        });
+        setReplayPanelStatus("manual-review-response", `查询中 ${requestId}`);
+    }
+
+    function saveManualReview() {
+        const inspectionId = activeTraceRecord?.inspectionId || "";
+        if (!inspectionId) {
+            window.showToast?.("请先选择一条追溯记录再保存真值", "warning", 1800);
+            return;
+        }
+
+        const revisionRaw = String(byId("manual-review-expected-revision")?.value || "").trim();
+        const requestId = bridge.sendCommand("save_manual_review", {
+            detectionRecordId: activeTraceRecord?.detectionRecordId || 0,
+            inspectionId,
+            sampleId: inspectionId,
+            groundTruth: byId("manual-review-ground-truth-input")?.value || "OK",
+            disposition: byId("manual-review-disposition-input")?.value || "Confirmed",
+            expectedRevision: revisionRaw ? Number(revisionRaw) : null,
+            notes: String(byId("manual-review-notes")?.value || "").trim(),
+        });
+        setReplayPanelStatus("manual-review-response", `保存中 ${requestId}`);
+    }
+
+    function createReplayDataset() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("create_replay_dataset", payload);
+        setReplayPanelStatus("replay-run-status", `生成验证样本集 ${requestId}`);
+    }
+
+    function previewReplayDataset() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("preview_replay_dataset", payload);
+        setReplayPanelStatus("replay-run-status", `预览中 ${requestId}`);
+    }
+
+    function queryReplayDatasets() {
+        const requestId = bridge.sendCommand("query_replay_datasets", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `查询数据集 ${requestId}`);
+    }
+
+    function archiveReplayDataset() {
+        const requestId = bridge.sendCommand("archive_replay_dataset", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `归档中 ${requestId}`);
+    }
+
+    function runReplayComparison() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("run_replay_comparison", payload);
+        setReplayPanelStatus("replay-run-status", `对比新旧模型 ${requestId}`);
+    }
+
+    function cancelReplayRun() {
+        const requestId = bridge.sendCommand("cancel_replay_run", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `正在取消 ${requestId}`);
+    }
+
+    function queryReplayRuns() {
+        const requestId = bridge.sendCommand("query_replay_runs", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `查询运行记录 ${requestId}`);
+    }
+
+    function queryReplayReport() {
+        const requestId = bridge.sendCommand("query_replay_report", getReplayPanelPayload());
+        setReplayPanelStatus("replay-run-status", `生成报告 ${requestId}`);
+    }
+
+    function queryModelApprovalEvidence() {
+        const requestId = bridge.sendCommand("query_model_approval_evidence", getReplayPanelPayload());
+        setReplayPanelStatus("replay-approval-status", `查询验证记录 ${requestId}`);
+    }
+
+    function runReplayIntegrityScan() {
+        const requestId = bridge.sendCommand("run_replay_integrity_scan", getReplayPanelPayload());
+        setReplayPanelStatus("replay-approval-status", `扫描中 ${requestId}`);
+    }
+
+    function approveReplayCandidate() {
+        const payload = getReplayPanelPayload();
+        const requestId = bridge.sendCommand("approve_replay_candidate", payload);
+        setReplayPanelStatus("replay-approval-status", `确认上线 ${requestId}`);
+    }
+
     Object.assign(window, {
         closeGalleryModal,
         closeImageViewer,
+        closeAuditModal,
         closeLogHistoryModal,
         closeStatisticsHistoryModal,
+        exportAuditRecords,
+        verifyAuditChain,
         openGalleryModal,
+        openAuditModal,
         openLogHistoryModal,
         openStatisticsHistoryModal,
         loadNextTracePage,
         loadPreviousTracePage,
+        queryAuditRecords,
         receiveStatisticsHistory,
         requestStatisticsHistory,
         runHistoryRulePreview,
+        queryManualReviewRecords,
+        saveManualReview,
+        createReplayDataset,
+        previewReplayDataset,
+        queryReplayDatasets,
+        archiveReplayDataset,
+        runReplayComparison,
+        cancelReplayRun,
+        queryReplayRuns,
+        queryReplayReport,
+        queryModelApprovalEvidence,
+        runReplayIntegrityScan,
+        approveReplayCandidate,
         searchTraceImages,
         selectTraceHour,
         updateDetectionLogTable,
+        updateAuditExport,
+        updateAuditChainVerification,
+        updateAuditRecords,
         updateNGDates,
         updateNGHours,
         updateNGImages,
@@ -4233,6 +7532,9 @@
 
     bridge.registerMessageHandler("statisticsHistory", receiveStatisticsHistory);
     bridge.registerMessageHandler("detectionLogTable", updateDetectionLogTable);
+    bridge.registerMessageHandler("auditRecords", updateAuditRecords);
+    bridge.registerMessageHandler("auditExport", updateAuditExport);
+    bridge.registerMessageHandler("auditChainVerification", updateAuditChainVerification);
     bridge.registerMessageHandler("historyDates", updateNGDates);
     bridge.registerMessageHandler("historyHours", updateNGHours);
     bridge.registerMessageHandler("historyImages", updateNGImages);
@@ -4262,36 +7564,27 @@
 
         function updateCanvasLayout() {
             if (!img || !roiCanvas) return;
-            const imageWidth = img.naturalWidth || img.width || 1280;
-            const imageHeight = img.naturalHeight || img.height || 720;
-            if (imageWidth === 0) return;
-
+            const previewFrame = window.CF_STATE?.previewFrame || {};
             const containerRect = container.getBoundingClientRect();
-            const containerRatio = containerRect.width / containerRect.height;
-            const imageRatio = imageWidth / imageHeight;
-            let renderedWidth;
-            let renderedHeight;
-            let offsetX;
-            let offsetY;
+            const mapping = window.CF_COORDINATE_MAPPING?.calculateImageContentMapping({
+                containerWidth: containerRect.width,
+                containerHeight: containerRect.height,
+                previewWidth: Number(previewFrame.previewWidth || img.naturalWidth || img.width || 1280),
+                previewHeight: Number(previewFrame.previewHeight || img.naturalHeight || img.height || 720),
+                sourceWidth: Number(previewFrame.sourceWidth || img.naturalWidth || img.width || 1280),
+                sourceHeight: Number(previewFrame.sourceHeight || img.naturalHeight || img.height || 720),
+            });
+            if (!mapping?.valid) return;
 
-            if (containerRatio > imageRatio) {
-                renderedHeight = containerRect.height;
-                renderedWidth = containerRect.height * imageRatio;
-                offsetX = (containerRect.width - renderedWidth) / 2;
-                offsetY = 0;
-            } else {
-                renderedWidth = containerRect.width;
-                renderedHeight = containerRect.width / imageRatio;
-                offsetX = 0;
-                offsetY = (containerRect.height - renderedHeight) / 2;
-            }
-
-            roiCanvas.style.width = `${renderedWidth}px`;
-            roiCanvas.style.height = `${renderedHeight}px`;
-            roiCanvas.style.left = `${offsetX}px`;
-            roiCanvas.style.top = `${offsetY}px`;
-            roiCanvas.width = renderedWidth;
-            roiCanvas.height = renderedHeight;
+            const imageRect = mapping.imageRect;
+            roiCanvas.style.width = `${imageRect.width}px`;
+            roiCanvas.style.height = `${imageRect.height}px`;
+            roiCanvas.style.left = `${imageRect.x}px`;
+            roiCanvas.style.top = `${imageRect.y}px`;
+            roiCanvas.style.right = "auto";
+            roiCanvas.style.bottom = "auto";
+            roiCanvas.width = Math.max(1, Math.round(imageRect.width));
+            roiCanvas.height = Math.max(1, Math.round(imageRect.height));
             redrawROI();
         }
 
@@ -4304,15 +7597,15 @@
         roiCanvas.addEventListener("mousedown", (event) => {
             isDrawingROI = true;
             const rect = roiCanvas.getBoundingClientRect();
-            roiStartX = event.clientX - rect.left;
-            roiStartY = event.clientY - rect.top;
+            roiStartX = (event.clientX - rect.left) * (roiCanvas.width / Math.max(1, rect.width));
+            roiStartY = (event.clientY - rect.top) * (roiCanvas.height / Math.max(1, rect.height));
         });
 
         roiCanvas.addEventListener("mousemove", (event) => {
             if (!isDrawingROI || !roiCanvas) return;
             const rect = roiCanvas.getBoundingClientRect();
-            const currentX = event.clientX - rect.left;
-            const currentY = event.clientY - rect.top;
+            const currentX = (event.clientX - rect.left) * (roiCanvas.width / Math.max(1, rect.width));
+            const currentY = (event.clientY - rect.top) * (roiCanvas.height / Math.max(1, rect.height));
             const ctx = roiCanvas.getContext("2d");
             ctx.clearRect(0, 0, roiCanvas.width, roiCanvas.height);
 
@@ -4330,8 +7623,8 @@
             if (!isDrawingROI || !roiCanvas) return;
             isDrawingROI = false;
             const rect = roiCanvas.getBoundingClientRect();
-            const currentX = event.clientX - rect.left;
-            const currentY = event.clientY - rect.top;
+            const currentX = (event.clientX - rect.left) * (roiCanvas.width / Math.max(1, rect.width));
+            const currentY = (event.clientY - rect.top) * (roiCanvas.height / Math.max(1, rect.height));
             const x = Math.min(roiStartX, currentX);
             const y = Math.min(roiStartY, currentY);
             const w = Math.abs(currentX - roiStartX);
@@ -4512,7 +7805,7 @@
 
     function updateOperatorStatus() {
         const settings = getCurrentSettings();
-        const operatorId = String(settings.CurrentOperatorId || "").trim() || "未设置";
+        const operatorId = String(settings.CurrentOperatorId || "").trim() || "本机操作";
         const role = String(settings.CurrentOperatorRole || "Operator");
         const roleLabel = getRoleLabel(role);
 
@@ -4529,7 +7822,7 @@
         const modal = document.getElementById("manual-release-modal");
         if (!modal) return;
 
-        const operatorId = String(settings.CurrentOperatorId || "").trim() || "未设置";
+        const operatorId = String(settings.CurrentOperatorId || "").trim() || "本机操作";
         const role = String(settings.CurrentOperatorRole || "Operator");
         const inspectionId = String(inspection.inspectionId || inspection.InspectionId || "").trim() || "-";
         const requestId = `manual-release-${Date.now().toString(36)}`;

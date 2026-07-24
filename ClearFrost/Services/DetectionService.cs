@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // 文件名: DetectionService.cs
 // 作者: 蘅芜君
 // 描述:   检测服务实现
@@ -20,6 +20,7 @@ using System.Threading.Tasks;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
 using ClearFrost.Core.Rules;
+using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
 using ClearFrost.Yolo;
 
@@ -61,6 +62,39 @@ namespace ClearFrost.Services
         public IReadOnlyList<string> AvailableModels => _availableModels.AsReadOnly();
         public long LastInferenceMs { get; private set; }
         public DetectionRuntimeStatus RuntimeStatus => _runtimeStatus;
+        public DetectionRuntimeModelSnapshot RuntimeModelSnapshot
+        {
+            get
+            {
+                MultiModelManager? manager = _modelManager;
+                if (manager == null)
+                {
+                    return new DetectionRuntimeModelSnapshot();
+                }
+
+                return new DetectionRuntimeModelSnapshot
+                {
+                    Primary = new DetectionModelSlotSnapshot
+                    {
+                        Role = ModelRole.Primary,
+                        IsLoaded = manager.IsPrimaryLoaded,
+                        ModelPath = NormalizeRuntimePath(manager.PrimaryModelPath)
+                    },
+                    Auxiliary1 = new DetectionModelSlotSnapshot
+                    {
+                        Role = ModelRole.Auxiliary1,
+                        IsLoaded = manager.IsAuxiliary1Loaded,
+                        ModelPath = NormalizeRuntimePath(manager.Auxiliary1ModelPath)
+                    },
+                    Auxiliary2 = new DetectionModelSlotSnapshot
+                    {
+                        Role = ModelRole.Auxiliary2,
+                        IsLoaded = manager.IsAuxiliary2Loaded,
+                        ModelPath = NormalizeRuntimePath(manager.Auxiliary2ModelPath)
+                    }
+                };
+            }
+        }
 
         /// <summary>
         /// 获取当前主检测器实例（用于 Mat 直通渲染等优化路径）。
@@ -96,11 +130,13 @@ namespace ClearFrost.Services
             await _lifecycleLock.WaitAsync().ConfigureAwait(false);
             try
             {
-            if (!File.Exists(modelPath))
+            if (!TryValidateModelFileForLoad(modelPath, out string safeModelPath, out string validationError))
             {
-                ErrorOccurred?.Invoke($"模型文件不存在: {modelPath}");
+                ErrorOccurred?.Invoke(validationError);
                 return false;
             }
+
+            modelPath = safeModelPath;
 
             if (useGpu)
             {
@@ -120,7 +156,7 @@ namespace ClearFrost.Services
                 }
                 catch (Exception ex)
                 {
-                    string reason = ex.Message;
+                    string reason = ExceptionMessageFormatter.FormatForLog(ex);
                     Debug.WriteLine($"[DetectionService] DirectML GPU 加载失败，回退 CPU: {ex}");
 
                     try
@@ -140,7 +176,7 @@ namespace ClearFrost.Services
                     catch (Exception cpuEx)
                     {
                         _runtimeStatus = CreateRuntimeStatus(true, false, gpuDeviceId, reason);
-                        ErrorOccurred?.Invoke($"CPU 回退加载模型失败: {cpuEx.Message}");
+                        ErrorOccurred?.Invoke($"CPU 回退加载模型失败: {ExceptionMessageFormatter.FormatForLog(cpuEx)}");
                         return false;
                     }
                 }
@@ -154,7 +190,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"加载模型失败: {ex.Message}");
+                ErrorOccurred?.Invoke($"加载模型失败: {ExceptionMessageFormatter.FormatForLog(ex)}");
                 return false;
             }
             }
@@ -221,13 +257,13 @@ namespace ClearFrost.Services
                 if (rebuildManager)
                 {
                     // 主模型加载成功且本次发生过 GPU 重建，按新 GPU 设置恢复辅助槽。
-                    if (!string.IsNullOrEmpty(preservedAux1Path) && File.Exists(preservedAux1Path))
+                    if (TryValidateModelFileForLoad(preservedAux1Path, out string safeAux1Path, out _))
                     {
-                        await TryLoadAuxiliaryModelAsync(manager, preservedAux1Path, 1);
+                        await TryLoadAuxiliaryModelAsync(manager, safeAux1Path, 1);
                     }
-                    if (!string.IsNullOrEmpty(preservedAux2Path) && File.Exists(preservedAux2Path))
+                    if (TryValidateModelFileForLoad(preservedAux2Path, out string safeAux2Path, out _))
                     {
-                        await TryLoadAuxiliaryModelAsync(manager, preservedAux2Path, 2);
+                        await TryLoadAuxiliaryModelAsync(manager, safeAux2Path, 2);
                     }
 
                     _modelManager = manager;
@@ -257,6 +293,29 @@ namespace ClearFrost.Services
             }
         }
 
+        public void UnloadPrimaryModel()
+        {
+            if (!TryEnterLifecycleLock())
+            {
+                return;
+            }
+
+            try
+            {
+                _modelManager?.UnloadPrimaryModel();
+                _yolo?.Dispose();
+                _yolo = null;
+                _currentModelName = "未加载";
+                _cachedLabels = Array.Empty<string>();
+                _cachedLastMetrics = null;
+                _runtimeStatus = CreateRuntimeStatus(_useGpu, false, _gpuDeviceId, string.Empty);
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
+        }
+
         /// <summary>
         /// 扫描指定目录下的所有 ONNX 模型并加载第一个找到的模型
         /// </summary>
@@ -267,18 +326,26 @@ namespace ClearFrost.Services
         {
             try
             {
-                if (!Directory.Exists(modelsDirectory))
+                if (!TryValidateModelDirectory(modelsDirectory, out string safeModelsDirectory, out string directoryError))
                 {
-                    Debug.WriteLine($"[DetectionService] 模型目录不存在: {modelsDirectory}");
+                    Debug.WriteLine($"[DetectionService] 模型目录不可用: {directoryError}");
+                    ErrorOccurred?.Invoke(directoryError);
                     return false;
                 }
 
-                var modelFiles = Directory.GetFiles(modelsDirectory, "*.onnx");
+                string[] discoveredModelFiles = Directory.GetFiles(safeModelsDirectory, "*.onnx", SearchOption.TopDirectoryOnly);
+                var modelFiles = new List<string>();
                 _availableModels.Clear();
 
-                foreach (var file in modelFiles)
+                foreach (string file in discoveredModelFiles)
                 {
-                    _availableModels.Add(Path.GetFileNameWithoutExtension(file));
+                    if (!TryValidateModelFileForLoad(file, out string safeModelPath, out _))
+                    {
+                        continue;
+                    }
+
+                    modelFiles.Add(safeModelPath);
+                    _availableModels.Add(Path.GetFileNameWithoutExtension(safeModelPath));
                 }
 
                 if (_availableModels.Count == 0)
@@ -299,7 +366,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"扫描模型失败: {ex.Message}");
+                ErrorOccurred?.Invoke($"扫描模型失败: {ExceptionMessageFormatter.FormatForLog(ex)}");
                 return false;
             }
         }
@@ -313,11 +380,11 @@ namespace ClearFrost.Services
         {
             try
             {
-                string modelsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ONNX");
-                string fileName = modelName.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)
-                    ? modelName
-                    : $"{modelName}.onnx";
-                string modelPath = Path.Combine(modelsDir, fileName);
+                if (!TryResolveSwitchModelPath(modelName, out string modelPath, out string validationError))
+                {
+                    ErrorOccurred?.Invoke(validationError);
+                    return false;
+                }
 
                 if (_modelManager != null)
                 {
@@ -346,7 +413,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"切换模型失败: {ex.Message}");
+                ErrorOccurred?.Invoke($"切换模型失败: {ExceptionMessageFormatter.FormatForLog(ex)}");
                 return false;
             }
         }
@@ -361,6 +428,23 @@ namespace ClearFrost.Services
             float iouThreshold,
             InspectionFallbackGoal? fallbackGoal = null,
             MultiModelCandidateEvaluator? candidateEvaluator = null)
+        {
+            return await DetectAsync(
+                image,
+                confidence,
+                iouThreshold,
+                fallbackGoal,
+                candidateEvaluator,
+                YoloPreprocessingMode.StandardLetterBox).ConfigureAwait(false);
+        }
+
+        public async Task<DetectionResultData> DetectAsync(
+            Mat image,
+            float confidence,
+            float iouThreshold,
+            InspectionFallbackGoal? fallbackGoal,
+            MultiModelCandidateEvaluator? candidateEvaluator,
+            YoloPreprocessingMode preprocessingMode)
         {
             var result = new DetectionResultData();
 
@@ -381,7 +465,7 @@ namespace ClearFrost.Services
                 await _lifecycleLock.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator);
+                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator, preprocessingMode);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
                 _cachedLastMetrics = _modelManager?.GetPrimaryLastMetrics() ?? _yolo?.LastMetrics;
@@ -418,6 +502,23 @@ namespace ClearFrost.Services
             InspectionFallbackGoal? fallbackGoal = null,
             MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
+            return await DetectAsync(
+                image,
+                confidence,
+                iouThreshold,
+                fallbackGoal,
+                candidateEvaluator,
+                YoloPreprocessingMode.StandardLetterBox).ConfigureAwait(false);
+        }
+
+        public async Task<DetectionResultData> DetectAsync(
+            Bitmap image,
+            float confidence,
+            float iouThreshold,
+            InspectionFallbackGoal? fallbackGoal,
+            MultiModelCandidateEvaluator? candidateEvaluator,
+            YoloPreprocessingMode preprocessingMode)
+        {
             var result = new DetectionResultData();
 
             if (image == null)
@@ -437,7 +538,7 @@ namespace ClearFrost.Services
                 await _lifecycleLock.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator);
+                var inference = await RunInferenceAsync(image, confidence, iouThreshold, fallbackGoal, candidateEvaluator, preprocessingMode);
                 sw.Stop();
                 LastInferenceMs = sw.ElapsedMilliseconds;
                 _cachedLastMetrics = _modelManager?.GetPrimaryLastMetrics() ?? _yolo?.LastMetrics;
@@ -472,7 +573,8 @@ namespace ClearFrost.Services
             float confidence,
             float iouThreshold,
             InspectionFallbackGoal? fallbackGoal,
-            MultiModelCandidateEvaluator? candidateEvaluator)
+            MultiModelCandidateEvaluator? candidateEvaluator,
+            YoloPreprocessingMode preprocessingMode)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
@@ -481,7 +583,7 @@ namespace ClearFrost.Services
                     confidence,
                     iouThreshold,
                     false,
-                    (int)YoloPreprocessingMode.StandardLetterBox,
+                    (int)preprocessingMode,
                     fallbackGoal?.TargetLabel,
                     fallbackGoal?.TargetCount ?? 0,
                     candidateEvaluator);
@@ -502,7 +604,7 @@ namespace ClearFrost.Services
             if (_yolo != null)
             {
                 var allResults = await Task.Run(() =>
-                    _yolo.Inference(image, confidence, iouThreshold, false, (int)YoloPreprocessingMode.StandardLetterBox));
+                    _yolo.Inference(image, confidence, iouThreshold, false, (int)preprocessingMode));
                 return (allResults, "", _yolo.Labels, false, 1, string.Empty);
             }
 
@@ -514,7 +616,8 @@ namespace ClearFrost.Services
             float confidence,
             float iouThreshold,
             InspectionFallbackGoal? fallbackGoal,
-            MultiModelCandidateEvaluator? candidateEvaluator)
+            MultiModelCandidateEvaluator? candidateEvaluator,
+            YoloPreprocessingMode preprocessingMode)
         {
             if (_modelManager != null && _modelManager.IsPrimaryLoaded)
             {
@@ -523,7 +626,7 @@ namespace ClearFrost.Services
                     confidence,
                     iouThreshold,
                     false,
-                    (int)YoloPreprocessingMode.StandardLetterBox,
+                    (int)preprocessingMode,
                     fallbackGoal?.TargetLabel,
                     fallbackGoal?.TargetCount ?? 0,
                     candidateEvaluator);
@@ -544,7 +647,7 @@ namespace ClearFrost.Services
             if (_yolo != null)
             {
                 var allResults = await Task.Run(() =>
-                    _yolo.Inference(image, confidence, iouThreshold, false, (int)YoloPreprocessingMode.StandardLetterBox));
+                    _yolo.Inference(image, confidence, iouThreshold, false, (int)preprocessingMode));
                 return (allResults, "", _yolo.Labels, false, 1, string.Empty);
             }
 
@@ -668,41 +771,43 @@ namespace ClearFrost.Services
         /// <param name="taskType">任务类型整数值</param>
         public void SetTaskMode(int taskType)
         {
-            Task.Run(async () =>
+            if (!TryEnterLifecycleLock())
             {
-                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
-                try
+                return;
+            }
+
+            try
+            {
+                _modelManager?.SetTaskMode((YoloTaskType)taskType);
+                if (_yolo != null)
                 {
-                    _modelManager?.SetTaskMode((YoloTaskType)taskType);
-                    if (_yolo != null)
-                    {
-                        _yolo.TaskMode = (YoloTaskType)taskType;
-                    }
+                    _yolo.TaskMode = (YoloTaskType)taskType;
                 }
-                finally
-                {
-                    _lifecycleLock.Release();
-                }
-            });
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public void SetEnableFallback(bool enabled)
         {
-            Task.Run(async () =>
+            if (!TryEnterLifecycleLock())
             {
-                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
-                try
+                return;
+            }
+
+            try
+            {
+                if (_modelManager != null)
                 {
-                    if (_modelManager != null)
-                    {
-                        _modelManager.EnableFallback = enabled;
-                    }
+                    _modelManager.EnableFallback = enabled;
                 }
-                finally
-                {
-                    _lifecycleLock.Release();
-                }
-            });
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public async Task<bool> LoadAuxiliary1ModelAsync(string modelPath)
@@ -713,10 +818,16 @@ namespace ClearFrost.Services
                 if (_modelManager == null || string.IsNullOrEmpty(modelPath))
                     return false;
 
-                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, modelPath, 1);
+                if (!TryValidateModelFileForLoad(modelPath, out string safeModelPath, out string validationError))
+                {
+                    ErrorOccurred?.Invoke(validationError);
+                    return false;
+                }
+
+                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, safeModelPath, 1);
                 if (ok)
                 {
-                    Debug.WriteLine($"[DetectionService] 辅助模型1已加载: {Path.GetFileName(modelPath)}");
+                    Debug.WriteLine($"[DetectionService] 辅助模型1已加载: {Path.GetFileName(safeModelPath)}");
                 }
 
                 return ok;
@@ -735,10 +846,16 @@ namespace ClearFrost.Services
                 if (_modelManager == null || string.IsNullOrEmpty(modelPath))
                     return false;
 
-                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, modelPath, 2);
+                if (!TryValidateModelFileForLoad(modelPath, out string safeModelPath, out string validationError))
+                {
+                    ErrorOccurred?.Invoke(validationError);
+                    return false;
+                }
+
+                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, safeModelPath, 2);
                 if (ok)
                 {
-                    Debug.WriteLine($"[DetectionService] 辅助模型2已加载: {Path.GetFileName(modelPath)}");
+                    Debug.WriteLine($"[DetectionService] 辅助模型2已加载: {Path.GetFileName(safeModelPath)}");
                 }
 
                 return ok;
@@ -751,39 +868,41 @@ namespace ClearFrost.Services
 
         public void UnloadAuxiliary1Model()
         {
-            Task.Run(async () =>
+            if (!TryEnterLifecycleLock())
             {
-                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
-                try
-                {
-                    _modelManager?.UnloadAuxiliary1Model();
-                }
-                finally
-                {
-                    _lifecycleLock.Release();
-                }
-            });
+                return;
+            }
+
+            try
+            {
+                _modelManager?.UnloadAuxiliary1Model();
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public void UnloadAuxiliary2Model()
         {
-            Task.Run(async () =>
+            if (!TryEnterLifecycleLock())
             {
-                await _lifecycleLock.WaitAsync().ConfigureAwait(false);
-                try
-                {
-                    _modelManager?.UnloadAuxiliary2Model();
-                }
-                finally
-                {
-                    _lifecycleLock.Release();
-                }
-            });
+                return;
+            }
+
+            try
+            {
+                _modelManager?.UnloadAuxiliary2Model();
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public string[] GetLabels()
         {
-            return _cachedLabels;
+            return (string[])_cachedLabels.Clone();
         }
 
         public object? GetLastMetrics()
@@ -794,6 +913,197 @@ namespace ClearFrost.Services
         #endregion
 
         #region 私有方法
+
+        private static bool TryValidateModelDirectory(string modelsDirectory, out string safeDirectory, out string error)
+        {
+            safeDirectory = string.Empty;
+            error = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(modelsDirectory))
+            {
+                error = "模型目录为空。";
+                return false;
+            }
+
+            try
+            {
+                string fullDirectory = Path.GetFullPath(modelsDirectory);
+                var directory = new DirectoryInfo(fullDirectory);
+                directory.Refresh();
+                if (!directory.Exists)
+                {
+                    error = $"模型目录不存在: {fullDirectory}";
+                    return false;
+                }
+
+                if (DirectoryPathHasReparsePoint(fullDirectory))
+                {
+                    error = $"模型目录包含链接目录，拒绝扫描: {fullDirectory}";
+                    return false;
+                }
+
+                safeDirectory = fullDirectory;
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+            {
+                error = $"模型目录无效: {ExceptionMessageFormatter.FormatForLog(ex)}";
+                return false;
+            }
+        }
+
+        private static bool TryResolveSwitchModelPath(string modelName, out string modelPath, out string error)
+        {
+            modelPath = string.Empty;
+            error = string.Empty;
+
+            string trimmed = modelName?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                error = "模型名称为空。";
+                return false;
+            }
+
+            if (Path.IsPathRooted(trimmed) ||
+                !string.Equals(Path.GetFileName(trimmed), trimmed, StringComparison.Ordinal) ||
+                trimmed.Contains("..", StringComparison.Ordinal))
+            {
+                error = $"模型名称不能包含路径段: {modelName}";
+                return false;
+            }
+
+            string fileName = trimmed.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)
+                ? trimmed
+                : $"{trimmed}.onnx";
+            if (fileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                error = $"模型名称包含非法字符: {modelName}";
+                return false;
+            }
+
+            try
+            {
+                string modelsDir = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ONNX"));
+                string fullPath = Path.GetFullPath(Path.Combine(modelsDir, fileName));
+                if (!IsPathUnderDirectory(fullPath, modelsDir))
+                {
+                    error = $"模型路径必须位于 ONNX 目录内: {modelName}";
+                    return false;
+                }
+
+                if (!TryValidateModelFileForLoad(fullPath, out modelPath, out error))
+                {
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+            {
+                error = $"模型路径无效: {ExceptionMessageFormatter.FormatForLog(ex)}";
+                return false;
+            }
+        }
+
+        private static bool TryValidateModelFileForLoad(string modelPath, out string safeModelPath, out string error)
+        {
+            safeModelPath = string.Empty;
+            error = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(modelPath))
+            {
+                error = "模型文件路径为空。";
+                return false;
+            }
+
+            try
+            {
+                string fullPath = Path.GetFullPath(modelPath);
+                if (!string.Equals(Path.GetExtension(fullPath), ".onnx", StringComparison.OrdinalIgnoreCase))
+                {
+                    error = $"模型文件必须是 ONNX 文件: {fullPath}";
+                    return false;
+                }
+
+                if (!File.Exists(fullPath))
+                {
+                    error = $"模型文件不存在: {fullPath}";
+                    return false;
+                }
+
+                string directory = Path.GetDirectoryName(fullPath) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(directory) || DirectoryPathHasReparsePoint(directory))
+                {
+                    error = $"模型文件目录包含链接目录，拒绝加载: {fullPath}";
+                    return false;
+                }
+
+                var file = new FileInfo(fullPath);
+                file.Refresh();
+                if (!file.Exists || HasReparsePoint(file))
+                {
+                    error = $"模型文件是链接文件或不可访问，拒绝加载: {fullPath}";
+                    return false;
+                }
+
+                safeModelPath = fullPath;
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+            {
+                error = $"模型文件路径无效: {ExceptionMessageFormatter.FormatForLog(ex)}";
+                return false;
+            }
+        }
+
+        private static bool DirectoryPathHasReparsePoint(string directory)
+        {
+            try
+            {
+                var current = new DirectoryInfo(Path.GetFullPath(directory));
+                while (current != null)
+                {
+                    current.Refresh();
+                    if (current.Exists && HasReparsePoint(current))
+                    {
+                        return true;
+                    }
+
+                    current = current.Parent;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static bool HasReparsePoint(FileSystemInfo info)
+        {
+            try
+            {
+                return (info.Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+
+        private static bool IsPathUnderDirectory(string path, string directory)
+        {
+            string normalizedPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string normalizedDirectory = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return normalizedPath.StartsWith(
+                normalizedDirectory + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase);
+        }
 
         private async Task<bool> TryLoadAuxiliaryModelAsync(MultiModelManager manager, string modelPath, int modelIndex)
         {
@@ -820,7 +1130,7 @@ namespace ClearFrost.Services
             }
             catch (Exception ex)
             {
-                ErrorOccurred?.Invoke($"加载辅助模型{modelIndex}失败: {ex.Message}");
+                ErrorOccurred?.Invoke($"加载辅助模型{modelIndex}失败: {ExceptionMessageFormatter.FormatForLog(ex)}");
                 return false;
             }
         }
@@ -839,6 +1149,23 @@ namespace ClearFrost.Services
                 ExecutionProvider = gpuActive ? "DmlExecutionProvider" : "CPUExecutionProvider",
                 GpuFailureReason = gpuFailureReason ?? string.Empty
             };
+        }
+
+        private static string NormalizeRuntimePath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return Path.GetFullPath(path);
+            }
+            catch
+            {
+                return path;
+            }
         }
 
         private static DetectionRuntimeStatus CreateRuntimeStatusFromDetector(
@@ -863,8 +1190,27 @@ namespace ClearFrost.Services
 
         private void UpdateCachedFields()
         {
-            _cachedLabels = _modelManager?.PrimaryLabels ?? _yolo?.Labels ?? Array.Empty<string>();
+            string[] labels = _modelManager?.PrimaryLabels ?? _yolo?.Labels ?? Array.Empty<string>();
+            _cachedLabels = (string[])labels.Clone();
             _cachedLastMetrics = null;
+        }
+
+        private bool TryEnterLifecycleLock()
+        {
+            if (_disposed)
+            {
+                return false;
+            }
+
+            try
+            {
+                _lifecycleLock.Wait();
+                return true;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
         }
 
         #endregion

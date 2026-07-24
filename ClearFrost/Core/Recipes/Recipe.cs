@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using ClearFrost.Config;
+using ClearFrost.Core.Models;
 
 namespace ClearFrost.Core.Recipes
 {
@@ -14,14 +15,20 @@ namespace ClearFrost.Core.Recipes
         public string RecipeId { get; set; } = "default";
         public string Version { get; set; } = "1";
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+        public string OperatorId { get; set; } = string.Empty;
+        public string OperatorRole { get; set; } = string.Empty;
+        public string ChangeSummary { get; set; } = string.Empty;
         public string TargetLabel { get; set; } = string.Empty;
         public int TargetCount { get; set; }
         public float Confidence { get; set; }
         public float IouThreshold { get; set; }
         public bool EnableGlobalIou { get; set; }
         public string CurrentModelFileName { get; set; } = string.Empty;
+        public ProductionModelReference CurrentModelReference { get; set; } = ProductionModelReference.Empty();
         public string Auxiliary1ModelPath { get; set; } = string.Empty;
+        public ProductionModelReference Auxiliary1ModelReference { get; set; } = ProductionModelReference.Empty();
         public string Auxiliary2ModelPath { get; set; } = string.Empty;
+        public ProductionModelReference Auxiliary2ModelReference { get; set; } = ProductionModelReference.Empty();
         public bool EnableMultiModelFallback { get; set; }
         public bool EnableGpu { get; set; }
         public int GpuIndex { get; set; }
@@ -40,23 +47,34 @@ namespace ClearFrost.Core.Recipes
         public RecipeBarcodeSnapshot Barcode { get; set; } = new();
         public RecipeTriggerSnapshot Trigger { get; set; } = new();
 
-        public static Recipe FromAppConfig(AppConfig config, float[]? roi = null)
+        public static Recipe FromAppConfig(
+            AppConfig config,
+            float[]? roi = null,
+            string? operatorId = null,
+            string? operatorRole = null,
+            string? changeSummary = null)
         {
             if (config == null) throw new ArgumentNullException(nameof(config));
 
             return new Recipe
             {
                 RecipeId = "default",
-                Version = DateTimeOffset.Now.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture),
+                Version = DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture),
                 CreatedAt = DateTimeOffset.Now,
+                OperatorId = string.IsNullOrWhiteSpace(operatorId) ? config.CurrentOperatorId ?? string.Empty : operatorId.Trim(),
+                OperatorRole = string.IsNullOrWhiteSpace(operatorRole) ? config.CurrentOperatorRole.ToString() : operatorRole.Trim(),
+                ChangeSummary = changeSummary?.Trim() ?? string.Empty,
                 TargetLabel = config.TargetLabel ?? string.Empty,
                 TargetCount = config.TargetCount,
                 Confidence = config.Confidence,
                 IouThreshold = config.IouThreshold,
                 EnableGlobalIou = config.EnableGlobalIou,
                 CurrentModelFileName = config.CurrentModelFileName ?? string.Empty,
+                CurrentModelReference = config.CurrentModelReference?.Clone() ?? ProductionModelReference.Empty(),
                 Auxiliary1ModelPath = config.Auxiliary1ModelPath ?? string.Empty,
+                Auxiliary1ModelReference = config.Auxiliary1ModelReference?.Clone() ?? ProductionModelReference.Empty(),
                 Auxiliary2ModelPath = config.Auxiliary2ModelPath ?? string.Empty,
+                Auxiliary2ModelReference = config.Auxiliary2ModelReference?.Clone() ?? ProductionModelReference.Empty(),
                 EnableMultiModelFallback = config.EnableMultiModelFallback,
                 EnableGpu = config.EnableGpu,
                 GpuIndex = config.GpuIndex,
@@ -125,6 +143,17 @@ namespace ClearFrost.Core.Recipes
 
             return true;
         }
+    }
+
+    public sealed class RecipeVersionInfo
+    {
+        public string RecipeId { get; set; } = "default";
+        public string Version { get; set; } = string.Empty;
+        public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+        public string OperatorId { get; set; } = string.Empty;
+        public string OperatorRole { get; set; } = string.Empty;
+        public string ChangeSummary { get; set; } = string.Empty;
+        public string SnapshotPath { get; set; } = string.Empty;
     }
 
     public sealed class RecipeCameraSnapshot

@@ -105,19 +105,14 @@ namespace ClearFrost.Config
             string runtimePath = RuntimePaths.ProjectPresetsPath;
             if (File.Exists(runtimePath))
             {
+                EnsurePresetFileSafeForRead(runtimePath);
                 return;
             }
 
             string? seedPath = GetSeedPresetPath();
-            string directory = Path.GetDirectoryName(runtimePath) ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
             if (!string.IsNullOrWhiteSpace(seedPath))
             {
-                File.Copy(seedPath, runtimePath, overwrite: false);
+                WritePresetObject(runtimePath, ReadPresetObject(seedPath) ?? new JsonObject());
                 return;
             }
 
@@ -145,6 +140,7 @@ namespace ClearFrost.Config
 
         private static JsonObject? ReadPresetObject(string path)
         {
+            EnsurePresetFileSafeForRead(path);
             string json = File.ReadAllText(path, Encoding.UTF8);
             JsonNode? node = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions
             {
@@ -172,40 +168,21 @@ namespace ClearFrost.Config
 
         private static void WritePresetObject(string targetPath, JsonObject presets)
         {
-            string directory = Path.GetDirectoryName(targetPath) ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(directory))
+            AtomicFileWriter.WriteAllText(targetPath, presets.ToJsonString(JsonOptions));
+        }
+
+        private static void EnsurePresetFileSafeForRead(string path)
+        {
+            var file = new FileInfo(path);
+            file.Refresh();
+            if (!file.Exists)
             {
-                Directory.CreateDirectory(directory);
+                return;
             }
 
-            string tempPath = Path.Combine(
-                string.IsNullOrWhiteSpace(directory) ? "." : directory,
-                $"project-presets.{Guid.NewGuid():N}.tmp");
-
-            try
+            if ((file.Attributes & FileAttributes.ReparsePoint) != 0)
             {
-                File.WriteAllText(tempPath, presets.ToJsonString(JsonOptions), new UTF8Encoding(true));
-                if (File.Exists(targetPath))
-                {
-                    File.Replace(tempPath, targetPath, null, ignoreMetadataErrors: true);
-                }
-                else
-                {
-                    File.Move(tempPath, targetPath);
-                }
-            }
-            finally
-            {
-                try
-                {
-                    if (File.Exists(tempPath))
-                    {
-                        File.Delete(tempPath);
-                    }
-                }
-                catch
-                {
-                }
+                throw new IOException($"项目预设文件是链接文件，拒绝读取: {path}");
             }
         }
 

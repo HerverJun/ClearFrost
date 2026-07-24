@@ -15,6 +15,10 @@ namespace ClearFrost.Core.Rules
         public const string Count = "Count";
         public const string OrderedLabels = "OrderedLabels";
         public const string RelativePosition = "RelativePosition";
+        public const string Classification = "Classification";
+        public const string SegmentationArea = "SegmentationArea";
+        public const string ObbAngle = "ObbAngle";
+        public const string PoseKeypoints = "PoseKeypoints";
     }
 
     public static class InspectionRuleOperators
@@ -61,6 +65,15 @@ namespace ClearFrost.Core.Rules
         public string Operator { get; set; } = InspectionRuleOperators.Equal;
         public int Count { get; set; }
         public double MinConfidence { get; set; }
+        public string ExpectedLabel { get; set; } = string.Empty;
+        public List<string> AllowedLabels { get; set; } = new List<string>();
+        public double MinArea { get; set; }
+        public double MaxArea { get; set; }
+        public double MinCoverage { get; set; }
+        public double MaxCoverage { get; set; }
+        public double MinAngle { get; set; }
+        public double MaxAngle { get; set; }
+        public double MinKeyPointConfidence { get; set; }
 
         public List<string> ExpectedLabels { get; set; } = new List<string>();
         public string SortBy { get; set; } = "CenterX";
@@ -93,7 +106,10 @@ namespace ClearFrost.Core.Rules
         public bool IsMatch { get; init; }
         public string Expected { get; init; } = string.Empty;
         public string Actual { get; init; } = string.Empty;
+        public string Reason { get; init; } = string.Empty;
         public string Message { get; init; } = string.Empty;
+        public IReadOnlyList<int> AssociatedBoxIndexes { get; init; } = Array.Empty<int>();
+        public string AssociationSummary { get; init; } = string.Empty;
     }
 
     public sealed class InspectionFallbackGoal
