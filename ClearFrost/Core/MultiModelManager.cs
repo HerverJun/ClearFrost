@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // 文件名: MultiModelManager.cs
 // 作者: 蘅芜君
 // 描述:   多模型推理管理器
@@ -125,9 +125,9 @@ namespace ClearFrost.Yolo
     {
         #region 私有字段
 
-        private YoloDetector? _primaryModel;
-        private YoloDetector? _auxiliary1Model;
-        private YoloDetector? _auxiliary2Model;
+        private IVisionModel? _primaryModel;
+        private IVisionModel? _auxiliary1Model;
+        private IVisionModel? _auxiliary2Model;
 
         private string _primaryModelPath = "";
         private string _auxiliary1ModelPath = "";
@@ -278,7 +278,7 @@ namespace ClearFrost.Yolo
         }
 
         /// <summary>当前主检测器实例。</summary>
-        internal YoloDetector? PrimaryDetector => _primaryModel;
+        internal IVisionModel? PrimaryDetector => _primaryModel;
 
         #endregion
 
@@ -307,8 +307,8 @@ namespace ClearFrost.Yolo
             if (string.IsNullOrWhiteSpace(modelPath)) return;
 
             ThrowIfDisposed();
-            YoloDetector? newModel = null;
-            YoloDetector? oldModel = null;
+            IVisionModel? newModel = null;
+            IVisionModel? oldModel = null;
 
             try
             {
@@ -350,8 +350,8 @@ namespace ClearFrost.Yolo
             if (string.IsNullOrWhiteSpace(modelPath)) return;
 
             ThrowIfDisposed();
-            YoloDetector? newModel = null;
-            YoloDetector? oldModel = null;
+            IVisionModel? newModel = null;
+            IVisionModel? oldModel = null;
 
             try
             {
@@ -393,12 +393,28 @@ namespace ClearFrost.Yolo
             if (string.IsNullOrWhiteSpace(modelPath)) return;
 
             ThrowIfDisposed();
-            YoloDetector? newModel = null;
-            YoloDetector? oldModel = null;
+            IVisionModel? newModel = null;
+            IVisionModel? oldModel = null;
 
             try
             {
-                newModel = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
+                try
+                {
+                    newModel = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
+                }
+                catch (Exception yoloEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2作为 YOLO 加载失败，尝试作为无监督检测器加载: {yoloEx.Message}");
+                    try
+                    {
+                        newModel = new UnsupervisedDetector(modelPath, _gpuDeviceId, _useGpu);
+                    }
+                    catch (Exception unsupEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MultiModelManager] 辅助模型2作为无监督检测器加载失败: {unsupEx.Message}");
+                        throw new AggregateException("辅助模型2加载失败：既非有效的 YOLO 模型，也非有效的无监督模型", yoloEx, unsupEx);
+                    }
+                }
 
                 _modelLock.EnterWriteLock();
                 try
@@ -433,7 +449,7 @@ namespace ClearFrost.Yolo
         /// </summary>
         public void UnloadAuxiliary1Model()
         {
-            YoloDetector? oldModel;
+            IVisionModel? oldModel;
 
             _modelLock.EnterWriteLock();
             try
@@ -456,7 +472,7 @@ namespace ClearFrost.Yolo
         /// </summary>
         public void UnloadAuxiliary2Model()
         {
-            YoloDetector? oldModel;
+            IVisionModel? oldModel;
 
             _modelLock.EnterWriteLock();
             try
@@ -673,8 +689,8 @@ namespace ClearFrost.Yolo
 
         private static string ResolveFallbackSkippedReason(
             bool enableFallback,
-            YoloDetector? auxiliary1Model,
-            YoloDetector? auxiliary2Model,
+            IVisionModel? auxiliary1Model,
+            IVisionModel? auxiliary2Model,
             int attemptedModelCount,
             int successfulInferenceCount)
         {
@@ -710,21 +726,19 @@ namespace ClearFrost.Yolo
             int targetCount = 0,
             MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
-            // 推理期间持有读锁，防止 UI 切换模型或关闭系统时把正在使用的检测器释放掉。
             _modelLock.EnterReadLock();
             try
             {
                 ThrowIfDisposed();
 
             var result = new MultiModelInferenceResult();
-            YoloDetector? primaryModel;
-            YoloDetector? auxiliary1Model;
-            YoloDetector? auxiliary2Model;
+            IVisionModel? primaryModel;
+            IVisionModel? auxiliary1Model;
+            IVisionModel? auxiliary2Model;
             string primaryModelPath;
             string auxiliary1ModelPath;
             string auxiliary2ModelPath;
             bool enableFallback;
-            // 当没有候选完全命中规则时，保留最接近目标的结果供前端展示和追溯。
             List<YoloResult>? bestResults = null;
             ModelRole bestModelRole = ModelRole.None;
             string bestModelName = string.Empty;
@@ -804,7 +818,6 @@ namespace ClearFrost.Yolo
                 string modelName = System.IO.Path.GetFileName(modelPath);
                 if (candidateEvaluator != null)
                 {
-                    // 复杂规则（ROI 后数量、标签组合等）由调用方评估，管理器只负责候选排序和回退链路。
                     MultiModelCandidateEvaluation evaluation = candidateEvaluator(new MultiModelCandidate
                     {
                         Results = detections,
@@ -837,7 +850,6 @@ namespace ClearFrost.Yolo
                 return true;
             }
 
-            // _lock 只保护统计字段和模型快照读取；_modelLock 的读锁负责延长检测器生命周期。
             lock (_lock)
             {
                 TotalInferenceCount++;
@@ -857,12 +869,17 @@ namespace ClearFrost.Yolo
                 attemptedModelCount++;
                 try
                 {
-                    var primaryResults = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    var primaryModelResult = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    if (primaryModelResult.HasError)
+                    {
+                        throw new InvalidOperationException(primaryModelResult.ErrorMessage);
+                    }
+
+                    var primaryResults = primaryModelResult.Results;
                     candidateResultLists.Add(primaryResults);
                     successfulInferenceCount++;
                     var primaryLabels = primaryModel.Labels ?? Array.Empty<string>();
 
-                    // 目标标签命中（或未配置目标标签时任意命中）才停止切换
                     if (TryAcceptCandidate(primaryResults, ModelRole.Primary, primaryModelPath, primaryLabels, false))
                     {
                         return CompleteAndDisposeUnused(attemptedModelCount);
@@ -889,7 +906,6 @@ namespace ClearFrost.Yolo
             {
                 if (bestResults != null)
                 {
-                    // 禁用回退时不继续尝试辅助模型，但仍返回主模型的最佳可追溯结果。
                     lock (_lock)
                     {
                         LastUsedModel = bestModelRole;
@@ -917,7 +933,13 @@ namespace ClearFrost.Yolo
                 try
                 {
                     System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型1进行检测...");
-                    var aux1Results = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    var aux1ModelResult = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    if (aux1ModelResult.HasError)
+                    {
+                        throw new InvalidOperationException(aux1ModelResult.ErrorMessage);
+                    }
+
+                    var aux1Results = aux1ModelResult.Results;
                     candidateResultLists.Add(aux1Results);
                     successfulInferenceCount++;
                     var aux1Labels = auxiliary1Model.Labels ?? Array.Empty<string>();
@@ -947,7 +969,14 @@ namespace ClearFrost.Yolo
                 attemptedModelCount++;
                 try
                 {
-                    var aux2Results = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型2进行检测...");
+                    var aux2ModelResult = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    if (aux2ModelResult.HasError)
+                    {
+                        throw new InvalidOperationException(aux2ModelResult.ErrorMessage);
+                    }
+
+                    var aux2Results = aux2ModelResult.Results;
                     candidateResultLists.Add(aux2Results);
                     successfulInferenceCount++;
                     var aux2Labels = auxiliary2Model.Labels ?? Array.Empty<string>();
@@ -972,7 +1001,6 @@ namespace ClearFrost.Yolo
 
             if (bestResults != null)
             {
-                // 所有候选都未完全命中时，返回评分最优的候选，便于人工复核和调参。
                 lock (_lock)
                 {
                     LastUsedModel = bestModelRole;
@@ -1053,21 +1081,19 @@ namespace ClearFrost.Yolo
             int targetCount = 0,
             MultiModelCandidateEvaluator? candidateEvaluator = null)
         {
-            // Mat 路径用于相机实时流，和 Bitmap 路径保持相同的锁语义与回退策略。
             _modelLock.EnterReadLock();
             try
             {
                 ThrowIfDisposed();
 
             var result = new MultiModelInferenceResult();
-            YoloDetector? primaryModel;
-            YoloDetector? auxiliary1Model;
-            YoloDetector? auxiliary2Model;
+            IVisionModel? primaryModel;
+            IVisionModel? auxiliary1Model;
+            IVisionModel? auxiliary2Model;
             string primaryModelPath;
             string auxiliary1ModelPath;
             string auxiliary2ModelPath;
             bool enableFallback;
-            // 当没有候选完全命中规则时，保留最接近目标的结果供前端展示和追溯。
             List<YoloResult>? bestResults = null;
             ModelRole bestModelRole = ModelRole.None;
             string bestModelName = string.Empty;
@@ -1147,7 +1173,6 @@ namespace ClearFrost.Yolo
                 string modelName = System.IO.Path.GetFileName(modelPath);
                 if (candidateEvaluator != null)
                 {
-                    // 复杂规则（ROI 后数量、标签组合等）由调用方评估，管理器只负责候选排序和回退链路。
                     MultiModelCandidateEvaluation evaluation = candidateEvaluator(new MultiModelCandidate
                     {
                         Results = detections,
@@ -1182,7 +1207,6 @@ namespace ClearFrost.Yolo
 
             lock (_lock)
             {
-                // 统计字段和模型引用快照放在同一个临界区，确保本次推理日志对应同一组模型。
                 TotalInferenceCount++;
                 LastUsedModel = ModelRole.None;
                 primaryModel = _primaryModel;
@@ -1199,7 +1223,13 @@ namespace ClearFrost.Yolo
                 attemptedModelCount++;
                 try
                 {
-                    var primaryResults = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    var primaryModelResult = primaryModel.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    if (primaryModelResult.HasError)
+                    {
+                        throw new InvalidOperationException(primaryModelResult.ErrorMessage);
+                    }
+
+                    var primaryResults = primaryModelResult.Results;
                     candidateResultLists.Add(primaryResults);
                     successfulInferenceCount++;
                     var primaryLabels = primaryModel.Labels ?? Array.Empty<string>();
@@ -1230,7 +1260,6 @@ namespace ClearFrost.Yolo
             {
                 if (bestResults != null)
                 {
-                    // 禁用回退时不继续尝试辅助模型，但仍返回主模型的最佳可追溯结果。
                     lock (_lock)
                     {
                         LastUsedModel = bestModelRole;
@@ -1257,7 +1286,13 @@ namespace ClearFrost.Yolo
                 try
                 {
                     System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型1进行检测...");
-                    var aux1Results = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    var aux1ModelResult = auxiliary1Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    if (aux1ModelResult.HasError)
+                    {
+                        throw new InvalidOperationException(aux1ModelResult.ErrorMessage);
+                    }
+
+                    var aux1Results = aux1ModelResult.Results;
                     candidateResultLists.Add(aux1Results);
                     successfulInferenceCount++;
                     var aux1Labels = auxiliary1Model.Labels ?? Array.Empty<string>();
@@ -1286,7 +1321,14 @@ namespace ClearFrost.Yolo
                 attemptedModelCount++;
                 try
                 {
-                    var aux2Results = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    System.Diagnostics.Debug.WriteLine("[MultiModelManager] 切换到辅助模型2进行检测...");
+                    var aux2ModelResult = auxiliary2Model.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                    if (aux2ModelResult.HasError)
+                    {
+                        throw new InvalidOperationException(aux2ModelResult.ErrorMessage);
+                    }
+
+                    var aux2Results = aux2ModelResult.Results;
                     candidateResultLists.Add(aux2Results);
                     successfulInferenceCount++;
                     var aux2Labels = auxiliary2Model.Labels ?? Array.Empty<string>();
@@ -1311,7 +1353,6 @@ namespace ClearFrost.Yolo
 
             if (bestResults != null)
             {
-                // 所有候选都未完全命中时，返回评分最优的候选，便于人工复核和调参。
                 lock (_lock)
                 {
                     LastUsedModel = bestModelRole;
@@ -1373,7 +1414,7 @@ namespace ClearFrost.Yolo
             {
                 ThrowIfDisposed();
 
-                YoloDetector? primaryModel = _primaryModel;
+                YoloDetector? primaryModel = _primaryModel as YoloDetector;
                 if (primaryModel == null)
                     return new List<YoloResult>();
 
@@ -1391,9 +1432,10 @@ namespace ClearFrost.Yolo
             try
             {
                 ThrowIfDisposed();
-                return _primaryModel == null
+                var primaryYolo = _primaryModel as YoloDetector;
+                return primaryYolo == null
                     ? null
-                    : (Bitmap)_primaryModel.GenerateImage(original, results, labels);
+                    : (Bitmap)primaryYolo.GenerateImage(original, results, labels);
             }
             finally
             {
@@ -1407,7 +1449,8 @@ namespace ClearFrost.Yolo
             try
             {
                 ThrowIfDisposed();
-                return _primaryModel?.GenerateImageMat(original, results, labels);
+                var primaryYolo = _primaryModel as YoloDetector;
+                return primaryYolo?.GenerateImageMat(original, results, labels);
             }
             finally
             {
@@ -1473,12 +1516,32 @@ namespace ClearFrost.Yolo
             {
                 ThrowIfDisposed();
 
-                if (_primaryModel != null)
-                    _primaryModel.TaskMode = taskType;
-                if (_auxiliary1Model != null)
-                    _auxiliary1Model.TaskMode = taskType;
-                if (_auxiliary2Model != null)
-                    _auxiliary2Model.TaskMode = taskType;
+                if (_primaryModel is YoloDetector yoloPrimary)
+                    yoloPrimary.TaskMode = taskType;
+                if (_auxiliary1Model is YoloDetector yoloAux1)
+                    yoloAux1.TaskMode = taskType;
+                if (_auxiliary2Model is YoloDetector yoloAux2)
+                    yoloAux2.TaskMode = taskType;
+            }
+            finally
+            {
+                _modelLock.ExitWriteLock();
+            }
+        }
+
+        /// <summary>
+        /// 设置辅助模型2（如果是无监督模型）的异常判定阈值。
+        /// </summary>
+        public void SetAuxiliary2AnomalyThreshold(float threshold)
+        {
+            _modelLock.EnterWriteLock();
+            try
+            {
+                ThrowIfDisposed();
+                if (_auxiliary2Model is UnsupervisedDetector unsupervised)
+                {
+                    unsupervised.AnomalyThreshold = threshold;
+                }
             }
             finally
             {
@@ -1508,9 +1571,9 @@ namespace ClearFrost.Yolo
 
             if (disposing)
             {
-                YoloDetector? primaryModel;
-                YoloDetector? auxiliary1Model;
-                YoloDetector? auxiliary2Model;
+                IVisionModel? primaryModel;
+                IVisionModel? auxiliary1Model;
+                IVisionModel? auxiliary2Model;
 
                 _modelLock.EnterWriteLock();
                 try
