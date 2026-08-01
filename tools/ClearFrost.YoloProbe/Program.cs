@@ -309,7 +309,7 @@ internal sealed class ProbeOptions
         Console.WriteLine("      --benchmark             运行推理性能基准");
         Console.WriteLine("      --iterations <n>        基准迭代次数，默认 10");
         Console.WriteLine("      --warmup <n>            预热迭代次数，默认 2");
-        Console.WriteLine("      --image <path>          基准输入图片；省略时使用合成图片");
+        Console.WriteLine("      --image <path>          真实外部验证图片；基准模式下必填");
         Console.WriteLine("      --confidence <value>    置信度阈值，默认 0.25");
         Console.WriteLine("      --iou <value>           IoU 阈值，默认 0.45");
         Console.WriteLine("      --gpu                   使用 DirectML；失败时按检测器逻辑回退 CPU");

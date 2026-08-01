@@ -916,7 +916,15 @@ namespace ClearFrost.Yolo
 
         internal static string CreateDirectMlProfileOutputPathPrefix()
         {
-            return CreateDirectMlProfileOutputPathPrefix(Path.GetTempPath());
+            return CreateDirectMlProfileOutputPathPrefix(GetDirectMlProfileBaseDirectory());
+        }
+
+        private static string GetDirectMlProfileBaseDirectory()
+        {
+            string? configuredRoot = Environment.GetEnvironmentVariable("CLEARFROST_DML_PROFILE_ROOT");
+            return string.IsNullOrWhiteSpace(configuredRoot)
+                ? Path.GetTempPath()
+                : configuredRoot.Trim();
         }
 
         internal static string CreateDirectMlProfileOutputPathPrefix(string tempDirectory)
@@ -1108,7 +1116,7 @@ namespace ClearFrost.Yolo
                 throw new InvalidOperationException("ONNX 推理会话未初始化");
             }
 
-            string profileDirectory = GetDirectMlProfileDirectory(Path.GetTempPath());
+            string profileDirectory = GetDirectMlProfileDirectory(GetDirectMlProfileBaseDirectory());
             string profilePath = string.Empty;
             bool warmupCompleted = false;
             try

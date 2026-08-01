@@ -6,6 +6,7 @@
 using OpenCvSharp;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 
 namespace ClearFrost.Yolo
@@ -26,7 +27,10 @@ namespace ClearFrost.Yolo
 
     public sealed class YoloBenchmarkReport
     {
+        public bool GpuRequested { get; init; }
+        public bool GpuActive { get; init; }
         public string ExecutionProvider { get; init; } = string.Empty;
+        public string GpuFailureReason { get; init; } = string.Empty;
         public int ImageWidth { get; init; }
         public int ImageHeight { get; init; }
         public int WarmupIterations { get; init; }
@@ -39,6 +43,17 @@ namespace ClearFrost.Yolo
         public double AveragePreprocessMs { get; init; }
         public double AverageInferenceMs { get; init; }
         public double AveragePostprocessMs { get; init; }
+        public int TotalResultCount { get; init; }
+        public int InvalidResultCount { get; init; }
+        public int NaNResultCount { get; init; }
+        public int OutOfBoundsResultCount { get; init; }
+        public bool ResultStructureValid { get; init; }
+        public long WorkingSetBeforeBytes { get; init; }
+        public long WorkingSetAfterBytes { get; init; }
+        public long PeakWorkingSetBytes { get; init; }
+        public long PrivateBytesBefore { get; init; }
+        public long PrivateBytesAfter { get; init; }
+        public long PeakPrivateBytes { get; init; }
     }
 
     public static class YoloBenchmarkProbe
@@ -62,7 +77,7 @@ namespace ClearFrost.Yolo
                 PreprocessingMode = options.PreprocessingMode,
                 TaskType = options.TaskMode
             });
-            using Mat image = LoadBenchmarkImage(options, detector.ModelDescriptor);
+            using Mat image = LoadBenchmarkImage(options);
 
             for (int i = 0; i < options.WarmupIterations; i++)
             {
@@ -74,6 +89,16 @@ namespace ClearFrost.Yolo
             double[] inference = new double[options.Iterations];
             double[] postprocess = new double[options.Iterations];
             int lastDetectionCount = 0;
+            int totalResultCount = 0;
+            int invalidResultCount = 0;
+            int nanResultCount = 0;
+            int outOfBoundsResultCount = 0;
+            Process process = Process.GetCurrentProcess();
+            process.Refresh();
+            long workingSetBefore = process.WorkingSet64;
+            long privateBytesBefore = process.PrivateMemorySize64;
+            long peakWorkingSet = workingSetBefore;
+            long peakPrivateBytes = privateBytesBefore;
 
             for (int i = 0; i < options.Iterations; i++)
             {
@@ -84,13 +109,25 @@ namespace ClearFrost.Yolo
                 inference[i] = metrics.InferenceMs;
                 postprocess[i] = metrics.PostprocessMs;
                 lastDetectionCount = result.Count;
+                totalResultCount += result.Count;
+                invalidResultCount += result.InvalidResultCount;
+                nanResultCount += result.NaNResultCount;
+                outOfBoundsResultCount += result.OutOfBoundsResultCount;
+                process.Refresh();
+                peakWorkingSet = Math.Max(peakWorkingSet, process.WorkingSet64);
+                peakPrivateBytes = Math.Max(peakPrivateBytes, process.PrivateMemorySize64);
             }
+
+            process.Refresh();
 
             Array.Sort(totals);
             double average = totals.Average();
             return new YoloBenchmarkReport
             {
+                GpuRequested = options.UseGpu,
+                GpuActive = detector.GpuActive,
                 ExecutionProvider = detector.ExecutionProvider,
+                GpuFailureReason = detector.GpuFailureReason,
                 ImageWidth = image.Width,
                 ImageHeight = image.Height,
                 WarmupIterations = options.WarmupIterations,
@@ -102,39 +139,36 @@ namespace ClearFrost.Yolo
                 Fps = average > 0 ? 1000.0 / average : 0,
                 AveragePreprocessMs = preprocess.Average(),
                 AverageInferenceMs = inference.Average(),
-                AveragePostprocessMs = postprocess.Average()
+                AveragePostprocessMs = postprocess.Average(),
+                TotalResultCount = totalResultCount,
+                InvalidResultCount = invalidResultCount,
+                NaNResultCount = nanResultCount,
+                OutOfBoundsResultCount = outOfBoundsResultCount,
+                ResultStructureValid = invalidResultCount == 0 && nanResultCount == 0 && outOfBoundsResultCount == 0,
+                WorkingSetBeforeBytes = workingSetBefore,
+                WorkingSetAfterBytes = process.WorkingSet64,
+                PeakWorkingSetBytes = peakWorkingSet,
+                PrivateBytesBefore = privateBytesBefore,
+                PrivateBytesAfter = process.PrivateMemorySize64,
+                PeakPrivateBytes = peakPrivateBytes
             };
         }
 
-        private static Mat LoadBenchmarkImage(YoloBenchmarkOptions options, YoloModelDescriptor descriptor)
+        private static Mat LoadBenchmarkImage(YoloBenchmarkOptions options)
         {
-            if (!string.IsNullOrWhiteSpace(options.ImagePath))
+            if (string.IsNullOrWhiteSpace(options.ImagePath))
             {
-                Mat image = Cv2.ImRead(options.ImagePath, ImreadModes.Color);
-                if (image.Empty())
-                {
-                    image.Dispose();
-                    throw new InvalidOperationException($"无法读取基准图片: {options.ImagePath}");
-                }
-
-                return image;
+                throw new ArgumentException("真实验证图像路径不能为空；禁止使用 synthetic 图像替代外部验证输入。", nameof(options.ImagePath));
             }
 
-            int width = descriptor.PreprocessProfile.InputWidth > 0 ? descriptor.PreprocessProfile.InputWidth : 640;
-            int height = descriptor.PreprocessProfile.InputHeight > 0 ? descriptor.PreprocessProfile.InputHeight : 640;
-            Mat synthetic = new Mat(height, width, MatType.CV_8UC3, new Scalar(40, 60, 80));
-            Cv2.Rectangle(
-                synthetic,
-                new Rect(width / 5, height / 5, Math.Max(8, width / 3), Math.Max(8, height / 4)),
-                new Scalar(180, 180, 180),
-                -1);
-            Cv2.Circle(
-                synthetic,
-                new OpenCvSharp.Point(width * 2 / 3, height * 2 / 3),
-                Math.Max(4, Math.Min(width, height) / 10),
-                new Scalar(220, 130, 90),
-                -1);
-            return synthetic;
+            Mat image = Cv2.ImRead(options.ImagePath, ImreadModes.Color);
+            if (image.Empty())
+            {
+                image.Dispose();
+                throw new InvalidOperationException($"无法读取真实验证图片: {options.ImagePath}");
+            }
+
+            return image;
         }
 
         private static ResultDisposer RunOnce(YoloDetector detector, Mat image, YoloBenchmarkOptions options)
@@ -145,7 +179,7 @@ namespace ClearFrost.Yolo
                 options.IouThreshold,
                 globalIou: false,
                 preprocessingMode: (int)options.PreprocessingMode);
-            return new ResultDisposer(results);
+            return new ResultDisposer(results, image.Width, image.Height);
         }
 
         private static double PercentileSorted(IReadOnlyList<double> values, double percentile)
@@ -165,14 +199,63 @@ namespace ClearFrost.Yolo
         private sealed class ResultDisposer : IDisposable
         {
             private readonly List<YoloResult> _results;
+            private int _invalidResultCount;
+            private int _nanResultCount;
+            private int _outOfBoundsResultCount;
 
-            public ResultDisposer(List<YoloResult> results)
+            public ResultDisposer(List<YoloResult> results, int imageWidth, int imageHeight)
             {
                 _results = results;
                 Count = results.Count;
+                foreach (YoloResult result in results)
+                {
+                    if (ContainsNaN(result))
+                    {
+                        _nanResultCount++;
+                    }
+
+                    if (IsOutOfBounds(result, imageWidth, imageHeight))
+                    {
+                        _outOfBoundsResultCount++;
+                    }
+
+                    if (ContainsNaN(result) || IsOutOfBounds(result, imageWidth, imageHeight) ||
+                        result.ClassId < 0 || result.Confidence < 0 || result.Confidence > 1)
+                    {
+                        _invalidResultCount++;
+                    }
+                }
             }
 
             public int Count { get; }
+            public int InvalidResultCount => _invalidResultCount;
+            public int NaNResultCount => _nanResultCount;
+            public int OutOfBoundsResultCount => _outOfBoundsResultCount;
+
+            private static bool ContainsNaN(YoloResult result)
+            {
+                return !float.IsFinite(result.CenterX) ||
+                    !float.IsFinite(result.CenterY) ||
+                    !float.IsFinite(result.Width) ||
+                    !float.IsFinite(result.Height) ||
+                    !float.IsFinite(result.Confidence) ||
+                    (result.Angle.HasValue && !float.IsFinite(result.Angle.Value)) ||
+                    result.KeyPoints.Any(point =>
+                        !float.IsFinite(point.X) || !float.IsFinite(point.Y) || !float.IsFinite(point.Score));
+            }
+
+            private static bool IsOutOfBounds(YoloResult result, int imageWidth, int imageHeight)
+            {
+                if (result.DataKind == YoloResultDataKind.Classification)
+                {
+                    return false;
+                }
+
+                return result.Width < 0 || result.Height < 0 ||
+                    result.Left < 0 || result.Top < 0 ||
+                    result.Right > imageWidth || result.Bottom > imageHeight ||
+                    result.Right < result.Left || result.Bottom < result.Top;
+            }
 
             public void Dispose()
             {
