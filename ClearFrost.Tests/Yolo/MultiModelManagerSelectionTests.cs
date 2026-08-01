@@ -144,4 +144,92 @@ public class MultiModelManagerSelectionTests
         backingField.Should().NotBeNull();
         backingField!.SetValue(manager, role);
     }
+
+    [Fact]
+    public void InferenceWithFallback_WhenPrimaryFails_AndAux1Fails_TriggersAux2Unsupervised()
+    {
+        using var manager = new MultiModelManager(useGpu: false);
+
+        var primaryMock = new MockVisionModel
+        {
+            Labels = new[] { "defect" },
+            OnInferenceMat = (img, conf, iou, global, mode) => new ModelResult
+            {
+                IsQualified = true,
+                Results = new List<YoloResult>()
+            }
+        };
+
+        var aux1Mock = new MockVisionModel
+        {
+            Labels = new[] { "defect" },
+            OnInferenceMat = (img, conf, iou, global, mode) => new ModelResult
+            {
+                IsQualified = true,
+                Results = new List<YoloResult>()
+            }
+        };
+
+        var unsupervisedMock = new MockVisionModel
+        {
+            Labels = new[] { "anomaly" },
+            OnInferenceMat = (img, conf, iou, global, mode) =>
+            {
+                var fakeResult = new YoloResult();
+                fakeResult.SetDetectionData(32, 32, 64, 64, 0.85f, 0);
+                return new ModelResult
+                {
+                    IsQualified = false,
+                    AnomalyScore = 0.85f,
+                    Results = new List<YoloResult> { fakeResult }
+                };
+            }
+        };
+
+        typeof(MultiModelManager).GetField("_primaryModel", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(manager, primaryMock);
+        typeof(MultiModelManager).GetField("_auxiliary1Model", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(manager, aux1Mock);
+        typeof(MultiModelManager).GetField("_auxiliary2Model", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(manager, unsupervisedMock);
+
+        manager.EnableFallback = true;
+
+        using var image = new Mat(64, 64, MatType.CV_8UC3, Scalar.All(0));
+        var result = manager.InferenceWithFallback(
+            image,
+            confidence: 0.5f,
+            targetLabel: "defect",
+            targetCount: 1);
+
+        result.WasFallback.Should().BeTrue();
+        result.UsedModel.Should().Be(ModelRole.Auxiliary2);
+        result.Results.Should().HaveCount(1);
+        result.Results[0].Confidence.Should().Be(0.85f);
+        result.Results[0].Width.Should().Be(64);
+    }
+}
+
+public class MockVisionModel : IVisionModel
+{
+    public string[] Labels { get; set; } = Array.Empty<string>();
+    public InferenceMetrics? LastMetrics { get; set; }
+    public bool RequestedGpu => false;
+    public bool GpuActive => false;
+    public int GpuDeviceId => 0;
+    public string ExecutionProvider => "CPUExecutionProvider";
+    public string GpuFailureReason => string.Empty;
+
+    public Func<Mat, float, float, bool, int, ModelResult>? OnInferenceMat { get; set; }
+
+    public ModelResult Inference(Bitmap image, float confidence = 0.5F, float iouThreshold = 0.3F, bool globalIou = false, int preprocessingMode = -1)
+    {
+        using var mat = OpenCvSharp.Extensions.BitmapConverter.ToMat(image);
+        return Inference(mat, confidence, iouThreshold, globalIou, preprocessingMode);
+    }
+
+    public ModelResult Inference(Mat image, float confidence = 0.5F, float iouThreshold = 0.3F, bool globalIou = false, int preprocessingMode = -1)
+    {
+        return OnInferenceMat?.Invoke(image, confidence, iouThreshold, globalIou, preprocessingMode)
+            ?? new ModelResult { IsQualified = true };
+    }
+
+    public void Dispose() { }
 }

@@ -149,7 +149,7 @@ namespace ClearFrost.Yolo
     /// <summary>
     /// YOLO 检测器实现类，封装了 ONNX Runtime 推理逻辑
     /// </summary>
-    partial class YoloDetector : IDisposable
+    partial class YoloDetector : IVisionModel
     {
         // ==================== 常量定义 ====================
 
@@ -1796,6 +1796,56 @@ namespace ClearFrost.Yolo
             if (_disposed)
             {
                 throw new ObjectDisposedException(nameof(YoloDetector));
+            }
+        }
+
+        ModelResult IVisionModel.Inference(Bitmap image, float confidence, float iouThreshold, bool globalIou, int preprocessingMode)
+        {
+            try
+            {
+                var yoloResults = this.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                return new ModelResult
+                {
+                    Results = yoloResults,
+                    AnomalyScore = 0.0f,
+                    IsQualified = yoloResults.Count == 0,
+                    ErrorMessage = string.Empty
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ModelResult
+                {
+                    Results = new List<YoloResult>(),
+                    AnomalyScore = 0.0f,
+                    IsQualified = false,
+                    ErrorMessage = ex.Message
+                };
+            }
+        }
+
+        ModelResult IVisionModel.Inference(Mat image, float confidence, float iouThreshold, bool globalIou, int preprocessingMode)
+        {
+            try
+            {
+                var yoloResults = this.Inference(image, confidence, iouThreshold, globalIou, preprocessingMode);
+                return new ModelResult
+                {
+                    Results = yoloResults,
+                    AnomalyScore = 0.0f,
+                    IsQualified = yoloResults.Count == 0,
+                    ErrorMessage = string.Empty
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ModelResult
+                {
+                    Results = new List<YoloResult>(),
+                    AnomalyScore = 0.0f,
+                    IsQualified = false,
+                    ErrorMessage = ex.Message
+                };
             }
         }
     }

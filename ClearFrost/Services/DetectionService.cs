@@ -100,7 +100,7 @@ namespace ClearFrost.Services
         /// <summary>
         /// 获取当前主检测器实例（用于 Mat 直通渲染等优化路径）。
         /// </summary>
-        internal YoloDetector? PrimaryDetector => _modelManager?.PrimaryDetector ?? _yolo;
+        internal IVisionModel? PrimaryDetector => _modelManager?.PrimaryDetector ?? _yolo;
 
         #endregion
 
@@ -1272,7 +1272,7 @@ namespace ClearFrost.Services
         }
 
         private static DetectionRuntimeStatus CreateRuntimeStatusFromDetector(
-            YoloDetector? detector,
+            IVisionModel? detector,
             bool gpuRequested,
             int gpuDeviceId)
         {
