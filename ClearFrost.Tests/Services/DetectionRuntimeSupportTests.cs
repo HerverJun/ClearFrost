@@ -377,6 +377,37 @@ namespace ClearFrost.Tests.Services
         }
 
         [Fact]
+        public void DetectionTraceImageResolver_旧目录回退忽略非法时间片段()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+
+            try
+            {
+                string imageDir = Path.Combine(tempDir, "NG", "2026-01-27");
+                Directory.CreateDirectory(imageDir);
+                string invalidImagePath = Path.Combine(imageDir, "146050_563.jpg");
+                File.WriteAllText(invalidImagePath, "invalid legacy timestamp");
+                File.SetLastWriteTime(invalidImagePath, new DateTime(2026, 1, 26, 0, 0, 0));
+
+                var record = new DetectionTraceRecord
+                {
+                    Timestamp = new DateTime(2026, 1, 27, 15, 0, 50, 563),
+                    IsQualified = false
+                };
+
+                DetectionTraceImageResolution resolved = DetectionTraceImageResolver.Resolve(record, tempDir);
+
+                resolved.ImagePath.Should().BeEmpty();
+                resolved.UsedFallbackImagePath.Should().BeFalse();
+                resolved.HasRenderedImage.Should().BeFalse();
+            }
+            finally
+            {
+                DeleteDirectory(tempDir);
+            }
+        }
+
+        [Fact]
         public void DetectionTraceImageResolver_路径为空时按InspectionId回退并识别复查图()
         {
             string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));

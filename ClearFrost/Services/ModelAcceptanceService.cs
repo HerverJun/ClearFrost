@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -201,17 +202,18 @@ namespace ClearFrost.Services
                 return Fail("模型未批准，不能记录为生产状态。", 0);
             }
 
-            if (entry.Labels.Count == 0 || entry.Labels.All(string.IsNullOrWhiteSpace))
+            IReadOnlyList<string> labels = ResolveLabels(entry);
+            if (labels.Count == 0 || labels.All(string.IsNullOrWhiteSpace))
             {
                 return Fail("类别列表为空，模型不能记录为生产状态。", 0);
             }
 
-            if (entry.InputWidth <= 0 || entry.InputHeight <= 0)
+            if (ResolveInputWidth(entry) <= 0 || ResolveInputHeight(entry) <= 0)
             {
                 return Fail("输入尺寸元数据缺失，模型不能记录为生产状态。", 0);
             }
 
-            if (string.IsNullOrWhiteSpace(entry.TaskType))
+            if (string.IsNullOrWhiteSpace(ResolveTaskType(entry)))
             {
                 return Fail("任务类型元数据缺失，模型不能记录为生产状态。", 0);
             }
@@ -231,6 +233,26 @@ namespace ClearFrost.Services
                 Succeeded = true,
                 Message = "模型生产状态校验通过。"
             };
+        }
+
+        private static string ResolveTaskType(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveTaskType();
+        }
+
+        private static IReadOnlyList<string> ResolveLabels(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveLabels();
+        }
+
+        private static int ResolveInputWidth(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveInputWidth();
+        }
+
+        private static int ResolveInputHeight(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveInputHeight();
         }
 
         private static bool IsSafeModelFileForProductionState(string path)

@@ -1,4 +1,4 @@
-using ClearFrost.Services;
+﻿using ClearFrost.Services;
 using FluentAssertions;
 
 namespace ClearFrost.Tests.Services;

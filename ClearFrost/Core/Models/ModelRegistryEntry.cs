@@ -1,4 +1,6 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace ClearFrost.Core.Models
 {
@@ -23,10 +25,67 @@ namespace ClearFrost.Core.Models
         public IReadOnlyList<string> Labels { get; init; } = new List<string>();
         public ModelPackageManifest? Manifest { get; init; }
         public string TaskType { get; init; } = string.Empty;
+        public string PostprocessorKey { get; init; } = string.Empty;
+        public string ScoreNormalization { get; init; } = string.Empty;
+        public IReadOnlyDictionary<string, string> PostprocessOptions { get; init; } = new Dictionary<string, string>();
         public int InputWidth { get; init; }
         public int InputHeight { get; init; }
         public string ApprovalStatus { get; init; } = ModelApprovalStatuses.Pending;
         public bool ApprovedForProduction { get; init; }
+
+        public string GetEffectiveTaskType()
+        {
+            return !string.IsNullOrWhiteSpace(TaskType)
+                ? TaskType
+                : Manifest?.TaskType ?? string.Empty;
+        }
+
+        public string GetEffectivePostprocessorKey()
+        {
+            return !string.IsNullOrWhiteSpace(PostprocessorKey)
+                ? PostprocessorKey
+                : Manifest?.PostprocessorKey ?? string.Empty;
+        }
+
+        public string GetEffectiveScoreNormalization()
+        {
+            return !string.IsNullOrWhiteSpace(ScoreNormalization)
+                ? ScoreNormalization
+                : Manifest?.ScoreNormalization ?? string.Empty;
+        }
+
+        public IReadOnlyList<string> GetEffectiveLabels()
+        {
+            if (Labels != null && Labels.Any(label => !string.IsNullOrWhiteSpace(label)))
+            {
+                return Labels;
+            }
+
+            return Manifest?.Labels != null
+                ? Manifest.Labels
+                : Array.Empty<string>();
+        }
+
+        public int GetEffectiveInputWidth()
+        {
+            return InputWidth > 0
+                ? InputWidth
+                : Manifest?.InputWidth ?? 0;
+        }
+
+        public int GetEffectiveInputHeight()
+        {
+            return InputHeight > 0
+                ? InputHeight
+                : Manifest?.InputHeight ?? 0;
+        }
+
+        public IReadOnlyDictionary<string, string>? GetEffectivePostprocessOptions()
+        {
+            return PostprocessOptions != null && PostprocessOptions.Count > 0
+                ? PostprocessOptions
+                : Manifest?.PostprocessOptions;
+        }
     }
 
     public sealed class ModelProductionValidationResult

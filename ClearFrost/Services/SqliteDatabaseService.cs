@@ -18,6 +18,8 @@ namespace ClearFrost.Services
     public class SqliteDatabaseService : IDatabaseService
     {
         private const int BusyTimeoutMs = 5000;
+        private const int DefaultRecordLimit = 100;
+        private const int MaxRecordLimit = 1000;
         private const int DefaultTraceLimit = 100;
         private const int MaxTraceLimit = 300;
         private static readonly string[] DetectionRecordColumns =
@@ -803,7 +805,8 @@ namespace ClearFrost.Services
         {
             if (!_initialized) await InitializeAsync();
 
-            var records = new List<DetectionRecord>();
+            int boundedLimit = ClampRecordLimit(limit);
+            var records = new List<DetectionRecord>(boundedLimit);
 
             try
             {
@@ -821,7 +824,7 @@ namespace ClearFrost.Services
                 string querySql = $"SELECT * FROM DetectionRecords {whereClause} ORDER BY Timestamp DESC, Id DESC LIMIT @Limit";
 
                 using var command = new SqliteCommand(querySql, connection);
-                command.Parameters.AddWithValue("@Limit", limit);
+                command.Parameters.AddWithValue("@Limit", boundedLimit);
 
                 if (startDate.HasValue)
                     command.Parameters.AddWithValue("@StartDate", startDate.Value.ToString("yyyy-MM-dd 00:00:00.000"));
@@ -833,59 +836,7 @@ namespace ClearFrost.Services
                 using var reader = await command.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
                 {
-                    records.Add(new DetectionRecord
-                    {
-                        Id = GetInt64OrDefault(reader, "Id"),
-                        Timestamp = DateTime.Parse(GetStringOrDefault(reader, "Timestamp")),
-                        IsQualified = GetInt32OrDefault(reader, "IsQualified") == 1,
-                        InspectionId = GetStringOrDefault(reader, "InspectionId"),
-                        TriggerSource = GetStringOrDefault(reader, "TriggerSource"),
-                        TriggerSeq = GetNullableInt32(reader, "TriggerSeq"),
-                        PlcTriggerSeq = GetNullableInt32(reader, "PlcTriggerSeq") ?? GetNullableInt32(reader, "TriggerSeq"),
-                        ResultSeq = GetNullableInt32(reader, "ResultSeq"),
-                        TerminalHandshakeAttempted = GetInt32OrDefault(reader, "TerminalHandshakeAttempted") == 1,
-                        TerminalHandshakeSucceeded = GetInt32OrDefault(reader, "TerminalHandshakeSucceeded") == 1,
-                        TerminalHandshakeErrorCode = GetStringOrDefault(reader, "TerminalHandshakeErrorCode"),
-                        TerminalHandshakeSignalName = GetStringOrDefault(reader, "TerminalHandshakeSignalName"),
-                        TerminalHandshakeAddress = GetStringOrDefault(reader, "TerminalHandshakeAddress"),
-                        TerminalHandshakeMessage = GetStringOrDefault(reader, "TerminalHandshakeMessage"),
-                        CycleSucceeded = GetInt32OrDefault(reader, "CycleSucceeded") == 1,
-                        ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
-                        Barcode = GetStringOrDefault(reader, "Barcode"),
-                        BarcodeReadSucceeded = GetNullableBool(reader, "BarcodeReadSucceeded"),
-                        BarcodeError = GetStringOrDefault(reader, "BarcodeError"),
-                        TraceStatus = ParseTraceStatus(GetStringOrDefault(reader, "TraceStatus")),
-                        QueueStatus = GetStringOrDefault(reader, "QueueStatus"),
-                        ImagePath = GetStringOrDefault(reader, "ImagePath"),
-                        RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
-                        TraceImagePath = GetStringOrDefault(reader, "TraceImagePath"),
-                        ErrorStage = GetStringOrDefault(reader, "ErrorStage"),
-                        ErrorCode = GetStringOrDefault(reader, "ErrorCode"),
-                        ErrorMessage = GetStringOrDefault(reader, "ErrorMessage"),
-                        TotalMs = GetInt64OrDefault(reader, "TotalMs"),
-                        CaptureMs = GetInt64OrDefault(reader, "CaptureMs"),
-                        RoiMs = GetInt64OrDefault(reader, "RoiMs"),
-                        PlcWriteMs = GetInt64OrDefault(reader, "PlcWriteMs"),
-                        SaveImageMs = GetInt64OrDefault(reader, "SaveImageMs"),
-                        SaveRecordMs = GetInt64OrDefault(reader, "SaveRecordMs"),
-                        RecipeId = GetStringOrDefault(reader, "RecipeId"),
-                        RecipeVersion = GetStringOrDefault(reader, "RecipeVersion"),
-                        ModelId = GetStringOrDefault(reader, "ModelId"),
-                        ModelVersion = GetStringOrDefault(reader, "ModelVersion"),
-                        ModelHash = GetStringOrDefault(reader, "ModelHash"),
-                        WasFallback = GetInt32OrDefault(reader, "WasFallback") == 1,
-                        UsedModelName = GetStringOrDefault(reader, "UsedModelName"),
-                        TargetLabel = GetStringOrDefault(reader, "TargetLabel"),
-                        ExpectedCount = GetInt32OrDefault(reader, "ExpectedCount"),
-                        ActualCount = GetInt32OrDefault(reader, "ActualCount"),
-                        InferenceMs = GetInt32OrDefault(reader, "InferenceMs"),
-                        ModelName = GetStringOrDefault(reader, "ModelName"),
-                        CameraId = GetStringOrDefault(reader, "CameraId"),
-                        RuleSummary = GetStringOrDefault(reader, "RuleSummary"),
-                        RuleResultJson = GetStringOrDefault(reader, "RuleResultJson"),
-                        RuleSetJson = GetStringOrDefault(reader, "RuleSetJson"),
-                        ResultJson = GetStringOrDefault(reader, "ResultJson")
-                    });
+                    records.Add(ReadDetectionRecord(reader));
                 }
             }
             catch (Exception ex)
@@ -968,7 +919,7 @@ namespace ClearFrost.Services
             if (!_initialized) await InitializeAsync();
 
             query ??= new DetectionReplayQuery();
-            int limit = Math.Clamp(query.Limit <= 0 ? 100 : query.Limit, 1, 1000);
+            int limit = ClampRecordLimit(query.Limit);
             var records = new List<DetectionRecord>(limit);
 
             try
@@ -1018,59 +969,7 @@ namespace ClearFrost.Services
                 using var reader = await command.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
                 {
-                    records.Add(new DetectionRecord
-                    {
-                        Id = GetInt64OrDefault(reader, "Id"),
-                        Timestamp = ParseTimestamp(GetStringOrDefault(reader, "Timestamp")),
-                        IsQualified = GetInt32OrDefault(reader, "IsQualified") == 1,
-                        InspectionId = GetStringOrDefault(reader, "InspectionId"),
-                        TriggerSource = GetStringOrDefault(reader, "TriggerSource"),
-                        TriggerSeq = GetNullableInt32(reader, "TriggerSeq"),
-                        PlcTriggerSeq = GetNullableInt32(reader, "PlcTriggerSeq") ?? GetNullableInt32(reader, "TriggerSeq"),
-                        ResultSeq = GetNullableInt32(reader, "ResultSeq"),
-                        TerminalHandshakeAttempted = GetInt32OrDefault(reader, "TerminalHandshakeAttempted") == 1,
-                        TerminalHandshakeSucceeded = GetInt32OrDefault(reader, "TerminalHandshakeSucceeded") == 1,
-                        TerminalHandshakeErrorCode = GetStringOrDefault(reader, "TerminalHandshakeErrorCode"),
-                        TerminalHandshakeSignalName = GetStringOrDefault(reader, "TerminalHandshakeSignalName"),
-                        TerminalHandshakeAddress = GetStringOrDefault(reader, "TerminalHandshakeAddress"),
-                        TerminalHandshakeMessage = GetStringOrDefault(reader, "TerminalHandshakeMessage"),
-                        CycleSucceeded = GetInt32OrDefault(reader, "CycleSucceeded") == 1,
-                        ProductBarcode = GetStringOrDefault(reader, "ProductBarcode"),
-                        Barcode = GetStringOrDefault(reader, "Barcode"),
-                        BarcodeReadSucceeded = GetNullableBool(reader, "BarcodeReadSucceeded"),
-                        BarcodeError = GetStringOrDefault(reader, "BarcodeError"),
-                        TraceStatus = ParseTraceStatus(GetStringOrDefault(reader, "TraceStatus")),
-                        QueueStatus = GetStringOrDefault(reader, "QueueStatus"),
-                        ImagePath = GetStringOrDefault(reader, "ImagePath"),
-                        RenderedImagePath = GetStringOrDefault(reader, "RenderedImagePath"),
-                        TraceImagePath = GetStringOrDefault(reader, "TraceImagePath"),
-                        ErrorStage = GetStringOrDefault(reader, "ErrorStage"),
-                        ErrorCode = GetStringOrDefault(reader, "ErrorCode"),
-                        ErrorMessage = GetStringOrDefault(reader, "ErrorMessage"),
-                        TotalMs = GetInt64OrDefault(reader, "TotalMs"),
-                        CaptureMs = GetInt64OrDefault(reader, "CaptureMs"),
-                        RoiMs = GetInt64OrDefault(reader, "RoiMs"),
-                        PlcWriteMs = GetInt64OrDefault(reader, "PlcWriteMs"),
-                        SaveImageMs = GetInt64OrDefault(reader, "SaveImageMs"),
-                        SaveRecordMs = GetInt64OrDefault(reader, "SaveRecordMs"),
-                        RecipeId = GetStringOrDefault(reader, "RecipeId"),
-                        RecipeVersion = GetStringOrDefault(reader, "RecipeVersion"),
-                        ModelId = GetStringOrDefault(reader, "ModelId"),
-                        ModelVersion = GetStringOrDefault(reader, "ModelVersion"),
-                        ModelHash = GetStringOrDefault(reader, "ModelHash"),
-                        WasFallback = GetInt32OrDefault(reader, "WasFallback") == 1,
-                        UsedModelName = GetStringOrDefault(reader, "UsedModelName"),
-                        TargetLabel = GetStringOrDefault(reader, "TargetLabel"),
-                        ExpectedCount = GetInt32OrDefault(reader, "ExpectedCount"),
-                        ActualCount = GetInt32OrDefault(reader, "ActualCount"),
-                        InferenceMs = GetInt32OrDefault(reader, "InferenceMs"),
-                        ModelName = GetStringOrDefault(reader, "ModelName"),
-                        CameraId = GetStringOrDefault(reader, "CameraId"),
-                        RuleSummary = GetStringOrDefault(reader, "RuleSummary"),
-                        RuleResultJson = GetStringOrDefault(reader, "RuleResultJson"),
-                        RuleSetJson = GetStringOrDefault(reader, "RuleSetJson"),
-                        ResultJson = GetStringOrDefault(reader, "ResultJson")
-                    });
+                    records.Add(ReadDetectionRecord(reader));
                 }
             }
             catch (Exception ex)
@@ -1323,6 +1222,11 @@ namespace ClearFrost.Services
         private static int ClampTraceLimit(int limit)
         {
             return Math.Clamp(limit <= 0 ? DefaultTraceLimit : limit, 1, MaxTraceLimit);
+        }
+
+        private static int ClampRecordLimit(int limit)
+        {
+            return Math.Clamp(limit <= 0 ? DefaultRecordLimit : limit, 1, MaxRecordLimit);
         }
 
         private static string FormatTimestamp(DateTime timestamp)

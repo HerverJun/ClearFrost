@@ -1065,7 +1065,11 @@ namespace ClearFrost
         private void ChangeModel_Logic(string modelName)
         {
             if (string.IsNullOrEmpty(modelName)) return;
-            if (IsRuntimeMutationBlocked("模型切换")) return;
+            if (IsRuntimeMutationBlocked("模型切换"))
+            {
+                SafeFireAndForget(SyncModelSelectionStateAsync(), "同步模型选择状态");
+                return;
+            }
 
             模型名 = modelName;
             SafeFireAndForget(ChangeModelAsync(modelName), "切换模型");
@@ -1090,6 +1094,7 @@ namespace ClearFrost
                 }
                 else
                 {
+                    模型名 = _appConfig.CurrentModelFileName ?? string.Empty;
                     await _uiController.LogToFrontend(
                         $"{OperatorFaultMessages.ForActivationFailure(activation.ErrorCode, activation.Message)}{FormatCompensationFailures(activation)}",
                         "error");
@@ -1097,7 +1102,12 @@ namespace ClearFrost
             }
             catch (Exception ex)
             {
+                模型名 = _appConfig.CurrentModelFileName ?? string.Empty;
                 await _uiController.LogToFrontend($"模型切换异常: {ex.Message}", "error");
+            }
+            finally
+            {
+                await SyncModelSelectionStateAsync();
             }
         }
 

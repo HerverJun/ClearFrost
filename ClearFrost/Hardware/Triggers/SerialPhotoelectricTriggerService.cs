@@ -311,7 +311,10 @@ namespace ClearFrost.Hardware.Triggers
                     {
                         _serialPort?.Close();
                     }
-                    catch { }
+                    catch (Exception closeEx)
+                    {
+                        Debug.WriteLine($"[SerialTrigger] 读取异常后关闭串口失败: {closeEx.Message}");
+                    }
 
                     await Task.Delay(ReconnectRetryDelayMs, token);
                 }

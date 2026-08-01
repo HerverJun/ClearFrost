@@ -12,6 +12,9 @@ namespace ClearFrost.Core.Models
         public string Sha256 { get; set; } = string.Empty;
         public List<string> Labels { get; set; } = new List<string>();
         public string TaskType { get; set; } = string.Empty;
+        public string PostprocessorKey { get; set; } = string.Empty;
+        public string ScoreNormalization { get; set; } = string.Empty;
+        public Dictionary<string, string> PostprocessOptions { get; set; } = new Dictionary<string, string>();
         public int InputWidth { get; set; }
         public int InputHeight { get; set; }
         public string AcceptanceDataset { get; set; } = string.Empty;

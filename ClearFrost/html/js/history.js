@@ -1,4 +1,4 @@
-﻿// ==========================================
+// ==========================================
 // ClearFrost history, logs and gallery
 // ==========================================
 (function () {
@@ -10,17 +10,53 @@
     const TRACE_DEFAULT_PAGE_SIZE = 100;
     let tracePagerState = createTracePagerState();
     let activeTraceRecord = null;
+    let lastAuditChainVerification = null;
+    let lastAuditExportPath = "";
+    let pendingAuditRecordsRequestId = "";
+    let pendingAuditExportRequestId = "";
+    let pendingAuditChainRequestId = "";
+    const pendingReplayRequests = new Map();
+    let auditErrorSource = "";
+    const HistoryBridgeErrorMessage = "历史面板通信失败，请刷新页面后重试";
+    const ReplayBridgeErrorMessage = "回放操作通信失败，请刷新页面后重试";
+    const TraceBridgeErrorMessage = "追溯通信失败，请刷新页面后重试";
+    const TraceCommandFailedRequestId = "__trace_command_failed__";
+    const StatisticsHistoryDefaultDays = 30;
+    const StatisticsHistoryMaxDays = 366;
+    const ReplayDefaultQueryLimit = 100;
+    const ReplayMaxQueryLimit = 1000;
+    const AuditBridgeErrorMessage = "前端通信失败，请刷新页面后重试";
+    const AuditExportEmptyPathMessage = "审计 CSV 导出未返回文件路径";
     const AuditStatusLabels = Object.freeze({
         Requested: "已请求",
         Denied: "已拒绝",
         Succeeded: "已成功",
         Failed: "已失败",
     });
+    const AuditChainStatusLabels = Object.freeze({
+        Healthy: "正常",
+        Warning: "有警告",
+        Blocking: "阻断",
+        Unavailable: "不可用",
+        Unknown: "未知",
+        Pending: "待校验",
+        NotChecked: "未校验",
+    });
     const AuditOperationLabels = Object.freeze({
+        ConfigSave: "保存配置",
+        StoragePathRefresh: "刷新存储路径",
         ManualRelease: "强制放行",
         ManualReview: "人工复核",
         ReplayApproval: "回放审批",
         ReplayIntegrityScan: "回放完整性扫描",
+        ReplayDatasetArchive: "归档回放数据集",
+        DiagnosticPackageExport: "导出诊断包",
+        DiagnosticPackageVerify: "复核诊断包",
+        FieldEvidenceRetention: "现场证据保留清理",
+        FieldHandoffReportExport: "导出交接报告",
+        MaintenanceAdviceAction: "维护建议处理",
+        ShiftTaskAction: "班次待办处理",
+        FieldDebugPlcWriteTest: "PLC 写入测试",
         archive_replay_dataset: "归档回放数据集",
         create_replay_dataset: "创建回放数据集",
         preview_replay_dataset: "预览回放数据集",
@@ -40,40 +76,144 @@
         ShiftLead: "班组长",
         Engineer: "工程师",
     });
+    const AuditChainSeverityLabels = Object.freeze({
+        Blocking: "阻断",
+        Warning: "警告",
+    });
 
     function byId(id) {
         return document.getElementById(id);
     }
 
+    function escapeRegExp(value) {
+        return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    function findLabel(labels, value) {
+        const normalized = String(value || "").trim();
+        if (!normalized) return "";
+
+        const matchedKey = Object.keys(labels)
+            .find((key) => key.toLowerCase() === normalized.toLowerCase());
+        return matchedKey ? labels[matchedKey] : normalized;
+    }
+
+    function replaceLabelTokens(text, labels) {
+        let result = String(text || "");
+        Object.entries(labels).forEach(([raw, label]) => {
+            result = result.replace(new RegExp(escapeRegExp(raw), "gi"), label);
+        });
+        return result;
+    }
+
     function formatAuditStatus(status) {
-        const value = String(status || "").trim();
-        return AuditStatusLabels[value] || value;
+        return findLabel(AuditStatusLabels, status);
+    }
+
+    function formatAuditChainStatus(status) {
+        return findLabel(AuditChainStatusLabels, status);
+    }
+
+    function formatAuditChainStatusForSummary(status) {
+        const raw = String(status || "").trim();
+        const label = formatAuditChainStatus(raw);
+        return label && label !== raw ? `${label} (${raw})` : raw;
+    }
+
+    function getAuditChainFindings(source) {
+        if (Array.isArray(source?.findings)) return source.findings;
+        if (Array.isArray(source?.Findings)) return source.Findings;
+        return [];
+    }
+
+    function formatAuditChainSeverity(severity) {
+        return findLabel(AuditChainSeverityLabels, severity);
+    }
+
+    function limitAuditSummaryText(value, maxLength = 120) {
+        const text = String(value || "").replace(/\s+/g, " ").trim();
+        if (text.length <= maxLength) return text;
+        return `${text.slice(0, maxLength)}...`;
+    }
+
+    function formatAuditChainFindingHint(finding, fallback = "", preferFullPath = false) {
+        const source = finding || {};
+        const code = source.errorCode || source.ErrorCode || fallback || "";
+        const line = source.lineNumber || source.LineNumber || "";
+        const filePath = source.filePath || source.FilePath || "";
+        const auditFileName = source.auditFileName || source.AuditFileName || "";
+        const entry = source.entryName || source.EntryName || "";
+        const location = preferFullPath
+            ? (filePath || auditFileName || entry)
+            : (auditFileName || filePath || entry);
+        const place = location ? `${location}${line ? `:${line}` : ""}` : (line ? `行 ${line}` : "");
+        const message = limitAuditSummaryText(source.message || source.Message || "", 80);
+        return [
+            code,
+            place ? `@${place}` : "",
+            message ? `- ${message}` : "",
+        ].filter(Boolean).join(" ");
+    }
+
+    function getAuditChainStatusClass(status) {
+        const value = String(status || "").trim().toLowerCase();
+        if (["healthy", "success", "succeeded", "ok"].includes(value)) {
+            return "bg-bamboo-50 text-bamboo-700 border border-bamboo-100";
+        }
+
+        if (["warning", "warn"].includes(value)) {
+            return "bg-amber-50 text-amber-700 border border-amber-100";
+        }
+
+        if (["", "pending", "notchecked", "unknown"].includes(value)) {
+            return "bg-slate-100 text-slate-500 border border-slate-200";
+        }
+
+        return "bg-rouge-50 text-rouge-700 border border-rouge-100";
+    }
+
+    function getAuditRecordStatusClass(status) {
+        const value = String(status || "").trim().toLowerCase();
+        if (["failed", "denied", "blocking", "error"].includes(value)) {
+            return "bg-rouge-50 text-rouge-600 border-rouge-200";
+        }
+
+        if (["requested", "pending", "warning"].includes(value)) {
+            return "bg-amber-50 text-amber-700 border-amber-200";
+        }
+
+        return "bg-bamboo-50 text-bamboo-600 border-bamboo-200";
     }
 
     function formatProductionRole(role) {
-        const value = String(role || "").trim();
-        return ProductionRoleLabels[value] || value;
+        return findLabel(ProductionRoleLabels, role);
     }
 
     function formatAuditOperation(operation) {
+        return findLabel(AuditOperationLabels, operation);
+    }
+
+    function normalizeAuditOperationFilter(operation) {
         const value = String(operation || "").trim();
-        return AuditOperationLabels[value] || value;
+        if (!value) return "";
+
+        const matched = Object.entries(AuditOperationLabels)
+            .find(([raw, label]) =>
+                raw.toLowerCase() === value.toLowerCase() ||
+                String(label || "").trim().toLowerCase() === value.toLowerCase());
+        return matched ? matched[0] : value;
     }
 
     function formatAuditText(value) {
         let text = String(value || "").trim();
         if (!text) return "";
 
-        Object.entries(AuditOperationLabels).forEach(([raw, label]) => {
-            text = text.split(raw).join(label);
-        });
-        Object.entries(AuditStatusLabels).forEach(([raw, label]) => {
-            text = text.split(raw).join(label);
-        });
+        text = replaceLabelTokens(text, AuditOperationLabels);
+        text = replaceLabelTokens(text, AuditStatusLabels);
         Object.entries(ProductionRoleLabels).forEach(([raw, label]) => {
-            text = text.split(`RequiredRole=${raw}`).join(`需要${label}权限`);
-            text = text.split(raw).join(label);
+            text = text.replace(new RegExp(`RequiredRole=${escapeRegExp(raw)}`, "gi"), `需要${label}权限`);
         });
+        text = replaceLabelTokens(text, ProductionRoleLabels);
         return text;
     }
 
@@ -81,6 +221,98 @@
         const text = String(value || "").trim();
         if (!text) return "";
         return text.length <= 12 ? text : `${text.slice(0, 12)}...`;
+    }
+
+    function formatAuditHashComparison(label, expected, actual) {
+        const expectedText = shortAuditHash(expected) || "-";
+        const actualText = shortAuditHash(actual) || "-";
+        if (expectedText === "-" && actualText === "-") return "";
+        return `${label} 期望 ${expectedText} 实际 ${actualText}`;
+    }
+
+    async function writeClipboardText(text) {
+        let clipboardError = null;
+        if (navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return;
+            } catch (error) {
+                clipboardError = error;
+            }
+        }
+
+        const textarea = document.createElement("textarea");
+        const target = document.body || document.documentElement;
+        textarea.value = text;
+        textarea.setAttribute("readonly", "readonly");
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        target.appendChild(textarea);
+        try {
+            textarea.select();
+            const copied = document.execCommand?.("copy") === true;
+            if (!copied) {
+                throw clipboardError || new Error("ClipboardUnavailable");
+            }
+        } finally {
+            textarea.remove();
+        }
+    }
+
+    function buildAuditChainSummaryText(data) {
+        const source = data || {};
+        const error = source.error || source.Error || "";
+        const status = String(source.status || source.Status || (error ? "Unavailable" : "Unknown"));
+        const totalRecords = source.totalRecords ?? source.TotalRecords ?? 0;
+        const verifiedRecords = source.verifiedRecords ?? source.VerifiedRecords ?? 0;
+        const findingCount = source.findingCount ?? source.FindingCount ?? 0;
+        const lastHash = source.lastRecordSha256 || source.LastRecordSha256 || "";
+        const checkedAt = source.checkedAt || source.CheckedAt || new Date().toISOString();
+        const findings = getAuditChainFindings(source);
+        const statusText = formatAuditChainStatusForSummary(status);
+        const lines = [
+            "ClearFrost 审计链摘要",
+            `状态: ${statusText || "-"}`,
+            `已验证: ${verifiedRecords}/${totalRecords}`,
+            `异常: ${findingCount}`,
+            `最后记录哈希: ${lastHash || "-"}`,
+            `校验时间: ${checkedAt}`,
+        ];
+
+        if (error) {
+            lines.push(`错误: ${error}`);
+        }
+
+        const listedFindings = findings.slice(0, 3);
+        listedFindings.forEach((finding, index) => {
+            const code = finding.errorCode || finding.ErrorCode || "Finding";
+            const line = finding.lineNumber || finding.LineNumber || "";
+            const filePath = finding.filePath || finding.FilePath || "";
+            const auditFileName = finding.auditFileName || finding.AuditFileName || "";
+            const entry = finding.entryName || finding.EntryName || "";
+            const location = filePath || auditFileName || entry;
+            const severity = finding.severity || finding.Severity || "";
+            const severityText = formatAuditChainSeverity(severity) || severity;
+            const message = limitAuditSummaryText(finding.message || finding.Message || "");
+            const expectedPreviousSha256 = finding.expectedPreviousSha256 || finding.ExpectedPreviousSha256 || "";
+            const actualPreviousSha256 = finding.actualPreviousSha256 || finding.ActualPreviousSha256 || "";
+            const expectedRecordSha256 = finding.expectedRecordSha256 || finding.ExpectedRecordSha256 || "";
+            const actualRecordSha256 = finding.actualRecordSha256 || finding.ActualRecordSha256 || "";
+            const details = [
+                severityText ? `级别 ${severityText}` : "",
+                message ? `消息 ${message}` : "",
+                formatAuditHashComparison("上一哈希", expectedPreviousSha256, actualPreviousSha256),
+                formatAuditHashComparison("记录哈希", expectedRecordSha256, actualRecordSha256),
+            ].filter(Boolean).join("，");
+            lines.push(`${index + 1}. ${code}${line ? ` @${line}` : ""}${location ? ` ${location}` : ""}${details ? ` - ${details}` : ""}`);
+        });
+
+        const remainingFindings = Math.max(0, findings.length - listedFindings.length);
+        if (remainingFindings > 0) {
+            lines.push(`其余异常: ${remainingFindings} 条未列出`);
+        }
+
+        return lines.join("\n");
     }
 
     function createTracePagerState() {
@@ -118,6 +350,21 @@
         if (value === undefined || value === null || value === "") return null;
         const numberValue = Number(value);
         return Number.isFinite(numberValue) ? numberValue : null;
+    }
+
+    function toPositiveInteger(value) {
+        const numberValue = Number(value);
+        return Number.isInteger(numberValue) && numberValue > 0 ? numberValue : null;
+    }
+
+    function readManualReviewExpectedRevision() {
+        const raw = String(byId("manual-review-expected-revision")?.value || "").trim();
+        if (!raw) return { isValid: true, value: null };
+
+        const revision = Number(raw);
+        return Number.isInteger(revision) && revision >= 0
+            ? { isValid: true, value: revision }
+            : { isValid: false, value: null };
     }
 
     const TRACE_DATE_ITEM_CLASS = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
@@ -177,6 +424,110 @@
 
         if (prevButton) prevButton.disabled = !canGoPrev;
         if (nextButton) nextButton.disabled = !canGoNext;
+    }
+
+    function sendHistoryCommand(cmd, value = null, onFailure = null, failureMessage = HistoryBridgeErrorMessage) {
+        try {
+            const requestId = bridge?.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            return requestId;
+        } catch (error) {
+            console.error(`History command failed: ${cmd}`, error);
+            window.showToast?.(failureMessage, "error", 1800);
+            if (typeof onFailure === "function") onFailure(error);
+            return "";
+        }
+    }
+
+    function setLogHistoryFailure(message = HistoryBridgeErrorMessage) {
+        const tbody = byId("log-history-table");
+        const badge = byId("log-count-badge");
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="3" class="px-4 py-10 text-center text-rouge-600 italic">${escapeHtml(message)}</td></tr>`;
+        }
+        if (badge) badge.textContent = "0 条";
+    }
+
+    function setStatisticsHistoryFailure(message = HistoryBridgeErrorMessage) {
+        const table = byId("statistics-history-table");
+        if (table) {
+            table.innerHTML = `<tr><td colspan="5" class="px-4 py-10 text-center text-rouge-600 italic">${escapeHtml(message)}</td></tr>`;
+        }
+    }
+
+    function setTraceArchiveFailure(message = TraceBridgeErrorMessage) {
+        const dateList = byId("ng-date-list");
+        const hourList = byId("ng-hour-list");
+        const grid = byId("ng-image-grid");
+        const badge = byId("gallery-count");
+        const status = byId("trace-page-status");
+
+        resetTracePagerState();
+        if (dateList) dateList.innerHTML = `<div class="text-[10px] text-rouge-600 p-4 text-center italic font-serif">${escapeHtml(message)}</div>`;
+        if (hourList) hourList.innerHTML = "";
+        if (grid) grid.innerHTML = `<div class="cf-trace-empty text-rouge-600">${escapeHtml(message)}</div>`;
+        if (badge) badge.textContent = "0 条";
+        if (status) status.textContent = message;
+    }
+
+    function setTraceHourFailure(message = TraceBridgeErrorMessage) {
+        const hourList = byId("ng-hour-list");
+        const grid = byId("ng-image-grid");
+        const status = byId("trace-page-status");
+
+        resetTracePagerState();
+        if (hourList) hourList.innerHTML = `<div class="text-[10px] text-rouge-600 italic px-4 py-2 font-serif">${escapeHtml(message)}</div>`;
+        if (grid) grid.innerHTML = `<div class="cf-trace-empty text-rouge-600">${escapeHtml(message)}</div>`;
+        if (status) status.textContent = message;
+    }
+
+    function showTraceLoadFailure(message) {
+        const text = message || TraceBridgeErrorMessage;
+        tracePagerState.pendingDirection = "";
+        tracePagerState.pendingRequestId = TraceCommandFailedRequestId;
+
+        const activePage = getActiveTracePage();
+        if (activePage) {
+            renderTracePage(activePage);
+        } else {
+            updateTracePaginationUi();
+            const grid = byId("ng-image-grid");
+            const badge = byId("gallery-count");
+            if (grid) grid.innerHTML = `<div class="cf-trace-empty text-rouge-600">${escapeHtml(text)}</div>`;
+            if (badge) badge.textContent = "0 条";
+        }
+
+        const status = byId("trace-page-status");
+        if (status) status.textContent = text;
+        window.showToast?.(text, "error", 1800);
+    }
+
+    function sendTraceCommand(cmd, value, onFailure) {
+        try {
+            const requestId = bridge?.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            return requestId;
+        } catch (error) {
+            console.error(`Trace command failed: ${cmd}`, error);
+            if (typeof onFailure === "function") onFailure(error);
+            return TraceCommandFailedRequestId;
+        }
+    }
+
+    function getTraceMessageRequestId(data, message) {
+        return message?.requestId || message?.RequestId || data?.requestId || data?.RequestId || "";
+    }
+
+    function isStaleTraceResponse(requestId) {
+        const pendingId = String(tracePagerState.pendingRequestId || "").trim();
+        return !pendingId ||
+            !requestId ||
+            requestId !== pendingId ||
+            requestId === tracePagerState.lastHandledRequestId;
     }
 
     function renderTracePage(page) {
@@ -283,8 +634,13 @@
 
         setTraceLoadingState(true);
         tracePagerState.pendingDirection = direction;
-        tracePagerState.pendingRequestId = bridge.sendCommand("get_ng_images", payload);
-        updateTracePaginationUi();
+        const requestId = sendTraceCommand("get_ng_images", payload, () => {
+            showTraceLoadFailure(TraceBridgeErrorMessage);
+        });
+        tracePagerState.pendingRequestId = requestId;
+        if (requestId !== TraceCommandFailedRequestId) {
+            updateTracePaginationUi();
+        }
     }
 
     function loadPreviousTracePage() {
@@ -315,7 +671,7 @@
     function openLogHistoryModal() {
         byId("log-history-modal")?.classList.remove("hidden");
         syncLogHistoryChrome();
-        bridge.sendCommand("get_detection_logs");
+        sendHistoryCommand("get_detection_logs", null, () => setLogHistoryFailure());
     }
 
     function syncTraceControls() {
@@ -368,7 +724,9 @@
         resetTracePagerState();
         const badge = byId("gallery-count");
         if (badge) badge.textContent = "0 条";
-        bridge.sendCommand("get_ng_dates");
+        const dateList = byId("ng-date-list");
+        if (dateList) dateList.innerHTML = '<div class="text-[10px] text-ink-300 p-4 text-center italic font-serif opacity-50">读取中...</div>';
+        sendHistoryCommand("get_ng_dates", null, () => setTraceArchiveFailure(), TraceBridgeErrorMessage);
     }
 
     function closeGalleryModal() {
@@ -377,7 +735,7 @@
 
     function openStatisticsHistoryModal() {
         byId("statistics-history-modal")?.classList.remove("hidden");
-        requestStatisticsHistory(30);
+        requestStatisticsHistory(StatisticsHistoryDefaultDays);
     }
 
     function closeStatisticsHistoryModal() {
@@ -385,9 +743,19 @@
     }
 
     function requestStatisticsHistory(days) {
+        const requestedDays = normalizeStatisticsHistoryDays(days);
         const table = byId("statistics-history-table");
         if (table) table.innerHTML = '<tr><td colspan="5" class="text-center py-8">加载中...</td></tr>';
-        bridge.sendCommand("get_statistics_history", days);
+        sendHistoryCommand("get_statistics_history", requestedDays, () => setStatisticsHistoryFailure());
+    }
+
+    function normalizeStatisticsHistoryDays(days) {
+        const value = Number.parseInt(days, 10);
+        if (!Number.isFinite(value) || value <= 0) {
+            return StatisticsHistoryDefaultDays;
+        }
+
+        return Math.min(value, StatisticsHistoryMaxDays);
     }
 
     function closeImageViewer() {
@@ -424,7 +792,7 @@
 
     function updateDetectionLogTable(data) {
         if (data === undefined) {
-            bridge.sendCommand("get_detection_logs");
+            sendHistoryCommand("get_detection_logs", null, () => setLogHistoryFailure());
             return;
         }
         const logs = Array.isArray(data) ? data : (data?.logs || data?.Logs || []);
@@ -466,117 +834,375 @@
         return {
             startTime: byId("audit-start-time")?.value || "",
             endTime: byId("audit-end-time")?.value || "",
-            operation: byId("audit-operation-filter")?.value || "",
+            operation: normalizeAuditOperationFilter(byId("audit-operation-filter")?.value),
             operatorId: byId("audit-operator-filter")?.value || "",
+            role: byId("audit-role-filter")?.value || "",
             status: byId("audit-status-filter")?.value || "",
+            failureReason: byId("audit-failure-filter")?.value || "",
             limit: 500,
         };
     }
 
+    function parseAuditDateValue(value) {
+        const text = String(value || "").trim();
+        if (!text) return null;
+
+        const timestamp = Date.parse(text);
+        return Number.isFinite(timestamp) ? timestamp : null;
+    }
+
+    function validateAuditQuery(query) {
+        const startText = query?.startTime || query?.StartTime || "";
+        const endText = query?.endTime || query?.EndTime || "";
+        const startTime = parseAuditDateValue(startText);
+        const endTime = parseAuditDateValue(endText);
+        if (String(startText).trim() && startTime === null) {
+            return "开始时间格式无效";
+        }
+
+        if (String(endText).trim() && endTime === null) {
+            return "结束时间格式无效";
+        }
+
+        if (startTime !== null && endTime !== null && startTime > endTime) {
+            return "开始时间不能晚于结束时间";
+        }
+
+        return "";
+    }
+
+    function buildAuditFilterSummary(query) {
+        const source = query || buildAuditQuery();
+        const startTime = source.startTime || source.StartTime || "";
+        const endTime = source.endTime || source.EndTime || "";
+        const operation = normalizeAuditOperationFilter(source.operation || source.Operation || "");
+        const operatorId = source.operatorId || source.OperatorId || "";
+        const role = source.role || source.Role || "";
+        const status = source.status || source.Status || "";
+        const failureReason = source.failureReason || source.FailureReason || "";
+        const filters = [];
+
+        if (startTime || endTime) {
+            filters.push(`时间 ${startTime || "-"} 至 ${endTime || "-"}`);
+        }
+
+        if (operation) {
+            filters.push(`操作 ${formatAuditOperation(operation) || operation}`);
+        }
+
+        if (operatorId) {
+            filters.push(`操作员 ${operatorId}`);
+        }
+
+        if (role) {
+            filters.push(`角色 ${formatProductionRole(role) || role}`);
+        }
+
+        if (status) {
+            filters.push(`状态 ${formatAuditStatus(status) || status}`);
+        }
+
+        if (failureReason) {
+            filters.push(`失败原因 ${failureReason}`);
+        }
+
+        return filters.join("，");
+    }
+
     function openAuditModal() {
         byId("audit-modal")?.classList.remove("hidden");
+        resetAuditModalSessionState();
         queryAuditRecords();
         verifyAuditChain();
     }
 
     function closeAuditModal() {
         byId("audit-modal")?.classList.add("hidden");
+        pendingAuditRecordsRequestId = "__audit_modal_closed_records__";
+        pendingAuditExportRequestId = "__audit_modal_closed_export__";
+        pendingAuditChainRequestId = "__audit_modal_closed_chain__";
     }
 
-    function setAuditError(message) {
+    function isAuditModalOpen() {
+        const modal = byId("audit-modal");
+        return Boolean(modal && !modal.classList.contains("hidden"));
+    }
+
+    function resetAuditModalSessionState() {
+        auditErrorSource = "";
+        pendingAuditRecordsRequestId = "__audit_modal_open_records__";
+        pendingAuditExportRequestId = "__audit_modal_open_export__";
+        pendingAuditChainRequestId = "__audit_modal_open_chain__";
+        setAuditError("");
+        setAuditExportPath("");
+    }
+
+    function setAuditError(message, source = "") {
         const node = byId("audit-error");
         if (!node) return;
-        node.textContent = message || "";
-        node.classList.toggle("hidden", !message);
+        const text = String(message || "");
+        if (!text && source && auditErrorSource && auditErrorSource !== source) return;
+        auditErrorSource = text ? (source || "general") : "";
+        node.textContent = text;
+        node.classList.toggle("hidden", !text);
+    }
+
+    function setAuditCountBadge(text) {
+        const badge = byId("audit-count-badge");
+        if (badge) badge.textContent = text || "0 条";
+    }
+
+    function setAuditExportPath(text, title = "") {
+        const node = byId("audit-export-path");
+        if (node) {
+            node.textContent = text || "";
+            node.title = title || text || "";
+        }
+        if (!text) lastAuditExportPath = "";
+    }
+
+    function getMessageRequestId(message) {
+        return message?.requestId || message?.RequestId || "";
+    }
+
+    function isLocalAuditResponse(message) {
+        return message?.local === true || message?.Local === true;
+    }
+
+    function isStaleAuditResponse(message, pendingRequestId) {
+        if (isLocalAuditResponse(message)) return false;
+        const pendingId = String(pendingRequestId || "").trim();
+        if (!pendingId) return true;
+        const requestId = getMessageRequestId(message);
+        if (!requestId) return true;
+        return requestId !== pendingId;
+    }
+
+    function getAuditCommandErrorSource(cmd) {
+        if (cmd === "query_audit_records") return "auditRecords";
+        if (cmd === "export_audit_records") return "auditExport";
+        if (cmd === "verify_audit_chain") return "auditChainVerification";
+        return cmd || "general";
+    }
+
+    function sendAuditCommand(cmd, value, onFailure) {
+        try {
+            const requestId = bridge?.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            return requestId;
+        } catch (error) {
+            console.error(`Audit command failed: ${cmd}`, error);
+            setAuditError(AuditBridgeErrorMessage, getAuditCommandErrorSource(cmd));
+            window.showToast?.(AuditBridgeErrorMessage, "error", 1800);
+            if (typeof onFailure === "function") onFailure(error);
+            return "__audit_command_failed__";
+        }
     }
 
     function queryAuditRecords() {
-        setAuditError("");
+        const query = buildAuditQuery();
+        const validationError = validateAuditQuery(query);
+        if (validationError) {
+            pendingAuditRecordsRequestId = "__invalid_audit_records_request__";
+            setAuditError(validationError, "auditRecords");
+            setAuditCountBadge("0 条");
+            setAuditExportPath("");
+            const tbody = byId("audit-table");
+            if (tbody) {
+                tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-10 text-center text-amber-600 italic">${escapeHtml(validationError)}<div class="mt-2 text-[10px] text-slate-400 not-italic">请调整时间范围后再查询</div></td></tr>`;
+            }
+            return;
+        }
+
+        setAuditError("", "auditRecords");
         const tbody = byId("audit-table");
+        setAuditCountBadge("加载中");
+        setAuditExportPath("");
         if (tbody) {
             tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">正在加载审计记录...</td></tr>';
         }
-        bridge.sendCommand("query_audit_records", buildAuditQuery());
+        pendingAuditRecordsRequestId = sendAuditCommand("query_audit_records", query, () => {
+            setAuditCountBadge("0 条");
+            setAuditExportPath("");
+            if (tbody) {
+                tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-10 text-center text-rouge-600 italic">审计查询失败<div class="mt-2 text-[10px] text-slate-400 not-italic">${escapeHtml(AuditBridgeErrorMessage)}</div></td></tr>`;
+            }
+        });
+    }
+
+    function clearAuditFilters() {
+        ["audit-start-time", "audit-end-time", "audit-operation-filter", "audit-operator-filter", "audit-role-filter", "audit-status-filter", "audit-failure-filter"]
+            .forEach((id) => {
+                const node = byId(id);
+                if (node) node.value = "";
+            });
+        queryAuditRecords();
     }
 
     function exportAuditRecords() {
-        setAuditError("");
-        bridge.sendCommand("export_audit_records", buildAuditQuery());
-    }
-
-    function verifyAuditChain() {
-        setAuditError("");
-        const badge = byId("audit-chain-badge");
-        if (badge) {
-            badge.textContent = "校验中";
-            badge.className = "px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-bold";
+        const query = buildAuditQuery();
+        const validationError = validateAuditQuery(query);
+        if (validationError) {
+            pendingAuditExportRequestId = "__invalid_audit_export_request__";
+            setAuditError(validationError, "auditExport");
+            setAuditExportPath("");
+            return;
         }
-        bridge.sendCommand("verify_audit_chain", {});
+
+        setAuditError("", "auditExport");
+        lastAuditExportPath = "";
+        setAuditExportPath("正在导出审计 CSV...");
+        pendingAuditExportRequestId = sendAuditCommand("export_audit_records", query, () => {
+            setAuditExportPath("");
+        });
     }
 
-    function updateAuditChainVerification(data) {
-        const error = data?.error || data?.Error || "";
-        const status = String(data?.status || data?.Status || (error ? "Unavailable" : "Unknown"));
-        const totalRecords = data?.totalRecords ?? data?.TotalRecords ?? 0;
-        const verifiedRecords = data?.verifiedRecords ?? data?.VerifiedRecords ?? 0;
-        const findingCount = data?.findingCount ?? data?.FindingCount ?? 0;
-        const lastHash = data?.lastRecordSha256 || data?.LastRecordSha256 || "";
-        const findings = Array.isArray(data?.findings) ? data.findings : (data?.Findings || []);
+    function resetAuditChainVerificationState() {
+        lastAuditChainVerification = null;
         const badge = byId("audit-chain-badge");
         const countNode = byId("audit-chain-count");
         const findingNode = byId("audit-chain-findings");
         const hashNode = byId("audit-chain-last-hash");
         const messageNode = byId("audit-chain-message");
 
-        const statusClass = status === "Healthy"
-            ? "bg-bamboo-50 text-bamboo-700 border border-bamboo-100"
-            : status === "Warning"
-                ? "bg-amber-50 text-amber-700 border border-amber-100"
-                : "bg-rouge-50 text-rouge-700 border border-rouge-100";
+        if (badge) {
+            badge.textContent = "校验中";
+            badge.className = "px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-bold";
+        }
+        if (countNode) countNode.textContent = "已验证 -/-";
+        if (findingNode) findingNode.textContent = "异常 -";
+        if (hashNode) {
+            hashNode.textContent = "最后 -";
+            hashNode.title = "";
+        }
+        if (messageNode) {
+            messageNode.textContent = "";
+            messageNode.title = "";
+        }
+    }
+
+    function verifyAuditChain() {
+        setAuditError("", "auditChainVerification");
+        resetAuditChainVerificationState();
+        pendingAuditChainRequestId = sendAuditCommand("verify_audit_chain", {}, () => {
+            updateAuditChainVerification({
+                status: "Unavailable",
+                checkedAt: new Date().toISOString(),
+                totalRecords: 0,
+                verifiedRecords: 0,
+                findingCount: 1,
+                lastRecordSha256: "",
+                findings: [{
+                    severity: "Blocking",
+                    errorCode: "AuditBridgeUnavailable",
+                    message: AuditBridgeErrorMessage,
+                }],
+                error: AuditBridgeErrorMessage,
+            }, { local: true });
+        });
+    }
+
+    async function copyAuditChainSummary() {
+        if (!lastAuditChainVerification) {
+            window.showToast?.("请先校验审计链", "warning", 1400);
+            return;
+        }
+
+        try {
+            await writeClipboardText(buildAuditChainSummaryText(lastAuditChainVerification));
+            window.showToast?.("审计链摘要已复制", "success", 1600);
+        } catch {
+            window.showToast?.("复制失败，请手动记录审计链摘要", "error", 1800);
+        }
+    }
+
+    function updateAuditChainVerification(data, message) {
+        if (!isAuditModalOpen()) {
+            return;
+        }
+
+        if (isStaleAuditResponse(message, pendingAuditChainRequestId)) {
+            return;
+        }
+
+        lastAuditChainVerification = data || {};
+        const error = data?.error || data?.Error || "";
+        const status = String(data?.status || data?.Status || (error ? "Unavailable" : "Unknown"));
+        const totalRecords = data?.totalRecords ?? data?.TotalRecords ?? 0;
+        const verifiedRecords = data?.verifiedRecords ?? data?.VerifiedRecords ?? 0;
+        const findingCount = data?.findingCount ?? data?.FindingCount ?? 0;
+        const lastHash = data?.lastRecordSha256 || data?.LastRecordSha256 || "";
+        const findings = getAuditChainFindings(data);
+        const badge = byId("audit-chain-badge");
+        const countNode = byId("audit-chain-count");
+        const findingNode = byId("audit-chain-findings");
+        const hashNode = byId("audit-chain-last-hash");
+        const messageNode = byId("audit-chain-message");
+
+        const statusClass = getAuditChainStatusClass(status);
 
         if (badge) {
-            badge.textContent = status;
+            badge.textContent = formatAuditChainStatus(status) || status;
             badge.className = `px-2 py-0.5 rounded-full font-bold ${statusClass}`;
         }
-        if (countNode) countNode.textContent = `Verified ${verifiedRecords}/${totalRecords}`;
-        if (findingNode) findingNode.textContent = `Findings ${findingCount}`;
+        if (countNode) countNode.textContent = `已验证 ${verifiedRecords}/${totalRecords}`;
+        if (findingNode) findingNode.textContent = `异常 ${findingCount}`;
         if (hashNode) {
-            hashNode.textContent = `Last ${shortAuditHash(lastHash) || "-"}`;
+            hashNode.textContent = `最后 ${shortAuditHash(lastHash) || "-"}`;
             hashNode.title = lastHash || "";
         }
         if (messageNode) {
             const firstFinding = findings[0] || {};
-            const summary = firstFinding.errorCode || firstFinding.ErrorCode || error || "";
-            const line = firstFinding.lineNumber || firstFinding.LineNumber || "";
-            messageNode.textContent = summary ? `${summary}${line ? ` @${line}` : ""}` : "";
+            const hint = formatAuditChainFindingHint(firstFinding, error);
+            messageNode.textContent = hint;
+            messageNode.title = formatAuditChainFindingHint(firstFinding, error, true);
         }
         if (error) {
-            setAuditError(error);
+            setAuditError(error, "auditChainVerification");
+        } else {
+            setAuditError("", "auditChainVerification");
         }
     }
 
-    function updateAuditRecords(data) {
+    function updateAuditRecords(data, message) {
+        if (!isAuditModalOpen()) {
+            return;
+        }
+
+        if (isStaleAuditResponse(message, pendingAuditRecordsRequestId)) {
+            return;
+        }
+
         const records = Array.isArray(data) ? data : (data?.records || data?.Records || []);
         const error = data?.error || data?.Error || "";
         const tbody = byId("audit-table");
-        const badge = byId("audit-count-badge");
         if (!tbody) return;
 
         if (error) {
-            setAuditError(error);
+            setAuditError(error, "auditRecords");
+            setAuditCountBadge("0 条");
+            setAuditExportPath("");
+            tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-10 text-center text-rouge-600 italic">审计查询失败<div class="mt-2 text-[10px] text-slate-400 not-italic">${escapeHtml(error)}</div></td></tr>`;
+            return;
         }
 
-        if (badge) badge.textContent = `${records.length} 条`;
+        setAuditError("", "auditRecords");
+        setAuditCountBadge(`${records.length} 条`);
         if (!records.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">未匹配到审计记录</td></tr>';
+            const filterSummary = buildAuditFilterSummary(data?.query || data?.Query);
+            const title = filterSummary ? "未匹配到审计记录" : "暂无审计记录";
+            const detail = filterSummary
+                ? `<div class="mt-2 text-[10px] text-slate-400 not-italic">当前筛选：${escapeHtml(filterSummary)}</div>`
+                : "";
+            tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">${escapeHtml(title)}${detail}</td></tr>`;
             return;
         }
 
         tbody.innerHTML = records.map((record) => {
             const status = String(record.status || "");
-            const statusClass = status === "Failed" || status === "Denied"
-                ? "bg-rouge-50 text-rouge-600 border-rouge-200"
-                : "bg-bamboo-50 text-bamboo-600 border-bamboo-200";
+            const statusClass = getAuditRecordStatusClass(status);
             return `
                 <tr class="hover:bg-slate-50 transition-colors">
                     <td class="px-3 py-3 whitespace-nowrap">${escapeHtml(record.timestamp || "-")}</td>
@@ -593,17 +1219,48 @@
         }).join("");
     }
 
-    function updateAuditExport(data) {
-        const error = data?.error || data?.Error || "";
-        const path = data?.path || data?.Path || "";
-        if (error) {
-            setAuditError(error);
+    function updateAuditExport(data, message) {
+        if (!isAuditModalOpen()) {
             return;
         }
 
-        const node = byId("audit-export-path");
-        if (node) node.textContent = path ? `已导出: ${path}` : "";
+        if (isStaleAuditResponse(message, pendingAuditExportRequestId)) {
+            return;
+        }
+
+        const error = data?.error || data?.Error || "";
+        const path = String(data?.path || data?.Path || "").trim();
+        if (error) {
+            setAuditError(error, "auditExport");
+            setAuditExportPath("");
+            return;
+        }
+
+        if (!path) {
+            setAuditError(AuditExportEmptyPathMessage, "auditExport");
+            setAuditExportPath("");
+            return;
+        }
+
+        setAuditError("", "auditExport");
+        lastAuditExportPath = path;
+        setAuditExportPath(`已导出: ${path}`, path);
         window.showToast?.("审计 CSV 已导出", "success", 1600);
+    }
+
+    async function copyAuditExportPath() {
+        const path = String(lastAuditExportPath || "").trim();
+        if (!path) {
+            window.showToast?.("请先导出审计 CSV", "warning", 1400);
+            return;
+        }
+
+        try {
+            await writeClipboardText(path);
+            window.showToast?.("审计导出路径已复制", "success", 1600);
+        } catch {
+            window.showToast?.("复制失败，请手动记录导出路径", "error", 1800);
+        }
     }
 
     function updateNGDates(data) {
@@ -615,16 +1272,22 @@
                 resetTracePagerState();
                 if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
                 if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
-                bridge.sendCommand("get_ng_hours", selectedDate);
+                sendHistoryCommand("get_ng_hours", selectedDate, () => setTraceHourFailure(), TraceBridgeErrorMessage);
             } else {
-                bridge.sendCommand("get_ng_dates");
+                sendHistoryCommand("get_ng_dates", null, () => setTraceArchiveFailure(), TraceBridgeErrorMessage);
             }
             return;
         }
         const dates = Array.isArray(data) ? data : (data?.dates || data?.Dates || []);
+        const error = Array.isArray(data) ? "" : (data?.error || data?.Error || "");
         const list = byId("ng-date-list");
         if (!list) return;
         list.innerHTML = "";
+
+        if (error) {
+            setTraceArchiveFailure(error);
+            return;
+        }
 
         if (!dates.length) {
             list.innerHTML = '<div class="text-[10px] text-ink-300 p-4 text-center italic font-serif opacity-50">暂无历史存根</div>';
@@ -646,7 +1309,7 @@
                 resetTracePagerState();
                 if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
                 if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
-                bridge.sendCommand("get_ng_hours", date);
+                sendHistoryCommand("get_ng_hours", date, () => setTraceHourFailure(), TraceBridgeErrorMessage);
             };
             div.onclick = selectDate;
             div.onkeydown = (event) => {
@@ -669,6 +1332,7 @@
 
     function updateNGHours(data) {
         const hours = Array.isArray(data) ? data : (data?.hours || data?.Hours || []);
+        const error = Array.isArray(data) ? "" : (data?.error || data?.Error || "");
         const list = byId("ng-hour-list");
         if (!list) return;
         list.innerHTML = "";
@@ -676,6 +1340,12 @@
         if (hourSelect) {
             hourSelect.innerHTML = "";
             delete hourSelect.dataset.synced;
+        }
+
+        if (error) {
+            if (hourSelect) hourSelect.innerHTML = '<option value="">全部时段</option>';
+            setTraceHourFailure(error);
+            return;
         }
 
         if (!hours.length) {
@@ -969,12 +1639,14 @@
             message: "正在用当前规则复判历史图...",
         });
 
-        bridge.sendCommand("run_history_rule_preview", {
+        sendHistoryCommand("run_history_rule_preview", {
             inspectionId: normalized.inspectionId || "",
             timestamp: normalized.timestamp || "",
             imagePath,
             renderedImagePath,
             ruleSetJson: getCurrentRuleSetJson(),
+        }, () => {
+            setHistoryRulePreviewStatus({ status: "failed", message: HistoryBridgeErrorMessage });
         });
     }
 
@@ -1056,14 +1728,15 @@
     }
 
     function updateNGImages(data, message) {
-        const requestId = message?.requestId || data?.requestId || data?.RequestId || "";
-        if (
-            requestId &&
-            (
-                requestId !== tracePagerState.pendingRequestId ||
-                requestId === tracePagerState.lastHandledRequestId
-            )
-        ) {
+        const requestId = getTraceMessageRequestId(data, message);
+        if (isStaleTraceResponse(requestId)) {
+            return;
+        }
+
+        const error = data?.error || data?.Error || "";
+        if (error) {
+            showTraceLoadFailure(error);
+            tracePagerState.lastHandledRequestId = requestId || tracePagerState.lastHandledRequestId;
             return;
         }
 
@@ -1084,9 +1757,9 @@
     }
 
     function getReplayLimit() {
-        const raw = Number(byId("replay-query-limit")?.value || 100);
-        if (!Number.isFinite(raw)) return 100;
-        return Math.max(1, Math.min(10000, Math.trunc(raw)));
+        const raw = Number(byId("replay-query-limit")?.value || ReplayDefaultQueryLimit);
+        if (!Number.isFinite(raw)) return ReplayDefaultQueryLimit;
+        return Math.max(1, Math.min(ReplayMaxQueryLimit, Math.trunc(raw)));
     }
 
     function getReplayPanelPayload() {
@@ -1105,12 +1778,107 @@
         if (node) node.textContent = text || "";
     }
 
+    function sendReplayCommand(cmd, value, statusId, pendingText, failureText) {
+        const requestId = sendHistoryCommand(cmd, value, () => {
+            setReplayPanelStatus(statusId, `${failureText}：${ReplayBridgeErrorMessage}`);
+        }, ReplayBridgeErrorMessage);
+
+        if (requestId) {
+            pendingReplayRequests.set(requestId, { statusId, failureText });
+            setReplayPanelStatus(statusId, `${pendingText} ${requestId}`);
+        }
+
+        return requestId;
+    }
+
+    function getCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || HistoryBridgeErrorMessage,
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function updateAuditChainCommandError(message, requestId) {
+        updateAuditChainVerification({
+            status: "Unavailable",
+            totalRecords: 0,
+            verifiedRecords: 0,
+            findingCount: 1,
+            lastRecordSha256: "",
+            findings: [{
+                severity: "Blocking",
+                errorCode: "CommandError",
+                message,
+            }],
+            error: message,
+        }, { requestId });
+    }
+
+    function handleHistoryCommandError(event) {
+        const { cmd, message, requestId } = getCommandErrorDetail(event);
+        if (!cmd) return;
+
+        if (cmd === "get_detection_logs") {
+            setLogHistoryFailure(message);
+            return;
+        }
+
+        if (cmd === "get_statistics_history") {
+            setStatisticsHistoryFailure(message);
+            return;
+        }
+
+        if (cmd === "get_ng_dates") {
+            setTraceArchiveFailure(message);
+            return;
+        }
+
+        if (cmd === "get_ng_hours") {
+            setTraceHourFailure(message);
+            return;
+        }
+
+        if (cmd === "get_ng_images" && requestId && requestId === tracePagerState.pendingRequestId) {
+            showTraceLoadFailure(message);
+            return;
+        }
+
+        if (cmd === "query_audit_records") {
+            updateAuditRecords({ records: [], error: message }, { requestId });
+            return;
+        }
+
+        if (cmd === "export_audit_records") {
+            updateAuditExport({ path: "", error: message }, { requestId });
+            return;
+        }
+
+        if (cmd === "verify_audit_chain") {
+            updateAuditChainCommandError(message, requestId);
+            return;
+        }
+
+        if (cmd === "run_history_rule_preview") {
+            setHistoryRulePreviewStatus({ status: "failed", message });
+            return;
+        }
+
+        const replayRequest = requestId ? pendingReplayRequests.get(requestId) : null;
+        if (replayRequest) {
+            setReplayPanelStatus(replayRequest.statusId, `${replayRequest.failureText}：${message}`);
+            pendingReplayRequests.delete(requestId);
+        }
+    }
+
     function queryManualReviewRecords() {
-        const requestId = bridge.sendCommand("query_manual_review_records", {
+        sendReplayCommand("query_manual_review_records", {
             limit: getReplayLimit(),
             recipeVersion: activeTraceRecord?.recipeVersion || "",
-        });
-        setReplayPanelStatus("manual-review-response", `查询中 ${requestId}`);
+        }, "manual-review-response", "查询中", "查询失败");
     }
 
     function saveManualReview() {
@@ -1120,87 +1888,90 @@
             return;
         }
 
-        const revisionRaw = String(byId("manual-review-expected-revision")?.value || "").trim();
-        const requestId = bridge.sendCommand("save_manual_review", {
-            detectionRecordId: activeTraceRecord?.detectionRecordId || 0,
+        const detectionRecordId = toPositiveInteger(activeTraceRecord?.detectionRecordId);
+        if (detectionRecordId === null) {
+            window.showToast?.("当前追溯记录缺少数据库记录编号，无法保存真值", "warning", 1800);
+            return;
+        }
+
+        const expectedRevision = readManualReviewExpectedRevision();
+        if (!expectedRevision.isValid) {
+            window.showToast?.("复核版本号必须是非负整数", "warning", 1800);
+            return;
+        }
+
+        sendReplayCommand("save_manual_review", {
+            detectionRecordId,
             inspectionId,
             sampleId: inspectionId,
             groundTruth: byId("manual-review-ground-truth-input")?.value || "OK",
             disposition: byId("manual-review-disposition-input")?.value || "Confirmed",
-            expectedRevision: revisionRaw ? Number(revisionRaw) : null,
+            expectedRevision: expectedRevision.value,
             notes: String(byId("manual-review-notes")?.value || "").trim(),
-        });
-        setReplayPanelStatus("manual-review-response", `保存中 ${requestId}`);
+        }, "manual-review-response", "保存中", "保存失败");
     }
 
     function createReplayDataset() {
         const payload = getReplayPanelPayload();
-        const requestId = bridge.sendCommand("create_replay_dataset", payload);
-        setReplayPanelStatus("replay-run-status", `生成验证样本集 ${requestId}`);
+        sendReplayCommand("create_replay_dataset", payload, "replay-run-status", "生成验证样本集", "生成失败");
     }
 
     function previewReplayDataset() {
         const payload = getReplayPanelPayload();
-        const requestId = bridge.sendCommand("preview_replay_dataset", payload);
-        setReplayPanelStatus("replay-run-status", `预览中 ${requestId}`);
+        sendReplayCommand("preview_replay_dataset", payload, "replay-run-status", "预览中", "预览失败");
     }
 
     function queryReplayDatasets() {
-        const requestId = bridge.sendCommand("query_replay_datasets", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `查询数据集 ${requestId}`);
+        sendReplayCommand("query_replay_datasets", getReplayPanelPayload(), "replay-run-status", "查询数据集", "查询失败");
     }
 
     function archiveReplayDataset() {
-        const requestId = bridge.sendCommand("archive_replay_dataset", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `归档中 ${requestId}`);
+        sendReplayCommand("archive_replay_dataset", getReplayPanelPayload(), "replay-run-status", "归档中", "归档失败");
     }
 
     function runReplayComparison() {
         const payload = getReplayPanelPayload();
-        const requestId = bridge.sendCommand("run_replay_comparison", payload);
-        setReplayPanelStatus("replay-run-status", `对比新旧模型 ${requestId}`);
+        sendReplayCommand("run_replay_comparison", payload, "replay-run-status", "对比新旧模型", "对比失败");
     }
 
     function cancelReplayRun() {
-        const requestId = bridge.sendCommand("cancel_replay_run", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `正在取消 ${requestId}`);
+        sendReplayCommand("cancel_replay_run", getReplayPanelPayload(), "replay-run-status", "正在取消", "取消失败");
     }
 
     function queryReplayRuns() {
-        const requestId = bridge.sendCommand("query_replay_runs", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `查询运行记录 ${requestId}`);
+        sendReplayCommand("query_replay_runs", getReplayPanelPayload(), "replay-run-status", "查询运行记录", "查询失败");
     }
 
     function queryReplayReport() {
-        const requestId = bridge.sendCommand("query_replay_report", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `生成报告 ${requestId}`);
+        sendReplayCommand("query_replay_report", getReplayPanelPayload(), "replay-run-status", "生成报告", "生成失败");
     }
 
     function queryModelApprovalEvidence() {
-        const requestId = bridge.sendCommand("query_model_approval_evidence", getReplayPanelPayload());
-        setReplayPanelStatus("replay-approval-status", `查询验证记录 ${requestId}`);
+        sendReplayCommand("query_model_approval_evidence", getReplayPanelPayload(), "replay-approval-status", "查询验证记录", "查询失败");
     }
 
     function runReplayIntegrityScan() {
-        const requestId = bridge.sendCommand("run_replay_integrity_scan", getReplayPanelPayload());
-        setReplayPanelStatus("replay-approval-status", `扫描中 ${requestId}`);
+        sendReplayCommand("run_replay_integrity_scan", getReplayPanelPayload(), "replay-approval-status", "扫描中", "扫描失败");
     }
 
     function approveReplayCandidate() {
         const payload = getReplayPanelPayload();
-        const requestId = bridge.sendCommand("approve_replay_candidate", payload);
-        setReplayPanelStatus("replay-approval-status", `确认上线 ${requestId}`);
+        sendReplayCommand("approve_replay_candidate", payload, "replay-approval-status", "确认上线", "确认上线失败");
     }
 
     Object.assign(window, {
         closeGalleryModal,
         closeImageViewer,
         closeAuditModal,
+        clearAuditFilters,
+        copyAuditChainSummary,
+        copyAuditExportPath,
         closeLogHistoryModal,
         closeStatisticsHistoryModal,
         exportAuditRecords,
         verifyAuditChain,
         openGalleryModal,
+        openTraceViewer,
         openAuditModal,
         openLogHistoryModal,
         openStatisticsHistoryModal,
@@ -1244,4 +2015,5 @@
     bridge.registerMessageHandler("historyHours", updateNGHours);
     bridge.registerMessageHandler("historyImages", updateNGImages);
     bridge.registerMessageHandler("historyRulePreview", updateHistoryRulePreview);
+    window.addEventListener("cf-command-error", handleHistoryCommandError);
 })();

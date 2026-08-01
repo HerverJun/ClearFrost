@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using ClearFrost.Config;
+using ClearFrost.Core.DeepLearning;
 using ClearFrost.Core.Models;
 using ClearFrost.Core.Recipes;
 using ClearFrost.Interfaces;
@@ -599,7 +600,13 @@ namespace ClearFrost.Services
                     continue;
                 }
 
-                bool loaded = await LoadResolvedSlotAsync(candidate.Role, candidate.ModelPath, useGpu, gpuIndex, cancellationToken)
+                bool loaded = await LoadResolvedSlotAsync(
+                        candidate.Role,
+                        candidate.ModelPath,
+                        candidate.Resolution.Entry,
+                        useGpu,
+                        gpuIndex,
+                        cancellationToken)
                     .ConfigureAwait(false);
                 if (!loaded)
                 {
@@ -818,11 +825,24 @@ namespace ClearFrost.Services
         private async Task<bool> LoadResolvedSlotAsync(
             ModelRole role,
             string modelPath,
+            ModelRegistryEntry? entry,
             bool useGpu,
             int gpuIndex,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            DetectionModelLoadOptions options = CreateModelLoadOptions(entry);
+            if (_detectionService is IConfigurableDetectionService configurableDetectionService)
+            {
+                return role switch
+                {
+                    ModelRole.Primary => await configurableDetectionService.LoadModelAsync(modelPath, useGpu, gpuIndex, options).ConfigureAwait(false),
+                    ModelRole.Auxiliary1 => await configurableDetectionService.LoadAuxiliary1ModelAsync(modelPath, options).ConfigureAwait(false),
+                    ModelRole.Auxiliary2 => await configurableDetectionService.LoadAuxiliary2ModelAsync(modelPath, options).ConfigureAwait(false),
+                    _ => false
+                };
+            }
+
             return role switch
             {
                 ModelRole.Primary => await _detectionService.LoadModelAsync(modelPath, useGpu, gpuIndex).ConfigureAwait(false),
@@ -830,6 +850,61 @@ namespace ClearFrost.Services
                 ModelRole.Auxiliary2 => await _detectionService.LoadAuxiliary2ModelAsync(modelPath).ConfigureAwait(false),
                 _ => false
             };
+        }
+
+        private static DetectionModelLoadOptions CreateModelLoadOptions(ModelRegistryEntry? entry)
+        {
+            if (entry == null)
+            {
+                return DetectionModelLoadOptions.Default;
+            }
+
+            string postprocessorKey = entry.GetEffectivePostprocessorKey();
+            string normalization = entry.GetEffectiveScoreNormalization();
+
+            return new DetectionModelLoadOptions
+            {
+                PostprocessorKey = postprocessorKey.Trim(),
+                ScoreNormalization = ParseScoreNormalization(normalization),
+                PostprocessOptions = CopyPostprocessOptions(ResolvePostprocessOptions(entry))
+            };
+        }
+
+        private static IReadOnlyDictionary<string, string>? ResolvePostprocessOptions(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectivePostprocessOptions();
+        }
+
+        private static IReadOnlyDictionary<string, string> CopyPostprocessOptions(IReadOnlyDictionary<string, string>? options)
+        {
+            if (options == null || options.Count == 0)
+            {
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var copy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> pair in options)
+            {
+                string key = (pair.Key ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(key) || copy.ContainsKey(key))
+                {
+                    continue;
+                }
+
+                copy[key] = pair.Value ?? string.Empty;
+            }
+
+            return copy;
+        }
+
+        private static DeepLearningScoreNormalization ParseScoreNormalization(string? value)
+        {
+            if (DeepLearningPostprocessorConfiguration.TryParseScoreNormalization(value, out DeepLearningScoreNormalization normalization))
+            {
+                return normalization;
+            }
+
+            return DeepLearningScoreNormalization.None;
         }
 
         private void UnloadSlot(ModelRole role)
@@ -922,7 +997,13 @@ namespace ClearFrost.Services
                     return;
                 }
 
-                bool ok = await LoadResolvedSlotAsync(slot.Role, slot.ModelPath, useGpu, gpuIndex, CancellationToken.None)
+                bool ok = await LoadResolvedSlotAsync(
+                        slot.Role,
+                        slot.ModelPath,
+                        entry: null,
+                        useGpu,
+                        gpuIndex,
+                        CancellationToken.None)
                     .ConfigureAwait(false);
                 if (!ok)
                 {

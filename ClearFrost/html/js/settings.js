@@ -6,6 +6,64 @@
 
     const bridge = window.CF_BRIDGE;
     const store = window.CF_STORE;
+    const SettingsBridgeErrorMessage = "设置通信失败，请刷新页面后重试";
+    const DatasetCollectBridgeErrorMessage = "数据集采集通信失败，请刷新页面后重试";
+    const PendingSettingsFailureTtlMs = 30000;
+    const pendingSettingsFailures = new Map();
+    const SupportedTaskTypes = new Set([0, 1, 2, 3, 5, 6]);
+
+    function sendSettingsCommand(cmd, value = null, onFailure = null, failureMessage = SettingsBridgeErrorMessage) {
+        try {
+            const requestId = bridge?.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            registerPendingSettingsFailure(requestId, onFailure);
+            return requestId;
+        } catch (error) {
+            console.error(`Settings command failed: ${cmd}`, error);
+            window.showToast?.(failureMessage, "error", 1800);
+            if (typeof onFailure === "function") onFailure(error);
+            return "";
+        }
+    }
+
+    function registerPendingSettingsFailure(requestId, onFailure) {
+        const id = String(requestId || "").trim();
+        if (!id || typeof onFailure !== "function") return;
+        const timeoutId = window.setTimeout?.(() => {
+            pendingSettingsFailures.delete(id);
+        }, PendingSettingsFailureTtlMs);
+        pendingSettingsFailures.set(id, { onFailure, timeoutId });
+    }
+
+    function takePendingSettingsFailure(requestId) {
+        const id = String(requestId || "").trim();
+        if (!id) return null;
+        const pending = pendingSettingsFailures.get(id);
+        if (!pending) return null;
+        if (pending.timeoutId) window.clearTimeout?.(pending.timeoutId);
+        pendingSettingsFailures.delete(id);
+        return pending.onFailure;
+    }
+
+    function getSettingsCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || SettingsBridgeErrorMessage,
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function runPendingSettingsFailure(requestId, message) {
+        const onFailure = takePendingSettingsFailure(requestId);
+        if (typeof onFailure !== "function") return false;
+        onFailure(new Error(message || SettingsBridgeErrorMessage));
+        return true;
+    }
 
     const PLC_PROTOCOL_UI_HINTS = {
         Mitsubishi_MC_ASCII: {
@@ -433,6 +491,28 @@
         const legacySlider = byId(legacySliderId);
         if (legacySlider) return normalizeThresholdValue(parseFloat(legacySlider.value) / 100, fallback);
         return fallback;
+    }
+
+    function readFiniteNumberInput(input) {
+        const raw = String(input?.value ?? "").trim();
+        if (!raw) return null;
+
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : null;
+    }
+
+    function readSupportedTaskType(value) {
+        const raw = String(value ?? "").trim();
+        if (!raw) return null;
+
+        const taskType = Number(raw);
+        return Number.isInteger(taskType) && SupportedTaskTypes.has(taskType) ? taskType : null;
+    }
+
+    function restoreTaskTypeSelection(taskType) {
+        const select = byId("task-type-select");
+        if (!select || taskType === null) return;
+        select.value = String(taskType);
     }
 
     function escapeHtml(value) {
@@ -990,6 +1070,27 @@
         window.addLog?.("正在自动识别串口光电 COM 口...", "info");
     }
 
+    function handleSettingsCommandError(event) {
+        const { cmd, message, requestId } = getSettingsCommandErrorDetail(event);
+        if (!cmd) return;
+
+        if (runPendingSettingsFailure(requestId, message)) return;
+
+        if (cmd === "collect_dataset") {
+            setDatasetCollectFailure(message || DatasetCollectBridgeErrorMessage);
+            return;
+        }
+
+        if (cmd === "save_project_preset") {
+            pendingProjectPresetId = "";
+            return;
+        }
+
+        if (cmd === "serial_auto_detect_ports") {
+            setSerialAutoDetectBusy(false);
+        }
+    }
+
     function updatePlcProtocolModeUi() {
         const mode = byId("cfg-plc-protocol-mode")?.value || "Legacy";
         const handshakeOptions = byId("cfg-plc-handshake-options");
@@ -1190,8 +1291,13 @@
     }
 
     function toggleMultiModel(enabled) {
+        const previousEnabled = Boolean(store.state.settings?.EnableMultiModelFallback ?? !enabled);
         applyMultiModelUiState(enabled);
-        bridge.sendCommand("toggle_multi_model", enabled);
+        const requestId = sendSettingsCommand("toggle_multi_model", enabled, () => {
+            applyMultiModelUiState(previousEnabled);
+        });
+        if (!requestId) return;
+        store.state.settings = { ...(store.state.settings || {}), EnableMultiModelFallback: enabled };
         window.addLog?.(enabled ? "多模型自动切换已启用" : "多模型自动切换已禁用", enabled ? "success" : "info");
     }
 
@@ -1427,7 +1533,9 @@
         const preset = collectSettingsData();
         preset.name = name;
         pendingProjectPresetId = presetId;
-        bridge.sendCommand("save_project_preset", { id: presetId, name, preset });
+        sendSettingsCommand("save_project_preset", { id: presetId, name, preset }, () => {
+            pendingProjectPresetId = "";
+        });
     }
 
     function updateSelectedProjectPreset() {
@@ -1464,7 +1572,9 @@
         const preset = collectSettingsData();
         preset.name = name;
         pendingProjectPresetId = presetId;
-        bridge.sendCommand("save_project_preset", { id: presetId, name, preset });
+        sendSettingsCommand("save_project_preset", { id: presetId, name, preset }, () => {
+            pendingProjectPresetId = "";
+        });
     }
 
     function deleteSelectedProjectPreset() {
@@ -1478,18 +1588,19 @@
         const name = getPresetDisplayName(presetId, PROJECT_PRESETS[presetId]);
         if (!confirm(`确认删除预设“${name}”？`)) return;
 
-        bridge.sendCommand("delete_project_preset", presetId);
+        const requestId = sendSettingsCommand("delete_project_preset", presetId);
+        if (!requestId) return;
         pendingProjectPresetId = "";
         if (getProjectPresetNameInput()) getProjectPresetNameInput().value = "";
         updateProjectPresetSelect("");
     }
 
     function exportConfigMigration() {
-        bridge.sendCommand("export_config_migration");
+        sendSettingsCommand("export_config_migration");
     }
 
     function importConfigMigration() {
-        bridge.sendCommand("import_config_migration");
+        sendSettingsCommand("import_config_migration");
     }
 
     function collectSettingsData() {
@@ -1562,15 +1673,22 @@
             if (input.type === "checkbox") {
                 data[propName] = input.checked;
             } else if (numericFields.has(propName) || input.type === "number") {
-                const numVal = parseFloat(input.value);
-                data[propName] = Number.isNaN(numVal) ? 0 : numVal;
+                const numVal = readFiniteNumberInput(input);
+                if (numVal !== null) {
+                    data[propName] = numVal;
+                }
             } else if (propName === "SerialPhotoelectricPortName") {
                 data[propName] = normalizeSerialPortName(input.value);
             } else {
                 data[propName] = input.value || "";
             }
         }
-        if (byId("task-type-select")) data.TaskType = parseInt(byId("task-type-select").value, 10);
+        if (byId("task-type-select")) {
+            const taskType = readSupportedTaskType(byId("task-type-select").value);
+            if (taskType !== null) {
+                data.TaskType = taskType;
+            }
+        }
         data.Confidence = readThresholdControl("conf-input", "conf-slider", 0.5);
         data.IouThreshold = readThresholdControl("iou-input", "iou-slider", 0.45);
         data.InspectionRuleSetJson = JSON.stringify(getCurrentRuleSet());
@@ -1595,10 +1713,21 @@
             return;
         }
 
+        const previousSettings = store.state.settings || {};
         const data = collectSettingsData();
-        store.state.settings = { ...(store.state.settings || {}), ...data };
+        store.state.settings = { ...previousSettings, ...data };
         window.updateOperatorStatus?.();
-        bridge.sendCommand("save_settings", data);
+        sendSettingsCommand("save_settings", data, () => {
+            store.state.settings = previousSettings;
+            window.updateOperatorStatus?.();
+        });
+    }
+
+    function markChangeCommandConfirmedValue(element) {
+        if (!element?.dataset?.changeCmd) return;
+        element.dataset.confirmedValue = String(element.value ?? "");
+        delete element.dataset.pendingChangeRequestId;
+        delete element.dataset.previousValue;
     }
 
     function selectModelOption(select, preferredValue, fallbackValue = "") {
@@ -1606,25 +1735,29 @@
         const preferred = String(preferredValue || "").trim();
         const fallback = String(fallbackValue || "").trim();
         const options = Array.from(select.options);
+        let selectedValue = null;
         if (preferred && options.some((option) => option.value === preferred)) {
-            select.value = preferred;
-            return;
+            selectedValue = preferred;
+        } else {
+            const preferredFileMatch = preferred ? options.find((option) => option.dataset.fileName === preferred) : null;
+            if (preferredFileMatch) {
+                selectedValue = preferredFileMatch.value;
+            } else if (fallback && options.some((option) => option.value === fallback)) {
+                selectedValue = fallback;
+            } else {
+                const fallbackFileMatch = fallback ? options.find((option) => option.dataset.fileName === fallback) : null;
+                if (fallbackFileMatch) {
+                    selectedValue = fallbackFileMatch.value;
+                }
+            }
         }
-        const preferredFileMatch = preferred ? options.find((option) => option.dataset.fileName === preferred) : null;
-        if (preferredFileMatch) {
-            select.value = preferredFileMatch.value;
-            return;
+
+        if (selectedValue !== null) {
+            select.value = selectedValue;
+        } else {
+            select.selectedIndex = options.length ? 0 : -1;
         }
-        if (fallback && options.some((option) => option.value === fallback)) {
-            select.value = fallback;
-            return;
-        }
-        const fallbackFileMatch = fallback ? options.find((option) => option.dataset.fileName === fallback) : null;
-        if (fallbackFileMatch) {
-            select.value = fallbackFileMatch.value;
-            return;
-        }
-        select.selectedIndex = options.length ? 0 : -1;
+        markChangeCommandConfirmedValue(select);
     }
 
     function encodeModelIdentityPart(value) {
@@ -1649,14 +1782,124 @@
         return String(legacyValue || "").trim();
     }
 
+    function normalizePostprocessOptions(options) {
+        if (!options || typeof options !== "object") return {};
+        const seenKeys = new Set();
+        return Object.entries(options).reduce((normalized, [rawKey, rawValue]) => {
+            const key = String(rawKey || "").trim();
+            const lookupKey = key.toLowerCase();
+            if (!key || seenKeys.has(lookupKey)) return normalized;
+            seenKeys.add(lookupKey);
+            normalized[key] = String(rawValue ?? "");
+            return normalized;
+        }, {});
+    }
+
     function normalizeModelOption(item) {
         if (typeof item === "string") {
-            return { value: item, text: item, fileName: item };
+            return {
+                value: item,
+                text: item,
+                fileName: item,
+                modelId: "",
+                version: "",
+                sha256: "",
+                taskType: "",
+                postprocessorKey: "",
+                scoreNormalization: "",
+                postprocessOptions: {},
+                inputWidth: 0,
+                inputHeight: 0,
+                labelCount: 0,
+                isApprovedPackage: false
+            };
         }
         const value = String(item?.value || item?.Value || "").trim();
         const text = String(item?.text || item?.Text || item?.fileName || item?.FileName || value).trim();
         const fileName = String(item?.fileName || item?.FileName || text).trim();
-        return { value, text, fileName };
+        const modelId = String(item?.modelId || item?.ModelId || "").trim();
+        const version = String(item?.version || item?.Version || "").trim();
+        const sha256 = String(item?.sha256 || item?.Sha256 || item?.modelHash || item?.ModelHash || "").trim().toLowerCase();
+        const taskType = String(item?.taskType || item?.TaskType || item?.task || item?.Task || "").trim();
+        const postprocessorKey = String(item?.postprocessorKey || item?.PostprocessorKey || item?.postprocessor || item?.Postprocessor || "").trim();
+        const scoreNormalization = String(item?.scoreNormalization || item?.ScoreNormalization || item?.normalization || item?.Normalization || "").trim();
+        const inputWidth = normalizePositiveInteger(item?.inputWidth ?? item?.InputWidth ?? item?.width ?? item?.Width);
+        const inputHeight = normalizePositiveInteger(item?.inputHeight ?? item?.InputHeight ?? item?.height ?? item?.Height);
+        const labelCount = normalizePositiveInteger(item?.labelCount ?? item?.LabelCount ?? item?.labelsCount ?? item?.LabelsCount);
+        const isApprovedPackage = normalizeBoolean(item?.isApprovedPackage ?? item?.IsApprovedPackage);
+        const postprocessOptions = normalizePostprocessOptions(
+            item?.postprocessOptions || item?.PostprocessOptions || item?.postprocessorOptions || item?.PostprocessorOptions);
+        return { value, text, fileName, modelId, version, sha256, taskType, postprocessorKey, scoreNormalization, postprocessOptions, inputWidth, inputHeight, labelCount, isApprovedPackage };
+    }
+
+    function normalizePositiveInteger(value) {
+        const number = Number(value);
+        return Number.isFinite(number) && number > 0 ? Math.trunc(number) : 0;
+    }
+
+    function normalizeBoolean(value) {
+        if (typeof value === "boolean") return value;
+        const text = String(value ?? "").trim().toLowerCase();
+        return text === "true" || text === "1" || text === "yes";
+    }
+
+    function formatPostprocessOptions(options, limit = Number.POSITIVE_INFINITY) {
+        const entries = Object.entries(options || {})
+            .map(([key, value]) => [String(key || "").trim(), String(value ?? "").trim()])
+            .filter(([key]) => key)
+            .sort(([left], [right]) => left.localeCompare(right));
+        if (!entries.length) return "";
+
+        const visibleEntries = Number.isFinite(limit) ? entries.slice(0, limit) : entries;
+        const values = visibleEntries.map(([key, value]) => value ? `${key}=${value}` : key);
+        const remaining = entries.length - visibleEntries.length;
+        return remaining > 0 ? `${values.join(", ")} +${remaining}` : values.join(", ");
+    }
+
+    function formatModelOptionMetadata(model, optionLimit = 3, fullHash = false) {
+        return [formatModelIdentity(model), formatModelHash(model, fullHash), formatInputSize(model), formatLabelCount(model), model.taskType, model.postprocessorKey, model.scoreNormalization, formatPostprocessOptions(model.postprocessOptions, optionLimit)]
+            .map((value) => String(value || "").trim())
+            .filter(Boolean)
+            .join(" / ");
+    }
+
+    function formatModelIdentity(model) {
+        if (model.modelId && model.version) return `${model.modelId}@${model.version}`;
+        return model.modelId || "";
+    }
+
+    function formatModelHash(model, fullHash = false) {
+        const hash = String(model.sha256 || "").trim();
+        if (!hash) return "";
+        return `#${fullHash ? hash : hash.slice(0, 12)}`;
+    }
+
+    function formatInputSize(model) {
+        return model.inputWidth > 0 && model.inputHeight > 0 ? `${model.inputWidth}x${model.inputHeight}` : "";
+    }
+
+    function formatLabelCount(model) {
+        return model.labelCount > 0 ? `labels=${model.labelCount}` : "";
+    }
+
+    function applyModelOptionMetadata(option, model) {
+        const metadata = formatModelOptionMetadata(model);
+        const titleMetadata = formatModelOptionMetadata(model, Number.POSITIVE_INFINITY, true);
+        option.value = model.value;
+        option.text = metadata ? `${model.text} · ${metadata}` : model.text;
+        option.dataset.fileName = model.fileName;
+        option.dataset.modelId = model.modelId;
+        option.dataset.version = model.version;
+        option.dataset.sha256 = model.sha256;
+        option.dataset.isApprovedPackage = model.isApprovedPackage ? "true" : "false";
+        option.dataset.taskType = model.taskType;
+        option.dataset.postprocessorKey = model.postprocessorKey;
+        option.dataset.scoreNormalization = model.scoreNormalization;
+        option.dataset.postprocessOptions = formatPostprocessOptions(model.postprocessOptions);
+        option.dataset.inputWidth = model.inputWidth ? String(model.inputWidth) : "";
+        option.dataset.inputHeight = model.inputHeight ? String(model.inputHeight) : "";
+        option.dataset.labelCount = model.labelCount ? String(model.labelCount) : "";
+        option.title = titleMetadata ? `${model.text} | ${titleMetadata}` : model.text;
     }
 
     function initModelList(files, notifyBackend = false) {
@@ -1682,9 +1925,7 @@
 
         models.forEach((model) => {
             const option = document.createElement("option");
-            option.value = model.value;
-            option.text = model.text;
-            option.dataset.fileName = model.fileName;
+            applyModelOptionMetadata(option, model);
             select.add(option);
         });
         selectModelOption(
@@ -1698,9 +1939,7 @@
             auxSelect.innerHTML = '<option value="">不使用</option>';
             models.forEach((model) => {
                 const option = document.createElement("option");
-                option.value = model.value;
-                option.text = model.text;
-                option.dataset.fileName = model.fileName;
+                applyModelOptionMetadata(option, model);
                 auxSelect.add(option);
             });
         });
@@ -1713,7 +1952,7 @@
             byId("auxiliary2-select"),
             modelSelectionValueFromReference(settings.Auxiliary2ModelReference, settings.Auxiliary2ModelPath),
             previousAux2);
-        if (notifyBackend) bridge.sendCommand("change_model", select.value);
+        if (notifyBackend) sendSettingsCommand("change_model", select.value);
         window.addLog?.(`成功加载 ${models.length} 个模型`, "info");
     }
 
@@ -1722,8 +1961,8 @@
         byId("settings-modal")?.classList.remove("hidden");
         syncSettingsChrome();
         activateSettingsTab("vision");
-        bridge.sendCommand("get_project_presets");
-        bridge.sendCommand("open_settings");
+        sendSettingsCommand("get_project_presets");
+        sendSettingsCommand("open_settings");
     }
 
     function openSettingsFromBackend(config) {
@@ -1742,7 +1981,10 @@
         const rawValue = byId("conf-input") ? val : parseFloat(val) / 100;
         const value = setThresholdControl("conf-input", "conf-slider", rawValue, fallback);
         store.state.settings = { ...(store.state.settings || {}), Confidence: value };
-        bridge.sendCommand("set_confidence", value);
+        sendSettingsCommand("set_confidence", value, () => {
+            setThresholdControl("conf-input", "conf-slider", fallback, fallback);
+            store.state.settings = { ...(store.state.settings || {}), Confidence: fallback };
+        });
     }
 
     function updateIou(val) {
@@ -1750,12 +1992,28 @@
         const rawValue = byId("iou-input") ? val : parseFloat(val) / 100;
         const value = setThresholdControl("iou-input", "iou-slider", rawValue, fallback);
         store.state.settings = { ...(store.state.settings || {}), IouThreshold: value };
-        bridge.sendCommand("set_iou", value);
+        sendSettingsCommand("set_iou", value, () => {
+            setThresholdControl("iou-input", "iou-slider", fallback, fallback);
+            store.state.settings = { ...(store.state.settings || {}), IouThreshold: fallback };
+        });
     }
 
     function updateTaskType(val) {
-        const taskType = parseInt(val, 10);
-        bridge.sendCommand("set_task_type", taskType);
+        const previousTaskType = readSupportedTaskType(store.state.settings?.TaskType);
+        const taskType = readSupportedTaskType(val);
+        if (taskType === null) {
+            restoreTaskTypeSelection(previousTaskType);
+            window.showToast?.("不支持的检测任务类型", "error", 1800);
+            return;
+        }
+
+        store.state.settings = { ...(store.state.settings || {}), TaskType: taskType };
+        sendSettingsCommand("set_task_type", taskType, () => {
+            restoreTaskTypeSelection(previousTaskType);
+            if (previousTaskType !== null) {
+                store.state.settings = { ...(store.state.settings || {}), TaskType: previousTaskType };
+            }
+        });
     }
 
     function loadProjectPreset(presetId) {
@@ -1875,16 +2133,30 @@
         }
     }
 
+    function setDatasetCollectFailure(message = DatasetCollectBridgeErrorMessage) {
+        const btn = byId("btn-collect-dataset");
+        const resultDiv = byId("dataset-collect-result");
+        if (!btn || !resultDiv) return;
+
+        btn.disabled = false;
+        btn.textContent = "一键收集训练数据集";
+        resultDiv.className = "mt-2 text-[10px] text-red-500";
+        resultDiv.textContent = message || DatasetCollectBridgeErrorMessage;
+        resultDiv.classList.remove("hidden");
+    }
+
     function collectDataset() {
         const btn = byId("btn-collect-dataset");
         const resultDiv = byId("dataset-collect-result");
-        if (!btn) return;
+        if (!btn || !resultDiv) return;
 
         btn.disabled = true;
         btn.textContent = "收集中，请稍候...";
         resultDiv.classList.add("hidden");
 
-        bridge.sendCommand("collect_dataset");
+        sendSettingsCommand("collect_dataset", null, (error) => {
+            setDatasetCollectFailure(error?.message || DatasetCollectBridgeErrorMessage);
+        }, DatasetCollectBridgeErrorMessage);
     }
 
     function handleDatasetCollectResult(data) {
@@ -1955,4 +2227,5 @@
     bridge.registerMessageHandler("projectPresets", handleProjectPresets);
     bridge.registerMessageHandler("datasetCollectResult", handleDatasetCollectResult);
     bridge.registerMessageHandler("serialPortsDetected", handleSerialPortsDetected);
+    window.addEventListener("cf-command-error", handleSettingsCommandError);
 })();

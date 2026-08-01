@@ -189,8 +189,7 @@ namespace ClearFrost.Yolo
             YoloPreprocessingMode preprocessingMode,
             YoloTaskType requestedTaskMode)
         {
-            Dictionary<string, string> normalizedMetadata = metadata
-                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, string> normalizedMetadata = NormalizeMetadata(metadata);
 
             string[] labels = ParseLabelNames(GetMetadataValue(normalizedMetadata, "names"));
             string version = GetMetadataValue(normalizedMetadata, "version") ?? string.Empty;
@@ -252,6 +251,28 @@ namespace ClearFrost.Yolo
                 IsSupported = isSupported,
                 SupportMessage = supportMessage
             };
+        }
+
+        private static Dictionary<string, string> NormalizeMetadata(IReadOnlyDictionary<string, string>? metadata)
+        {
+            var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (metadata == null || metadata.Count == 0)
+            {
+                return normalized;
+            }
+
+            foreach (KeyValuePair<string, string> pair in metadata)
+            {
+                string key = (pair.Key ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(key) || normalized.ContainsKey(key))
+                {
+                    continue;
+                }
+
+                normalized[key] = pair.Value ?? string.Empty;
+            }
+
+            return normalized;
         }
 
         public static string[] ParseLabelNames(string? names)

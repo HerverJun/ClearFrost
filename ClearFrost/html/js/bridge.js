@@ -19,6 +19,9 @@
                 return JSON.parse(data);
             } catch (error) {
                 console.error("ClearFrost message parse failed:", error);
+                if (typeof window.addLog === "function") {
+                    window.addLog("后端消息解析失败", "error");
+                }
                 return null;
             }
         }
@@ -33,6 +36,13 @@
         }
     }
 
+    function reportCommandFailure(cmd, error) {
+        console.error(`ClearFrost command post failed: ${cmd}`, error);
+        if (typeof window.addLog === "function") {
+            window.addLog(`命令发送失败: ${cmd}`, "error");
+        }
+    }
+
     function sendCommand(cmd, value = null) {
         const payload = {
             cmd,
@@ -42,11 +52,16 @@
         };
 
         if (window.chrome?.webview) {
-            window.chrome.webview.postMessage(payload);
-            if (window.__CF_DEV_MODE && typeof window.addLog === "function") {
-                window.addLog(`CMD: ${cmd}`, "info");
+            try {
+                window.chrome.webview.postMessage(payload);
+                if (window.__CF_DEV_MODE && typeof window.addLog === "function") {
+                    window.addLog(`CMD: ${cmd}`, "info");
+                }
+                return payload.requestId;
+            } catch (error) {
+                reportCommandFailure(cmd, error);
+                throw error;
             }
-            return payload.requestId;
         }
 
         console.log(`[ClearFrost Dev] Mock command: ${formatDevPayload(payload)}`);

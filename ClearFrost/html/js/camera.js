@@ -9,9 +9,136 @@
     const { escapeHtml } = window.CF_UTILS;
     let discoveredCameras = [];
     let directConnectPending = null;
+    let pendingCameraSwitch = null;
+    let pendingCameraSearchRequestId = "";
+    let pendingCameraPreviewRequestId = "";
+    let pendingCameraMutationRequestId = "";
+    let cameraMutationResetTimer = null;
+    const CameraBridgeErrorMessage = "相机操作通信失败，请刷新页面后重试";
+    const CameraSearchBridgeErrorMessage = "相机搜索通信失败，请刷新页面后重试";
+    const CameraPreviewBridgeErrorMessage = "相机预览通信失败，请刷新页面后重试";
+    const CameraDirectConnectBridgeErrorMessage = "相机直连通信失败，请刷新页面后重试";
+    const CameraMutationPendingTtlMs = 30000;
+    const CameraMutationTimeoutMessage = "相机配置操作等待超时，请稍后重试";
 
     function byId(id) {
         return document.getElementById(id);
+    }
+
+    function readFiniteNumberInput(id, fallback) {
+        const raw = String(byId(id)?.value ?? "").trim();
+        if (!raw) return fallback;
+
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : fallback;
+    }
+
+    function sendCameraCommand(cmd, value = null, onFailure = null, failureMessage = CameraBridgeErrorMessage) {
+        try {
+            const requestId = bridge?.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            return requestId;
+        } catch (error) {
+            console.error(`Camera command failed: ${cmd}`, error);
+            window.showToast?.(failureMessage, "error", 1800);
+            if (typeof onFailure === "function") onFailure(error);
+            return "";
+        }
+    }
+
+    function getCameraCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || CameraBridgeErrorMessage,
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function isMatchingCameraRequest(requestId, pendingRequestId) {
+        const incoming = String(requestId || "").trim();
+        const pending = String(pendingRequestId || "").trim();
+        return !pending || !incoming || incoming === pending;
+    }
+
+    function setCameraMutationPending(isPending, action = "") {
+        if (cameraMutationResetTimer) {
+            clearTimeout(cameraMutationResetTimer);
+            cameraMutationResetTimer = null;
+        }
+
+        document.querySelectorAll('[data-action="addNewCamera"], [data-action="deleteCurrentCamera"]').forEach((button) => {
+            button.disabled = Boolean(isPending);
+            button.classList.toggle("opacity-70", Boolean(isPending));
+            button.classList.toggle("cursor-wait", Boolean(isPending));
+            button.dataset.pendingCameraMutation = isPending ? action : "";
+            if (isPending) {
+                button.setAttribute("aria-busy", "true");
+            } else {
+                button.removeAttribute("aria-busy");
+            }
+        });
+
+        if (!isPending) return;
+
+        cameraMutationResetTimer = setTimeout(() => {
+            pendingCameraMutationRequestId = "";
+            setCameraMutationPending(false);
+            window.showToast?.(CameraMutationTimeoutMessage, "warning", 2200);
+            window.addLog?.(CameraMutationTimeoutMessage, "warning");
+        }, CameraMutationPendingTtlMs);
+    }
+
+    function clearCameraMutationPending() {
+        pendingCameraMutationRequestId = "";
+        setCameraMutationPending(false);
+    }
+
+    function handleCameraCommandError(event) {
+        const { cmd, message, requestId } = getCameraCommandErrorDetail(event);
+        if (!cmd) return;
+
+        if ((cmd === "search_huaray_cameras" || cmd === "super_search_cameras_hik") &&
+            isMatchingCameraRequest(requestId, pendingCameraSearchRequestId)) {
+            pendingCameraSearchRequestId = "";
+            byId("super-search-loading")?.classList.add("hidden");
+            setSuperSearchFeedback(message || CameraSearchBridgeErrorMessage, "error");
+            return;
+        }
+
+        if (cmd === "direct_connect_camera" &&
+            isMatchingCameraRequest(requestId, directConnectPending?.requestId || "")) {
+            clearDirectConnectButtons(false);
+            setSuperSearchFeedback(message || CameraDirectConnectBridgeErrorMessage, "error");
+            directConnectPending = null;
+            return;
+        }
+
+        if (cmd === "capture_camera_preview" &&
+            isMatchingCameraRequest(requestId, pendingCameraPreviewRequestId)) {
+            pendingCameraPreviewRequestId = "";
+            setCameraPreviewStatus({ isBusy: false, message: message || CameraPreviewBridgeErrorMessage, type: "error" });
+            return;
+        }
+
+        if ((cmd === "add_camera" || cmd === "delete_camera") &&
+            isMatchingCameraRequest(requestId, pendingCameraMutationRequestId)) {
+            clearCameraMutationPending();
+            window.showToast?.(message || CameraBridgeErrorMessage, "error", 2200);
+            return;
+        }
+
+        if (cmd === "switch_camera" &&
+            isMatchingCameraRequest(requestId, pendingCameraSwitch?.requestId || "")) {
+            const previousId = pendingCameraSwitch?.previousId || "";
+            pendingCameraSwitch = null;
+            setCameraSelection(previousId);
+            window.showToast?.(message || CameraBridgeErrorMessage, "error", 1800);
+        }
     }
 
     function getSuperSearchFeedback() {
@@ -79,13 +206,26 @@
             "cfg-cam-manufacturer": camera.manufacturer || "Huaray",
             "cfg-cam-pixel-format": camera.pixelFormat || "Auto",
             "cfg-cam-serial": camera.serialNumber || "",
-            "cfg-cam-exposure": camera.exposureTime || "",
-            "cfg-cam-gain": camera.gain || "",
+            "cfg-cam-exposure": camera.exposureTime ?? "",
+            "cfg-cam-gain": camera.gain ?? "",
         };
         Object.entries(fields).forEach(([id, value]) => {
             const input = byId(id);
             if (input) input.value = value;
         });
+    }
+
+    function findCameraById(id) {
+        return (window.cameraList || []).find((item) => item.id === id);
+    }
+
+    function setCameraSelection(id) {
+        const normalizedId = String(id || "");
+        const select = byId("cfg-cam-select");
+        if (select) select.value = normalizedId;
+        window.activeCameraId = normalizedId;
+        store.state.activeCameraId = normalizedId;
+        setCameraForm(findCameraById(normalizedId));
     }
 
     function receiveCameraList(data) {
@@ -96,6 +236,8 @@
             store.state.activeCameraId = activeId;
             window.cameraList = cameras;
             window.activeCameraId = activeId;
+            pendingCameraSwitch = null;
+            clearCameraMutationPending();
 
             const select = byId("cfg-cam-select");
             if (select) {
@@ -123,42 +265,78 @@
     function onCameraSelected(cameraId) {
         const select = byId("cfg-cam-select");
         const id = cameraId || select?.value || "";
-        window.activeCameraId = id;
-        store.state.activeCameraId = id;
+        const previousId = window.activeCameraId || store.state.activeCameraId || "";
+        setCameraSelection(id);
+        if (!id) return;
 
-        const camera = (window.cameraList || []).find((item) => item.id === id);
-        setCameraForm(camera);
-        if (id) bridge.sendCommand("switch_camera", id);
+        pendingCameraSwitch = { previousId, nextId: id, requestId: "" };
+        const requestId = sendCameraCommand("switch_camera", id, () => {
+            setCameraSelection(previousId);
+            pendingCameraSwitch = null;
+        });
+        if (requestId && pendingCameraSwitch) pendingCameraSwitch.requestId = requestId;
     }
 
     function addNewCamera() {
+        if (pendingCameraMutationRequestId) {
+            window.showToast?.("相机配置操作进行中，请稍候", "warning", 1400);
+            return;
+        }
+
         const displayName = byId("cfg-cam-name")?.value || `相机 ${(window.cameraList?.length || 0) + 1}`;
         const manufacturer = byId("cfg-cam-manufacturer")?.value || "Huaray";
         const pixelFormat = byId("cfg-cam-pixel-format")?.value || "Auto";
         const serialNumber = byId("cfg-cam-serial")?.value || "";
-        const exposureTime = parseFloat(byId("cfg-cam-exposure")?.value) || 50000;
-        const gain = parseFloat(byId("cfg-cam-gain")?.value) || 1.0;
+        const exposureTime = readFiniteNumberInput("cfg-cam-exposure", 50000);
+        const gain = readFiniteNumberInput("cfg-cam-gain", 1.0);
 
         if (!serialNumber) {
             alert("请输入相机序列号");
             return;
         }
 
-        bridge.sendCommand("add_camera", {
+        const requestId = sendCameraCommand("add_camera", {
             displayName,
             manufacturer,
             pixelFormat,
             serialNumber,
             exposureTime,
             gain,
+        }, () => {
+            clearCameraMutationPending();
         });
-        window.addLog?.(`正在添加/更新相机: ${displayName}...`, "info");
+        if (requestId) {
+            pendingCameraMutationRequestId = requestId;
+            setCameraMutationPending(true, "add");
+            window.addLog?.(`正在添加/更新相机: ${displayName}...`, "info");
+        }
     }
 
     function deleteCurrentCamera() {
+        if (pendingCameraMutationRequestId) {
+            window.showToast?.("相机配置操作进行中，请稍候", "warning", 1400);
+            return;
+        }
+
         const select = byId("cfg-cam-select");
-        if (!select?.value) return;
-        bridge.sendCommand("delete_camera", select.value);
+        if (!select?.value) {
+            window.showToast?.("请先选择要删除的相机", "warning", 1400);
+            return;
+        }
+
+        const cameraId = select.value;
+        const camera = findCameraById(cameraId);
+        const cameraLabel = camera?.displayName || camera?.serialNumber || cameraId;
+        if (typeof window.confirm === "function" && !window.confirm(`确定删除相机“${cameraLabel}”？`)) return;
+
+        const requestId = sendCameraCommand("delete_camera", cameraId, () => {
+            clearCameraMutationPending();
+        });
+        if (requestId) {
+            pendingCameraMutationRequestId = requestId;
+            setCameraMutationPending(true, "delete");
+            window.addLog?.(`正在删除相机: ${cameraLabel}...`, "warning");
+        }
     }
 
     function searchCamerasHuaray() {
@@ -174,8 +352,14 @@
         empty?.classList.add("hidden");
         setSuperSearchFeedback();
         directConnectPending = null;
+        pendingCameraSearchRequestId = "";
         if (results) results.innerHTML = "";
-        bridge.sendCommand("search_huaray_cameras");
+        const requestId = sendCameraCommand("search_huaray_cameras", null, () => {
+            pendingCameraSearchRequestId = "";
+            loading?.classList.add("hidden");
+            setSuperSearchFeedback(CameraSearchBridgeErrorMessage, "error");
+        }, CameraSearchBridgeErrorMessage);
+        if (requestId) pendingCameraSearchRequestId = requestId;
     }
 
     const superSearchCameras = searchCamerasHuaray;
@@ -187,6 +371,7 @@
     function receiveSuperSearchResult(data) {
         const cameras = data?.cameras || data?.Cameras || [];
         discoveredCameras = cameras;
+        pendingCameraSearchRequestId = "";
         const loading = byId("super-search-loading");
         const results = byId("super-search-results");
         const empty = byId("super-search-empty");
@@ -235,13 +420,18 @@
         setSuperSearchFeedback(`正在添加相机 ${cameraLabel}，请稍候...`, "info");
         window.showToast?.("正在添加相机配置...", "info", 1200);
 
-        bridge.sendCommand("direct_connect_camera", {
+        const requestId = sendCameraCommand("direct_connect_camera", {
             serialNumber: camera.serialNumber || "",
             ip: camera.ip || "",
             manufacturer: camera.manufacturer || "Huaray",
             model: camera.model || camera.userDefinedName || "Camera",
-        });
-        window.addLog?.(`正在直连相机: ${camera.serialNumber || camera.model || "-"}`, "info");
+        }, () => {
+            clearDirectConnectButtons(false);
+            setSuperSearchFeedback(CameraDirectConnectBridgeErrorMessage, "error");
+            directConnectPending = null;
+        }, CameraDirectConnectBridgeErrorMessage);
+        if (requestId && directConnectPending) directConnectPending.requestId = requestId;
+        if (requestId) window.addLog?.(`正在直连相机: ${camera.serialNumber || camera.model || "-"}`, "info");
     }
 
     function receiveCameraDirectConnectResult(data) {
@@ -283,14 +473,19 @@
             manufacturer: byId("cfg-cam-manufacturer")?.value || "Huaray",
             pixelFormat: byId("cfg-cam-pixel-format")?.value || "Auto",
             serialNumber: byId("cfg-cam-serial")?.value || "",
-            exposureTime: parseFloat(byId("cfg-cam-exposure")?.value) || 50000,
-            gain: parseFloat(byId("cfg-cam-gain")?.value) || 1.0,
+            exposureTime: readFiniteNumberInput("cfg-cam-exposure", 50000),
+            gain: readFiniteNumberInput("cfg-cam-gain", 1.0),
         };
     }
 
     function requestCameraPreviewFrame() {
         setCameraPreviewStatus({ isBusy: true, message: "正在连接相机并获取画面..." });
-        bridge.sendCommand("capture_camera_preview", collectCameraPreviewPayload());
+        pendingCameraPreviewRequestId = "";
+        const requestId = sendCameraCommand("capture_camera_preview", collectCameraPreviewPayload(), () => {
+            pendingCameraPreviewRequestId = "";
+            setCameraPreviewStatus({ isBusy: false, message: CameraPreviewBridgeErrorMessage, type: "error" });
+        }, CameraPreviewBridgeErrorMessage);
+        if (requestId) pendingCameraPreviewRequestId = requestId;
     }
 
     function receiveCameraPreviewFrame(data) {
@@ -303,6 +498,7 @@
         const url = data?.url || data?.Url || "";
         const src = url || (base64 ? (String(base64).startsWith("data:image") ? base64 : `data:image/jpeg;base64,${base64}`) : "");
         if (!src) return;
+        pendingCameraPreviewRequestId = "";
 
         image.onload = () => {
             image.classList.remove("hidden");
@@ -328,7 +524,14 @@
         }
         empty?.classList.add("hidden");
         loading?.classList.remove("hidden");
-        bridge.sendCommand("super_search_cameras_hik");
+        setSuperSearchFeedback();
+        pendingCameraSearchRequestId = "";
+        const requestId = sendCameraCommand("super_search_cameras_hik", null, () => {
+            pendingCameraSearchRequestId = "";
+            loading?.classList.add("hidden");
+            setSuperSearchFeedback(CameraSearchBridgeErrorMessage, "error");
+        }, CameraSearchBridgeErrorMessage);
+        if (requestId) pendingCameraSearchRequestId = requestId;
     }
 
     document.addEventListener("click", (event) => {
@@ -359,4 +562,5 @@
     bridge.registerMessageHandler("cameraList", receiveCameraList);
     bridge.registerMessageHandler("cameraPreviewFrame", receiveCameraPreviewFrame);
     bridge.registerMessageHandler("discoveredCameras", receiveSuperSearchResult);
+    window.addEventListener("cf-command-error", handleCameraCommandError);
 })();

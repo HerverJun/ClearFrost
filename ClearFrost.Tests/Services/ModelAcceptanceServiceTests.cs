@@ -122,6 +122,54 @@ public class ModelAcceptanceServiceTests
     }
 
     [Fact]
+    public void EnableApprovedModel_EntryTaskTypeEmptyButManifestHasTaskType_校验通过()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageDir = Path.Combine(tempDir, "models", "pkg-effective-task");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            string manifestPath = Path.Combine(packageDir, "manifest.json");
+            File.WriteAllBytes(modelPath, new byte[] { 1, 2, 3 });
+            var manifest = new ModelPackageManifest
+            {
+                ModelId = "pkg-effective-task",
+                Version = "1",
+                ModelFileName = "model.onnx",
+                ModelHash = ComputeSha256(modelPath),
+                Labels = new List<string> { "part" },
+                TaskType = "Detect",
+                InputWidth = 640,
+                InputHeight = 640
+            };
+            File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest));
+            var entry = new ModelRegistryEntry
+            {
+                ModelId = "pkg-effective-task",
+                Version = "1",
+                ModelHash = manifest.ModelHash,
+                ModelPath = modelPath,
+                ManifestPath = manifestPath,
+                IsPackage = true,
+                Status = ModelRegistryStatus.Ready,
+                Manifest = manifest,
+                ApprovalStatus = ModelApprovalStatuses.Approved,
+                ApprovedForProduction = true
+            };
+            var service = new ModelAcceptanceService(Path.Combine(tempDir, "state.json"));
+
+            ModelAcceptanceResult result = service.EnableApprovedModel(entry);
+
+            result.Succeeded.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void LoadState_拒绝链接生产状态文件且不加载外部内容()
     {
         string tempDir = CreateTempDirectory();

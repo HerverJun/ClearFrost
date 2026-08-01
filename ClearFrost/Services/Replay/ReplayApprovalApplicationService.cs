@@ -456,7 +456,7 @@ namespace ClearFrost.Services.Replay
             if (!ModelContractMatchesRegistry(entry, manifest))
             {
                 errorCode = "ReplayApprovalManifestContractMismatch";
-                message = "Current candidate manifest model contract no longer matches the registry entry.";
+                message = $"Current candidate manifest model contract no longer matches the registry entry: {DescribeModelContractMismatch(entry, manifest)}";
                 return false;
             }
 
@@ -688,14 +688,186 @@ namespace ClearFrost.Services.Replay
             IReadOnlyList<string> manifestLabels = manifest.Labels != null
                 ? manifest.Labels
                 : Array.Empty<string>();
-            IReadOnlyList<string> entryLabels = entry.Labels != null
-                ? entry.Labels
-                : Array.Empty<string>();
-            return manifest.InputWidth == entry.InputWidth &&
-                   manifest.InputHeight == entry.InputHeight &&
-                   string.Equals(manifest.TaskType ?? string.Empty, entry.TaskType ?? string.Empty, StringComparison.OrdinalIgnoreCase) &&
+            IReadOnlyList<string> entryLabels = ResolveEffectiveEntryLabels(entry);
+            int entryInputWidth = ResolveEffectiveEntryInputWidth(entry);
+            int entryInputHeight = ResolveEffectiveEntryInputHeight(entry);
+            string entryTaskType = ResolveEffectiveEntryTaskType(entry);
+            string entryPostprocessorKey = ResolveEffectiveEntryPostprocessorKey(entry);
+            string entryScoreNormalization = ResolveEffectiveEntryScoreNormalization(entry);
+            IReadOnlyDictionary<string, string>? entryPostprocessOptions = ResolveEffectiveEntryPostprocessOptions(entry);
+            return manifest.InputWidth == entryInputWidth &&
+                   manifest.InputHeight == entryInputHeight &&
+                   string.Equals(manifest.TaskType ?? string.Empty, entryTaskType, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(manifest.PostprocessorKey ?? string.Empty, entryPostprocessorKey, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(manifest.ScoreNormalization ?? string.Empty, entryScoreNormalization, StringComparison.OrdinalIgnoreCase) &&
+                   DictionaryMatches(manifest.PostprocessOptions, entryPostprocessOptions) &&
                    manifestLabels.Count == entryLabels.Count &&
                    manifestLabels.Zip(entryLabels, (left, right) => string.Equals(left, right, StringComparison.Ordinal)).All(match => match);
+        }
+
+        private static string DescribeModelContractMismatch(ModelRegistryEntry entry, ModelPackageManifest manifest)
+        {
+            var mismatches = new List<string>();
+            int entryInputWidth = ResolveEffectiveEntryInputWidth(entry);
+            int entryInputHeight = ResolveEffectiveEntryInputHeight(entry);
+            if (manifest.InputWidth != entryInputWidth || manifest.InputHeight != entryInputHeight)
+            {
+                mismatches.Add($"InputSize manifest={manifest.InputWidth}x{manifest.InputHeight}, registry={entryInputWidth}x{entryInputHeight}");
+            }
+
+            AddStringMismatch(mismatches, "TaskType", manifest.TaskType, ResolveEffectiveEntryTaskType(entry));
+            AddStringMismatch(mismatches, "PostprocessorKey", manifest.PostprocessorKey, ResolveEffectiveEntryPostprocessorKey(entry));
+            AddStringMismatch(mismatches, "ScoreNormalization", manifest.ScoreNormalization, ResolveEffectiveEntryScoreNormalization(entry));
+
+            IReadOnlyDictionary<string, string> manifestOptions = NormalizeDictionary(manifest.PostprocessOptions);
+            IReadOnlyDictionary<string, string> entryOptions = NormalizeDictionary(ResolveEffectiveEntryPostprocessOptions(entry));
+            if (!DictionaryMatches(manifestOptions, entryOptions))
+            {
+                mismatches.Add(DescribeDictionaryMismatch("PostprocessOptions", manifestOptions, entryOptions));
+            }
+
+            IReadOnlyList<string> manifestLabels = manifest.Labels != null
+                ? manifest.Labels
+                : Array.Empty<string>();
+            IReadOnlyList<string> entryLabels = ResolveEffectiveEntryLabels(entry);
+            if (manifestLabels.Count != entryLabels.Count)
+            {
+                mismatches.Add($"Labels count manifest={manifestLabels.Count}, registry={entryLabels.Count}");
+            }
+            else
+            {
+                for (int index = 0; index < manifestLabels.Count; index++)
+                {
+                    if (!string.Equals(manifestLabels[index], entryLabels[index], StringComparison.Ordinal))
+                    {
+                        mismatches.Add($"Labels[{index}] manifest={manifestLabels[index]}, registry={entryLabels[index]}");
+                        break;
+                    }
+                }
+            }
+
+            return mismatches.Count == 0
+                ? "unknown contract field"
+                : string.Join("; ", mismatches);
+        }
+
+        private static string ResolveEffectiveEntryTaskType(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveTaskType();
+        }
+
+        private static string ResolveEffectiveEntryPostprocessorKey(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectivePostprocessorKey();
+        }
+
+        private static string ResolveEffectiveEntryScoreNormalization(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveScoreNormalization();
+        }
+
+        private static int ResolveEffectiveEntryInputWidth(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveInputWidth();
+        }
+
+        private static int ResolveEffectiveEntryInputHeight(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveInputHeight();
+        }
+
+        private static IReadOnlyList<string> ResolveEffectiveEntryLabels(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveLabels();
+        }
+
+        private static IReadOnlyDictionary<string, string>? ResolveEffectiveEntryPostprocessOptions(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectivePostprocessOptions();
+        }
+
+        private static void AddStringMismatch(List<string> mismatches, string fieldName, string? manifestValue, string? entryValue)
+        {
+            string left = manifestValue ?? string.Empty;
+            string right = entryValue ?? string.Empty;
+            if (!string.Equals(left, right, StringComparison.OrdinalIgnoreCase))
+            {
+                mismatches.Add($"{fieldName} manifest={left}, registry={right}");
+            }
+        }
+
+        private static string DescribeDictionaryMismatch(
+            string fieldName,
+            IReadOnlyDictionary<string, string> left,
+            IReadOnlyDictionary<string, string> right)
+        {
+            foreach (KeyValuePair<string, string> pair in left)
+            {
+                if (!right.TryGetValue(pair.Key, out string? rightValue))
+                {
+                    return $"{fieldName} missing registry key={pair.Key}";
+                }
+
+                if (!string.Equals(pair.Value ?? string.Empty, rightValue ?? string.Empty, StringComparison.Ordinal))
+                {
+                    return $"{fieldName}[{pair.Key}] manifest={pair.Value ?? string.Empty}, registry={rightValue ?? string.Empty}";
+                }
+            }
+
+            foreach (KeyValuePair<string, string> pair in right)
+            {
+                if (!left.ContainsKey(pair.Key))
+                {
+                    return $"{fieldName} unexpected registry key={pair.Key}";
+                }
+            }
+
+            return $"{fieldName} differs";
+        }
+
+        private static bool DictionaryMatches(
+            IReadOnlyDictionary<string, string>? left,
+            IReadOnlyDictionary<string, string>? right)
+        {
+            IReadOnlyDictionary<string, string> normalizedLeft = NormalizeDictionary(left);
+            IReadOnlyDictionary<string, string> normalizedRight = NormalizeDictionary(right);
+            if (normalizedLeft.Count != normalizedRight.Count)
+            {
+                return false;
+            }
+
+            foreach (KeyValuePair<string, string> pair in normalizedLeft)
+            {
+                if (!normalizedRight.TryGetValue(pair.Key, out string? rightValue) ||
+                    !string.Equals(pair.Value ?? string.Empty, rightValue ?? string.Empty, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static IReadOnlyDictionary<string, string> NormalizeDictionary(IReadOnlyDictionary<string, string>? value)
+        {
+            if (value == null || value.Count == 0)
+            {
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> pair in value)
+            {
+                string key = (pair.Key ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(key) || normalized.ContainsKey(key))
+                {
+                    continue;
+                }
+
+                normalized[key] = pair.Value ?? string.Empty;
+            }
+
+            return normalized;
         }
 
         private static bool IsCandidateRegistryStateEligibleForApproval(ModelRegistryEntry entry)

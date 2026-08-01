@@ -102,6 +102,91 @@ public class StatisticsModelPathSafetyTests
         }
     }
 
+    [Fact]
+    public void Load_修正损坏的今日统计计数()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string systemDir = Path.Combine(tempDir, "System");
+            Directory.CreateDirectory(systemDir);
+            File.WriteAllText(
+                Path.Combine(systemDir, "statistics.json"),
+                """
+                {
+                  "TotalCount": 999,
+                  "QualifiedCount": 8,
+                  "UnqualifiedCount": -4,
+                  "CurrentDate": "bad-date"
+                }
+                """);
+
+            DetectionStatistics stats = DetectionStatistics.Load(tempDir);
+
+            stats.QualifiedCount.Should().Be(8);
+            stats.UnqualifiedCount.Should().Be(0);
+            stats.TotalCount.Should().Be(8);
+            stats.CurrentDate.Should().MatchRegex("^\\d{4}-\\d{2}-\\d{2}$");
+            stats.QualifiedPercentage.Should().Be(100);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Load_修正损坏的历史统计记录()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string systemDir = Path.Combine(tempDir, "System");
+            Directory.CreateDirectory(systemDir);
+            File.WriteAllText(
+                Path.Combine(systemDir, "statistics_history.json"),
+                """
+                {
+                  "Records": [
+                    { "Date": "2026-07-08", "TotalCount": 50, "QualifiedCount": 3, "UnqualifiedCount": -1 },
+                    { "Date": "", "TotalCount": 10, "QualifiedCount": 10, "UnqualifiedCount": 0 },
+                    { "Date": null, "TotalCount": 10, "QualifiedCount": 10, "UnqualifiedCount": 0 },
+                    { "Date": "bad-date", "TotalCount": 10, "QualifiedCount": 10, "UnqualifiedCount": 0 },
+                    { "Date": "2026-07-08", "TotalCount": -9, "QualifiedCount": 4, "UnqualifiedCount": 1 },
+                    { "Date": "2026-07-01", "TotalCount": 1, "QualifiedCount": 1, "UnqualifiedCount": 0 },
+                    { "Date": "2026-07-02", "TotalCount": 1, "QualifiedCount": 1, "UnqualifiedCount": 0 },
+                    { "Date": "2026-07-03", "TotalCount": 1, "QualifiedCount": 1, "UnqualifiedCount": 0 },
+                    { "Date": "2026-07-04", "TotalCount": 1, "QualifiedCount": 1, "UnqualifiedCount": 0 },
+                    { "Date": "2026-07-05", "TotalCount": 1, "QualifiedCount": 1, "UnqualifiedCount": 0 },
+                    { "Date": "2026-07-06", "TotalCount": 1, "QualifiedCount": 1, "UnqualifiedCount": 0 },
+                    { "Date": "2026-07-07", "TotalCount": 1, "QualifiedCount": 1, "UnqualifiedCount": 0 }
+                  ]
+                }
+                """);
+
+            StatisticsHistory history = StatisticsHistory.Load(tempDir);
+
+            history.Records.Should().HaveCount(7);
+            history.Records.Select(record => record.Date).Should().Equal(
+                "2026-07-08",
+                "2026-07-07",
+                "2026-07-06",
+                "2026-07-05",
+                "2026-07-04",
+                "2026-07-03",
+                "2026-07-02");
+            history.Records[0].TotalCount.Should().Be(5);
+            history.Records[0].QualifiedCount.Should().Be(4);
+            history.Records[0].UnqualifiedCount.Should().Be(1);
+            history.Records.Should().NotContain(record => string.IsNullOrWhiteSpace(record.Date));
+            history.Records.Should().NotContain(record => record.Date == "bad-date");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), "ClearFrostTests", nameof(StatisticsModelPathSafetyTests), Guid.NewGuid().ToString("N"));

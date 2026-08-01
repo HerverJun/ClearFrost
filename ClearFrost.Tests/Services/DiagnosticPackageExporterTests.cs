@@ -363,9 +363,13 @@ public class DiagnosticPackageExporterTests
                         ManifestPath = Path.Combine(tempDir, "Packages", "package-model", "manifest.json"),
                         IsPackage = true,
                         Status = ModelRegistryStatus.Ready,
-                        TaskType = "Detect",
-                        InputWidth = 640,
-                        InputHeight = 640,
+                        Manifest = new ModelPackageManifest
+                        {
+                            TaskType = "Detect",
+                            InputWidth = 640,
+                            InputHeight = 640,
+                            Labels = new List<string> { "wire" }
+                        },
                         ApprovalStatus = ModelApprovalStatuses.Approved,
                         ApprovedForProduction = true
                     }
@@ -409,6 +413,26 @@ public class DiagnosticPackageExporterTests
             primary.GetProperty("ModelHash").GetString().Should().Be(packageHash);
             primary.GetProperty("RegistryMatchStrategy").GetString().Should().Be("ModelPath");
             primary.GetProperty("ModelPath").GetString().Should().Be(Path.GetFullPath(packagePath));
+            primary.GetProperty("TaskType").GetString().Should().Be("Detect");
+            primary.GetProperty("InputWidth").GetInt32().Should().Be(640);
+            primary.GetProperty("InputHeight").GetInt32().Should().Be(640);
+
+            using JsonDocument registryDiagnostics = JsonDocument.Parse(ReadEntry(zip, "model_registry_diagnostics.json"));
+            JsonElement packageDiagnostics = registryDiagnostics.RootElement
+                .EnumerateArray()
+                .First(entry => entry.GetProperty("ModelId").GetString() == "package-model");
+            packageDiagnostics.GetProperty("TaskType").GetString().Should().Be("Detect");
+            packageDiagnostics.GetProperty("InputWidth").GetInt32().Should().Be(640);
+            packageDiagnostics.GetProperty("InputHeight").GetInt32().Should().Be(640);
+            packageDiagnostics.GetProperty("LabelCount").GetInt32().Should().Be(1);
+
+            using JsonDocument registry = JsonDocument.Parse(ReadEntry(zip, "model_registry.json"));
+            JsonElement packageRegistry = registry.RootElement
+                .EnumerateArray()
+                .First(entry => entry.GetProperty("ModelId").GetString() == "package-model");
+            packageRegistry.GetProperty("TaskType").GetString().Should().Be("Detect");
+            packageRegistry.GetProperty("InputWidth").GetInt32().Should().Be(640);
+            packageRegistry.GetProperty("InputHeight").GetInt32().Should().Be(640);
 
             using JsonDocument recipe = JsonDocument.Parse(ReadEntry(zip, "recipe_summary.json"));
             recipe.RootElement.GetProperty("RecipeId").GetString().Should().Be("recipe-a");
@@ -420,6 +444,14 @@ public class DiagnosticPackageExporterTests
             fieldDiagnostics.RootElement.GetProperty("RecipeVersion").GetString().Should().Be("r2");
             fieldDiagnostics.RootElement.GetProperty("RecipeTargetLabel").GetString().Should().Be("wire");
             fieldDiagnostics.RootElement.GetProperty("RecipeTargetCount").GetInt32().Should().Be(2);
+            JsonElement fieldModelSlot = fieldDiagnostics.RootElement
+                .GetProperty("ModelProbe")
+                .GetProperty("Slots")
+                .EnumerateArray()
+                .First(slot => slot.GetProperty("Role").GetString() == "Primary");
+            fieldModelSlot.GetProperty("TaskType").GetString().Should().Be("Detect");
+            fieldModelSlot.GetProperty("InputWidth").GetInt32().Should().Be(640);
+            fieldModelSlot.GetProperty("InputHeight").GetInt32().Should().Be(640);
 
             using JsonDocument blockers = JsonDocument.Parse(ReadEntry(zip, "startup_blockers.json"));
             blockers.RootElement.GetArrayLength().Should().Be(1);

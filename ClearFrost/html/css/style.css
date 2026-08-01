@@ -1,4 +1,4 @@
-﻿/* CSS Fallbacks for critical Tailwind colors */
+/* CSS Fallbacks for critical Tailwind colors */
 .bg-celadon-500 {
     background-color: #06b6d4 !important;
 }
@@ -5715,5 +5715,125 @@ input[type="range"]::-webkit-slider-runnable-track {
     .cf-stitch-page #settings-modal .cf-serial-actions {
         flex-direction: column;
         align-items: stretch;
+    }
+}
+
+/* Keep the status row stable on common 1280px industrial displays. */
+@media (min-width: 761px) {
+    .cf-stitch-page .stitch-topbar {
+        grid-template-columns: minmax(220px, auto) minmax(0, 1fr) auto;
+        column-gap: 18px;
+    }
+
+    .cf-stitch-page .stitch-nav-actions {
+        gap: 18px;
+    }
+
+    .cf-stitch-page .stitch-top-status-lights {
+        min-width: 0;
+        gap: 10px;
+    }
+
+    .cf-stitch-page .stitch-top-status-lights .stitch-status-lights {
+        flex: 1 1 auto;
+        width: min(500px, 100%);
+        max-width: 500px;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+        margin: 0;
+    }
+
+    .cf-stitch-page .stitch-top-status-lights .stitch-status-light {
+        min-width: 0;
+        padding: 0 8px;
+    }
+
+    .cf-stitch-page .stitch-top-status-lights .stitch-status-label {
+        max-width: 100%;
+        overflow: hidden;
+    }
+
+    .cf-stitch-page .stitch-top-status-lights .stitch-status-label span:last-child {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+@media (min-width: 761px) and (max-width: 1360px) {
+    .cf-stitch-page .stitch-topbar {
+        column-gap: 14px;
+        padding-left: 20px;
+        padding-right: 20px;
+    }
+
+    .cf-stitch-page .stitch-nav-actions {
+        gap: 14px;
+    }
+
+    .cf-stitch-page .stitch-top-status-lights {
+        gap: 8px;
+    }
+
+    .cf-stitch-page .stitch-operator-chip {
+        min-width: 108px;
+        max-width: 132px;
+        flex-basis: 124px;
+    }
+}
+
+/* Vision debug: keep result panels visible beside the workflow controls. */
+.cf-stitch-page .cf-vision-debug-body {
+    grid-template-columns: minmax(320px, 390px) minmax(0, 1fr) !important;
+    grid-auto-flow: row !important;
+    align-items: start;
+}
+
+.cf-stitch-page .cf-vision-debug-left,
+.cf-stitch-page .cf-vision-debug-right {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.cf-stitch-page .cf-vision-debug-left {
+    grid-column: 1;
+}
+
+.cf-stitch-page .cf-vision-debug-right {
+    grid-column: 2;
+}
+
+.cf-stitch-page .cf-vision-debug-left > .cf-vision-debug-section,
+.cf-stitch-page .cf-vision-debug-right > .cf-vision-debug-section {
+    grid-column: auto !important;
+}
+
+.cf-stitch-page .cf-vision-debug-right .cf-vision-debug-list {
+    max-height: 180px;
+}
+
+@media (max-width: 960px) {
+    .cf-stitch-page .cf-vision-debug-left,
+    .cf-stitch-page .cf-vision-debug-right {
+        grid-column: 1;
+    }
+}
+
+@media (max-width: 760px) {
+    .cf-stitch-page .stitch-brand h1 span {
+        display: none;
+    }
+
+    .cf-stitch-page .stitch-nav-actions {
+        gap: 4px;
+    }
+
+    .cf-stitch-page .stitch-nav-actions button {
+        width: 30px;
+        height: 30px;
     }
 }

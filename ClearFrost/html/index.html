@@ -11,7 +11,7 @@
     <!-- Tailwind Config (Define Config BEFORE Library for Robustness) -->
     <script src="js/tailwind-config.js"></script>
     <script src="tailwind.min.js"></script>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=20260706-ui-layout3">
 </head>
 
 <body
@@ -593,166 +593,170 @@
                     这是工程师调试工具，生产操作无需进入。
                 </div>
 
-                <section class="cf-vision-debug-section cf-vision-debug-step">
-                    <h3>第一步：选择场景</h3>
-                    <label class="cf-vision-debug-field">
-                        <span>场景</span>
-                        <select id="vision-debug-template-select">
-                            <option value="target_count">目标数量检测</option>
-                            <option value="classification_judge">分类判定</option>
-                            <option value="segmentation_area">分割面积判定</option>
-                            <option value="obb_angle">OBB 角度判定（预留）</option>
-                            <option value="pose_keypoints">姿态关键点判定（预留）</option>
-                            <option value="screw_count">螺钉数量检测</option>
-                            <option value="remote_missing_part">遥控器漏装检测</option>
-                            <option value="wire_sequence">线序顺序检测</option>
-                            <option value="relative_position">相对位置检测</option>
-                            <option value="custom_rule">自定义规则</option>
-                        </select>
-                    </label>
-                    <button id="vision-debug-apply-template" data-action="applySelectedVisionDebugTemplate">
-                        <span>应用场景</span>
-                    </button>
-                    <details class="cf-vision-debug-details">
-                        <summary>常用工位模板</summary>
-                        <div class="cf-vision-template-grid">
-                            <button data-action="applyVisionDebugTemplate" data-value="w5_screw_count">W5 螺钉数量</button>
-                            <button data-action="applyVisionDebugTemplate" data-value="w6_screw_count">W6 螺钉数量</button>
-                            <button data-action="applyVisionDebugTemplate" data-value="n5_remote_missing_part">N5 遥控器漏装</button>
-                            <button data-action="applyVisionDebugTemplate" data-value="n6_remote_missing_part">N6 遥控器漏装</button>
-                            <button data-action="applyVisionDebugTemplate" data-value="electric_heating_screw_count">电加热螺钉检测</button>
-                        </div>
-                    </details>
-                </section>
-
-                <section class="cf-vision-debug-section cf-vision-debug-step">
-                    <h3>第二步：获取图片</h3>
-                    <div class="cf-vision-debug-toolbar">
-                        <button data-action="runVisionDebugCurrent">
-                            <span>获取当前相机单帧</span>
-                        </button>
-                        <button data-action="requestVisionDebugRecentRecords">
-                            <span>从历史记录选择</span>
-                        </button>
-                        <button data-action="showVisionDebugLocalImageNotice">
-                            <span>本地图片导入暂未开放，请先使用当前相机或历史样本。</span>
-                        </button>
-                    </div>
-                    <div class="cf-vision-history-row cf-vision-batch-row">
-                        <select id="vision-debug-history-select"></select>
-                        <button id="vision-debug-run-history" data-action="runVisionDebugHistory">使用历史样本</button>
-                    </div>
-                    <div id="vision-debug-image-empty" class="cf-vision-debug-empty">
-                        还没有可调试图片。请先启动相机并获取一帧，或从历史记录选择样本。
-                    </div>
-                    <div id="vision-debug-history-status" class="cf-vision-debug-status">等待选择历史样本</div>
-                </section>
-
-                <section class="cf-vision-debug-section cf-vision-debug-step cf-vision-debug-controls">
-                    <h3>第三步：运行验证</h3>
-                    <div class="cf-vision-debug-toolbar">
-                        <button id="vision-debug-run-current" data-action="runVisionDebugCurrent">
-                            <span>运行当前规则</span>
-                        </button>
-                        <button id="vision-debug-run-batch" data-action="runVisionDebugBatch">
-                            <span>批量验证历史样本</span>
-                        </button>
-                    </div>
-                    <div class="cf-vision-history-row">
-                        <select id="vision-debug-batch-result">
-                            <option value="All">最近 OK/NG</option>
-                            <option value="NG">最近 NG</option>
-                            <option value="OK">最近 OK</option>
-                        </select>
-                        <input id="vision-debug-batch-limit" type="number" min="1" max="50" step="1" value="20" title="批量数量上限 50">
-                    </div>
-                    <div class="cf-vision-debug-grid">
-                        <label>
-                            <span>置信度 <b id="vision-debug-confidence-value">0.50</b></span>
-                            <input id="vision-debug-confidence" type="range" min="0" max="1" step="0.01">
-                        </label>
-                        <label>
-                            <span>IOU <b id="vision-debug-iou-value">0.30</b></span>
-                            <input id="vision-debug-iou" type="range" min="0" max="1" step="0.01">
-                        </label>
-                        <label>
-                            <span>目标类别</span>
-                            <select id="vision-debug-target-label"></select>
-                        </label>
-                        <label>
-                            <span>期望数量</span>
-                            <input id="vision-debug-target-count" type="number" min="0" max="256" step="1">
-                        </label>
-                        <label>
-                            <span>预处理模式</span>
-                            <select id="vision-debug-preprocess-mode">
-                                <option value="StandardLetterBox">StandardLetterBox</option>
-                                <option value="IndustrialFast">IndustrialFast</option>
+                <div class="cf-vision-debug-left">
+                    <section class="cf-vision-debug-section cf-vision-debug-step">
+                        <h3>第一步：选择场景</h3>
+                        <label class="cf-vision-debug-field">
+                            <span>场景</span>
+                            <select id="vision-debug-template-select">
+                                <option value="target_count">目标数量检测</option>
+                                <option value="classification_judge">分类判定</option>
+                                <option value="segmentation_area">分割面积判定</option>
+                                <option value="obb_angle">OBB 角度判定（预留）</option>
+                                <option value="pose_keypoints">姿态关键点判定（预留）</option>
+                                <option value="screw_count">螺钉数量检测</option>
+                                <option value="remote_missing_part">遥控器漏装检测</option>
+                                <option value="wire_sequence">线序顺序检测</option>
+                                <option value="relative_position">相对位置检测</option>
+                                <option value="custom_rule">自定义规则</option>
                             </select>
-                            <small id="vision-debug-preprocess-help" class="cf-vision-debug-hint">StandardLetterBox：生产默认等比缩放，适合标准 YOLO 导出模型。</small>
                         </label>
-                        <label class="cf-vision-debug-switch">
-                            <span>ROI 开关/显示</span>
-                            <input id="vision-debug-roi-enabled" type="checkbox" checked>
-                        </label>
-                    </div>
-                </section>
-
-                <section class="cf-vision-debug-section">
-                    <h3>规则摘要</h3>
-                    <div id="vision-debug-rule-summary" class="cf-vision-debug-list">
-                        <div>目标：screw，数量：4，最低置信度：0.0</div>
-                    </div>
-                    <details class="cf-vision-debug-details">
-                        <summary>高级：查看/编辑规则 JSON</summary>
-                        <textarea id="vision-debug-rule-set" spellcheck="false"></textarea>
-                        <div id="vision-debug-rule-json-status" class="cf-vision-debug-status">规则 JSON 默认隐藏，保存前会校验格式。</div>
-                        <button id="vision-debug-save-params" data-action="saveVisionDebugParams">
-                            <span>保存参数</span>
+                        <button id="vision-debug-apply-template" data-action="applySelectedVisionDebugTemplate">
+                            <span>应用场景</span>
                         </button>
-                    </details>
-                </section>
+                        <details class="cf-vision-debug-details">
+                            <summary>常用工位模板</summary>
+                            <div class="cf-vision-template-grid">
+                                <button data-action="applyVisionDebugTemplate" data-value="w5_screw_count">W5 螺钉数量</button>
+                                <button data-action="applyVisionDebugTemplate" data-value="w6_screw_count">W6 螺钉数量</button>
+                                <button data-action="applyVisionDebugTemplate" data-value="n5_remote_missing_part">N5 遥控器漏装</button>
+                                <button data-action="applyVisionDebugTemplate" data-value="n6_remote_missing_part">N6 遥控器漏装</button>
+                                <button data-action="applyVisionDebugTemplate" data-value="electric_heating_screw_count">电加热螺钉检测</button>
+                            </div>
+                        </details>
+                    </section>
 
-                <section class="cf-vision-debug-section cf-vision-debug-result-section">
-                    <div class="cf-vision-debug-result-head">
-                        <span id="vision-debug-final-result" class="cf-vision-debug-result-pill">等待</span>
-                        <strong id="vision-debug-primary-reason">运行后将在这里显示检测结果。</strong>
-                    </div>
-                    <div class="cf-vision-debug-summary">
-                        <span>全部 <b id="vision-debug-count-all">0</b></span>
-                        <span>ROI内 <b id="vision-debug-count-in">0</b></span>
-                        <span>过滤 <b id="vision-debug-count-out">0</b></span>
-                        <span>耗时 <b id="vision-debug-elapsed">0ms</b></span>
-                    </div>
-                    <div id="vision-debug-image-warning" class="cf-vision-debug-status"></div>
-                </section>
+                    <section class="cf-vision-debug-section cf-vision-debug-step">
+                        <h3>第二步：获取图片</h3>
+                        <div class="cf-vision-debug-toolbar">
+                            <button data-action="runVisionDebugCurrent">
+                                <span>获取当前相机单帧</span>
+                            </button>
+                            <button data-action="requestVisionDebugRecentRecords">
+                                <span>从历史记录选择</span>
+                            </button>
+                            <button data-action="showVisionDebugLocalImageNotice">
+                                <span>本地图片导入暂未开放，请先使用当前相机或历史样本。</span>
+                            </button>
+                        </div>
+                        <div class="cf-vision-history-row cf-vision-batch-row">
+                            <select id="vision-debug-history-select"></select>
+                            <button id="vision-debug-run-history" data-action="runVisionDebugHistory">使用历史样本</button>
+                        </div>
+                        <div id="vision-debug-image-empty" class="cf-vision-debug-empty">
+                            还没有可调试图片。请先启动相机并获取一帧，或从历史记录选择样本。
+                        </div>
+                        <div id="vision-debug-history-status" class="cf-vision-debug-status">等待选择历史样本</div>
+                    </section>
 
-                <section class="cf-vision-debug-section">
-                    <h3>深度学习任务摘要</h3>
-                    <div id="vision-debug-task-summary" class="cf-vision-debug-list">
-                        <div>分类 Top1、分割面积/覆盖率、OBB 角度、姿态关键点将在运行后显示。</div>
-                    </div>
-                </section>
+                    <section class="cf-vision-debug-section cf-vision-debug-step cf-vision-debug-controls">
+                        <h3>第三步：运行验证</h3>
+                        <div class="cf-vision-debug-toolbar">
+                            <button id="vision-debug-run-current" data-action="runVisionDebugCurrent">
+                                <span>运行当前规则</span>
+                            </button>
+                            <button id="vision-debug-run-batch" data-action="runVisionDebugBatch">
+                                <span>批量验证历史样本</span>
+                            </button>
+                        </div>
+                        <div class="cf-vision-history-row">
+                            <select id="vision-debug-batch-result">
+                                <option value="All">最近 OK/NG</option>
+                                <option value="NG">最近 NG</option>
+                                <option value="OK">最近 OK</option>
+                            </select>
+                            <input id="vision-debug-batch-limit" type="number" min="1" max="50" step="1" value="20" title="批量数量上限 50">
+                        </div>
+                        <div class="cf-vision-debug-grid">
+                            <label>
+                                <span>置信度 <b id="vision-debug-confidence-value">0.50</b></span>
+                                <input id="vision-debug-confidence" type="range" min="0" max="1" step="0.01">
+                            </label>
+                            <label>
+                                <span>IOU <b id="vision-debug-iou-value">0.30</b></span>
+                                <input id="vision-debug-iou" type="range" min="0" max="1" step="0.01">
+                            </label>
+                            <label>
+                                <span>目标类别</span>
+                                <select id="vision-debug-target-label"></select>
+                            </label>
+                            <label>
+                                <span>期望数量</span>
+                                <input id="vision-debug-target-count" type="number" min="0" max="256" step="1">
+                            </label>
+                            <label>
+                                <span>预处理模式</span>
+                                <select id="vision-debug-preprocess-mode">
+                                    <option value="StandardLetterBox">StandardLetterBox</option>
+                                    <option value="IndustrialFast">IndustrialFast</option>
+                                </select>
+                                <small id="vision-debug-preprocess-help" class="cf-vision-debug-hint">StandardLetterBox：生产默认等比缩放，适合标准 YOLO 导出模型。</small>
+                            </label>
+                            <label class="cf-vision-debug-switch">
+                                <span>ROI 开关/显示</span>
+                                <input id="vision-debug-roi-enabled" type="checkbox" checked>
+                            </label>
+                        </div>
+                    </section>
 
-                <section class="cf-vision-debug-section">
-                    <h3>参数对比摘要</h3>
-                    <div id="vision-debug-param-diff" class="cf-vision-debug-list"></div>
-                </section>
+                    <section class="cf-vision-debug-section">
+                        <h3>规则摘要</h3>
+                        <div id="vision-debug-rule-summary" class="cf-vision-debug-list">
+                            <div>目标：screw，数量：4，最低置信度：0.0</div>
+                        </div>
+                        <details class="cf-vision-debug-details">
+                            <summary>高级：查看/编辑规则 JSON</summary>
+                            <textarea id="vision-debug-rule-set" spellcheck="false"></textarea>
+                            <div id="vision-debug-rule-json-status" class="cf-vision-debug-status">规则 JSON 默认隐藏，保存前会校验格式。</div>
+                            <button id="vision-debug-save-params" data-action="saveVisionDebugParams">
+                                <span>保存参数</span>
+                            </button>
+                        </details>
+                    </section>
+                </div>
 
-                <section class="cf-vision-debug-section">
-                    <h3>批量回放摘要</h3>
-                    <div id="vision-debug-batch-summary" class="cf-vision-debug-list"></div>
-                </section>
+                <div class="cf-vision-debug-right">
+                    <section class="cf-vision-debug-section cf-vision-debug-result-section">
+                        <div class="cf-vision-debug-result-head">
+                            <span id="vision-debug-final-result" class="cf-vision-debug-result-pill">等待</span>
+                            <strong id="vision-debug-primary-reason">运行后将在这里显示检测结果。</strong>
+                        </div>
+                        <div class="cf-vision-debug-summary">
+                            <span>全部 <b id="vision-debug-count-all">0</b></span>
+                            <span>ROI内 <b id="vision-debug-count-in">0</b></span>
+                            <span>过滤 <b id="vision-debug-count-out">0</b></span>
+                            <span>耗时 <b id="vision-debug-elapsed">0ms</b></span>
+                        </div>
+                        <div id="vision-debug-image-warning" class="cf-vision-debug-status"></div>
+                    </section>
 
-                <section class="cf-vision-debug-section">
-                    <h3>检测框列表</h3>
-                    <div id="vision-debug-box-list" class="cf-vision-debug-list"></div>
-                </section>
+                    <section class="cf-vision-debug-section">
+                        <h3>深度学习任务摘要</h3>
+                        <div id="vision-debug-task-summary" class="cf-vision-debug-list">
+                            <div>分类 Top1、分割面积/覆盖率、OBB 角度、姿态关键点将在运行后显示。</div>
+                        </div>
+                    </section>
 
-                <section class="cf-vision-debug-section">
-                    <h3>规则判定详情</h3>
-                    <div id="vision-debug-rule-details" class="cf-vision-debug-list"></div>
-                </section>
+                    <section class="cf-vision-debug-section">
+                        <h3>参数对比摘要</h3>
+                        <div id="vision-debug-param-diff" class="cf-vision-debug-list"></div>
+                    </section>
+
+                    <section class="cf-vision-debug-section">
+                        <h3>批量回放摘要</h3>
+                        <div id="vision-debug-batch-summary" class="cf-vision-debug-list"></div>
+                    </section>
+
+                    <section class="cf-vision-debug-section">
+                        <h3>检测框列表</h3>
+                        <div id="vision-debug-box-list" class="cf-vision-debug-list"></div>
+                    </section>
+
+                    <section class="cf-vision-debug-section">
+                        <h3>规则判定详情</h3>
+                        <div id="vision-debug-rule-details" class="cf-vision-debug-list"></div>
+                    </section>
+                </div>
             </div>
         </div>
     </div>
@@ -1876,13 +1880,34 @@
                     <span id="audit-count-badge"
                         class="px-2 py-0.5 text-[10px] font-bold bg-celadon-50 text-celadon-600 rounded-full">0 条</span>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                     <input id="audit-start-time" type="datetime-local" class="tech-input rounded-lg px-3 py-1.5 text-xs">
                     <input id="audit-end-time" type="datetime-local" class="tech-input rounded-lg px-3 py-1.5 text-xs">
-                    <input id="audit-operation-filter" type="text" placeholder="操作"
-                        class="tech-input rounded-lg px-3 py-1.5 text-xs w-28">
+                    <input id="audit-operation-filter" type="text" placeholder="操作" list="audit-operation-options"
+                        class="tech-input rounded-lg px-3 py-1.5 text-xs w-36">
+                    <datalist id="audit-operation-options">
+                        <option value="强制放行" label="ManualRelease"></option>
+                        <option value="人工复核" label="ManualReview"></option>
+                        <option value="回放审批" label="ReplayApproval"></option>
+                        <option value="回放完整性扫描" label="ReplayIntegrityScan"></option>
+                        <option value="归档回放数据集" label="ReplayDatasetArchive"></option>
+                        <option value="导出诊断包" label="DiagnosticPackageExport"></option>
+                        <option value="复核诊断包" label="DiagnosticPackageVerify"></option>
+                        <option value="导出交接报告" label="FieldHandoffReportExport"></option>
+                        <option value="现场证据保留清理" label="FieldEvidenceRetention"></option>
+                        <option value="维护建议处理" label="MaintenanceAdviceAction"></option>
+                        <option value="班次待办处理" label="ShiftTaskAction"></option>
+                        <option value="PLC 写入测试" label="FieldDebugPlcWriteTest"></option>
+                        <option value="刷新存储路径" label="StoragePathRefresh"></option>
+                    </datalist>
                     <input id="audit-operator-filter" type="text" placeholder="操作员"
                         class="tech-input rounded-lg px-3 py-1.5 text-xs w-28">
+                    <select id="audit-role-filter" class="tech-input rounded-lg px-3 py-1.5 text-xs">
+                        <option value="">全部角色</option>
+                        <option value="Operator">操作员</option>
+                        <option value="ShiftLead">班组长</option>
+                        <option value="Engineer">工程师</option>
+                    </select>
                     <select id="audit-status-filter" class="tech-input rounded-lg px-3 py-1.5 text-xs">
                         <option value="">全部状态</option>
                         <option value="Requested">已请求</option>
@@ -1890,8 +1915,12 @@
                         <option value="Succeeded">已成功</option>
                         <option value="Failed">已失败</option>
                     </select>
+                    <input id="audit-failure-filter" type="text" placeholder="失败原因"
+                        class="tech-input rounded-lg px-3 py-1.5 text-xs w-32">
                     <button data-action="queryAuditRecords"
                         class="px-3 py-1.5 text-xs font-bold text-celadon-600 bg-celadon-50 hover:bg-celadon-100 rounded-lg transition-colors">查询</button>
+                    <button data-action="clearAuditFilters"
+                        class="px-3 py-1.5 text-xs font-bold text-ink-500 bg-white border border-slate-200 hover:border-celadon-300 rounded-lg transition-colors">清空筛选</button>
                     <button data-action="exportAuditRecords"
                         class="px-3 py-1.5 text-xs font-bold text-ink-600 bg-white border border-slate-200 hover:border-celadon-300 rounded-lg transition-colors">导出</button>
                     <button data-action="verifyAuditChain"
@@ -1905,10 +1934,12 @@
                 class="px-8 py-3 text-[11px] bg-white border-b border-slate-100 flex flex-wrap gap-3 items-center text-ink-500">
                 <span class="font-bold text-ink-700">审计链</span>
                 <span id="audit-chain-badge" class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-bold">未校验</span>
-                <span id="audit-chain-count" class="font-mono">Verified -/-</span>
-                <span id="audit-chain-findings" class="font-mono">Findings -</span>
-                <span id="audit-chain-last-hash" class="font-mono truncate max-w-[320px]">Last -</span>
-                <span id="audit-chain-message" class="text-rouge-600"></span>
+                <span id="audit-chain-count" class="font-mono">已验证 -/-</span>
+                <span id="audit-chain-findings" class="font-mono">异常 -</span>
+                <span id="audit-chain-last-hash" class="font-mono truncate max-w-[320px]">最后 -</span>
+                <span id="audit-chain-message" class="text-rouge-600 truncate max-w-[420px] min-w-0"></span>
+                <button data-action="copyAuditChainSummary"
+                    class="px-2.5 py-1 text-[10px] font-bold text-ink-600 bg-white border border-slate-200 hover:border-celadon-300 rounded-lg transition-colors">复制链摘要</button>
             </div>
             <div class="flex-1 overflow-auto p-6 scroller bg-slate-50/30">
                 <div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-soft">
@@ -1934,8 +1965,12 @@
                     </table>
                 </div>
             </div>
-            <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center px-8 shrink-0">
-                <span id="audit-export-path" class="text-[10px] text-ink-400 font-mono truncate"></span>
+            <div class="h-12 border-t border-slate-100 bg-white/50 flex justify-between items-center gap-3 px-8 shrink-0">
+                <div class="min-w-0 flex items-center gap-2">
+                    <span id="audit-export-path" class="block min-w-0 max-w-[52vw] md:max-w-[520px] text-[10px] text-ink-400 font-mono truncate"></span>
+                    <button data-action="copyAuditExportPath"
+                        class="px-2.5 py-1 text-[10px] font-bold text-ink-500 bg-white border border-slate-200 hover:border-celadon-300 rounded-lg transition-colors shrink-0">复制路径</button>
+                </div>
                 <span class="text-[10px] text-ink-400 font-bold uppercase italic tracking-widest">只读审计队列查询</span>
             </div>
         </div>
@@ -1979,6 +2014,7 @@
             </div>
             <div class="h-14 border-t border-slate-100 bg-white flex justify-end items-center px-8 gap-4 shrink-0">
                 <button data-cmd="clear_stats_history"
+                    data-confirm="确定要清空所有统计历史数据吗？此操作不可撤销！"
                     class="px-6 py-2 text-vermilion hover:bg-red-50 rounded-lg text-xs font-bold border border-red-50 transition-[background-color,border-color,color,box-shadow] uppercase">清空历史数据</button>
             </div>
         </div>
@@ -1986,7 +2022,7 @@
 
 
     <!-- Core Application Scripts -->
-    <script src="js/bundle.js"></script>
+    <script src="js/bundle.js?v=20260706-ui-layout2"></script>
 
 </body>
 

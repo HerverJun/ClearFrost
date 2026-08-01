@@ -899,14 +899,44 @@ namespace ClearFrost.Services
                 Version = match?.Version ?? string.Empty,
                 ModelHash = match?.ModelHash ?? string.Empty,
                 ModelHashPrefix = ShortHash(match?.ModelHash),
-                TaskType = match?.TaskType ?? string.Empty,
-                InputWidth = match?.InputWidth ?? 0,
-                InputHeight = match?.InputHeight ?? 0,
+                TaskType = ResolveTaskType(match),
+                InputWidth = ResolveInputWidth(match),
+                InputHeight = ResolveInputHeight(match),
                 RegistryStatus = match?.Status.ToString() ?? string.Empty,
                 ApprovedForProduction = match?.ApprovedForProduction ?? false,
                 RegistryMatched = match != null,
                 RegistryMatchStrategy = matchStrategy
             };
+        }
+
+        private static string ResolveTaskType(ModelRegistryEntry? entry)
+        {
+            if (entry == null)
+            {
+                return string.Empty;
+            }
+
+            return entry.GetEffectiveTaskType();
+        }
+
+        private static int ResolveInputWidth(ModelRegistryEntry? entry)
+        {
+            if (entry == null)
+            {
+                return 0;
+            }
+
+            return entry.GetEffectiveInputWidth();
+        }
+
+        private static int ResolveInputHeight(ModelRegistryEntry? entry)
+        {
+            if (entry == null)
+            {
+                return 0;
+            }
+
+            return entry.GetEffectiveInputHeight();
         }
 
         internal static ModelRegistryEntry? ResolveRuntimeSlotRegistryEntry(

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
+using ClearFrost.Core.DeepLearning;
 using Microsoft.ML.OnnxRuntime;
 
 namespace ClearFrost.Core.Models
@@ -446,8 +447,50 @@ namespace ClearFrost.Core.Models
                 Version = entry.Version ?? string.Empty,
                 Sha256 = entry.ModelHash ?? string.Empty,
                 FileName = fileName,
+                TaskType = ResolveTaskType(entry),
+                PostprocessorKey = ResolvePostprocessorKey(entry),
+                ScoreNormalization = ResolveScoreNormalization(entry),
+                PostprocessOptions = CopyPostprocessOptions(ResolvePostprocessOptions(entry)),
+                InputWidth = ResolveInputWidth(entry),
+                InputHeight = ResolveInputHeight(entry),
+                LabelCount = ResolveLabels(entry).Count(label => !string.IsNullOrWhiteSpace(label)),
                 IsApprovedPackage = entry.IsPackage
             };
+        }
+
+        private static string ResolveTaskType(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveTaskType();
+        }
+
+        private static string ResolvePostprocessorKey(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectivePostprocessorKey();
+        }
+
+        private static string ResolveScoreNormalization(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveScoreNormalization();
+        }
+
+        private static IReadOnlyList<string> ResolveLabels(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveLabels();
+        }
+
+        private static int ResolveInputWidth(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveInputWidth();
+        }
+
+        private static int ResolveInputHeight(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveInputHeight();
+        }
+
+        private static IReadOnlyDictionary<string, string>? ResolvePostprocessOptions(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectivePostprocessOptions();
         }
 
         private void ScanPackages(ModelRegistryScanOptions options, List<ModelRegistryEntry> entries)
@@ -681,6 +724,8 @@ namespace ClearFrost.Core.Models
                 }
             }
 
+            ValidateDeepLearningPostprocessorConfiguration(manifest, options, warnings, failures);
+
             ModelRegistryStatus status = failures.Count > 0
                 ? ModelRegistryStatus.Blocked
                 : warnings.Count > 0
@@ -707,11 +752,449 @@ namespace ClearFrost.Core.Models
                 Labels = manifest.Labels ?? new List<string>(),
                 Manifest = manifest,
                 TaskType = manifest.TaskType ?? string.Empty,
+                PostprocessorKey = manifest.PostprocessorKey ?? string.Empty,
+                ScoreNormalization = manifest.ScoreNormalization ?? string.Empty,
+                PostprocessOptions = CopyPostprocessOptions(manifest.PostprocessOptions),
                 InputWidth = manifest.InputWidth,
                 InputHeight = manifest.InputHeight,
                 ApprovalStatus = manifest.Approval?.Status ?? ModelApprovalStatuses.Pending,
                 ApprovedForProduction = status == ModelRegistryStatus.Ready && manifestApproved
             };
+        }
+
+        private static void ValidateDeepLearningPostprocessorConfiguration(
+            ModelPackageManifest manifest,
+            ModelRegistryScanOptions options,
+            List<string> warnings,
+            List<string> failures)
+        {
+            string postprocessorKey = (manifest.PostprocessorKey ?? string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(postprocessorKey) &&
+                !DeepLearningPostprocessorConfiguration.IsKnownPostprocessorKey(postprocessorKey))
+            {
+                AddPackageConfigurationIssue(
+                    options,
+                    warnings,
+                    failures,
+                    $"Unknown deep learning postprocessor key: {postprocessorKey}. Known postprocessor keys: {FormatKnownPostprocessorKeys()}.");
+            }
+
+            string scoreNormalization = (manifest.ScoreNormalization ?? string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(scoreNormalization) &&
+                !DeepLearningPostprocessorConfiguration.TryParseScoreNormalization(scoreNormalization, out _))
+            {
+                AddPackageConfigurationIssue(
+                    options,
+                    warnings,
+                    failures,
+                    $"Unknown score normalization: {scoreNormalization}. Known score normalizations: {FormatKnownScoreNormalizations()}.");
+            }
+
+            ValidatePostprocessOptions(manifest.PostprocessOptions, postprocessorKey, manifest.TaskType, options, warnings, failures);
+        }
+
+        private static void ValidatePostprocessOptions(
+            IDictionary<string, string>? postprocessOptions,
+            string postprocessorKey,
+            string? taskType,
+            ModelRegistryScanOptions options,
+            List<string> warnings,
+            List<string> failures)
+        {
+            if (postprocessOptions == null || postprocessOptions.Count == 0)
+            {
+                return;
+            }
+
+            var seenKeys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> pair in postprocessOptions)
+            {
+                string key = (pair.Key ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    AddPackageConfigurationIssue(
+                        options,
+                        warnings,
+                        failures,
+                        "Postprocess option key is empty.");
+                    continue;
+                }
+
+                if (seenKeys.TryGetValue(key, out string? existingKey))
+                {
+                    AddPackageConfigurationIssue(
+                        options,
+                        warnings,
+                        failures,
+                        $"Duplicate postprocess option key: {key} conflicts with {existingKey ?? key}.");
+                    continue;
+                }
+
+                seenKeys[key] = key;
+                ValidateKnownPostprocessOptionValue(key, pair.Value, postprocessorKey, taskType, options, warnings, failures);
+            }
+        }
+
+        private static void ValidateKnownPostprocessOptionValue(
+            string key,
+            string? value,
+            string postprocessorKey,
+            string? taskType,
+            ModelRegistryScanOptions options,
+            List<string> warnings,
+            List<string> failures)
+        {
+            string normalizedKey = key.Trim().ToLowerInvariant();
+            string normalizedValue = (value ?? string.Empty).Trim();
+
+            switch (normalizedKey)
+            {
+                case "apply_nms":
+                case "nms":
+                case "normalized_boxes":
+                case "boxes_normalized":
+                case "normalized_coordinates":
+                case "coordinates_normalized":
+                    ValidateBooleanPostprocessOption(key, normalizedValue, options, warnings, failures);
+                    break;
+                case "label_map":
+                case "is_label_map":
+                    ValidateLabelMapHintPostprocessOption(key, normalizedValue, options, warnings, failures);
+                    break;
+                case "output_type":
+                case "output_format":
+                case "segmentation_format":
+                case "mask_format":
+                    if (IsSemanticSegmentationOptionScope(postprocessorKey, taskType) ||
+                        IsLabelMapHintValue(normalizedValue))
+                    {
+                        ValidateSemanticOutputHintPostprocessOption(key, normalizedValue, options, warnings, failures);
+                    }
+
+                    break;
+                case "top_k":
+                case "topk":
+                case "max_results":
+                case "classification_limit":
+                case "limit":
+                    ValidateNonNegativeIntegerPostprocessOption(key, normalizedValue, options, warnings, failures);
+                    break;
+                case "score_index":
+                case "confidence_index":
+                case "conf_index":
+                case "class_index":
+                case "class_id_index":
+                case "label_index":
+                case "class_id":
+                case "default_class_id":
+                case "foreground_class_id":
+                    ValidateNonNegativeIntegerPostprocessOption(key, normalizedValue, options, warnings, failures);
+                    break;
+                case "class_id_offset":
+                case "class_offset":
+                case "label_offset":
+                    ValidateIntegerPostprocessOption(key, normalizedValue, options, warnings, failures);
+                    break;
+                case "background_class_id":
+                case "background_index":
+                case "ignore_class_id":
+                case "ignored_class_id":
+                case "no_object_class_id":
+                case "no_object_index":
+                    ValidateIgnoredClassPostprocessOption(key, normalizedValue, options, warnings, failures);
+                    break;
+                case "box_format":
+                case "bbox_format":
+                case "coordinate_format":
+                    ValidateEnumPostprocessOption(
+                        key,
+                        normalizedValue,
+                        new[] { "xyxy", "xywh", "cxcywh", "center", "center-xywh", "yxyx", "yminxminymaxxmax", "tensorflow", "tf" },
+                        "box format",
+                        options,
+                        warnings,
+                        failures);
+                    break;
+                case "box_units":
+                case "coordinate_units":
+                case "coordinates":
+                    ValidateEnumPostprocessOption(
+                        key,
+                        normalizedValue,
+                        new[] { "normalized", "relative", "pixel", "pixels", "absolute", "raw" },
+                        "coordinate units",
+                        options,
+                        warnings,
+                        failures);
+                    break;
+                case "segmentation_layout":
+                case "mask_layout":
+                case "output_layout":
+                case "layout":
+                    ValidateNormalizedEnumPostprocessOption(
+                        key,
+                        normalizedValue,
+                        new[] { "chw", "hwc", "nchw", "nhwc", "bhw" },
+                        "tensor layout",
+                        options,
+                        warnings,
+                        failures);
+                    break;
+            }
+        }
+
+        private static void ValidateBooleanPostprocessOption(
+            string key,
+            string value,
+            ModelRegistryScanOptions options,
+            List<string> warnings,
+            List<string> failures)
+        {
+            string normalized = value.Trim().ToLowerInvariant();
+            if (normalized is "1" or "true" or "yes" or "on" or "enabled" or
+                "0" or "false" or "no" or "off" or "disabled" or "none")
+            {
+                return;
+            }
+
+            AddPackageConfigurationIssue(
+                options,
+                warnings,
+                failures,
+                $"Invalid boolean postprocess option {key}: {value}.");
+        }
+
+        private static void ValidateLabelMapHintPostprocessOption(
+            string key,
+            string value,
+            ModelRegistryScanOptions options,
+            List<string> warnings,
+            List<string> failures)
+        {
+            if (IsLabelMapHintValue(value) || IsFalseLikeValue(value))
+            {
+                return;
+            }
+
+            AddPackageConfigurationIssue(
+                options,
+                warnings,
+                failures,
+                $"Invalid label map hint postprocess option {key}: {value}. Allowed values: true, false, label-map, class-map, class-id, class-ids, class-index, class-indices.");
+        }
+
+        private static void ValidateSemanticOutputHintPostprocessOption(
+            string key,
+            string value,
+            ModelRegistryScanOptions options,
+            List<string> warnings,
+            List<string> failures)
+        {
+            string normalized = NormalizeSemanticHintValue(value);
+            if (IsLabelMapHintValue(value) ||
+                normalized is "logit" or "logits" or "score" or "scores" or "score-map" or "scoremap" or
+                    "probability" or "probabilities" or "probability-map" or "probabilitymap" or
+                    "semantic-map" or "semanticmap" or "mask" or "mask-map" or "maskmap")
+            {
+                return;
+            }
+
+            AddPackageConfigurationIssue(
+                options,
+                warnings,
+                failures,
+                $"Invalid semantic output hint postprocess option {key}: {value}. Allowed values include label-map, class-map, logits, probabilities, score-map, semantic-map, and mask.");
+        }
+
+        private static bool IsSemanticSegmentationOptionScope(string? postprocessorKey, string? taskType)
+        {
+            string key = NormalizeSemanticHintValue(postprocessorKey);
+            if (key is "semantic-segmentation" or "semanticsegmentation" or "multiclass-segmentation" or
+                "multiclasssegmentation" or "multi-class-segmentation" or "multiclass-segmentation" or
+                "segmentation" or "deeplab" or "unet-segmentation" or "unetsegmentation")
+            {
+                return true;
+            }
+
+            string task = NormalizeSemanticHintValue(taskType);
+            return task is "segmentation" or "segment" or "semantic-segmentation" or "semanticsegmentation" or "semantic";
+        }
+
+        private static bool IsLabelMapHintValue(string? value)
+        {
+            string normalized = NormalizeSemanticHintValue(value);
+            return normalized is "1" or "true" or "yes" or "on" or "enabled" or
+                "label-map" or "labelmap" or "class-map" or "classmap" or
+                "class-id" or "classid" or "class-ids" or "classids" or
+                "class-index" or "classindex" or "class-indices" or "classindices";
+        }
+
+        private static bool IsFalseLikeValue(string? value)
+        {
+            string normalized = NormalizeSemanticHintValue(value);
+            return normalized is "0" or "false" or "no" or "off" or "disabled" or "none";
+        }
+
+        private static string NormalizeSemanticHintValue(string? value)
+        {
+            return (value ?? string.Empty).Trim().Replace("_", "-").ToLowerInvariant();
+        }
+
+        private static void ValidateIntegerPostprocessOption(
+            string key,
+            string value,
+            ModelRegistryScanOptions options,
+            List<string> warnings,
+            List<string> failures)
+        {
+            if (int.TryParse(value, out _))
+            {
+                return;
+            }
+
+            AddPackageConfigurationIssue(
+                options,
+                warnings,
+                failures,
+                $"Postprocess option {key} must be an integer.");
+        }
+
+        private static void ValidateNonNegativeIntegerPostprocessOption(
+            string key,
+            string value,
+            ModelRegistryScanOptions options,
+            List<string> warnings,
+            List<string> failures)
+        {
+            if (int.TryParse(value, out int parsed) && parsed >= 0)
+            {
+                return;
+            }
+
+            AddPackageConfigurationIssue(
+                options,
+                warnings,
+                failures,
+                $"Postprocess option {key} must be a non-negative integer.");
+        }
+
+        private static void ValidateIgnoredClassPostprocessOption(
+            string key,
+            string value,
+            ModelRegistryScanOptions options,
+            List<string> warnings,
+            List<string> failures)
+        {
+            string normalized = value.Trim();
+            if (normalized.Equals("last", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals("final", StringComparison.OrdinalIgnoreCase) ||
+                int.TryParse(normalized, out int classId) && classId >= 0)
+            {
+                return;
+            }
+
+            AddPackageConfigurationIssue(
+                options,
+                warnings,
+                failures,
+                $"Postprocess option {key} must be a non-negative integer, last, or final.");
+        }
+
+        private static void ValidateEnumPostprocessOption(
+            string key,
+            string value,
+            IReadOnlyCollection<string> allowedValues,
+            string valueKind,
+            ModelRegistryScanOptions options,
+            List<string> warnings,
+            List<string> failures)
+        {
+            string normalized = value.Trim().ToLowerInvariant();
+            if (allowedValues.Any(item => string.Equals(item, normalized, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            AddPackageConfigurationIssue(
+                options,
+                warnings,
+                failures,
+                $"Invalid {valueKind} postprocess option {key}: {value}. Allowed values: {string.Join(", ", allowedValues)}.");
+        }
+
+        private static void ValidateNormalizedEnumPostprocessOption(
+            string key,
+            string value,
+            IReadOnlyCollection<string> allowedValues,
+            string valueKind,
+            ModelRegistryScanOptions options,
+            List<string> warnings,
+            List<string> failures)
+        {
+            string normalized = value.Trim().Replace("_", string.Empty).Replace("-", string.Empty).ToLowerInvariant();
+            if (allowedValues.Any(item => string.Equals(item, normalized, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            AddPackageConfigurationIssue(
+                options,
+                warnings,
+                failures,
+                $"Invalid {valueKind} postprocess option {key}: {value}. Allowed values: {string.Join(", ", allowedValues)}.");
+        }
+
+        private static string FormatKnownPostprocessorKeys()
+        {
+            return string.Join(", ", DeepLearningPostprocessorConfiguration.KnownPostprocessorKeys
+                .Concat(new[] { "yolo", "yolov8" })
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(key => key, StringComparer.OrdinalIgnoreCase));
+        }
+
+        private static string FormatKnownScoreNormalizations()
+        {
+            return string.Join(", ", DeepLearningPostprocessorConfiguration.KnownScoreNormalizationValues
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase));
+        }
+
+        private static IReadOnlyDictionary<string, string> CopyPostprocessOptions(IReadOnlyDictionary<string, string>? options)
+        {
+            if (options == null || options.Count == 0)
+            {
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var copy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> pair in options)
+            {
+                string key = (pair.Key ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(key) || copy.ContainsKey(key))
+                {
+                    continue;
+                }
+
+                copy[key] = pair.Value ?? string.Empty;
+            }
+
+            return copy;
+        }
+
+        private static void AddPackageConfigurationIssue(
+            ModelRegistryScanOptions options,
+            List<string> warnings,
+            List<string> failures,
+            string message)
+        {
+            if (options.StrictPackageMode || options.RequireProductionApproval)
+            {
+                failures.Add(message);
+            }
+            else
+            {
+                warnings.Add(message);
+            }
         }
 
         private void ScanBareOnnx(string onnxDirectory, bool requireProductionApproval, List<ModelRegistryEntry> entries)
@@ -880,17 +1363,18 @@ namespace ClearFrost.Core.Models
                 return ModelProductionValidationResult.Fail("ProductionModelNotApproved", $"模型未批准: {entry.ApprovalStatus}");
             }
 
-            if (entry.Labels.Count == 0 || entry.Labels.All(string.IsNullOrWhiteSpace))
+            IReadOnlyList<string> labels = ResolveLabels(entry);
+            if (labels.Count == 0 || labels.All(string.IsNullOrWhiteSpace))
             {
                 return ModelProductionValidationResult.Fail("ProductionModelLabelsMissing", "模型类别元数据缺失。");
             }
 
-            if (entry.InputWidth <= 0 || entry.InputHeight <= 0)
+            if (ResolveInputWidth(entry) <= 0 || ResolveInputHeight(entry) <= 0)
             {
                 return ModelProductionValidationResult.Fail("ProductionModelInputSizeMissing", "模型输入尺寸元数据缺失。");
             }
 
-            if (string.IsNullOrWhiteSpace(entry.TaskType))
+            if (string.IsNullOrWhiteSpace(ResolveTaskType(entry)))
             {
                 return ModelProductionValidationResult.Fail("ProductionModelTaskTypeMissing", "模型任务类型元数据缺失。");
             }

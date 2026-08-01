@@ -1,4 +1,4 @@
-namespace ClearFrost.Interfaces
+﻿namespace ClearFrost.Interfaces
 {
     public enum CameraCaptureFailureKind
     {

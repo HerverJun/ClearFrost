@@ -172,6 +172,460 @@ public class ModelRegistryTests
     }
 
     [Fact]
+    public void Scan_模型包后处理配置进入RegistryEntry()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-classifier");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 8, 6, 7, 5 });
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "pkg-classifier",
+                    Version = "1",
+                    ModelHash = ComputeSha256(modelPath),
+                    Labels = new List<string> { "OK", "NG" },
+                    TaskType = "Classification",
+                    PostprocessorKey = "classification",
+                    ScoreNormalization = "Softmax",
+                    PostprocessOptions = new Dictionary<string, string>
+                    {
+                        ["top_k"] = "3"
+                    },
+                    InputWidth = 224,
+                    InputHeight = 224,
+                    Approval = new ModelApprovalMetadata { Status = ModelApprovalStatuses.Approved }
+                }));
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            registry.Entries.Should().ContainSingle();
+            ModelRegistryEntry entry = registry.Entries[0];
+            entry.PostprocessorKey.Should().Be("classification");
+            entry.ScoreNormalization.Should().Be("Softmax");
+            entry.PostprocessOptions.Should().ContainKey("top_k").WhoseValue.Should().Be("3");
+            entry.TaskType.Should().Be("Classification");
+            entry.Status.Should().Be(ModelRegistryStatus.Ready);
+
+            IReadOnlyList<ProductionModelSelectionOption> options =
+                registry.GetProductionSelectionOptions(requireProductionApproval: true);
+            options.Should().ContainSingle();
+            options[0].PostprocessorKey.Should().Be("classification");
+            options[0].ScoreNormalization.Should().Be("Softmax");
+            options[0].PostprocessOptions.Should().ContainKey("top_k").WhoseValue.Should().Be("3");
+            options[0].TaskType.Should().Be("Classification");
+            options[0].InputWidth.Should().Be(224);
+            options[0].InputHeight.Should().Be(224);
+            options[0].LabelCount.Should().Be(2);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void GetProductionSelectionOptions_EntryMetadataEmpty_FallsBackToManifestMetadata()
+    {
+        string modelPath = Path.Combine(Path.GetTempPath(), "ClearFrostTests", "selection-fallback.onnx");
+        var registry = new ModelRegistry();
+        SetRegistryEntries(
+            registry,
+            new[]
+            {
+                new ModelRegistryEntry
+                {
+                    ModelId = "pkg-fallback",
+                    Version = "1",
+                    ModelHash = new string('a', 64),
+                    UsedModelName = "selection-fallback.onnx",
+                    ModelPath = modelPath,
+                    IsPackage = true,
+                    Status = ModelRegistryStatus.Ready,
+                    ApprovedForProduction = true,
+                    ApprovalStatus = ModelApprovalStatuses.Approved,
+                    Manifest = new ModelPackageManifest
+                    {
+                        TaskType = "Classification",
+                        PostprocessorKey = "classification",
+                        ScoreNormalization = "Softmax",
+                        InputWidth = 224,
+                        InputHeight = 224,
+                        Labels = new List<string> { "OK", "NG" },
+                        PostprocessOptions = new Dictionary<string, string>
+                        {
+                            ["top_k"] = "5"
+                        }
+                    }
+                }
+            });
+
+        IReadOnlyList<ProductionModelSelectionOption> options =
+            registry.GetProductionSelectionOptions(requireProductionApproval: true);
+
+        options.Should().ContainSingle();
+        options[0].TaskType.Should().Be("Classification");
+        options[0].PostprocessorKey.Should().Be("classification");
+        options[0].ScoreNormalization.Should().Be("Softmax");
+        options[0].PostprocessOptions.Should().ContainSingle();
+        options[0].PostprocessOptions.Should().ContainKey("top_k").WhoseValue.Should().Be("5");
+        options[0].InputWidth.Should().Be(224);
+        options[0].InputHeight.Should().Be(224);
+        options[0].LabelCount.Should().Be(2);
+    }
+
+    [Fact]
+    public void Scan_ProductionApproval_UnknownDeepLearningPostprocessorConfigBlocksPackage()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-bad-postprocess");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 4, 2, 4, 2 });
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "pkg-bad-postprocess",
+                    Version = "1",
+                    ModelHash = ComputeSha256(modelPath),
+                    Labels = new List<string> { "part" },
+                    TaskType = "Detect",
+                    PostprocessorKey = "unknown-head",
+                    ScoreNormalization = "1",
+                    InputWidth = 640,
+                    InputHeight = 640,
+                    Approval = new ModelApprovalMetadata { Status = ModelApprovalStatuses.Approved }
+                }));
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            registry.Entries.Should().ContainSingle();
+            ModelRegistryEntry entry = registry.Entries[0];
+            entry.Status.Should().Be(ModelRegistryStatus.Blocked);
+            entry.Message.Should().Contain("Unknown deep learning postprocessor key: unknown-head.");
+            entry.Message.Should().Contain("Known postprocessor keys:");
+            entry.Message.Should().Contain("classification");
+            entry.Message.Should().Contain("Unknown score normalization: 1.");
+            entry.Message.Should().Contain("Known score normalizations:");
+            entry.Message.Should().Contain("logit-sigmoid");
+            entry.ApprovedForProduction.Should().BeFalse();
+            registry.ValidateForProductionActivation(modelPath).ErrorCode.Should().Be("ProductionModelRegistryBlocked");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Scan_ProductionApproval_GenericDecodedDetectionPostprocessorConfigIsReady()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-decoded-detect");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 9, 8, 7, 6 });
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "pkg-decoded-detect",
+                    Version = "1",
+                    ModelHash = ComputeSha256(modelPath),
+                    Labels = new List<string> { "part" },
+                    TaskType = "Detect",
+                    PostprocessorKey = "generic-detection",
+                    ScoreNormalization = "logit-sigmoid",
+                    PostprocessOptions = new Dictionary<string, string>
+                    {
+                        ["box_format"] = "xywh",
+                        ["box_units"] = "relative",
+                        ["normalized_boxes"] = "yes",
+                        ["apply_nms"] = "true",
+                        ["class_id_offset"] = "-1",
+                        ["vendor_option"] = "kept"
+                    },
+                    InputWidth = 640,
+                    InputHeight = 640,
+                    Approval = new ModelApprovalMetadata { Status = ModelApprovalStatuses.Approved }
+                }));
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            registry.Entries.Should().ContainSingle();
+            ModelRegistryEntry entry = registry.Entries[0];
+            entry.Status.Should().Be(ModelRegistryStatus.Ready);
+            entry.PostprocessorKey.Should().Be("generic-detection");
+            entry.ScoreNormalization.Should().Be("logit-sigmoid");
+            entry.PostprocessOptions.Should().ContainKey("box_units").WhoseValue.Should().Be("relative");
+            entry.PostprocessOptions.Should().ContainKey("class_id_offset").WhoseValue.Should().Be("-1");
+            entry.PostprocessOptions.Should().ContainKey("vendor_option").WhoseValue.Should().Be("kept");
+            entry.ApprovedForProduction.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Scan_ProductionApproval_LabelMapHintAliasPostprocessorConfigIsReady()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-label-map");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 2, 4, 6, 8 });
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "pkg-label-map",
+                    Version = "1",
+                    ModelHash = ComputeSha256(modelPath),
+                    Labels = new List<string> { "background", "scratch" },
+                    TaskType = "Segmentation",
+                    PostprocessorKey = "semantic-segmentation",
+                    PostprocessOptions = new Dictionary<string, string>
+                    {
+                        ["output_type"] = "class-map",
+                        ["label_map"] = "enabled",
+                        ["background_class_id"] = "0"
+                    },
+                    InputWidth = 256,
+                    InputHeight = 256,
+                    Approval = new ModelApprovalMetadata { Status = ModelApprovalStatuses.Approved }
+                }));
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            registry.Entries.Should().ContainSingle();
+            ModelRegistryEntry entry = registry.Entries[0];
+            entry.Status.Should().Be(ModelRegistryStatus.Ready);
+            entry.PostprocessOptions.Should().ContainKey("output_type").WhoseValue.Should().Be("class-map");
+            entry.PostprocessOptions.Should().ContainKey("label_map").WhoseValue.Should().Be("enabled");
+            entry.ApprovedForProduction.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Scan_ProductionApproval_InvalidPostprocessOptionKeys_BlockPackageWithoutThrowing()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-invalid-options");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 1, 3, 3, 7 });
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "pkg-invalid-options",
+                    Version = "1",
+                    ModelHash = ComputeSha256(modelPath),
+                    Labels = new List<string> { "OK", "NG" },
+                    TaskType = "Classification",
+                    PostprocessorKey = "classification",
+                    ScoreNormalization = "Softmax",
+                    PostprocessOptions = new Dictionary<string, string>
+                    {
+                        ["top_k"] = "2",
+                        ["TOP_K"] = "3",
+                        [" "] = "ignored"
+                    },
+                    InputWidth = 224,
+                    InputHeight = 224,
+                    Approval = new ModelApprovalMetadata { Status = ModelApprovalStatuses.Approved }
+                }));
+
+            var registry = new ModelRegistry();
+            Action act = () => registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            act.Should().NotThrow();
+            registry.Entries.Should().ContainSingle();
+            ModelRegistryEntry entry = registry.Entries[0];
+            entry.Status.Should().Be(ModelRegistryStatus.Blocked);
+            entry.Message.Should().Contain("Duplicate postprocess option key: TOP_K conflicts with top_k.");
+            entry.Message.Should().Contain("Postprocess option key is empty.");
+            entry.PostprocessOptions.Should().ContainSingle();
+            entry.PostprocessOptions.Should().ContainKey("top_k").WhoseValue.Should().Be("2");
+            entry.ApprovedForProduction.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Scan_ProductionApproval_InvalidPostprocessOptionValues_BlockPackageWithActionableMessages()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-invalid-option-values");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 9, 1, 9, 1 });
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "pkg-invalid-option-values",
+                    Version = "1",
+                    ModelHash = ComputeSha256(modelPath),
+                    Labels = new List<string> { "part" },
+                    TaskType = "Detect",
+                    PostprocessorKey = "generic-detection",
+                    ScoreNormalization = "logit-sigmoid",
+                    PostprocessOptions = new Dictionary<string, string>
+                    {
+                        ["apply_nms"] = "maybe",
+                        ["label_map"] = "maybe",
+                        ["box_format"] = "diagonal",
+                        ["top_k"] = "-1",
+                        ["score_index"] = "last",
+                        ["class_index"] = "-1",
+                        ["class_id"] = "-1",
+                        ["background_class_id"] = "-2"
+                    },
+                    InputWidth = 640,
+                    InputHeight = 640,
+                    Approval = new ModelApprovalMetadata { Status = ModelApprovalStatuses.Approved }
+                }));
+
+            var registry = new ModelRegistry();
+            Action act = () => registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            act.Should().NotThrow();
+            registry.Entries.Should().ContainSingle();
+            ModelRegistryEntry entry = registry.Entries[0];
+            entry.Status.Should().Be(ModelRegistryStatus.Blocked);
+            entry.Message.Should().Contain("Invalid boolean postprocess option apply_nms: maybe.");
+            entry.Message.Should().Contain("Invalid label map hint postprocess option label_map: maybe.");
+            entry.Message.Should().Contain("Invalid box format postprocess option box_format: diagonal.");
+            entry.Message.Should().Contain("Allowed values: xyxy, xywh");
+            entry.Message.Should().Contain("Postprocess option top_k must be a non-negative integer.");
+            entry.Message.Should().Contain("Postprocess option score_index must be a non-negative integer.");
+            entry.Message.Should().Contain("Postprocess option class_index must be a non-negative integer.");
+            entry.Message.Should().Contain("Postprocess option class_id must be a non-negative integer.");
+            entry.Message.Should().Contain("Postprocess option background_class_id must be a non-negative integer, last, or final.");
+            entry.ApprovedForProduction.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Scan_ProductionApproval_InvalidSemanticOutputHint_BlocksSemanticPackage()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string packageDir = Path.Combine(packageRoot, "pkg-invalid-semantic-output");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            File.WriteAllBytes(modelPath, new byte[] { 5, 7, 5, 7 });
+            File.WriteAllText(
+                Path.Combine(packageDir, "manifest.json"),
+                JsonSerializer.Serialize(new ModelPackageManifest
+                {
+                    ModelId = "pkg-invalid-semantic-output",
+                    Version = "1",
+                    ModelHash = ComputeSha256(modelPath),
+                    Labels = new List<string> { "background", "scratch" },
+                    TaskType = "Segmentation",
+                    PostprocessorKey = "semantic-segmentation",
+                    PostprocessOptions = new Dictionary<string, string>
+                    {
+                        ["output_type"] = "maybe"
+                    },
+                    InputWidth = 256,
+                    InputHeight = 256,
+                    Approval = new ModelApprovalMetadata { Status = ModelApprovalStatuses.Approved }
+                }));
+
+            var registry = new ModelRegistry();
+            registry.Scan(new ModelRegistryScanOptions
+            {
+                PackageDirectory = packageRoot,
+                RequireProductionApproval = true,
+                Warmup = (_, _) => true
+            });
+
+            registry.Entries.Should().ContainSingle();
+            ModelRegistryEntry entry = registry.Entries[0];
+            entry.Status.Should().Be(ModelRegistryStatus.Blocked);
+            entry.Message.Should().Contain("Invalid semantic output hint postprocess option output_type: maybe.");
+            entry.ApprovedForProduction.Should().BeFalse();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void Scan_模型包和裸Onnx链接路径会阻断()
     {
         string tempDir = CreateTempDirectory();
@@ -575,6 +1029,59 @@ public class ModelRegistryTests
 
             result.Succeeded.Should().BeFalse();
             result.ErrorCode.Should().Be("ProductionModelNotRegistered");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void ValidateForProductionActivation_EntryTaskTypeEmptyButManifestHasTaskType_允许上线()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageDir = Path.Combine(tempDir, "models", "pkg-effective-task");
+            Directory.CreateDirectory(packageDir);
+            string modelPath = Path.Combine(packageDir, "model.onnx");
+            string manifestPath = Path.Combine(packageDir, "manifest.json");
+            File.WriteAllBytes(modelPath, new byte[] { 1, 2, 3, 4 });
+            string modelHash = ComputeSha256(modelPath);
+            var manifest = new ModelPackageManifest
+            {
+                ModelId = "pkg-effective-task",
+                Version = "1",
+                ModelFileName = "model.onnx",
+                ModelHash = modelHash,
+                Labels = new List<string> { "part" },
+                TaskType = "Detect",
+                InputWidth = 640,
+                InputHeight = 640,
+                Approval = new ModelApprovalMetadata { Status = ModelApprovalStatuses.Approved }
+            };
+            File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest));
+            var registry = new ModelRegistry();
+            SetRegistryEntries(registry, new[]
+            {
+                new ModelRegistryEntry
+                {
+                    ModelId = "pkg-effective-task",
+                    Version = "1",
+                    ModelHash = modelHash,
+                    ModelPath = modelPath,
+                    ManifestPath = manifestPath,
+                    IsPackage = true,
+                    Status = ModelRegistryStatus.Ready,
+                    Manifest = manifest,
+                    ApprovalStatus = ModelApprovalStatuses.Approved,
+                    ApprovedForProduction = true
+                }
+            });
+
+            ModelProductionValidationResult result = registry.ValidateForProductionActivation(modelPath);
+
+            result.Succeeded.Should().BeTrue();
         }
         finally
         {
@@ -1034,6 +1541,16 @@ public class ModelRegistryTests
         {
             return false;
         }
+    }
+
+    private static void SetRegistryEntries(ModelRegistry registry, IReadOnlyList<ModelRegistryEntry> entries)
+    {
+        System.Reflection.FieldInfo field = typeof(ModelRegistry).GetField(
+            "_entries",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new MissingFieldException(typeof(ModelRegistry).FullName, "_entries");
+
+        field.SetValue(registry, entries);
     }
 
     private static void DeleteDirectory(string path)

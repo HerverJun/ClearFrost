@@ -19,6 +19,9 @@
                 return JSON.parse(data);
             } catch (error) {
                 console.error("ClearFrost message parse failed:", error);
+                if (typeof window.addLog === "function") {
+                    window.addLog("后端消息解析失败", "error");
+                }
                 return null;
             }
         }
@@ -33,6 +36,13 @@
         }
     }
 
+    function reportCommandFailure(cmd, error) {
+        console.error(`ClearFrost command post failed: ${cmd}`, error);
+        if (typeof window.addLog === "function") {
+            window.addLog(`命令发送失败: ${cmd}`, "error");
+        }
+    }
+
     function sendCommand(cmd, value = null) {
         const payload = {
             cmd,
@@ -42,11 +52,16 @@
         };
 
         if (window.chrome?.webview) {
-            window.chrome.webview.postMessage(payload);
-            if (window.__CF_DEV_MODE && typeof window.addLog === "function") {
-                window.addLog(`CMD: ${cmd}`, "info");
+            try {
+                window.chrome.webview.postMessage(payload);
+                if (window.__CF_DEV_MODE && typeof window.addLog === "function") {
+                    window.addLog(`CMD: ${cmd}`, "info");
+                }
+                return payload.requestId;
+            } catch (error) {
+                reportCommandFailure(cmd, error);
+                throw error;
             }
-            return payload.requestId;
         }
 
         console.log(`[ClearFrost Dev] Mock command: ${formatDevPayload(payload)}`);
@@ -967,6 +982,28 @@
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
     const KnownRenderReasons = new Set(["inspection", "stats", "health", "replay", "manualReview", "fieldDebug", "visionDebug", "bootstrap", "state"]);
+    const MainBridgeErrorMessage = "主界面通信失败，请刷新页面后重试";
+    const FieldDiagnosticsBridgeErrorMessage = "现场诊断通信失败，请刷新页面后重试";
+    const SystemCommandBridgeErrorMessage = "系统控制通信失败，请刷新页面后重试";
+    const FieldDebugPendingTimeoutMessage = "现场调试等待超时，请查看日志或稍后重试";
+    const FieldExportPendingTimeoutMessage = "现场报告导出等待超时，请查看日志或稍后重试";
+    const MainCommandPendingTtlMs = 30000;
+    const FieldDebugPendingTtlMs = 30000;
+    const FieldExportPendingTtlMs = 60000;
+    const pendingMainCommandFailures = new Map();
+    let fieldDebugPendingResetTimer = null;
+    const fieldExportPendingTimers = new Map();
+    const FieldDebugCommandLabels = Object.freeze({
+        field_debug_step_capture: "单步取图",
+        field_debug_step_infer: "单步推理",
+        field_debug_plc_write_test: "PLC 写入测试",
+        field_debug_barcode_read_test: "条码读取测试",
+        field_debug_simulate_trigger: "触发模拟",
+    });
+    const FieldExportOperationLabels = Object.freeze({
+        export_diagnostic_package: "导出诊断包",
+        export_field_handoff_report: "导出交接报告",
+    });
     const InspectionStageLabels = Object.freeze({
         Unknown: "未知",
         Triggered: "已触发",
@@ -1025,6 +1062,65 @@
     function shouldRenderFull(reasons) {
         if (!Array.isArray(reasons) || reasons.length === 0) return true;
         return reasons.some((reason) => FullRenderReasons.has(reason) || !KnownRenderReasons.has(reason));
+    }
+
+    function sendMainCommand(cmd, value = null, onFailure = null, failureMessage = MainBridgeErrorMessage) {
+        try {
+            const requestId = window.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            registerPendingMainCommandFailure(requestId, cmd, onFailure);
+            return requestId;
+        } catch (error) {
+            console.error(`Main command failed: ${cmd}`, error);
+            showToast(failureMessage, "error", 1800);
+            addLog(`${failureMessage}: ${cmd}`, "error");
+            if (typeof onFailure === "function") onFailure(error);
+            return "";
+        }
+    }
+
+    function registerPendingMainCommandFailure(requestId, cmd, onFailure) {
+        const id = String(requestId || "").trim();
+        if (!id || typeof onFailure !== "function") return;
+        const timeoutId = window.setTimeout?.(() => {
+            pendingMainCommandFailures.delete(id);
+        }, MainCommandPendingTtlMs);
+        pendingMainCommandFailures.set(id, { cmd, onFailure, timeoutId });
+    }
+
+    function takePendingMainCommandFailure(requestId, cmd = "") {
+        const id = String(requestId || "").trim();
+        if (!id) return null;
+        const pending = pendingMainCommandFailures.get(id);
+        if (!pending) return null;
+        if (cmd && pending.cmd && pending.cmd !== cmd) return null;
+        if (pending.timeoutId) window.clearTimeout?.(pending.timeoutId);
+        pendingMainCommandFailures.delete(id);
+        return pending;
+    }
+
+    function getMainCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || MainBridgeErrorMessage,
+            errorCode: detail.errorCode || data.errorCode || data.ErrorCode || "CommandError",
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function handleMainCommandError(event) {
+        const { cmd, message, errorCode, requestId } = getMainCommandErrorDetail(event);
+        const pending = takePendingMainCommandFailure(requestId, cmd);
+        if (!pending || typeof pending.onFailure !== "function") return;
+
+        const error = new Error(message || MainBridgeErrorMessage);
+        error.name = errorCode || "CommandError";
+        pending.onFailure(error);
     }
 
     function hasRenderReason(reasons, reason) {
@@ -1726,12 +1822,14 @@
     }
 
     function requestDiagnosticPackageHistory() {
-        window.sendCommand("query_diagnostic_packages");
+        const requestId = sendMainCommand("query_diagnostic_packages", null, null, FieldDiagnosticsBridgeErrorMessage);
+        if (!requestId) return;
         addLog("正在刷新诊断包历史...", "info");
     }
 
     function requestFieldHandoffReportHistory() {
-        window.sendCommand("query_field_handoff_reports");
+        const requestId = sendMainCommand("query_field_handoff_reports", null, null, FieldDiagnosticsBridgeErrorMessage);
+        if (!requestId) return;
         addLog("正在刷新交接报告历史...", "info");
     }
 
@@ -1742,13 +1840,16 @@
             return;
         }
 
-        window.sendCommand("verify_diagnostic_package", { path: packagePath });
+        const requestId = sendMainCommand("verify_diagnostic_package", { path: packagePath }, null, FieldDiagnosticsBridgeErrorMessage);
+        if (!requestId) return;
         addLog("正在复核诊断包完整性...", "info");
         showToast("正在复核诊断包...", "info", 1200);
     }
 
     function exportFieldHandoffReport() {
-        window.sendCommand("export_field_handoff_report");
+        const requestId = sendMainCommand("export_field_handoff_report", null, null, FieldDiagnosticsBridgeErrorMessage);
+        if (!requestId) return;
+        markFieldExportPending("export_field_handoff_report");
         addLog("正在导出现场交接报告...", "info");
         showToast("正在导出交接报告...", "info", 1200);
     }
@@ -1760,7 +1861,8 @@
             return;
         }
 
-        window.sendCommand("maintenance_advice_action", { adviceId: id, action });
+        const requestId = sendMainCommand("maintenance_advice_action", { adviceId: id, action }, null, FieldDiagnosticsBridgeErrorMessage);
+        if (!requestId) return;
         addLog(action === "recheck" ? "维护建议复检请求已发送" : "维护建议处理记录已提交", "info");
     }
 
@@ -1781,7 +1883,8 @@
             return;
         }
 
-        window.sendCommand("shift_task_action", { taskId, linkedAdviceId, action });
+        const requestId = sendMainCommand("shift_task_action", { taskId, linkedAdviceId, action }, null, FieldDiagnosticsBridgeErrorMessage);
+        if (!requestId) return;
         addLog(action === "recheck" ? "班次待办复检请求已发送" : "班次待办处理记录已提交", "info");
     }
 
@@ -2050,8 +2153,25 @@
             : statusLower === "warning"
                 ? " warning"
                 : " error";
-        const hashText = lastHash ? ` · Last ${shortHash(lastHash)}` : "";
-        return `<em class="cf-diagnostic-badge${badgeClass}">${escapeHtml(status)}</em> Verified ${escapeHtml(verifiedRecords)}/${escapeHtml(totalRecords)} · Findings ${escapeHtml(findingCount)}${escapeHtml(hashText)}`;
+        const hashText = lastHash ? ` · 最后 ${shortHash(lastHash)}` : "";
+        return `<em class="cf-diagnostic-badge${badgeClass}">${escapeHtml(status)}</em> 已验证 ${escapeHtml(verifiedRecords)}/${escapeHtml(totalRecords)} · 异常 ${escapeHtml(findingCount)}${escapeHtml(hashText)}`;
+    }
+
+    function getDiagnosticStatusBadgeClass(status) {
+        const statusLower = String(status || "").trim().toLowerCase();
+        if (["healthy", "ready", "pass", "passed", "ok", "success"].includes(statusLower)) {
+            return "ok";
+        }
+
+        if (["blocking", "blocked", "failed", "fail", "error", "critical"].includes(statusLower)) {
+            return "error";
+        }
+
+        if (["", "pending", "notchecked", "unknown"].includes(statusLower)) {
+            return "pending";
+        }
+
+        return "warning";
     }
 
     function renderFieldAcceptanceChecklist(health, modelProbe) {
@@ -2231,12 +2351,7 @@
             const integrityEntries = getDiagnosticPackageValue(pkg, "integrityEntryCount", "IntegrityEntryCount", "");
             const findingCount = getDiagnosticPackageValue(pkg, "integrityFindingCount", "IntegrityFindingCount", "");
             const verifiedAt = getDiagnosticPackageValue(pkg, "verifiedAt", "VerifiedAt", "");
-            const statusLower = String(status || "").toLowerCase();
-            const statusClass = statusLower === "healthy"
-                ? "ok"
-                : statusLower === "pending"
-                    ? "pending"
-                    : "warning";
+            const statusClass = getDiagnosticStatusBadgeClass(status);
             const entryText = integrityEntries
                 ? `${verifiedEntries || 0}/${integrityEntries}`
                 : "待复核";
@@ -2279,12 +2394,7 @@
             const shiftTaskCount = getFieldHandoffReportValue(report, "shiftTaskCount", "ShiftTaskCount", "");
             const generatedAt = getFieldHandoffReportValue(report, "generatedAt", "GeneratedAt", "") ||
                 getFieldHandoffReportValue(report, "lastWriteTime", "LastWriteTime", "");
-            const statusLower = String(status || "").toLowerCase();
-            const statusClass = statusLower === "ready"
-                ? "ok"
-                : statusLower === "blocked"
-                    ? "error"
-                    : "warning";
+            const statusClass = getDiagnosticStatusBadgeClass(status);
             return `<div class="cf-handoff-report-history-item">
                 <div>
                     <strong title="${escapeHtml(path)}">${escapeHtml(fileName)}</strong>
@@ -2489,7 +2599,7 @@
         if (!modal) return;
         modal.classList.remove("hidden");
         updateTriggerSourceStatus();
-        window.sendCommand("request_health_snapshot");
+        sendMainCommand("request_health_snapshot", null, null, FieldDiagnosticsBridgeErrorMessage);
         requestDiagnosticPackageHistory();
         requestFieldHandoffReportHistory();
     }
@@ -2691,9 +2801,6 @@
         const role = String(getVisionDebugSettings().CurrentOperatorRole || getVisionDebugSettings().currentOperatorRole || "Operator");
         const note = el("vision-debug-operator-note");
         if (note) note.classList.toggle("hidden", role !== "Operator");
-        if (role === "Operator") {
-            showToast("这是工程师调试工具，生产操作无需进入。", "info", 1800);
-        }
         el("vision-debug-modal")?.classList.remove("hidden");
         requestVisionDebugRecentRecords();
         setVisionDebugImageEmptyVisible(true);
@@ -2717,8 +2824,86 @@
         };
     }
 
+    const VisionDebugBridgeErrorMessage = "视觉调试通信失败，请刷新页面后重试";
+    const VisionDebugPendingTtlMs = 120000;
+    const VisionDebugCommands = new Set([
+        "vision_debug_query_recent",
+        "vision_debug_run_current",
+        "vision_debug_run_history",
+        "vision_debug_run_batch",
+        "vision_debug_save_params",
+        "vision_debug_apply_template",
+    ]);
+    const pendingVisionDebugFailures = new Map();
+
+    function registerPendingVisionDebugFailure(requestId, cmd, onFailure) {
+        const id = String(requestId || "").trim();
+        if (!id || typeof onFailure !== "function") return;
+        const timeoutId = window.setTimeout?.(() => {
+            pendingVisionDebugFailures.delete(id);
+        }, VisionDebugPendingTtlMs);
+        pendingVisionDebugFailures.set(id, { cmd, onFailure, timeoutId });
+    }
+
+    function takePendingVisionDebugFailure(requestId) {
+        const id = String(requestId || "").trim();
+        if (!id) return null;
+        const pending = pendingVisionDebugFailures.get(id);
+        if (!pending) return null;
+        if (pending.timeoutId) window.clearTimeout?.(pending.timeoutId);
+        pendingVisionDebugFailures.delete(id);
+        return pending;
+    }
+
+    function clearPendingVisionDebugFailure(requestId) {
+        const pending = takePendingVisionDebugFailure(requestId);
+        return Boolean(pending);
+    }
+
+    function getVisionDebugCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || VisionDebugBridgeErrorMessage,
+            errorCode: detail.errorCode || data.errorCode || data.ErrorCode || "CommandError",
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function getVisionDebugFailureMessage(error) {
+        return error?.message || VisionDebugBridgeErrorMessage;
+    }
+
+    function makeVisionDebugFailure(message, errorCode = "CommandError") {
+        const error = new Error(message || VisionDebugBridgeErrorMessage);
+        error.name = errorCode || "CommandError";
+        return error;
+    }
+
+    function sendVisionDebugCommand(cmd, value, onFailure = null) {
+        try {
+            const requestId = window.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            registerPendingVisionDebugFailure(requestId, cmd, onFailure);
+            window.handleCommandDispatched?.(cmd);
+            return requestId;
+        } catch (error) {
+            console.error(`Vision debug command failed: ${cmd}`, error);
+            showToast(VisionDebugBridgeErrorMessage, "error", 1800);
+            if (typeof onFailure === "function") onFailure(error);
+            return "";
+        }
+    }
+
     function requestVisionDebugRecentRecords() {
-        window.sendCommand("vision_debug_query_recent", {});
+        sendVisionDebugCommand("vision_debug_query_recent", {}, (error) => {
+            setText("vision-debug-history-status", getVisionDebugFailureMessage(error));
+            setVisionDebugImageEmptyVisible(true);
+        });
     }
 
     function applySelectedVisionDebugTemplate() {
@@ -2739,8 +2924,9 @@
     function runVisionDebugCurrent() {
         if (!validateVisionDebugRuleJson()) return;
         setText("vision-debug-primary-reason", "正在重跑当前帧...");
-        window.sendCommand("vision_debug_run_current", collectVisionDebugParams());
-        window.handleCommandDispatched?.("vision_debug_run_current");
+        sendVisionDebugCommand("vision_debug_run_current", collectVisionDebugParams(), (error) => {
+            renderVisionDebugFailure(getVisionDebugFailureMessage(error), error?.name || "BridgeUnavailable");
+        });
     }
 
     function runVisionDebugHistory() {
@@ -2751,8 +2937,9 @@
         }
         if (!validateVisionDebugRuleJson()) return;
         setText("vision-debug-history-status", "正在用当前调试参数重跑历史样本...");
-        window.sendCommand("vision_debug_run_history", collectVisionDebugParams({ recordId }));
-        window.handleCommandDispatched?.("vision_debug_run_history");
+        sendVisionDebugCommand("vision_debug_run_history", collectVisionDebugParams({ recordId }), (error) => {
+            setText("vision-debug-history-status", getVisionDebugFailureMessage(error));
+        });
     }
 
     function runVisionDebugBatch() {
@@ -2761,14 +2948,16 @@
         const batchLimit = Math.max(1, Math.min(50, Math.trunc(rawLimit || 20)));
         const batchResult = String(el("vision-debug-batch-result")?.value || "All");
         setText("vision-debug-history-status", `正在批量回放最近 ${batchLimit} 条样本...`);
-        window.sendCommand("vision_debug_run_batch", collectVisionDebugParams({ batchLimit, batchResult }));
-        window.handleCommandDispatched?.("vision_debug_run_batch");
+        sendVisionDebugCommand("vision_debug_run_batch", collectVisionDebugParams({ batchLimit, batchResult }), (error) => {
+            setText("vision-debug-history-status", getVisionDebugFailureMessage(error));
+        });
     }
 
     function saveVisionDebugParams() {
         if (!validateVisionDebugRuleJson()) return;
-        window.sendCommand("vision_debug_save_params", collectVisionDebugParams());
-        window.handleCommandDispatched?.("vision_debug_save_params");
+        sendVisionDebugCommand("vision_debug_save_params", collectVisionDebugParams(), (error) => {
+            setText("vision-debug-primary-reason", getVisionDebugFailureMessage(error));
+        });
     }
 
     function applyVisionDebugTemplate(templateId) {
@@ -2788,8 +2977,9 @@
             : Array.from(el("vision-debug-target-label")?.options || [])
                 .map((option) => option.value)
                 .filter(Boolean);
-        window.sendCommand("vision_debug_apply_template", collectVisionDebugParams({ templateId, labels }));
-        window.handleCommandDispatched?.("vision_debug_apply_template");
+        sendVisionDebugCommand("vision_debug_apply_template", collectVisionDebugParams({ templateId, labels }), (error) => {
+            setText("vision-debug-primary-reason", getVisionDebugFailureMessage(error));
+        });
     }
 
     function renderVisionDebugRecentRecords(records) {
@@ -2862,6 +3052,26 @@
         renderVisionDebugComparison(snapshot);
         updateVisionDebugPreprocessHint(snapshot);
         redrawVisionDebugOverlay();
+    }
+
+    function handleVisionDebugResult(data, envelope) {
+        clearPendingVisionDebugFailure(envelope?.requestId || data?.requestId || data?.RequestId || "");
+        store.applyVisionDebugResult(data);
+    }
+
+    function handleVisionDebugCommandError(event) {
+        const { cmd, message, errorCode, requestId } = getVisionDebugCommandErrorDetail(event);
+        if (!VisionDebugCommands.has(cmd)) return;
+
+        const pending = takePendingVisionDebugFailure(requestId);
+        if (!pending || typeof pending.onFailure !== "function") return;
+
+        pending.onFailure(makeVisionDebugFailure(message, errorCode), {
+            cmd,
+            errorCode,
+            message,
+            requestId,
+        });
     }
 
     function renderVisionDebugFailure(message, errorCode = "") {
@@ -3443,7 +3653,11 @@
         setWindowButtonsBusy(true);
         addLog("已发送 exit_app 指令，正在等待安全退出...", "info");
         showToast("正在安全退出...", "info", 1500);
-        window.sendCommand("exit_app");
+        const requestId = sendMainCommand("exit_app", null, () => {
+            exitAppPending = false;
+            setWindowButtonsBusy(false);
+        }, SystemCommandBridgeErrorMessage);
+        if (!requestId) return;
     }
 
     function setOpenCameraButtonBusy(isBusy) {
@@ -3482,7 +3696,10 @@
 
         if (systemRunning) {
             setStartSystemButtonState(true, true);
-            window.sendCommand("stop_system");
+            const requestId = sendMainCommand("stop_system", null, () => {
+                setStartSystemButtonState(true, false);
+            }, SystemCommandBridgeErrorMessage);
+            if (!requestId) return false;
             addLog("停止检测指令已发送", "info");
             showToast("停止检测指令已发送", "info", 1200);
             return true;
@@ -3504,7 +3721,15 @@
             openCameraUnlockTimer = null;
         }, 1500);
 
-        window.sendCommand("start_system");
+        const requestId = sendMainCommand("start_system", null, () => {
+            openCameraPending = false;
+            if (openCameraUnlockTimer) {
+                window.clearTimeout(openCameraUnlockTimer);
+                openCameraUnlockTimer = null;
+            }
+            setOpenCameraButtonBusy(false);
+        }, SystemCommandBridgeErrorMessage);
+        if (!requestId) return false;
         addLog("启动系统指令已发送", "info");
         showToast("启动系统指令已发送", "info", 1400);
         return true;
@@ -3667,19 +3892,57 @@
         const message = data?.message || data?.Message || `前端命令处理失败: ${cmd || errorCode}`;
         const requestId = envelope?.requestId ? ` (${envelope.requestId})` : "";
 
+        if (isFieldDebugCommand(cmd)) {
+            setFieldDebugPending(false);
+            store.applyFieldDebugResult({
+                command: cmd,
+                message,
+                errorCode,
+                pending: false,
+                succeeded: false,
+            });
+        }
+
+        if (isFieldExportOperation(cmd)) {
+            setFieldExportPending(cmd, false);
+            applyFieldExportPendingState(cmd, {
+                message,
+                errorCode,
+                pending: false,
+                succeeded: false,
+            });
+        }
+
         addLog(`${message}${requestId}`, "error");
+        showToast(message, "error", 1800);
+        try {
+            window.dispatchEvent(new CustomEvent("cf-command-error", {
+                detail: {
+                    data,
+                    envelope,
+                    cmd,
+                    errorCode,
+                    message,
+                    requestId: envelope?.requestId || "",
+                },
+            }));
+        } catch (error) {
+            if (window.__CF_DEV_MODE) console.warn("Command error dispatch failed:", error);
+        }
         if (window.__CF_DEV_MODE) console.warn("Command error:", data, envelope);
     }
 
     function handleFieldDebugResult(data) {
-        store.applyFieldDebugResult(data);
+        setFieldDebugPending(false);
+        store.applyFieldDebugResult({ ...(data || {}), pending: false });
         const succeeded = data?.succeeded ?? data?.Succeeded;
         const message = data?.message || data?.Message || "";
         if (message) addLog(message, succeeded === false ? "error" : "info");
     }
 
     function handleDiagnosticPackageExportResult(data) {
-        store.applyDiagnosticPackageExportResult(data);
+        setFieldExportPending("export_diagnostic_package", false);
+        store.applyDiagnosticPackageExportResult({ ...(data || {}), pending: false });
         const succeeded = data?.succeeded ?? data?.Succeeded;
         const message = data?.message || data?.Message || "";
         if (message) addLog(message, succeeded === false ? "error" : "info");
@@ -3725,7 +3988,8 @@
     }
 
     function handleFieldHandoffReportResult(data) {
-        store.applyFieldHandoffReportResult(data);
+        setFieldExportPending("export_field_handoff_report", false);
+        store.applyFieldHandoffReportResult({ ...(data || {}), pending: false });
         const succeeded = data?.succeeded ?? data?.Succeeded;
         const message = data?.message || data?.Message || "";
         if (message) {
@@ -3741,6 +4005,114 @@
         if (message && succeeded === false) addLog(message, "error");
     }
 
+    function isFieldExportOperation(cmd) {
+        return Object.prototype.hasOwnProperty.call(FieldExportOperationLabels, cmd);
+    }
+
+    function getFieldExportButtons(cmd) {
+        if (cmd === "export_diagnostic_package") {
+            return document.querySelectorAll('[data-cmd="export_diagnostic_package"]');
+        }
+
+        if (cmd === "export_field_handoff_report") {
+            return document.querySelectorAll('[data-action="exportFieldHandoffReport"]');
+        }
+
+        return [];
+    }
+
+    function applyFieldExportPendingState(cmd, payload) {
+        if (cmd === "export_diagnostic_package") {
+            store.applyDiagnosticPackageExportResult(payload);
+            return;
+        }
+
+        if (cmd === "export_field_handoff_report") {
+            store.applyFieldHandoffReportResult(payload);
+        }
+    }
+
+    function setFieldExportPending(cmd, isPending) {
+        const existingTimer = fieldExportPendingTimers.get(cmd);
+        if (existingTimer) {
+            window.clearTimeout?.(existingTimer);
+            fieldExportPendingTimers.delete(cmd);
+        }
+
+        getFieldExportButtons(cmd).forEach((button) => {
+            button.disabled = !!isPending;
+            button.classList.toggle("is-pending", !!isPending);
+        });
+
+        if (isPending) {
+            const timeoutId = window.setTimeout?.(() => {
+                fieldExportPendingTimers.delete(cmd);
+                setFieldExportPending(cmd, false);
+                applyFieldExportPendingState(cmd, {
+                    message: FieldExportPendingTimeoutMessage,
+                    errorCode: "FieldExportTimeout",
+                    pending: false,
+                    succeeded: false,
+                });
+                addLog(FieldExportPendingTimeoutMessage, "warning");
+            }, FieldExportPendingTtlMs);
+            if (timeoutId) fieldExportPendingTimers.set(cmd, timeoutId);
+        }
+    }
+
+    function markFieldExportPending(cmd) {
+        const label = FieldExportOperationLabels[cmd] || "现场报告导出";
+        setFieldExportPending(cmd, true);
+        applyFieldExportPendingState(cmd, {
+            message: `${label}已发送，等待结果...`,
+            errorCode: "",
+            pending: true,
+            succeeded: null,
+        });
+    }
+
+    function isFieldDebugCommand(cmd) {
+        return Object.prototype.hasOwnProperty.call(FieldDebugCommandLabels, cmd);
+    }
+
+    function setFieldDebugPending(isPending) {
+        if (fieldDebugPendingResetTimer) {
+            window.clearTimeout?.(fieldDebugPendingResetTimer);
+            fieldDebugPendingResetTimer = null;
+        }
+
+        document.querySelectorAll('[data-cmd^="field_debug_"]').forEach((button) => {
+            button.disabled = !!isPending;
+            button.classList.toggle("is-pending", !!isPending);
+        });
+
+        if (isPending) {
+            fieldDebugPendingResetTimer = window.setTimeout?.(() => {
+                fieldDebugPendingResetTimer = null;
+                setFieldDebugPending(false);
+                store.applyFieldDebugResult({
+                    message: FieldDebugPendingTimeoutMessage,
+                    errorCode: "FieldDebugTimeout",
+                    pending: false,
+                    succeeded: false,
+                });
+                addLog(FieldDebugPendingTimeoutMessage, "warning");
+            }, FieldDebugPendingTtlMs);
+        }
+    }
+
+    function markFieldDebugCommandPending(cmd) {
+        const label = FieldDebugCommandLabels[cmd] || "现场调试";
+        setFieldDebugPending(true);
+        store.applyFieldDebugResult({
+            command: cmd,
+            message: `${label}已发送，等待结果...`,
+            errorCode: "",
+            pending: true,
+            succeeded: null,
+        });
+    }
+
     function handleCommandDispatched(cmd) {
         switch (cmd) {
             case "manual_detect":
@@ -3752,6 +4124,7 @@
                 showToast("强制放行申请已提交", "warning", 1200);
                 break;
             case "export_diagnostic_package":
+                markFieldExportPending(cmd);
                 addLog("正在导出诊断包...", "info");
                 showToast("正在导出诊断包...", "info", 1200);
                 break;
@@ -3778,6 +4151,7 @@
             case "field_debug_plc_write_test":
             case "field_debug_barcode_read_test":
             case "field_debug_simulate_trigger":
+                markFieldDebugCommandPending(cmd);
                 addLog("现场调试命令已发送", "info");
                 break;
             case "vision_debug_run_current":
@@ -3927,7 +4301,7 @@
     bridge.registerMessageHandler("inspectionUpdate", handleInspectionUpdate);
     bridge.registerMessageHandler("healthSnapshot", handleHealthSnapshot);
     bridge.registerMessageHandler("fieldDebugResult", handleFieldDebugResult);
-    bridge.registerMessageHandler("visionDebugResult", (data) => store.applyVisionDebugResult(data));
+    bridge.registerMessageHandler("visionDebugResult", handleVisionDebugResult);
     bridge.registerMessageHandler("diagnosticPackageExportResult", handleDiagnosticPackageExportResult);
     bridge.registerMessageHandler("diagnosticPackageHistoryResult", handleDiagnosticPackageHistoryResult);
     bridge.registerMessageHandler("diagnosticPackageVerificationResult", handleDiagnosticPackageVerificationResult);
@@ -3948,6 +4322,8 @@
     bridge.registerMessageHandler("detectionFrame", handleDetectionFrame);
     bridge.registerMessageHandler("uiCommand", handleUiCommand);
     bridge.registerMessageHandler("commandError", handleCommandError);
+    window.addEventListener("cf-command-error", handleMainCommandError);
+    window.addEventListener("cf-command-error", handleVisionDebugCommandError);
 
     document.addEventListener("input", (event) => {
         const target = event.target;
@@ -3979,6 +4355,64 @@
 
     const bridge = window.CF_BRIDGE;
     const store = window.CF_STORE;
+    const SettingsBridgeErrorMessage = "设置通信失败，请刷新页面后重试";
+    const DatasetCollectBridgeErrorMessage = "数据集采集通信失败，请刷新页面后重试";
+    const PendingSettingsFailureTtlMs = 30000;
+    const pendingSettingsFailures = new Map();
+    const SupportedTaskTypes = new Set([0, 1, 2, 3, 5, 6]);
+
+    function sendSettingsCommand(cmd, value = null, onFailure = null, failureMessage = SettingsBridgeErrorMessage) {
+        try {
+            const requestId = bridge?.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            registerPendingSettingsFailure(requestId, onFailure);
+            return requestId;
+        } catch (error) {
+            console.error(`Settings command failed: ${cmd}`, error);
+            window.showToast?.(failureMessage, "error", 1800);
+            if (typeof onFailure === "function") onFailure(error);
+            return "";
+        }
+    }
+
+    function registerPendingSettingsFailure(requestId, onFailure) {
+        const id = String(requestId || "").trim();
+        if (!id || typeof onFailure !== "function") return;
+        const timeoutId = window.setTimeout?.(() => {
+            pendingSettingsFailures.delete(id);
+        }, PendingSettingsFailureTtlMs);
+        pendingSettingsFailures.set(id, { onFailure, timeoutId });
+    }
+
+    function takePendingSettingsFailure(requestId) {
+        const id = String(requestId || "").trim();
+        if (!id) return null;
+        const pending = pendingSettingsFailures.get(id);
+        if (!pending) return null;
+        if (pending.timeoutId) window.clearTimeout?.(pending.timeoutId);
+        pendingSettingsFailures.delete(id);
+        return pending.onFailure;
+    }
+
+    function getSettingsCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || SettingsBridgeErrorMessage,
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function runPendingSettingsFailure(requestId, message) {
+        const onFailure = takePendingSettingsFailure(requestId);
+        if (typeof onFailure !== "function") return false;
+        onFailure(new Error(message || SettingsBridgeErrorMessage));
+        return true;
+    }
 
     const PLC_PROTOCOL_UI_HINTS = {
         Mitsubishi_MC_ASCII: {
@@ -4406,6 +4840,28 @@
         const legacySlider = byId(legacySliderId);
         if (legacySlider) return normalizeThresholdValue(parseFloat(legacySlider.value) / 100, fallback);
         return fallback;
+    }
+
+    function readFiniteNumberInput(input) {
+        const raw = String(input?.value ?? "").trim();
+        if (!raw) return null;
+
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : null;
+    }
+
+    function readSupportedTaskType(value) {
+        const raw = String(value ?? "").trim();
+        if (!raw) return null;
+
+        const taskType = Number(raw);
+        return Number.isInteger(taskType) && SupportedTaskTypes.has(taskType) ? taskType : null;
+    }
+
+    function restoreTaskTypeSelection(taskType) {
+        const select = byId("task-type-select");
+        if (!select || taskType === null) return;
+        select.value = String(taskType);
     }
 
     function escapeHtml(value) {
@@ -4963,6 +5419,27 @@
         window.addLog?.("正在自动识别串口光电 COM 口...", "info");
     }
 
+    function handleSettingsCommandError(event) {
+        const { cmd, message, requestId } = getSettingsCommandErrorDetail(event);
+        if (!cmd) return;
+
+        if (runPendingSettingsFailure(requestId, message)) return;
+
+        if (cmd === "collect_dataset") {
+            setDatasetCollectFailure(message || DatasetCollectBridgeErrorMessage);
+            return;
+        }
+
+        if (cmd === "save_project_preset") {
+            pendingProjectPresetId = "";
+            return;
+        }
+
+        if (cmd === "serial_auto_detect_ports") {
+            setSerialAutoDetectBusy(false);
+        }
+    }
+
     function updatePlcProtocolModeUi() {
         const mode = byId("cfg-plc-protocol-mode")?.value || "Legacy";
         const handshakeOptions = byId("cfg-plc-handshake-options");
@@ -5163,8 +5640,13 @@
     }
 
     function toggleMultiModel(enabled) {
+        const previousEnabled = Boolean(store.state.settings?.EnableMultiModelFallback ?? !enabled);
         applyMultiModelUiState(enabled);
-        bridge.sendCommand("toggle_multi_model", enabled);
+        const requestId = sendSettingsCommand("toggle_multi_model", enabled, () => {
+            applyMultiModelUiState(previousEnabled);
+        });
+        if (!requestId) return;
+        store.state.settings = { ...(store.state.settings || {}), EnableMultiModelFallback: enabled };
         window.addLog?.(enabled ? "多模型自动切换已启用" : "多模型自动切换已禁用", enabled ? "success" : "info");
     }
 
@@ -5400,7 +5882,9 @@
         const preset = collectSettingsData();
         preset.name = name;
         pendingProjectPresetId = presetId;
-        bridge.sendCommand("save_project_preset", { id: presetId, name, preset });
+        sendSettingsCommand("save_project_preset", { id: presetId, name, preset }, () => {
+            pendingProjectPresetId = "";
+        });
     }
 
     function updateSelectedProjectPreset() {
@@ -5437,7 +5921,9 @@
         const preset = collectSettingsData();
         preset.name = name;
         pendingProjectPresetId = presetId;
-        bridge.sendCommand("save_project_preset", { id: presetId, name, preset });
+        sendSettingsCommand("save_project_preset", { id: presetId, name, preset }, () => {
+            pendingProjectPresetId = "";
+        });
     }
 
     function deleteSelectedProjectPreset() {
@@ -5451,18 +5937,19 @@
         const name = getPresetDisplayName(presetId, PROJECT_PRESETS[presetId]);
         if (!confirm(`确认删除预设“${name}”？`)) return;
 
-        bridge.sendCommand("delete_project_preset", presetId);
+        const requestId = sendSettingsCommand("delete_project_preset", presetId);
+        if (!requestId) return;
         pendingProjectPresetId = "";
         if (getProjectPresetNameInput()) getProjectPresetNameInput().value = "";
         updateProjectPresetSelect("");
     }
 
     function exportConfigMigration() {
-        bridge.sendCommand("export_config_migration");
+        sendSettingsCommand("export_config_migration");
     }
 
     function importConfigMigration() {
-        bridge.sendCommand("import_config_migration");
+        sendSettingsCommand("import_config_migration");
     }
 
     function collectSettingsData() {
@@ -5535,15 +6022,22 @@
             if (input.type === "checkbox") {
                 data[propName] = input.checked;
             } else if (numericFields.has(propName) || input.type === "number") {
-                const numVal = parseFloat(input.value);
-                data[propName] = Number.isNaN(numVal) ? 0 : numVal;
+                const numVal = readFiniteNumberInput(input);
+                if (numVal !== null) {
+                    data[propName] = numVal;
+                }
             } else if (propName === "SerialPhotoelectricPortName") {
                 data[propName] = normalizeSerialPortName(input.value);
             } else {
                 data[propName] = input.value || "";
             }
         }
-        if (byId("task-type-select")) data.TaskType = parseInt(byId("task-type-select").value, 10);
+        if (byId("task-type-select")) {
+            const taskType = readSupportedTaskType(byId("task-type-select").value);
+            if (taskType !== null) {
+                data.TaskType = taskType;
+            }
+        }
         data.Confidence = readThresholdControl("conf-input", "conf-slider", 0.5);
         data.IouThreshold = readThresholdControl("iou-input", "iou-slider", 0.45);
         data.InspectionRuleSetJson = JSON.stringify(getCurrentRuleSet());
@@ -5568,10 +6062,21 @@
             return;
         }
 
+        const previousSettings = store.state.settings || {};
         const data = collectSettingsData();
-        store.state.settings = { ...(store.state.settings || {}), ...data };
+        store.state.settings = { ...previousSettings, ...data };
         window.updateOperatorStatus?.();
-        bridge.sendCommand("save_settings", data);
+        sendSettingsCommand("save_settings", data, () => {
+            store.state.settings = previousSettings;
+            window.updateOperatorStatus?.();
+        });
+    }
+
+    function markChangeCommandConfirmedValue(element) {
+        if (!element?.dataset?.changeCmd) return;
+        element.dataset.confirmedValue = String(element.value ?? "");
+        delete element.dataset.pendingChangeRequestId;
+        delete element.dataset.previousValue;
     }
 
     function selectModelOption(select, preferredValue, fallbackValue = "") {
@@ -5579,25 +6084,29 @@
         const preferred = String(preferredValue || "").trim();
         const fallback = String(fallbackValue || "").trim();
         const options = Array.from(select.options);
+        let selectedValue = null;
         if (preferred && options.some((option) => option.value === preferred)) {
-            select.value = preferred;
-            return;
+            selectedValue = preferred;
+        } else {
+            const preferredFileMatch = preferred ? options.find((option) => option.dataset.fileName === preferred) : null;
+            if (preferredFileMatch) {
+                selectedValue = preferredFileMatch.value;
+            } else if (fallback && options.some((option) => option.value === fallback)) {
+                selectedValue = fallback;
+            } else {
+                const fallbackFileMatch = fallback ? options.find((option) => option.dataset.fileName === fallback) : null;
+                if (fallbackFileMatch) {
+                    selectedValue = fallbackFileMatch.value;
+                }
+            }
         }
-        const preferredFileMatch = preferred ? options.find((option) => option.dataset.fileName === preferred) : null;
-        if (preferredFileMatch) {
-            select.value = preferredFileMatch.value;
-            return;
+
+        if (selectedValue !== null) {
+            select.value = selectedValue;
+        } else {
+            select.selectedIndex = options.length ? 0 : -1;
         }
-        if (fallback && options.some((option) => option.value === fallback)) {
-            select.value = fallback;
-            return;
-        }
-        const fallbackFileMatch = fallback ? options.find((option) => option.dataset.fileName === fallback) : null;
-        if (fallbackFileMatch) {
-            select.value = fallbackFileMatch.value;
-            return;
-        }
-        select.selectedIndex = options.length ? 0 : -1;
+        markChangeCommandConfirmedValue(select);
     }
 
     function encodeModelIdentityPart(value) {
@@ -5622,14 +6131,124 @@
         return String(legacyValue || "").trim();
     }
 
+    function normalizePostprocessOptions(options) {
+        if (!options || typeof options !== "object") return {};
+        const seenKeys = new Set();
+        return Object.entries(options).reduce((normalized, [rawKey, rawValue]) => {
+            const key = String(rawKey || "").trim();
+            const lookupKey = key.toLowerCase();
+            if (!key || seenKeys.has(lookupKey)) return normalized;
+            seenKeys.add(lookupKey);
+            normalized[key] = String(rawValue ?? "");
+            return normalized;
+        }, {});
+    }
+
     function normalizeModelOption(item) {
         if (typeof item === "string") {
-            return { value: item, text: item, fileName: item };
+            return {
+                value: item,
+                text: item,
+                fileName: item,
+                modelId: "",
+                version: "",
+                sha256: "",
+                taskType: "",
+                postprocessorKey: "",
+                scoreNormalization: "",
+                postprocessOptions: {},
+                inputWidth: 0,
+                inputHeight: 0,
+                labelCount: 0,
+                isApprovedPackage: false
+            };
         }
         const value = String(item?.value || item?.Value || "").trim();
         const text = String(item?.text || item?.Text || item?.fileName || item?.FileName || value).trim();
         const fileName = String(item?.fileName || item?.FileName || text).trim();
-        return { value, text, fileName };
+        const modelId = String(item?.modelId || item?.ModelId || "").trim();
+        const version = String(item?.version || item?.Version || "").trim();
+        const sha256 = String(item?.sha256 || item?.Sha256 || item?.modelHash || item?.ModelHash || "").trim().toLowerCase();
+        const taskType = String(item?.taskType || item?.TaskType || item?.task || item?.Task || "").trim();
+        const postprocessorKey = String(item?.postprocessorKey || item?.PostprocessorKey || item?.postprocessor || item?.Postprocessor || "").trim();
+        const scoreNormalization = String(item?.scoreNormalization || item?.ScoreNormalization || item?.normalization || item?.Normalization || "").trim();
+        const inputWidth = normalizePositiveInteger(item?.inputWidth ?? item?.InputWidth ?? item?.width ?? item?.Width);
+        const inputHeight = normalizePositiveInteger(item?.inputHeight ?? item?.InputHeight ?? item?.height ?? item?.Height);
+        const labelCount = normalizePositiveInteger(item?.labelCount ?? item?.LabelCount ?? item?.labelsCount ?? item?.LabelsCount);
+        const isApprovedPackage = normalizeBoolean(item?.isApprovedPackage ?? item?.IsApprovedPackage);
+        const postprocessOptions = normalizePostprocessOptions(
+            item?.postprocessOptions || item?.PostprocessOptions || item?.postprocessorOptions || item?.PostprocessorOptions);
+        return { value, text, fileName, modelId, version, sha256, taskType, postprocessorKey, scoreNormalization, postprocessOptions, inputWidth, inputHeight, labelCount, isApprovedPackage };
+    }
+
+    function normalizePositiveInteger(value) {
+        const number = Number(value);
+        return Number.isFinite(number) && number > 0 ? Math.trunc(number) : 0;
+    }
+
+    function normalizeBoolean(value) {
+        if (typeof value === "boolean") return value;
+        const text = String(value ?? "").trim().toLowerCase();
+        return text === "true" || text === "1" || text === "yes";
+    }
+
+    function formatPostprocessOptions(options, limit = Number.POSITIVE_INFINITY) {
+        const entries = Object.entries(options || {})
+            .map(([key, value]) => [String(key || "").trim(), String(value ?? "").trim()])
+            .filter(([key]) => key)
+            .sort(([left], [right]) => left.localeCompare(right));
+        if (!entries.length) return "";
+
+        const visibleEntries = Number.isFinite(limit) ? entries.slice(0, limit) : entries;
+        const values = visibleEntries.map(([key, value]) => value ? `${key}=${value}` : key);
+        const remaining = entries.length - visibleEntries.length;
+        return remaining > 0 ? `${values.join(", ")} +${remaining}` : values.join(", ");
+    }
+
+    function formatModelOptionMetadata(model, optionLimit = 3, fullHash = false) {
+        return [formatModelIdentity(model), formatModelHash(model, fullHash), formatInputSize(model), formatLabelCount(model), model.taskType, model.postprocessorKey, model.scoreNormalization, formatPostprocessOptions(model.postprocessOptions, optionLimit)]
+            .map((value) => String(value || "").trim())
+            .filter(Boolean)
+            .join(" / ");
+    }
+
+    function formatModelIdentity(model) {
+        if (model.modelId && model.version) return `${model.modelId}@${model.version}`;
+        return model.modelId || "";
+    }
+
+    function formatModelHash(model, fullHash = false) {
+        const hash = String(model.sha256 || "").trim();
+        if (!hash) return "";
+        return `#${fullHash ? hash : hash.slice(0, 12)}`;
+    }
+
+    function formatInputSize(model) {
+        return model.inputWidth > 0 && model.inputHeight > 0 ? `${model.inputWidth}x${model.inputHeight}` : "";
+    }
+
+    function formatLabelCount(model) {
+        return model.labelCount > 0 ? `labels=${model.labelCount}` : "";
+    }
+
+    function applyModelOptionMetadata(option, model) {
+        const metadata = formatModelOptionMetadata(model);
+        const titleMetadata = formatModelOptionMetadata(model, Number.POSITIVE_INFINITY, true);
+        option.value = model.value;
+        option.text = metadata ? `${model.text} · ${metadata}` : model.text;
+        option.dataset.fileName = model.fileName;
+        option.dataset.modelId = model.modelId;
+        option.dataset.version = model.version;
+        option.dataset.sha256 = model.sha256;
+        option.dataset.isApprovedPackage = model.isApprovedPackage ? "true" : "false";
+        option.dataset.taskType = model.taskType;
+        option.dataset.postprocessorKey = model.postprocessorKey;
+        option.dataset.scoreNormalization = model.scoreNormalization;
+        option.dataset.postprocessOptions = formatPostprocessOptions(model.postprocessOptions);
+        option.dataset.inputWidth = model.inputWidth ? String(model.inputWidth) : "";
+        option.dataset.inputHeight = model.inputHeight ? String(model.inputHeight) : "";
+        option.dataset.labelCount = model.labelCount ? String(model.labelCount) : "";
+        option.title = titleMetadata ? `${model.text} | ${titleMetadata}` : model.text;
     }
 
     function initModelList(files, notifyBackend = false) {
@@ -5655,9 +6274,7 @@
 
         models.forEach((model) => {
             const option = document.createElement("option");
-            option.value = model.value;
-            option.text = model.text;
-            option.dataset.fileName = model.fileName;
+            applyModelOptionMetadata(option, model);
             select.add(option);
         });
         selectModelOption(
@@ -5671,9 +6288,7 @@
             auxSelect.innerHTML = '<option value="">不使用</option>';
             models.forEach((model) => {
                 const option = document.createElement("option");
-                option.value = model.value;
-                option.text = model.text;
-                option.dataset.fileName = model.fileName;
+                applyModelOptionMetadata(option, model);
                 auxSelect.add(option);
             });
         });
@@ -5686,7 +6301,7 @@
             byId("auxiliary2-select"),
             modelSelectionValueFromReference(settings.Auxiliary2ModelReference, settings.Auxiliary2ModelPath),
             previousAux2);
-        if (notifyBackend) bridge.sendCommand("change_model", select.value);
+        if (notifyBackend) sendSettingsCommand("change_model", select.value);
         window.addLog?.(`成功加载 ${models.length} 个模型`, "info");
     }
 
@@ -5695,8 +6310,8 @@
         byId("settings-modal")?.classList.remove("hidden");
         syncSettingsChrome();
         activateSettingsTab("vision");
-        bridge.sendCommand("get_project_presets");
-        bridge.sendCommand("open_settings");
+        sendSettingsCommand("get_project_presets");
+        sendSettingsCommand("open_settings");
     }
 
     function openSettingsFromBackend(config) {
@@ -5715,7 +6330,10 @@
         const rawValue = byId("conf-input") ? val : parseFloat(val) / 100;
         const value = setThresholdControl("conf-input", "conf-slider", rawValue, fallback);
         store.state.settings = { ...(store.state.settings || {}), Confidence: value };
-        bridge.sendCommand("set_confidence", value);
+        sendSettingsCommand("set_confidence", value, () => {
+            setThresholdControl("conf-input", "conf-slider", fallback, fallback);
+            store.state.settings = { ...(store.state.settings || {}), Confidence: fallback };
+        });
     }
 
     function updateIou(val) {
@@ -5723,12 +6341,28 @@
         const rawValue = byId("iou-input") ? val : parseFloat(val) / 100;
         const value = setThresholdControl("iou-input", "iou-slider", rawValue, fallback);
         store.state.settings = { ...(store.state.settings || {}), IouThreshold: value };
-        bridge.sendCommand("set_iou", value);
+        sendSettingsCommand("set_iou", value, () => {
+            setThresholdControl("iou-input", "iou-slider", fallback, fallback);
+            store.state.settings = { ...(store.state.settings || {}), IouThreshold: fallback };
+        });
     }
 
     function updateTaskType(val) {
-        const taskType = parseInt(val, 10);
-        bridge.sendCommand("set_task_type", taskType);
+        const previousTaskType = readSupportedTaskType(store.state.settings?.TaskType);
+        const taskType = readSupportedTaskType(val);
+        if (taskType === null) {
+            restoreTaskTypeSelection(previousTaskType);
+            window.showToast?.("不支持的检测任务类型", "error", 1800);
+            return;
+        }
+
+        store.state.settings = { ...(store.state.settings || {}), TaskType: taskType };
+        sendSettingsCommand("set_task_type", taskType, () => {
+            restoreTaskTypeSelection(previousTaskType);
+            if (previousTaskType !== null) {
+                store.state.settings = { ...(store.state.settings || {}), TaskType: previousTaskType };
+            }
+        });
     }
 
     function loadProjectPreset(presetId) {
@@ -5848,16 +6482,30 @@
         }
     }
 
+    function setDatasetCollectFailure(message = DatasetCollectBridgeErrorMessage) {
+        const btn = byId("btn-collect-dataset");
+        const resultDiv = byId("dataset-collect-result");
+        if (!btn || !resultDiv) return;
+
+        btn.disabled = false;
+        btn.textContent = "一键收集训练数据集";
+        resultDiv.className = "mt-2 text-[10px] text-red-500";
+        resultDiv.textContent = message || DatasetCollectBridgeErrorMessage;
+        resultDiv.classList.remove("hidden");
+    }
+
     function collectDataset() {
         const btn = byId("btn-collect-dataset");
         const resultDiv = byId("dataset-collect-result");
-        if (!btn) return;
+        if (!btn || !resultDiv) return;
 
         btn.disabled = true;
         btn.textContent = "收集中，请稍候...";
         resultDiv.classList.add("hidden");
 
-        bridge.sendCommand("collect_dataset");
+        sendSettingsCommand("collect_dataset", null, (error) => {
+            setDatasetCollectFailure(error?.message || DatasetCollectBridgeErrorMessage);
+        }, DatasetCollectBridgeErrorMessage);
     }
 
     function handleDatasetCollectResult(data) {
@@ -5928,6 +6576,7 @@
     bridge.registerMessageHandler("projectPresets", handleProjectPresets);
     bridge.registerMessageHandler("datasetCollectResult", handleDatasetCollectResult);
     bridge.registerMessageHandler("serialPortsDetected", handleSerialPortsDetected);
+    window.addEventListener("cf-command-error", handleSettingsCommandError);
 })();
 
 // ==========================================
@@ -5941,9 +6590,136 @@
     const { escapeHtml } = window.CF_UTILS;
     let discoveredCameras = [];
     let directConnectPending = null;
+    let pendingCameraSwitch = null;
+    let pendingCameraSearchRequestId = "";
+    let pendingCameraPreviewRequestId = "";
+    let pendingCameraMutationRequestId = "";
+    let cameraMutationResetTimer = null;
+    const CameraBridgeErrorMessage = "相机操作通信失败，请刷新页面后重试";
+    const CameraSearchBridgeErrorMessage = "相机搜索通信失败，请刷新页面后重试";
+    const CameraPreviewBridgeErrorMessage = "相机预览通信失败，请刷新页面后重试";
+    const CameraDirectConnectBridgeErrorMessage = "相机直连通信失败，请刷新页面后重试";
+    const CameraMutationPendingTtlMs = 30000;
+    const CameraMutationTimeoutMessage = "相机配置操作等待超时，请稍后重试";
 
     function byId(id) {
         return document.getElementById(id);
+    }
+
+    function readFiniteNumberInput(id, fallback) {
+        const raw = String(byId(id)?.value ?? "").trim();
+        if (!raw) return fallback;
+
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : fallback;
+    }
+
+    function sendCameraCommand(cmd, value = null, onFailure = null, failureMessage = CameraBridgeErrorMessage) {
+        try {
+            const requestId = bridge?.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            return requestId;
+        } catch (error) {
+            console.error(`Camera command failed: ${cmd}`, error);
+            window.showToast?.(failureMessage, "error", 1800);
+            if (typeof onFailure === "function") onFailure(error);
+            return "";
+        }
+    }
+
+    function getCameraCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || CameraBridgeErrorMessage,
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function isMatchingCameraRequest(requestId, pendingRequestId) {
+        const incoming = String(requestId || "").trim();
+        const pending = String(pendingRequestId || "").trim();
+        return !pending || !incoming || incoming === pending;
+    }
+
+    function setCameraMutationPending(isPending, action = "") {
+        if (cameraMutationResetTimer) {
+            clearTimeout(cameraMutationResetTimer);
+            cameraMutationResetTimer = null;
+        }
+
+        document.querySelectorAll('[data-action="addNewCamera"], [data-action="deleteCurrentCamera"]').forEach((button) => {
+            button.disabled = Boolean(isPending);
+            button.classList.toggle("opacity-70", Boolean(isPending));
+            button.classList.toggle("cursor-wait", Boolean(isPending));
+            button.dataset.pendingCameraMutation = isPending ? action : "";
+            if (isPending) {
+                button.setAttribute("aria-busy", "true");
+            } else {
+                button.removeAttribute("aria-busy");
+            }
+        });
+
+        if (!isPending) return;
+
+        cameraMutationResetTimer = setTimeout(() => {
+            pendingCameraMutationRequestId = "";
+            setCameraMutationPending(false);
+            window.showToast?.(CameraMutationTimeoutMessage, "warning", 2200);
+            window.addLog?.(CameraMutationTimeoutMessage, "warning");
+        }, CameraMutationPendingTtlMs);
+    }
+
+    function clearCameraMutationPending() {
+        pendingCameraMutationRequestId = "";
+        setCameraMutationPending(false);
+    }
+
+    function handleCameraCommandError(event) {
+        const { cmd, message, requestId } = getCameraCommandErrorDetail(event);
+        if (!cmd) return;
+
+        if ((cmd === "search_huaray_cameras" || cmd === "super_search_cameras_hik") &&
+            isMatchingCameraRequest(requestId, pendingCameraSearchRequestId)) {
+            pendingCameraSearchRequestId = "";
+            byId("super-search-loading")?.classList.add("hidden");
+            setSuperSearchFeedback(message || CameraSearchBridgeErrorMessage, "error");
+            return;
+        }
+
+        if (cmd === "direct_connect_camera" &&
+            isMatchingCameraRequest(requestId, directConnectPending?.requestId || "")) {
+            clearDirectConnectButtons(false);
+            setSuperSearchFeedback(message || CameraDirectConnectBridgeErrorMessage, "error");
+            directConnectPending = null;
+            return;
+        }
+
+        if (cmd === "capture_camera_preview" &&
+            isMatchingCameraRequest(requestId, pendingCameraPreviewRequestId)) {
+            pendingCameraPreviewRequestId = "";
+            setCameraPreviewStatus({ isBusy: false, message: message || CameraPreviewBridgeErrorMessage, type: "error" });
+            return;
+        }
+
+        if ((cmd === "add_camera" || cmd === "delete_camera") &&
+            isMatchingCameraRequest(requestId, pendingCameraMutationRequestId)) {
+            clearCameraMutationPending();
+            window.showToast?.(message || CameraBridgeErrorMessage, "error", 2200);
+            return;
+        }
+
+        if (cmd === "switch_camera" &&
+            isMatchingCameraRequest(requestId, pendingCameraSwitch?.requestId || "")) {
+            const previousId = pendingCameraSwitch?.previousId || "";
+            pendingCameraSwitch = null;
+            setCameraSelection(previousId);
+            window.showToast?.(message || CameraBridgeErrorMessage, "error", 1800);
+        }
     }
 
     function getSuperSearchFeedback() {
@@ -6011,13 +6787,26 @@
             "cfg-cam-manufacturer": camera.manufacturer || "Huaray",
             "cfg-cam-pixel-format": camera.pixelFormat || "Auto",
             "cfg-cam-serial": camera.serialNumber || "",
-            "cfg-cam-exposure": camera.exposureTime || "",
-            "cfg-cam-gain": camera.gain || "",
+            "cfg-cam-exposure": camera.exposureTime ?? "",
+            "cfg-cam-gain": camera.gain ?? "",
         };
         Object.entries(fields).forEach(([id, value]) => {
             const input = byId(id);
             if (input) input.value = value;
         });
+    }
+
+    function findCameraById(id) {
+        return (window.cameraList || []).find((item) => item.id === id);
+    }
+
+    function setCameraSelection(id) {
+        const normalizedId = String(id || "");
+        const select = byId("cfg-cam-select");
+        if (select) select.value = normalizedId;
+        window.activeCameraId = normalizedId;
+        store.state.activeCameraId = normalizedId;
+        setCameraForm(findCameraById(normalizedId));
     }
 
     function receiveCameraList(data) {
@@ -6028,6 +6817,8 @@
             store.state.activeCameraId = activeId;
             window.cameraList = cameras;
             window.activeCameraId = activeId;
+            pendingCameraSwitch = null;
+            clearCameraMutationPending();
 
             const select = byId("cfg-cam-select");
             if (select) {
@@ -6055,42 +6846,78 @@
     function onCameraSelected(cameraId) {
         const select = byId("cfg-cam-select");
         const id = cameraId || select?.value || "";
-        window.activeCameraId = id;
-        store.state.activeCameraId = id;
+        const previousId = window.activeCameraId || store.state.activeCameraId || "";
+        setCameraSelection(id);
+        if (!id) return;
 
-        const camera = (window.cameraList || []).find((item) => item.id === id);
-        setCameraForm(camera);
-        if (id) bridge.sendCommand("switch_camera", id);
+        pendingCameraSwitch = { previousId, nextId: id, requestId: "" };
+        const requestId = sendCameraCommand("switch_camera", id, () => {
+            setCameraSelection(previousId);
+            pendingCameraSwitch = null;
+        });
+        if (requestId && pendingCameraSwitch) pendingCameraSwitch.requestId = requestId;
     }
 
     function addNewCamera() {
+        if (pendingCameraMutationRequestId) {
+            window.showToast?.("相机配置操作进行中，请稍候", "warning", 1400);
+            return;
+        }
+
         const displayName = byId("cfg-cam-name")?.value || `相机 ${(window.cameraList?.length || 0) + 1}`;
         const manufacturer = byId("cfg-cam-manufacturer")?.value || "Huaray";
         const pixelFormat = byId("cfg-cam-pixel-format")?.value || "Auto";
         const serialNumber = byId("cfg-cam-serial")?.value || "";
-        const exposureTime = parseFloat(byId("cfg-cam-exposure")?.value) || 50000;
-        const gain = parseFloat(byId("cfg-cam-gain")?.value) || 1.0;
+        const exposureTime = readFiniteNumberInput("cfg-cam-exposure", 50000);
+        const gain = readFiniteNumberInput("cfg-cam-gain", 1.0);
 
         if (!serialNumber) {
             alert("请输入相机序列号");
             return;
         }
 
-        bridge.sendCommand("add_camera", {
+        const requestId = sendCameraCommand("add_camera", {
             displayName,
             manufacturer,
             pixelFormat,
             serialNumber,
             exposureTime,
             gain,
+        }, () => {
+            clearCameraMutationPending();
         });
-        window.addLog?.(`正在添加/更新相机: ${displayName}...`, "info");
+        if (requestId) {
+            pendingCameraMutationRequestId = requestId;
+            setCameraMutationPending(true, "add");
+            window.addLog?.(`正在添加/更新相机: ${displayName}...`, "info");
+        }
     }
 
     function deleteCurrentCamera() {
+        if (pendingCameraMutationRequestId) {
+            window.showToast?.("相机配置操作进行中，请稍候", "warning", 1400);
+            return;
+        }
+
         const select = byId("cfg-cam-select");
-        if (!select?.value) return;
-        bridge.sendCommand("delete_camera", select.value);
+        if (!select?.value) {
+            window.showToast?.("请先选择要删除的相机", "warning", 1400);
+            return;
+        }
+
+        const cameraId = select.value;
+        const camera = findCameraById(cameraId);
+        const cameraLabel = camera?.displayName || camera?.serialNumber || cameraId;
+        if (typeof window.confirm === "function" && !window.confirm(`确定删除相机“${cameraLabel}”？`)) return;
+
+        const requestId = sendCameraCommand("delete_camera", cameraId, () => {
+            clearCameraMutationPending();
+        });
+        if (requestId) {
+            pendingCameraMutationRequestId = requestId;
+            setCameraMutationPending(true, "delete");
+            window.addLog?.(`正在删除相机: ${cameraLabel}...`, "warning");
+        }
     }
 
     function searchCamerasHuaray() {
@@ -6106,8 +6933,14 @@
         empty?.classList.add("hidden");
         setSuperSearchFeedback();
         directConnectPending = null;
+        pendingCameraSearchRequestId = "";
         if (results) results.innerHTML = "";
-        bridge.sendCommand("search_huaray_cameras");
+        const requestId = sendCameraCommand("search_huaray_cameras", null, () => {
+            pendingCameraSearchRequestId = "";
+            loading?.classList.add("hidden");
+            setSuperSearchFeedback(CameraSearchBridgeErrorMessage, "error");
+        }, CameraSearchBridgeErrorMessage);
+        if (requestId) pendingCameraSearchRequestId = requestId;
     }
 
     const superSearchCameras = searchCamerasHuaray;
@@ -6119,6 +6952,7 @@
     function receiveSuperSearchResult(data) {
         const cameras = data?.cameras || data?.Cameras || [];
         discoveredCameras = cameras;
+        pendingCameraSearchRequestId = "";
         const loading = byId("super-search-loading");
         const results = byId("super-search-results");
         const empty = byId("super-search-empty");
@@ -6167,13 +7001,18 @@
         setSuperSearchFeedback(`正在添加相机 ${cameraLabel}，请稍候...`, "info");
         window.showToast?.("正在添加相机配置...", "info", 1200);
 
-        bridge.sendCommand("direct_connect_camera", {
+        const requestId = sendCameraCommand("direct_connect_camera", {
             serialNumber: camera.serialNumber || "",
             ip: camera.ip || "",
             manufacturer: camera.manufacturer || "Huaray",
             model: camera.model || camera.userDefinedName || "Camera",
-        });
-        window.addLog?.(`正在直连相机: ${camera.serialNumber || camera.model || "-"}`, "info");
+        }, () => {
+            clearDirectConnectButtons(false);
+            setSuperSearchFeedback(CameraDirectConnectBridgeErrorMessage, "error");
+            directConnectPending = null;
+        }, CameraDirectConnectBridgeErrorMessage);
+        if (requestId && directConnectPending) directConnectPending.requestId = requestId;
+        if (requestId) window.addLog?.(`正在直连相机: ${camera.serialNumber || camera.model || "-"}`, "info");
     }
 
     function receiveCameraDirectConnectResult(data) {
@@ -6215,14 +7054,19 @@
             manufacturer: byId("cfg-cam-manufacturer")?.value || "Huaray",
             pixelFormat: byId("cfg-cam-pixel-format")?.value || "Auto",
             serialNumber: byId("cfg-cam-serial")?.value || "",
-            exposureTime: parseFloat(byId("cfg-cam-exposure")?.value) || 50000,
-            gain: parseFloat(byId("cfg-cam-gain")?.value) || 1.0,
+            exposureTime: readFiniteNumberInput("cfg-cam-exposure", 50000),
+            gain: readFiniteNumberInput("cfg-cam-gain", 1.0),
         };
     }
 
     function requestCameraPreviewFrame() {
         setCameraPreviewStatus({ isBusy: true, message: "正在连接相机并获取画面..." });
-        bridge.sendCommand("capture_camera_preview", collectCameraPreviewPayload());
+        pendingCameraPreviewRequestId = "";
+        const requestId = sendCameraCommand("capture_camera_preview", collectCameraPreviewPayload(), () => {
+            pendingCameraPreviewRequestId = "";
+            setCameraPreviewStatus({ isBusy: false, message: CameraPreviewBridgeErrorMessage, type: "error" });
+        }, CameraPreviewBridgeErrorMessage);
+        if (requestId) pendingCameraPreviewRequestId = requestId;
     }
 
     function receiveCameraPreviewFrame(data) {
@@ -6235,6 +7079,7 @@
         const url = data?.url || data?.Url || "";
         const src = url || (base64 ? (String(base64).startsWith("data:image") ? base64 : `data:image/jpeg;base64,${base64}`) : "");
         if (!src) return;
+        pendingCameraPreviewRequestId = "";
 
         image.onload = () => {
             image.classList.remove("hidden");
@@ -6260,7 +7105,14 @@
         }
         empty?.classList.add("hidden");
         loading?.classList.remove("hidden");
-        bridge.sendCommand("super_search_cameras_hik");
+        setSuperSearchFeedback();
+        pendingCameraSearchRequestId = "";
+        const requestId = sendCameraCommand("super_search_cameras_hik", null, () => {
+            pendingCameraSearchRequestId = "";
+            loading?.classList.add("hidden");
+            setSuperSearchFeedback(CameraSearchBridgeErrorMessage, "error");
+        }, CameraSearchBridgeErrorMessage);
+        if (requestId) pendingCameraSearchRequestId = requestId;
     }
 
     document.addEventListener("click", (event) => {
@@ -6291,6 +7143,7 @@
     bridge.registerMessageHandler("cameraList", receiveCameraList);
     bridge.registerMessageHandler("cameraPreviewFrame", receiveCameraPreviewFrame);
     bridge.registerMessageHandler("discoveredCameras", receiveSuperSearchResult);
+    window.addEventListener("cf-command-error", handleCameraCommandError);
 })();
 
 // ==========================================
@@ -6305,17 +7158,53 @@
     const TRACE_DEFAULT_PAGE_SIZE = 100;
     let tracePagerState = createTracePagerState();
     let activeTraceRecord = null;
+    let lastAuditChainVerification = null;
+    let lastAuditExportPath = "";
+    let pendingAuditRecordsRequestId = "";
+    let pendingAuditExportRequestId = "";
+    let pendingAuditChainRequestId = "";
+    const pendingReplayRequests = new Map();
+    let auditErrorSource = "";
+    const HistoryBridgeErrorMessage = "历史面板通信失败，请刷新页面后重试";
+    const ReplayBridgeErrorMessage = "回放操作通信失败，请刷新页面后重试";
+    const TraceBridgeErrorMessage = "追溯通信失败，请刷新页面后重试";
+    const TraceCommandFailedRequestId = "__trace_command_failed__";
+    const StatisticsHistoryDefaultDays = 30;
+    const StatisticsHistoryMaxDays = 366;
+    const ReplayDefaultQueryLimit = 100;
+    const ReplayMaxQueryLimit = 1000;
+    const AuditBridgeErrorMessage = "前端通信失败，请刷新页面后重试";
+    const AuditExportEmptyPathMessage = "审计 CSV 导出未返回文件路径";
     const AuditStatusLabels = Object.freeze({
         Requested: "已请求",
         Denied: "已拒绝",
         Succeeded: "已成功",
         Failed: "已失败",
     });
+    const AuditChainStatusLabels = Object.freeze({
+        Healthy: "正常",
+        Warning: "有警告",
+        Blocking: "阻断",
+        Unavailable: "不可用",
+        Unknown: "未知",
+        Pending: "待校验",
+        NotChecked: "未校验",
+    });
     const AuditOperationLabels = Object.freeze({
+        ConfigSave: "保存配置",
+        StoragePathRefresh: "刷新存储路径",
         ManualRelease: "强制放行",
         ManualReview: "人工复核",
         ReplayApproval: "回放审批",
         ReplayIntegrityScan: "回放完整性扫描",
+        ReplayDatasetArchive: "归档回放数据集",
+        DiagnosticPackageExport: "导出诊断包",
+        DiagnosticPackageVerify: "复核诊断包",
+        FieldEvidenceRetention: "现场证据保留清理",
+        FieldHandoffReportExport: "导出交接报告",
+        MaintenanceAdviceAction: "维护建议处理",
+        ShiftTaskAction: "班次待办处理",
+        FieldDebugPlcWriteTest: "PLC 写入测试",
         archive_replay_dataset: "归档回放数据集",
         create_replay_dataset: "创建回放数据集",
         preview_replay_dataset: "预览回放数据集",
@@ -6335,40 +7224,144 @@
         ShiftLead: "班组长",
         Engineer: "工程师",
     });
+    const AuditChainSeverityLabels = Object.freeze({
+        Blocking: "阻断",
+        Warning: "警告",
+    });
 
     function byId(id) {
         return document.getElementById(id);
     }
 
+    function escapeRegExp(value) {
+        return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    function findLabel(labels, value) {
+        const normalized = String(value || "").trim();
+        if (!normalized) return "";
+
+        const matchedKey = Object.keys(labels)
+            .find((key) => key.toLowerCase() === normalized.toLowerCase());
+        return matchedKey ? labels[matchedKey] : normalized;
+    }
+
+    function replaceLabelTokens(text, labels) {
+        let result = String(text || "");
+        Object.entries(labels).forEach(([raw, label]) => {
+            result = result.replace(new RegExp(escapeRegExp(raw), "gi"), label);
+        });
+        return result;
+    }
+
     function formatAuditStatus(status) {
-        const value = String(status || "").trim();
-        return AuditStatusLabels[value] || value;
+        return findLabel(AuditStatusLabels, status);
+    }
+
+    function formatAuditChainStatus(status) {
+        return findLabel(AuditChainStatusLabels, status);
+    }
+
+    function formatAuditChainStatusForSummary(status) {
+        const raw = String(status || "").trim();
+        const label = formatAuditChainStatus(raw);
+        return label && label !== raw ? `${label} (${raw})` : raw;
+    }
+
+    function getAuditChainFindings(source) {
+        if (Array.isArray(source?.findings)) return source.findings;
+        if (Array.isArray(source?.Findings)) return source.Findings;
+        return [];
+    }
+
+    function formatAuditChainSeverity(severity) {
+        return findLabel(AuditChainSeverityLabels, severity);
+    }
+
+    function limitAuditSummaryText(value, maxLength = 120) {
+        const text = String(value || "").replace(/\s+/g, " ").trim();
+        if (text.length <= maxLength) return text;
+        return `${text.slice(0, maxLength)}...`;
+    }
+
+    function formatAuditChainFindingHint(finding, fallback = "", preferFullPath = false) {
+        const source = finding || {};
+        const code = source.errorCode || source.ErrorCode || fallback || "";
+        const line = source.lineNumber || source.LineNumber || "";
+        const filePath = source.filePath || source.FilePath || "";
+        const auditFileName = source.auditFileName || source.AuditFileName || "";
+        const entry = source.entryName || source.EntryName || "";
+        const location = preferFullPath
+            ? (filePath || auditFileName || entry)
+            : (auditFileName || filePath || entry);
+        const place = location ? `${location}${line ? `:${line}` : ""}` : (line ? `行 ${line}` : "");
+        const message = limitAuditSummaryText(source.message || source.Message || "", 80);
+        return [
+            code,
+            place ? `@${place}` : "",
+            message ? `- ${message}` : "",
+        ].filter(Boolean).join(" ");
+    }
+
+    function getAuditChainStatusClass(status) {
+        const value = String(status || "").trim().toLowerCase();
+        if (["healthy", "success", "succeeded", "ok"].includes(value)) {
+            return "bg-bamboo-50 text-bamboo-700 border border-bamboo-100";
+        }
+
+        if (["warning", "warn"].includes(value)) {
+            return "bg-amber-50 text-amber-700 border border-amber-100";
+        }
+
+        if (["", "pending", "notchecked", "unknown"].includes(value)) {
+            return "bg-slate-100 text-slate-500 border border-slate-200";
+        }
+
+        return "bg-rouge-50 text-rouge-700 border border-rouge-100";
+    }
+
+    function getAuditRecordStatusClass(status) {
+        const value = String(status || "").trim().toLowerCase();
+        if (["failed", "denied", "blocking", "error"].includes(value)) {
+            return "bg-rouge-50 text-rouge-600 border-rouge-200";
+        }
+
+        if (["requested", "pending", "warning"].includes(value)) {
+            return "bg-amber-50 text-amber-700 border-amber-200";
+        }
+
+        return "bg-bamboo-50 text-bamboo-600 border-bamboo-200";
     }
 
     function formatProductionRole(role) {
-        const value = String(role || "").trim();
-        return ProductionRoleLabels[value] || value;
+        return findLabel(ProductionRoleLabels, role);
     }
 
     function formatAuditOperation(operation) {
+        return findLabel(AuditOperationLabels, operation);
+    }
+
+    function normalizeAuditOperationFilter(operation) {
         const value = String(operation || "").trim();
-        return AuditOperationLabels[value] || value;
+        if (!value) return "";
+
+        const matched = Object.entries(AuditOperationLabels)
+            .find(([raw, label]) =>
+                raw.toLowerCase() === value.toLowerCase() ||
+                String(label || "").trim().toLowerCase() === value.toLowerCase());
+        return matched ? matched[0] : value;
     }
 
     function formatAuditText(value) {
         let text = String(value || "").trim();
         if (!text) return "";
 
-        Object.entries(AuditOperationLabels).forEach(([raw, label]) => {
-            text = text.split(raw).join(label);
-        });
-        Object.entries(AuditStatusLabels).forEach(([raw, label]) => {
-            text = text.split(raw).join(label);
-        });
+        text = replaceLabelTokens(text, AuditOperationLabels);
+        text = replaceLabelTokens(text, AuditStatusLabels);
         Object.entries(ProductionRoleLabels).forEach(([raw, label]) => {
-            text = text.split(`RequiredRole=${raw}`).join(`需要${label}权限`);
-            text = text.split(raw).join(label);
+            text = text.replace(new RegExp(`RequiredRole=${escapeRegExp(raw)}`, "gi"), `需要${label}权限`);
         });
+        text = replaceLabelTokens(text, ProductionRoleLabels);
         return text;
     }
 
@@ -6376,6 +7369,98 @@
         const text = String(value || "").trim();
         if (!text) return "";
         return text.length <= 12 ? text : `${text.slice(0, 12)}...`;
+    }
+
+    function formatAuditHashComparison(label, expected, actual) {
+        const expectedText = shortAuditHash(expected) || "-";
+        const actualText = shortAuditHash(actual) || "-";
+        if (expectedText === "-" && actualText === "-") return "";
+        return `${label} 期望 ${expectedText} 实际 ${actualText}`;
+    }
+
+    async function writeClipboardText(text) {
+        let clipboardError = null;
+        if (navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return;
+            } catch (error) {
+                clipboardError = error;
+            }
+        }
+
+        const textarea = document.createElement("textarea");
+        const target = document.body || document.documentElement;
+        textarea.value = text;
+        textarea.setAttribute("readonly", "readonly");
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        target.appendChild(textarea);
+        try {
+            textarea.select();
+            const copied = document.execCommand?.("copy") === true;
+            if (!copied) {
+                throw clipboardError || new Error("ClipboardUnavailable");
+            }
+        } finally {
+            textarea.remove();
+        }
+    }
+
+    function buildAuditChainSummaryText(data) {
+        const source = data || {};
+        const error = source.error || source.Error || "";
+        const status = String(source.status || source.Status || (error ? "Unavailable" : "Unknown"));
+        const totalRecords = source.totalRecords ?? source.TotalRecords ?? 0;
+        const verifiedRecords = source.verifiedRecords ?? source.VerifiedRecords ?? 0;
+        const findingCount = source.findingCount ?? source.FindingCount ?? 0;
+        const lastHash = source.lastRecordSha256 || source.LastRecordSha256 || "";
+        const checkedAt = source.checkedAt || source.CheckedAt || new Date().toISOString();
+        const findings = getAuditChainFindings(source);
+        const statusText = formatAuditChainStatusForSummary(status);
+        const lines = [
+            "ClearFrost 审计链摘要",
+            `状态: ${statusText || "-"}`,
+            `已验证: ${verifiedRecords}/${totalRecords}`,
+            `异常: ${findingCount}`,
+            `最后记录哈希: ${lastHash || "-"}`,
+            `校验时间: ${checkedAt}`,
+        ];
+
+        if (error) {
+            lines.push(`错误: ${error}`);
+        }
+
+        const listedFindings = findings.slice(0, 3);
+        listedFindings.forEach((finding, index) => {
+            const code = finding.errorCode || finding.ErrorCode || "Finding";
+            const line = finding.lineNumber || finding.LineNumber || "";
+            const filePath = finding.filePath || finding.FilePath || "";
+            const auditFileName = finding.auditFileName || finding.AuditFileName || "";
+            const entry = finding.entryName || finding.EntryName || "";
+            const location = filePath || auditFileName || entry;
+            const severity = finding.severity || finding.Severity || "";
+            const severityText = formatAuditChainSeverity(severity) || severity;
+            const message = limitAuditSummaryText(finding.message || finding.Message || "");
+            const expectedPreviousSha256 = finding.expectedPreviousSha256 || finding.ExpectedPreviousSha256 || "";
+            const actualPreviousSha256 = finding.actualPreviousSha256 || finding.ActualPreviousSha256 || "";
+            const expectedRecordSha256 = finding.expectedRecordSha256 || finding.ExpectedRecordSha256 || "";
+            const actualRecordSha256 = finding.actualRecordSha256 || finding.ActualRecordSha256 || "";
+            const details = [
+                severityText ? `级别 ${severityText}` : "",
+                message ? `消息 ${message}` : "",
+                formatAuditHashComparison("上一哈希", expectedPreviousSha256, actualPreviousSha256),
+                formatAuditHashComparison("记录哈希", expectedRecordSha256, actualRecordSha256),
+            ].filter(Boolean).join("，");
+            lines.push(`${index + 1}. ${code}${line ? ` @${line}` : ""}${location ? ` ${location}` : ""}${details ? ` - ${details}` : ""}`);
+        });
+
+        const remainingFindings = Math.max(0, findings.length - listedFindings.length);
+        if (remainingFindings > 0) {
+            lines.push(`其余异常: ${remainingFindings} 条未列出`);
+        }
+
+        return lines.join("\n");
     }
 
     function createTracePagerState() {
@@ -6413,6 +7498,21 @@
         if (value === undefined || value === null || value === "") return null;
         const numberValue = Number(value);
         return Number.isFinite(numberValue) ? numberValue : null;
+    }
+
+    function toPositiveInteger(value) {
+        const numberValue = Number(value);
+        return Number.isInteger(numberValue) && numberValue > 0 ? numberValue : null;
+    }
+
+    function readManualReviewExpectedRevision() {
+        const raw = String(byId("manual-review-expected-revision")?.value || "").trim();
+        if (!raw) return { isValid: true, value: null };
+
+        const revision = Number(raw);
+        return Number.isInteger(revision) && revision >= 0
+            ? { isValid: true, value: revision }
+            : { isValid: false, value: null };
     }
 
     const TRACE_DATE_ITEM_CLASS = "p-2.5 hover:bg-celadon-50 hover:text-celadon-700 cursor-pointer rounded-xl text-[11px] text-ink-500 font-bold transition-[background-color,border-color,color,box-shadow] border border-transparent hover:border-celadon-100 mb-1";
@@ -6472,6 +7572,110 @@
 
         if (prevButton) prevButton.disabled = !canGoPrev;
         if (nextButton) nextButton.disabled = !canGoNext;
+    }
+
+    function sendHistoryCommand(cmd, value = null, onFailure = null, failureMessage = HistoryBridgeErrorMessage) {
+        try {
+            const requestId = bridge?.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            return requestId;
+        } catch (error) {
+            console.error(`History command failed: ${cmd}`, error);
+            window.showToast?.(failureMessage, "error", 1800);
+            if (typeof onFailure === "function") onFailure(error);
+            return "";
+        }
+    }
+
+    function setLogHistoryFailure(message = HistoryBridgeErrorMessage) {
+        const tbody = byId("log-history-table");
+        const badge = byId("log-count-badge");
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="3" class="px-4 py-10 text-center text-rouge-600 italic">${escapeHtml(message)}</td></tr>`;
+        }
+        if (badge) badge.textContent = "0 条";
+    }
+
+    function setStatisticsHistoryFailure(message = HistoryBridgeErrorMessage) {
+        const table = byId("statistics-history-table");
+        if (table) {
+            table.innerHTML = `<tr><td colspan="5" class="px-4 py-10 text-center text-rouge-600 italic">${escapeHtml(message)}</td></tr>`;
+        }
+    }
+
+    function setTraceArchiveFailure(message = TraceBridgeErrorMessage) {
+        const dateList = byId("ng-date-list");
+        const hourList = byId("ng-hour-list");
+        const grid = byId("ng-image-grid");
+        const badge = byId("gallery-count");
+        const status = byId("trace-page-status");
+
+        resetTracePagerState();
+        if (dateList) dateList.innerHTML = `<div class="text-[10px] text-rouge-600 p-4 text-center italic font-serif">${escapeHtml(message)}</div>`;
+        if (hourList) hourList.innerHTML = "";
+        if (grid) grid.innerHTML = `<div class="cf-trace-empty text-rouge-600">${escapeHtml(message)}</div>`;
+        if (badge) badge.textContent = "0 条";
+        if (status) status.textContent = message;
+    }
+
+    function setTraceHourFailure(message = TraceBridgeErrorMessage) {
+        const hourList = byId("ng-hour-list");
+        const grid = byId("ng-image-grid");
+        const status = byId("trace-page-status");
+
+        resetTracePagerState();
+        if (hourList) hourList.innerHTML = `<div class="text-[10px] text-rouge-600 italic px-4 py-2 font-serif">${escapeHtml(message)}</div>`;
+        if (grid) grid.innerHTML = `<div class="cf-trace-empty text-rouge-600">${escapeHtml(message)}</div>`;
+        if (status) status.textContent = message;
+    }
+
+    function showTraceLoadFailure(message) {
+        const text = message || TraceBridgeErrorMessage;
+        tracePagerState.pendingDirection = "";
+        tracePagerState.pendingRequestId = TraceCommandFailedRequestId;
+
+        const activePage = getActiveTracePage();
+        if (activePage) {
+            renderTracePage(activePage);
+        } else {
+            updateTracePaginationUi();
+            const grid = byId("ng-image-grid");
+            const badge = byId("gallery-count");
+            if (grid) grid.innerHTML = `<div class="cf-trace-empty text-rouge-600">${escapeHtml(text)}</div>`;
+            if (badge) badge.textContent = "0 条";
+        }
+
+        const status = byId("trace-page-status");
+        if (status) status.textContent = text;
+        window.showToast?.(text, "error", 1800);
+    }
+
+    function sendTraceCommand(cmd, value, onFailure) {
+        try {
+            const requestId = bridge?.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            return requestId;
+        } catch (error) {
+            console.error(`Trace command failed: ${cmd}`, error);
+            if (typeof onFailure === "function") onFailure(error);
+            return TraceCommandFailedRequestId;
+        }
+    }
+
+    function getTraceMessageRequestId(data, message) {
+        return message?.requestId || message?.RequestId || data?.requestId || data?.RequestId || "";
+    }
+
+    function isStaleTraceResponse(requestId) {
+        const pendingId = String(tracePagerState.pendingRequestId || "").trim();
+        return !pendingId ||
+            !requestId ||
+            requestId !== pendingId ||
+            requestId === tracePagerState.lastHandledRequestId;
     }
 
     function renderTracePage(page) {
@@ -6578,8 +7782,13 @@
 
         setTraceLoadingState(true);
         tracePagerState.pendingDirection = direction;
-        tracePagerState.pendingRequestId = bridge.sendCommand("get_ng_images", payload);
-        updateTracePaginationUi();
+        const requestId = sendTraceCommand("get_ng_images", payload, () => {
+            showTraceLoadFailure(TraceBridgeErrorMessage);
+        });
+        tracePagerState.pendingRequestId = requestId;
+        if (requestId !== TraceCommandFailedRequestId) {
+            updateTracePaginationUi();
+        }
     }
 
     function loadPreviousTracePage() {
@@ -6610,7 +7819,7 @@
     function openLogHistoryModal() {
         byId("log-history-modal")?.classList.remove("hidden");
         syncLogHistoryChrome();
-        bridge.sendCommand("get_detection_logs");
+        sendHistoryCommand("get_detection_logs", null, () => setLogHistoryFailure());
     }
 
     function syncTraceControls() {
@@ -6663,7 +7872,9 @@
         resetTracePagerState();
         const badge = byId("gallery-count");
         if (badge) badge.textContent = "0 条";
-        bridge.sendCommand("get_ng_dates");
+        const dateList = byId("ng-date-list");
+        if (dateList) dateList.innerHTML = '<div class="text-[10px] text-ink-300 p-4 text-center italic font-serif opacity-50">读取中...</div>';
+        sendHistoryCommand("get_ng_dates", null, () => setTraceArchiveFailure(), TraceBridgeErrorMessage);
     }
 
     function closeGalleryModal() {
@@ -6672,7 +7883,7 @@
 
     function openStatisticsHistoryModal() {
         byId("statistics-history-modal")?.classList.remove("hidden");
-        requestStatisticsHistory(30);
+        requestStatisticsHistory(StatisticsHistoryDefaultDays);
     }
 
     function closeStatisticsHistoryModal() {
@@ -6680,9 +7891,19 @@
     }
 
     function requestStatisticsHistory(days) {
+        const requestedDays = normalizeStatisticsHistoryDays(days);
         const table = byId("statistics-history-table");
         if (table) table.innerHTML = '<tr><td colspan="5" class="text-center py-8">加载中...</td></tr>';
-        bridge.sendCommand("get_statistics_history", days);
+        sendHistoryCommand("get_statistics_history", requestedDays, () => setStatisticsHistoryFailure());
+    }
+
+    function normalizeStatisticsHistoryDays(days) {
+        const value = Number.parseInt(days, 10);
+        if (!Number.isFinite(value) || value <= 0) {
+            return StatisticsHistoryDefaultDays;
+        }
+
+        return Math.min(value, StatisticsHistoryMaxDays);
     }
 
     function closeImageViewer() {
@@ -6719,7 +7940,7 @@
 
     function updateDetectionLogTable(data) {
         if (data === undefined) {
-            bridge.sendCommand("get_detection_logs");
+            sendHistoryCommand("get_detection_logs", null, () => setLogHistoryFailure());
             return;
         }
         const logs = Array.isArray(data) ? data : (data?.logs || data?.Logs || []);
@@ -6761,117 +7982,375 @@
         return {
             startTime: byId("audit-start-time")?.value || "",
             endTime: byId("audit-end-time")?.value || "",
-            operation: byId("audit-operation-filter")?.value || "",
+            operation: normalizeAuditOperationFilter(byId("audit-operation-filter")?.value),
             operatorId: byId("audit-operator-filter")?.value || "",
+            role: byId("audit-role-filter")?.value || "",
             status: byId("audit-status-filter")?.value || "",
+            failureReason: byId("audit-failure-filter")?.value || "",
             limit: 500,
         };
     }
 
+    function parseAuditDateValue(value) {
+        const text = String(value || "").trim();
+        if (!text) return null;
+
+        const timestamp = Date.parse(text);
+        return Number.isFinite(timestamp) ? timestamp : null;
+    }
+
+    function validateAuditQuery(query) {
+        const startText = query?.startTime || query?.StartTime || "";
+        const endText = query?.endTime || query?.EndTime || "";
+        const startTime = parseAuditDateValue(startText);
+        const endTime = parseAuditDateValue(endText);
+        if (String(startText).trim() && startTime === null) {
+            return "开始时间格式无效";
+        }
+
+        if (String(endText).trim() && endTime === null) {
+            return "结束时间格式无效";
+        }
+
+        if (startTime !== null && endTime !== null && startTime > endTime) {
+            return "开始时间不能晚于结束时间";
+        }
+
+        return "";
+    }
+
+    function buildAuditFilterSummary(query) {
+        const source = query || buildAuditQuery();
+        const startTime = source.startTime || source.StartTime || "";
+        const endTime = source.endTime || source.EndTime || "";
+        const operation = normalizeAuditOperationFilter(source.operation || source.Operation || "");
+        const operatorId = source.operatorId || source.OperatorId || "";
+        const role = source.role || source.Role || "";
+        const status = source.status || source.Status || "";
+        const failureReason = source.failureReason || source.FailureReason || "";
+        const filters = [];
+
+        if (startTime || endTime) {
+            filters.push(`时间 ${startTime || "-"} 至 ${endTime || "-"}`);
+        }
+
+        if (operation) {
+            filters.push(`操作 ${formatAuditOperation(operation) || operation}`);
+        }
+
+        if (operatorId) {
+            filters.push(`操作员 ${operatorId}`);
+        }
+
+        if (role) {
+            filters.push(`角色 ${formatProductionRole(role) || role}`);
+        }
+
+        if (status) {
+            filters.push(`状态 ${formatAuditStatus(status) || status}`);
+        }
+
+        if (failureReason) {
+            filters.push(`失败原因 ${failureReason}`);
+        }
+
+        return filters.join("，");
+    }
+
     function openAuditModal() {
         byId("audit-modal")?.classList.remove("hidden");
+        resetAuditModalSessionState();
         queryAuditRecords();
         verifyAuditChain();
     }
 
     function closeAuditModal() {
         byId("audit-modal")?.classList.add("hidden");
+        pendingAuditRecordsRequestId = "__audit_modal_closed_records__";
+        pendingAuditExportRequestId = "__audit_modal_closed_export__";
+        pendingAuditChainRequestId = "__audit_modal_closed_chain__";
     }
 
-    function setAuditError(message) {
+    function isAuditModalOpen() {
+        const modal = byId("audit-modal");
+        return Boolean(modal && !modal.classList.contains("hidden"));
+    }
+
+    function resetAuditModalSessionState() {
+        auditErrorSource = "";
+        pendingAuditRecordsRequestId = "__audit_modal_open_records__";
+        pendingAuditExportRequestId = "__audit_modal_open_export__";
+        pendingAuditChainRequestId = "__audit_modal_open_chain__";
+        setAuditError("");
+        setAuditExportPath("");
+    }
+
+    function setAuditError(message, source = "") {
         const node = byId("audit-error");
         if (!node) return;
-        node.textContent = message || "";
-        node.classList.toggle("hidden", !message);
+        const text = String(message || "");
+        if (!text && source && auditErrorSource && auditErrorSource !== source) return;
+        auditErrorSource = text ? (source || "general") : "";
+        node.textContent = text;
+        node.classList.toggle("hidden", !text);
+    }
+
+    function setAuditCountBadge(text) {
+        const badge = byId("audit-count-badge");
+        if (badge) badge.textContent = text || "0 条";
+    }
+
+    function setAuditExportPath(text, title = "") {
+        const node = byId("audit-export-path");
+        if (node) {
+            node.textContent = text || "";
+            node.title = title || text || "";
+        }
+        if (!text) lastAuditExportPath = "";
+    }
+
+    function getMessageRequestId(message) {
+        return message?.requestId || message?.RequestId || "";
+    }
+
+    function isLocalAuditResponse(message) {
+        return message?.local === true || message?.Local === true;
+    }
+
+    function isStaleAuditResponse(message, pendingRequestId) {
+        if (isLocalAuditResponse(message)) return false;
+        const pendingId = String(pendingRequestId || "").trim();
+        if (!pendingId) return true;
+        const requestId = getMessageRequestId(message);
+        if (!requestId) return true;
+        return requestId !== pendingId;
+    }
+
+    function getAuditCommandErrorSource(cmd) {
+        if (cmd === "query_audit_records") return "auditRecords";
+        if (cmd === "export_audit_records") return "auditExport";
+        if (cmd === "verify_audit_chain") return "auditChainVerification";
+        return cmd || "general";
+    }
+
+    function sendAuditCommand(cmd, value, onFailure) {
+        try {
+            const requestId = bridge?.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            return requestId;
+        } catch (error) {
+            console.error(`Audit command failed: ${cmd}`, error);
+            setAuditError(AuditBridgeErrorMessage, getAuditCommandErrorSource(cmd));
+            window.showToast?.(AuditBridgeErrorMessage, "error", 1800);
+            if (typeof onFailure === "function") onFailure(error);
+            return "__audit_command_failed__";
+        }
     }
 
     function queryAuditRecords() {
-        setAuditError("");
+        const query = buildAuditQuery();
+        const validationError = validateAuditQuery(query);
+        if (validationError) {
+            pendingAuditRecordsRequestId = "__invalid_audit_records_request__";
+            setAuditError(validationError, "auditRecords");
+            setAuditCountBadge("0 条");
+            setAuditExportPath("");
+            const tbody = byId("audit-table");
+            if (tbody) {
+                tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-10 text-center text-amber-600 italic">${escapeHtml(validationError)}<div class="mt-2 text-[10px] text-slate-400 not-italic">请调整时间范围后再查询</div></td></tr>`;
+            }
+            return;
+        }
+
+        setAuditError("", "auditRecords");
         const tbody = byId("audit-table");
+        setAuditCountBadge("加载中");
+        setAuditExportPath("");
         if (tbody) {
             tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">正在加载审计记录...</td></tr>';
         }
-        bridge.sendCommand("query_audit_records", buildAuditQuery());
+        pendingAuditRecordsRequestId = sendAuditCommand("query_audit_records", query, () => {
+            setAuditCountBadge("0 条");
+            setAuditExportPath("");
+            if (tbody) {
+                tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-10 text-center text-rouge-600 italic">审计查询失败<div class="mt-2 text-[10px] text-slate-400 not-italic">${escapeHtml(AuditBridgeErrorMessage)}</div></td></tr>`;
+            }
+        });
+    }
+
+    function clearAuditFilters() {
+        ["audit-start-time", "audit-end-time", "audit-operation-filter", "audit-operator-filter", "audit-role-filter", "audit-status-filter", "audit-failure-filter"]
+            .forEach((id) => {
+                const node = byId(id);
+                if (node) node.value = "";
+            });
+        queryAuditRecords();
     }
 
     function exportAuditRecords() {
-        setAuditError("");
-        bridge.sendCommand("export_audit_records", buildAuditQuery());
-    }
-
-    function verifyAuditChain() {
-        setAuditError("");
-        const badge = byId("audit-chain-badge");
-        if (badge) {
-            badge.textContent = "校验中";
-            badge.className = "px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-bold";
+        const query = buildAuditQuery();
+        const validationError = validateAuditQuery(query);
+        if (validationError) {
+            pendingAuditExportRequestId = "__invalid_audit_export_request__";
+            setAuditError(validationError, "auditExport");
+            setAuditExportPath("");
+            return;
         }
-        bridge.sendCommand("verify_audit_chain", {});
+
+        setAuditError("", "auditExport");
+        lastAuditExportPath = "";
+        setAuditExportPath("正在导出审计 CSV...");
+        pendingAuditExportRequestId = sendAuditCommand("export_audit_records", query, () => {
+            setAuditExportPath("");
+        });
     }
 
-    function updateAuditChainVerification(data) {
-        const error = data?.error || data?.Error || "";
-        const status = String(data?.status || data?.Status || (error ? "Unavailable" : "Unknown"));
-        const totalRecords = data?.totalRecords ?? data?.TotalRecords ?? 0;
-        const verifiedRecords = data?.verifiedRecords ?? data?.VerifiedRecords ?? 0;
-        const findingCount = data?.findingCount ?? data?.FindingCount ?? 0;
-        const lastHash = data?.lastRecordSha256 || data?.LastRecordSha256 || "";
-        const findings = Array.isArray(data?.findings) ? data.findings : (data?.Findings || []);
+    function resetAuditChainVerificationState() {
+        lastAuditChainVerification = null;
         const badge = byId("audit-chain-badge");
         const countNode = byId("audit-chain-count");
         const findingNode = byId("audit-chain-findings");
         const hashNode = byId("audit-chain-last-hash");
         const messageNode = byId("audit-chain-message");
 
-        const statusClass = status === "Healthy"
-            ? "bg-bamboo-50 text-bamboo-700 border border-bamboo-100"
-            : status === "Warning"
-                ? "bg-amber-50 text-amber-700 border border-amber-100"
-                : "bg-rouge-50 text-rouge-700 border border-rouge-100";
+        if (badge) {
+            badge.textContent = "校验中";
+            badge.className = "px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-bold";
+        }
+        if (countNode) countNode.textContent = "已验证 -/-";
+        if (findingNode) findingNode.textContent = "异常 -";
+        if (hashNode) {
+            hashNode.textContent = "最后 -";
+            hashNode.title = "";
+        }
+        if (messageNode) {
+            messageNode.textContent = "";
+            messageNode.title = "";
+        }
+    }
+
+    function verifyAuditChain() {
+        setAuditError("", "auditChainVerification");
+        resetAuditChainVerificationState();
+        pendingAuditChainRequestId = sendAuditCommand("verify_audit_chain", {}, () => {
+            updateAuditChainVerification({
+                status: "Unavailable",
+                checkedAt: new Date().toISOString(),
+                totalRecords: 0,
+                verifiedRecords: 0,
+                findingCount: 1,
+                lastRecordSha256: "",
+                findings: [{
+                    severity: "Blocking",
+                    errorCode: "AuditBridgeUnavailable",
+                    message: AuditBridgeErrorMessage,
+                }],
+                error: AuditBridgeErrorMessage,
+            }, { local: true });
+        });
+    }
+
+    async function copyAuditChainSummary() {
+        if (!lastAuditChainVerification) {
+            window.showToast?.("请先校验审计链", "warning", 1400);
+            return;
+        }
+
+        try {
+            await writeClipboardText(buildAuditChainSummaryText(lastAuditChainVerification));
+            window.showToast?.("审计链摘要已复制", "success", 1600);
+        } catch {
+            window.showToast?.("复制失败，请手动记录审计链摘要", "error", 1800);
+        }
+    }
+
+    function updateAuditChainVerification(data, message) {
+        if (!isAuditModalOpen()) {
+            return;
+        }
+
+        if (isStaleAuditResponse(message, pendingAuditChainRequestId)) {
+            return;
+        }
+
+        lastAuditChainVerification = data || {};
+        const error = data?.error || data?.Error || "";
+        const status = String(data?.status || data?.Status || (error ? "Unavailable" : "Unknown"));
+        const totalRecords = data?.totalRecords ?? data?.TotalRecords ?? 0;
+        const verifiedRecords = data?.verifiedRecords ?? data?.VerifiedRecords ?? 0;
+        const findingCount = data?.findingCount ?? data?.FindingCount ?? 0;
+        const lastHash = data?.lastRecordSha256 || data?.LastRecordSha256 || "";
+        const findings = getAuditChainFindings(data);
+        const badge = byId("audit-chain-badge");
+        const countNode = byId("audit-chain-count");
+        const findingNode = byId("audit-chain-findings");
+        const hashNode = byId("audit-chain-last-hash");
+        const messageNode = byId("audit-chain-message");
+
+        const statusClass = getAuditChainStatusClass(status);
 
         if (badge) {
-            badge.textContent = status;
+            badge.textContent = formatAuditChainStatus(status) || status;
             badge.className = `px-2 py-0.5 rounded-full font-bold ${statusClass}`;
         }
-        if (countNode) countNode.textContent = `Verified ${verifiedRecords}/${totalRecords}`;
-        if (findingNode) findingNode.textContent = `Findings ${findingCount}`;
+        if (countNode) countNode.textContent = `已验证 ${verifiedRecords}/${totalRecords}`;
+        if (findingNode) findingNode.textContent = `异常 ${findingCount}`;
         if (hashNode) {
-            hashNode.textContent = `Last ${shortAuditHash(lastHash) || "-"}`;
+            hashNode.textContent = `最后 ${shortAuditHash(lastHash) || "-"}`;
             hashNode.title = lastHash || "";
         }
         if (messageNode) {
             const firstFinding = findings[0] || {};
-            const summary = firstFinding.errorCode || firstFinding.ErrorCode || error || "";
-            const line = firstFinding.lineNumber || firstFinding.LineNumber || "";
-            messageNode.textContent = summary ? `${summary}${line ? ` @${line}` : ""}` : "";
+            const hint = formatAuditChainFindingHint(firstFinding, error);
+            messageNode.textContent = hint;
+            messageNode.title = formatAuditChainFindingHint(firstFinding, error, true);
         }
         if (error) {
-            setAuditError(error);
+            setAuditError(error, "auditChainVerification");
+        } else {
+            setAuditError("", "auditChainVerification");
         }
     }
 
-    function updateAuditRecords(data) {
+    function updateAuditRecords(data, message) {
+        if (!isAuditModalOpen()) {
+            return;
+        }
+
+        if (isStaleAuditResponse(message, pendingAuditRecordsRequestId)) {
+            return;
+        }
+
         const records = Array.isArray(data) ? data : (data?.records || data?.Records || []);
         const error = data?.error || data?.Error || "";
         const tbody = byId("audit-table");
-        const badge = byId("audit-count-badge");
         if (!tbody) return;
 
         if (error) {
-            setAuditError(error);
+            setAuditError(error, "auditRecords");
+            setAuditCountBadge("0 条");
+            setAuditExportPath("");
+            tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-10 text-center text-rouge-600 italic">审计查询失败<div class="mt-2 text-[10px] text-slate-400 not-italic">${escapeHtml(error)}</div></td></tr>`;
+            return;
         }
 
-        if (badge) badge.textContent = `${records.length} 条`;
+        setAuditError("", "auditRecords");
+        setAuditCountBadge(`${records.length} 条`);
         if (!records.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">未匹配到审计记录</td></tr>';
+            const filterSummary = buildAuditFilterSummary(data?.query || data?.Query);
+            const title = filterSummary ? "未匹配到审计记录" : "暂无审计记录";
+            const detail = filterSummary
+                ? `<div class="mt-2 text-[10px] text-slate-400 not-italic">当前筛选：${escapeHtml(filterSummary)}</div>`
+                : "";
+            tbody.innerHTML = `<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 italic">${escapeHtml(title)}${detail}</td></tr>`;
             return;
         }
 
         tbody.innerHTML = records.map((record) => {
             const status = String(record.status || "");
-            const statusClass = status === "Failed" || status === "Denied"
-                ? "bg-rouge-50 text-rouge-600 border-rouge-200"
-                : "bg-bamboo-50 text-bamboo-600 border-bamboo-200";
+            const statusClass = getAuditRecordStatusClass(status);
             return `
                 <tr class="hover:bg-slate-50 transition-colors">
                     <td class="px-3 py-3 whitespace-nowrap">${escapeHtml(record.timestamp || "-")}</td>
@@ -6888,17 +8367,48 @@
         }).join("");
     }
 
-    function updateAuditExport(data) {
-        const error = data?.error || data?.Error || "";
-        const path = data?.path || data?.Path || "";
-        if (error) {
-            setAuditError(error);
+    function updateAuditExport(data, message) {
+        if (!isAuditModalOpen()) {
             return;
         }
 
-        const node = byId("audit-export-path");
-        if (node) node.textContent = path ? `已导出: ${path}` : "";
+        if (isStaleAuditResponse(message, pendingAuditExportRequestId)) {
+            return;
+        }
+
+        const error = data?.error || data?.Error || "";
+        const path = String(data?.path || data?.Path || "").trim();
+        if (error) {
+            setAuditError(error, "auditExport");
+            setAuditExportPath("");
+            return;
+        }
+
+        if (!path) {
+            setAuditError(AuditExportEmptyPathMessage, "auditExport");
+            setAuditExportPath("");
+            return;
+        }
+
+        setAuditError("", "auditExport");
+        lastAuditExportPath = path;
+        setAuditExportPath(`已导出: ${path}`, path);
         window.showToast?.("审计 CSV 已导出", "success", 1600);
+    }
+
+    async function copyAuditExportPath() {
+        const path = String(lastAuditExportPath || "").trim();
+        if (!path) {
+            window.showToast?.("请先导出审计 CSV", "warning", 1400);
+            return;
+        }
+
+        try {
+            await writeClipboardText(path);
+            window.showToast?.("审计导出路径已复制", "success", 1600);
+        } catch {
+            window.showToast?.("复制失败，请手动记录导出路径", "error", 1800);
+        }
     }
 
     function updateNGDates(data) {
@@ -6910,16 +8420,22 @@
                 resetTracePagerState();
                 if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
                 if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
-                bridge.sendCommand("get_ng_hours", selectedDate);
+                sendHistoryCommand("get_ng_hours", selectedDate, () => setTraceHourFailure(), TraceBridgeErrorMessage);
             } else {
-                bridge.sendCommand("get_ng_dates");
+                sendHistoryCommand("get_ng_dates", null, () => setTraceArchiveFailure(), TraceBridgeErrorMessage);
             }
             return;
         }
         const dates = Array.isArray(data) ? data : (data?.dates || data?.Dates || []);
+        const error = Array.isArray(data) ? "" : (data?.error || data?.Error || "");
         const list = byId("ng-date-list");
         if (!list) return;
         list.innerHTML = "";
+
+        if (error) {
+            setTraceArchiveFailure(error);
+            return;
+        }
 
         if (!dates.length) {
             list.innerHTML = '<div class="text-[10px] text-ink-300 p-4 text-center italic font-serif opacity-50">暂无历史存根</div>';
@@ -6941,7 +8457,7 @@
                 resetTracePagerState();
                 if (byId("ng-hour-list")) byId("ng-hour-list").innerHTML = '<div class="text-[10px] text-ink-300 italic px-4 py-2 opacity-50 font-serif">读取中...</div>';
                 if (byId("ng-image-grid")) byId("ng-image-grid").innerHTML = "";
-                bridge.sendCommand("get_ng_hours", date);
+                sendHistoryCommand("get_ng_hours", date, () => setTraceHourFailure(), TraceBridgeErrorMessage);
             };
             div.onclick = selectDate;
             div.onkeydown = (event) => {
@@ -6964,6 +8480,7 @@
 
     function updateNGHours(data) {
         const hours = Array.isArray(data) ? data : (data?.hours || data?.Hours || []);
+        const error = Array.isArray(data) ? "" : (data?.error || data?.Error || "");
         const list = byId("ng-hour-list");
         if (!list) return;
         list.innerHTML = "";
@@ -6971,6 +8488,12 @@
         if (hourSelect) {
             hourSelect.innerHTML = "";
             delete hourSelect.dataset.synced;
+        }
+
+        if (error) {
+            if (hourSelect) hourSelect.innerHTML = '<option value="">全部时段</option>';
+            setTraceHourFailure(error);
+            return;
         }
 
         if (!hours.length) {
@@ -7264,12 +8787,14 @@
             message: "正在用当前规则复判历史图...",
         });
 
-        bridge.sendCommand("run_history_rule_preview", {
+        sendHistoryCommand("run_history_rule_preview", {
             inspectionId: normalized.inspectionId || "",
             timestamp: normalized.timestamp || "",
             imagePath,
             renderedImagePath,
             ruleSetJson: getCurrentRuleSetJson(),
+        }, () => {
+            setHistoryRulePreviewStatus({ status: "failed", message: HistoryBridgeErrorMessage });
         });
     }
 
@@ -7351,14 +8876,15 @@
     }
 
     function updateNGImages(data, message) {
-        const requestId = message?.requestId || data?.requestId || data?.RequestId || "";
-        if (
-            requestId &&
-            (
-                requestId !== tracePagerState.pendingRequestId ||
-                requestId === tracePagerState.lastHandledRequestId
-            )
-        ) {
+        const requestId = getTraceMessageRequestId(data, message);
+        if (isStaleTraceResponse(requestId)) {
+            return;
+        }
+
+        const error = data?.error || data?.Error || "";
+        if (error) {
+            showTraceLoadFailure(error);
+            tracePagerState.lastHandledRequestId = requestId || tracePagerState.lastHandledRequestId;
             return;
         }
 
@@ -7379,9 +8905,9 @@
     }
 
     function getReplayLimit() {
-        const raw = Number(byId("replay-query-limit")?.value || 100);
-        if (!Number.isFinite(raw)) return 100;
-        return Math.max(1, Math.min(10000, Math.trunc(raw)));
+        const raw = Number(byId("replay-query-limit")?.value || ReplayDefaultQueryLimit);
+        if (!Number.isFinite(raw)) return ReplayDefaultQueryLimit;
+        return Math.max(1, Math.min(ReplayMaxQueryLimit, Math.trunc(raw)));
     }
 
     function getReplayPanelPayload() {
@@ -7400,12 +8926,107 @@
         if (node) node.textContent = text || "";
     }
 
+    function sendReplayCommand(cmd, value, statusId, pendingText, failureText) {
+        const requestId = sendHistoryCommand(cmd, value, () => {
+            setReplayPanelStatus(statusId, `${failureText}：${ReplayBridgeErrorMessage}`);
+        }, ReplayBridgeErrorMessage);
+
+        if (requestId) {
+            pendingReplayRequests.set(requestId, { statusId, failureText });
+            setReplayPanelStatus(statusId, `${pendingText} ${requestId}`);
+        }
+
+        return requestId;
+    }
+
+    function getCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || HistoryBridgeErrorMessage,
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function updateAuditChainCommandError(message, requestId) {
+        updateAuditChainVerification({
+            status: "Unavailable",
+            totalRecords: 0,
+            verifiedRecords: 0,
+            findingCount: 1,
+            lastRecordSha256: "",
+            findings: [{
+                severity: "Blocking",
+                errorCode: "CommandError",
+                message,
+            }],
+            error: message,
+        }, { requestId });
+    }
+
+    function handleHistoryCommandError(event) {
+        const { cmd, message, requestId } = getCommandErrorDetail(event);
+        if (!cmd) return;
+
+        if (cmd === "get_detection_logs") {
+            setLogHistoryFailure(message);
+            return;
+        }
+
+        if (cmd === "get_statistics_history") {
+            setStatisticsHistoryFailure(message);
+            return;
+        }
+
+        if (cmd === "get_ng_dates") {
+            setTraceArchiveFailure(message);
+            return;
+        }
+
+        if (cmd === "get_ng_hours") {
+            setTraceHourFailure(message);
+            return;
+        }
+
+        if (cmd === "get_ng_images" && requestId && requestId === tracePagerState.pendingRequestId) {
+            showTraceLoadFailure(message);
+            return;
+        }
+
+        if (cmd === "query_audit_records") {
+            updateAuditRecords({ records: [], error: message }, { requestId });
+            return;
+        }
+
+        if (cmd === "export_audit_records") {
+            updateAuditExport({ path: "", error: message }, { requestId });
+            return;
+        }
+
+        if (cmd === "verify_audit_chain") {
+            updateAuditChainCommandError(message, requestId);
+            return;
+        }
+
+        if (cmd === "run_history_rule_preview") {
+            setHistoryRulePreviewStatus({ status: "failed", message });
+            return;
+        }
+
+        const replayRequest = requestId ? pendingReplayRequests.get(requestId) : null;
+        if (replayRequest) {
+            setReplayPanelStatus(replayRequest.statusId, `${replayRequest.failureText}：${message}`);
+            pendingReplayRequests.delete(requestId);
+        }
+    }
+
     function queryManualReviewRecords() {
-        const requestId = bridge.sendCommand("query_manual_review_records", {
+        sendReplayCommand("query_manual_review_records", {
             limit: getReplayLimit(),
             recipeVersion: activeTraceRecord?.recipeVersion || "",
-        });
-        setReplayPanelStatus("manual-review-response", `查询中 ${requestId}`);
+        }, "manual-review-response", "查询中", "查询失败");
     }
 
     function saveManualReview() {
@@ -7415,87 +9036,90 @@
             return;
         }
 
-        const revisionRaw = String(byId("manual-review-expected-revision")?.value || "").trim();
-        const requestId = bridge.sendCommand("save_manual_review", {
-            detectionRecordId: activeTraceRecord?.detectionRecordId || 0,
+        const detectionRecordId = toPositiveInteger(activeTraceRecord?.detectionRecordId);
+        if (detectionRecordId === null) {
+            window.showToast?.("当前追溯记录缺少数据库记录编号，无法保存真值", "warning", 1800);
+            return;
+        }
+
+        const expectedRevision = readManualReviewExpectedRevision();
+        if (!expectedRevision.isValid) {
+            window.showToast?.("复核版本号必须是非负整数", "warning", 1800);
+            return;
+        }
+
+        sendReplayCommand("save_manual_review", {
+            detectionRecordId,
             inspectionId,
             sampleId: inspectionId,
             groundTruth: byId("manual-review-ground-truth-input")?.value || "OK",
             disposition: byId("manual-review-disposition-input")?.value || "Confirmed",
-            expectedRevision: revisionRaw ? Number(revisionRaw) : null,
+            expectedRevision: expectedRevision.value,
             notes: String(byId("manual-review-notes")?.value || "").trim(),
-        });
-        setReplayPanelStatus("manual-review-response", `保存中 ${requestId}`);
+        }, "manual-review-response", "保存中", "保存失败");
     }
 
     function createReplayDataset() {
         const payload = getReplayPanelPayload();
-        const requestId = bridge.sendCommand("create_replay_dataset", payload);
-        setReplayPanelStatus("replay-run-status", `生成验证样本集 ${requestId}`);
+        sendReplayCommand("create_replay_dataset", payload, "replay-run-status", "生成验证样本集", "生成失败");
     }
 
     function previewReplayDataset() {
         const payload = getReplayPanelPayload();
-        const requestId = bridge.sendCommand("preview_replay_dataset", payload);
-        setReplayPanelStatus("replay-run-status", `预览中 ${requestId}`);
+        sendReplayCommand("preview_replay_dataset", payload, "replay-run-status", "预览中", "预览失败");
     }
 
     function queryReplayDatasets() {
-        const requestId = bridge.sendCommand("query_replay_datasets", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `查询数据集 ${requestId}`);
+        sendReplayCommand("query_replay_datasets", getReplayPanelPayload(), "replay-run-status", "查询数据集", "查询失败");
     }
 
     function archiveReplayDataset() {
-        const requestId = bridge.sendCommand("archive_replay_dataset", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `归档中 ${requestId}`);
+        sendReplayCommand("archive_replay_dataset", getReplayPanelPayload(), "replay-run-status", "归档中", "归档失败");
     }
 
     function runReplayComparison() {
         const payload = getReplayPanelPayload();
-        const requestId = bridge.sendCommand("run_replay_comparison", payload);
-        setReplayPanelStatus("replay-run-status", `对比新旧模型 ${requestId}`);
+        sendReplayCommand("run_replay_comparison", payload, "replay-run-status", "对比新旧模型", "对比失败");
     }
 
     function cancelReplayRun() {
-        const requestId = bridge.sendCommand("cancel_replay_run", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `正在取消 ${requestId}`);
+        sendReplayCommand("cancel_replay_run", getReplayPanelPayload(), "replay-run-status", "正在取消", "取消失败");
     }
 
     function queryReplayRuns() {
-        const requestId = bridge.sendCommand("query_replay_runs", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `查询运行记录 ${requestId}`);
+        sendReplayCommand("query_replay_runs", getReplayPanelPayload(), "replay-run-status", "查询运行记录", "查询失败");
     }
 
     function queryReplayReport() {
-        const requestId = bridge.sendCommand("query_replay_report", getReplayPanelPayload());
-        setReplayPanelStatus("replay-run-status", `生成报告 ${requestId}`);
+        sendReplayCommand("query_replay_report", getReplayPanelPayload(), "replay-run-status", "生成报告", "生成失败");
     }
 
     function queryModelApprovalEvidence() {
-        const requestId = bridge.sendCommand("query_model_approval_evidence", getReplayPanelPayload());
-        setReplayPanelStatus("replay-approval-status", `查询验证记录 ${requestId}`);
+        sendReplayCommand("query_model_approval_evidence", getReplayPanelPayload(), "replay-approval-status", "查询验证记录", "查询失败");
     }
 
     function runReplayIntegrityScan() {
-        const requestId = bridge.sendCommand("run_replay_integrity_scan", getReplayPanelPayload());
-        setReplayPanelStatus("replay-approval-status", `扫描中 ${requestId}`);
+        sendReplayCommand("run_replay_integrity_scan", getReplayPanelPayload(), "replay-approval-status", "扫描中", "扫描失败");
     }
 
     function approveReplayCandidate() {
         const payload = getReplayPanelPayload();
-        const requestId = bridge.sendCommand("approve_replay_candidate", payload);
-        setReplayPanelStatus("replay-approval-status", `确认上线 ${requestId}`);
+        sendReplayCommand("approve_replay_candidate", payload, "replay-approval-status", "确认上线", "确认上线失败");
     }
 
     Object.assign(window, {
         closeGalleryModal,
         closeImageViewer,
         closeAuditModal,
+        clearAuditFilters,
+        copyAuditChainSummary,
+        copyAuditExportPath,
         closeLogHistoryModal,
         closeStatisticsHistoryModal,
         exportAuditRecords,
         verifyAuditChain,
         openGalleryModal,
+        openTraceViewer,
         openAuditModal,
         openLogHistoryModal,
         openStatisticsHistoryModal,
@@ -7539,6 +9163,7 @@
     bridge.registerMessageHandler("historyHours", updateNGHours);
     bridge.registerMessageHandler("historyImages", updateNGImages);
     bridge.registerMessageHandler("historyRulePreview", updateHistoryRulePreview);
+    window.addEventListener("cf-command-error", handleHistoryCommandError);
 })();
 
 // ==========================================
@@ -7553,6 +9178,79 @@
     let roiStartY = 0;
     let currentROIRect = null;
     let normalizedROIRect = null;
+    const RoiBridgeErrorMessage = "ROI 通信失败，请刷新页面后重试";
+    const RoiCommandPendingTtlMs = 30000;
+    const pendingRoiCommands = new Map();
+
+    function sendRoiCommand(rect, onSuccess, onFailure = null) {
+        try {
+            const requestId = window.sendCommand?.("update_roi", { rect });
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            registerPendingRoiCommand(requestId, onFailure);
+            if (typeof onSuccess === "function") onSuccess(requestId);
+            return requestId;
+        } catch (error) {
+            console.error("ROI command failed:", error);
+            window.showToast?.(RoiBridgeErrorMessage, "error", 1800);
+            window.addLog?.(RoiBridgeErrorMessage, "error");
+            if (typeof onFailure === "function") onFailure(RoiBridgeErrorMessage);
+            return "";
+        }
+    }
+
+    function registerPendingRoiCommand(requestId, onFailure) {
+        const id = String(requestId || "").trim();
+        if (!id || typeof onFailure !== "function") return;
+        const timeoutId = window.setTimeout?.(() => {
+            pendingRoiCommands.delete(id);
+        }, RoiCommandPendingTtlMs);
+        pendingRoiCommands.set(id, { onFailure, timeoutId });
+    }
+
+    function takePendingRoiCommand(requestId) {
+        const id = String(requestId || "").trim();
+        if (!id) return null;
+        const pending = pendingRoiCommands.get(id);
+        if (!pending) return null;
+        if (pending.timeoutId) window.clearTimeout?.(pending.timeoutId);
+        pendingRoiCommands.delete(id);
+        return pending;
+    }
+
+    function getRoiCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || RoiBridgeErrorMessage,
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function cloneNormalizedRoiRect() {
+        return normalizedROIRect
+            ? { x: normalizedROIRect.x, y: normalizedROIRect.y, w: normalizedROIRect.w, h: normalizedROIRect.h }
+            : null;
+    }
+
+    function restoreNormalizedRoiRect(rect) {
+        normalizedROIRect = rect
+            ? { x: rect.x, y: rect.y, w: rect.w, h: rect.h }
+            : null;
+        currentROIRect = null;
+        redrawROI();
+    }
+
+    function handleRoiCommandError(event) {
+        const { cmd, message, requestId } = getRoiCommandErrorDetail(event);
+        if (cmd !== "update_roi") return;
+        const pending = takePendingRoiCommand(requestId);
+        if (!pending || typeof pending.onFailure !== "function") return;
+        pending.onFailure(message || RoiBridgeErrorMessage);
+    }
 
     function initRoiInteractions() {
         roiCanvas = document.getElementById("roi-canvas");
@@ -7636,8 +9334,14 @@
             const normW = w / roiCanvas.width;
             const normH = h / roiCanvas.height;
 
-            window.sendCommand("update_roi", { rect: [normX, normY, normW, normH] });
-            window.addLog?.(`ROI Set: [${normX.toFixed(2)}, ${normY.toFixed(2)}, ${normW.toFixed(2)}, ${normH.toFixed(2)}]`);
+            const previousRect = cloneNormalizedRoiRect();
+            const requestId = sendRoiCommand([normX, normY, normW, normH], () => {
+                window.addLog?.(`ROI Set: [${normX.toFixed(2)}, ${normY.toFixed(2)}, ${normW.toFixed(2)}, ${normH.toFixed(2)}]`);
+            }, (message) => {
+                restoreNormalizedRoiRect(previousRect);
+                window.addLog?.(`ROI 设置失败: ${message || RoiBridgeErrorMessage}`, "error");
+            });
+            if (!requestId) return;
             normalizedROIRect = { x: normX, y: normY, w: normW, h: normH };
             currentROIRect = { x, y, w, h };
         });
@@ -7649,11 +9353,16 @@
 
     function clearRoi() {
         const canvas = document.getElementById("roi-canvas");
+        const previousRect = cloneNormalizedRoiRect();
         if (canvas) canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
         currentROIRect = null;
         normalizedROIRect = null;
-        window.sendCommand("update_roi", { rect: [0, 0, 0, 0] });
-        window.addLog?.("ROI Cleared");
+        sendRoiCommand([0, 0, 0, 0], () => {
+            window.addLog?.("ROI Cleared");
+        }, (message) => {
+            restoreNormalizedRoiRect(previousRect);
+            window.addLog?.(`ROI 清除失败: ${message || RoiBridgeErrorMessage}`, "error");
+        });
     }
 
     function redrawROI() {
@@ -7697,7 +9406,9 @@
     window.clearRoi = clearRoi;
     window.initRoiInteractions = initRoiInteractions;
     window.redrawROI = redrawROI;
+    window.sendRoiCommand = sendRoiCommand;
     window.setRoi = setRoi;
+    window.addEventListener("cf-command-error", handleRoiCommandError);
 })();
 
 // ==========================================
@@ -7707,6 +9418,92 @@
     "use strict";
 
     let windowDragging = false;
+    const ShellBridgeErrorMessage = "界面通信失败，请刷新页面后重试";
+    const ShellCommandPendingTtlMs = 30000;
+    const pendingShellCommandFailures = new Map();
+
+    function sendShellCommand(cmd, value = null, onFailure = null, failureMessage = ShellBridgeErrorMessage) {
+        try {
+            const requestId = window.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            registerPendingShellCommandFailure(requestId, cmd, onFailure);
+            return requestId;
+        } catch (error) {
+            console.error(`Shell command failed: ${cmd}`, error);
+            window.showToast?.(failureMessage, "error", 1800);
+            window.addLog?.(`${failureMessage}: ${cmd}`, "error");
+            if (typeof onFailure === "function") onFailure(error);
+            return "";
+        }
+    }
+
+    function registerPendingShellCommandFailure(requestId, cmd, onFailure) {
+        const id = String(requestId || "").trim();
+        if (!id || typeof onFailure !== "function") return;
+        const timeoutId = window.setTimeout?.(() => {
+            pendingShellCommandFailures.delete(id);
+        }, ShellCommandPendingTtlMs);
+        pendingShellCommandFailures.set(id, { cmd, onFailure, timeoutId });
+    }
+
+    function takePendingShellCommandFailure(requestId, cmd = "") {
+        const id = String(requestId || "").trim();
+        if (!id) return null;
+        const pending = pendingShellCommandFailures.get(id);
+        if (!pending) return null;
+        if (cmd && pending.cmd && pending.cmd !== cmd) return null;
+        if (pending.timeoutId) window.clearTimeout?.(pending.timeoutId);
+        pendingShellCommandFailures.delete(id);
+        return pending;
+    }
+
+    function getShellCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || ShellBridgeErrorMessage,
+            errorCode: detail.errorCode || data.errorCode || data.ErrorCode || "CommandError",
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function handleShellCommandError(event) {
+        const { cmd, message, errorCode, requestId } = getShellCommandErrorDetail(event);
+        const pending = takePendingShellCommandFailure(requestId, cmd);
+        if (!pending || typeof pending.onFailure !== "function") return;
+
+        const error = new Error(message || ShellBridgeErrorMessage);
+        error.name = errorCode || "CommandError";
+        pending.onFailure(error);
+    }
+
+    function getChangeCommandValue(element) {
+        if (!element) return "";
+        if (element.type === "checkbox") return !!element.checked;
+        return element.value ?? "";
+    }
+
+    function restoreChangeCommandValue(element, value) {
+        if (!element) return;
+        if (element.type === "checkbox") {
+            element.checked = !!value;
+            return;
+        }
+        element.value = value ?? "";
+    }
+
+    function captureChangeCommandBaseline(event) {
+        const commandElement = event.target.closest("[data-change-cmd]");
+        if (!commandElement) return;
+        commandElement.dataset.previousValue = String(getChangeCommandValue(commandElement) ?? "");
+        if (commandElement.dataset.confirmedValue === undefined) {
+            commandElement.dataset.confirmedValue = commandElement.dataset.previousValue;
+        }
+    }
 
     function startDrag(event) {
         if (
@@ -7717,7 +9514,7 @@
             return;
         }
         windowDragging = true;
-        window.sendCommand("start_drag");
+        sendShellCommand("start_drag");
     }
 
     function toggleDrawer(panelId) {
@@ -7781,7 +9578,14 @@
 
     function confirmIfNeeded(element) {
         const message = element.dataset.confirm;
-        return !message || window.confirm(message);
+        if (!message) return true;
+        if (typeof window.confirm !== "function") {
+            const warning = "当前环境无法显示确认框，操作已取消";
+            window.showToast?.(warning, "warning", 2200);
+            window.addLog?.(warning, "warning");
+            return false;
+        }
+        return window.confirm(message);
     }
 
     function getCurrentSettings() {
@@ -7875,7 +9679,12 @@
             inspectionId: modal.dataset.inspectionId || "",
         };
 
-        window.sendCommand("manual_release", payload);
+        const requestId = sendShellCommand("manual_release", payload, (error) => {
+            modal.classList.remove("hidden");
+            window.addLog?.(`强制放行提交失败: ${error?.message || ShellBridgeErrorMessage}`, "error");
+            document.getElementById("manual-release-token")?.focus();
+        });
+        if (!requestId) return;
         window.handleCommandDispatched?.("manual_release", modal);
         closeManualReleaseModal();
     }
@@ -7887,7 +9696,8 @@
                 const cmd = commandElement.dataset.cmd;
                 if (!cmd || !confirmIfNeeded(commandElement)) return;
                 const value = parseDatasetValue(commandElement.dataset.value);
-                window.sendCommand(cmd, value === undefined ? null : value);
+                const requestId = sendShellCommand(cmd, value === undefined ? null : value);
+                if (!requestId) return;
                 window.handleCommandDispatched?.(cmd, commandElement);
                 return;
             }
@@ -7900,10 +9710,38 @@
             }
         });
 
+        document.addEventListener("pointerdown", captureChangeCommandBaseline);
+
+        document.addEventListener("focusin", captureChangeCommandBaseline);
+
         document.addEventListener("change", (event) => {
             const commandElement = event.target.closest("[data-change-cmd]");
             if (commandElement) {
-                window.sendCommand(commandElement.dataset.changeCmd, commandElement.value);
+                const cmd = commandElement.dataset.changeCmd;
+                const previousValue = commandElement.dataset.confirmedValue ?? commandElement.dataset.previousValue ?? "";
+                const nextValue = getChangeCommandValue(commandElement);
+                let requestId = "";
+                requestId = sendShellCommand(cmd, nextValue, (error) => {
+                    if (
+                        requestId &&
+                        commandElement.dataset.pendingChangeRequestId &&
+                        commandElement.dataset.pendingChangeRequestId !== requestId
+                    ) {
+                        return;
+                    }
+
+                    restoreChangeCommandValue(commandElement, previousValue);
+                    commandElement.dataset.confirmedValue = String(previousValue ?? "");
+                    if (requestId && commandElement.dataset.pendingChangeRequestId === requestId) {
+                        delete commandElement.dataset.pendingChangeRequestId;
+                        const message = error?.message || ShellBridgeErrorMessage;
+                        window.showToast?.(message, "error", 2200);
+                        window.addLog?.(message, "error");
+                    }
+                });
+                if (!requestId) return;
+                commandElement.dataset.pendingChangeRequestId = requestId;
+                commandElement.dataset.confirmedValue = String(nextValue ?? "");
                 return;
             }
 
@@ -7941,6 +9779,8 @@
         windowDragging = false;
     });
 
+    window.addEventListener("cf-command-error", handleShellCommandError);
+
     document.addEventListener("DOMContentLoaded", () => {
         setupDelegatedActions();
         window.moveVisionControlsToSettings?.();
@@ -7950,13 +9790,14 @@
         window.renderRecentInspections?.();
         window.CF_RENDER?.renderAll?.();
         updateOperatorStatus();
-        setTimeout(() => window.sendCommand("app_ready"), 500);
+        setTimeout(() => sendShellCommand("app_ready"), 500);
     });
 
     Object.assign(window, {
         closeManualReleaseModal,
         openManualReleaseModal,
         submitManualRelease,
+        sendShellCommand,
         startDrag,
         toggleDrawer,
         updateOperatorStatus,

@@ -1,6 +1,8 @@
 ﻿using System.Security.Cryptography;
+using System.Reflection;
 using System.Text.Json;
 using ClearFrost.Config;
+using ClearFrost.Core.DeepLearning;
 using ClearFrost.Core.Models;
 using ClearFrost.Core.Recipes;
 using ClearFrost.Core.Rules;
@@ -99,6 +101,63 @@ public class ProductionModelActivationServiceTests
             recipeManager.CurrentRecipe.CurrentModelReference.IdentityEquals(reference).Should().BeTrue();
             detection.RuntimeModelSnapshot.Primary.ModelPath.Should().Be(Path.GetFullPath(modelPath));
             service.EnsureReadyForProduction().Succeeded.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ActivatePrimaryAsync_模型包后处理配置会传给检测服务()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string modelPath = CreatePackage(
+                packageRoot,
+                "pkg-classifier",
+                "1",
+                "classifier.onnx",
+                taskType: "Classification",
+                postprocessorKey: "classification",
+                scoreNormalization: "Softmax",
+                postprocessOptions: new Dictionary<string, string>
+                {
+                    ["top_k"] = "3"
+                });
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = true
+            };
+            var registry = new ModelRegistry();
+            var recipeManager = new RecipeManager(Path.Combine(tempDir, "recipe.json"));
+            recipeManager.LoadOrCreateDefault(config);
+            var detection = new FakeDetectionService();
+            ProductionModelActivationService service = CreateService(config, registry, recipeManager, detection, packageRoot);
+            registry.Scan(ScanOptions(packageRoot));
+            ProductionModelReference reference = ProductionModelReference.FromApprovedPackage(registry.Resolve(modelPath)!);
+            IReadOnlyList<ProductionModelSelectionOption> options = service.GetSelectionOptions();
+
+            options.Should().ContainSingle();
+            options[0].TaskType.Should().Be("Classification");
+            options[0].PostprocessorKey.Should().Be("classification");
+            options[0].ScoreNormalization.Should().Be("Softmax");
+            options[0].PostprocessOptions.Should().ContainKey("top_k").WhoseValue.Should().Be("3");
+
+            ProductionModelActivationResult result = await service.ActivatePrimaryAsync(
+                reference.ToSelectionValue(),
+                "启用分类模型",
+                useGpu: false,
+                gpuIndex: 0);
+
+            result.Succeeded.Should().BeTrue();
+            detection.LoadOptionsByRole.Should().ContainKey(ModelRole.Primary);
+            detection.LoadOptionsByRole[ModelRole.Primary].PostprocessorKey.Should().Be("classification");
+            detection.LoadOptionsByRole[ModelRole.Primary].ScoreNormalization.Should().Be(DeepLearningScoreNormalization.Softmax);
+            detection.LoadOptionsByRole[ModelRole.Primary].PostprocessOptions.Should().ContainKey("top_k").WhoseValue.Should().Be("3");
         }
         finally
         {
@@ -1273,6 +1332,104 @@ public class ProductionModelActivationServiceTests
         }
     }
 
+    [Fact]
+    public async Task ActivatePrimaryAsync_HeatmapPackage_LogitSigmoidNormalizationPassedToDetectionService()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "models");
+            string modelPath = CreatePackage(
+                packageRoot,
+                "pkg-heatmap",
+                "1",
+                "heatmap.onnx",
+                taskType: "Anomaly",
+                postprocessorKey: "heatmap-anomaly",
+                scoreNormalization: "logit-sigmoid");
+            var config = new AppConfig
+            {
+                StoragePath = tempDir,
+                RequireApprovedModelsForProduction = true
+            };
+            var registry = new ModelRegistry();
+            var recipeManager = new RecipeManager(Path.Combine(tempDir, "recipe.json"));
+            recipeManager.LoadOrCreateDefault(config);
+            var detection = new FakeDetectionService();
+            ProductionModelActivationService service = CreateService(config, registry, recipeManager, detection, packageRoot);
+            registry.Scan(ScanOptions(packageRoot));
+            ProductionModelReference reference = ProductionModelReference.FromApprovedPackage(registry.Resolve(modelPath)!);
+
+            ProductionModelActivationResult result = await service.ActivatePrimaryAsync(
+                reference.ToSelectionValue(),
+                "启用热力图异常模型",
+                useGpu: false,
+                gpuIndex: 0);
+
+            result.Succeeded.Should().BeTrue();
+            detection.LoadOptionsByRole[ModelRole.Primary].PostprocessorKey.Should().Be("heatmap-anomaly");
+            detection.LoadOptionsByRole[ModelRole.Primary].ScoreNormalization.Should().Be(DeepLearningScoreNormalization.Sigmoid);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void CreateModelLoadOptions_DuplicateCasePostprocessKeys_KeepsFirstValidOption()
+    {
+        var entry = new ModelRegistryEntry
+        {
+            PostprocessorKey = "classification",
+            ScoreNormalization = "Softmax",
+            PostprocessOptions = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [" top_k "] = "2",
+                ["TOP_K"] = "3",
+                [" "] = "ignored"
+            }
+        };
+
+        DetectionModelLoadOptions options = InvokeCreateModelLoadOptions(entry);
+
+        options.PostprocessorKey.Should().Be("classification");
+        options.ScoreNormalization.Should().Be(DeepLearningScoreNormalization.Softmax);
+        options.PostprocessOptions.Should().ContainSingle();
+        options.PostprocessOptions.Should().ContainKey("top_k").WhoseValue.Should().Be("2");
+    }
+
+    [Fact]
+    public void CreateModelLoadOptions_EmptyEntryPostprocessOptions_FallsBackToManifestOptions()
+    {
+        var entry = new ModelRegistryEntry
+        {
+            PostprocessorKey = "classification",
+            Manifest = new ModelPackageManifest
+            {
+                PostprocessOptions = new Dictionary<string, string>
+                {
+                    ["top_k"] = "4"
+                }
+            }
+        };
+
+        DetectionModelLoadOptions options = InvokeCreateModelLoadOptions(entry);
+
+        options.PostprocessOptions.Should().ContainSingle();
+        options.PostprocessOptions.Should().ContainKey("top_k").WhoseValue.Should().Be("4");
+    }
+
+    private static DetectionModelLoadOptions InvokeCreateModelLoadOptions(ModelRegistryEntry entry)
+    {
+        MethodInfo method = typeof(ProductionModelActivationService).GetMethod(
+            "CreateModelLoadOptions",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(typeof(ProductionModelActivationService).FullName, "CreateModelLoadOptions");
+
+        return (DetectionModelLoadOptions)method.Invoke(null, new object[] { entry })!;
+    }
+
     private static ProductionModelActivationService CreateService(
         AppConfig config,
         ModelRegistry registry,
@@ -1306,7 +1463,15 @@ public class ProductionModelActivationServiceTests
         };
     }
 
-    private static string CreatePackage(string packageRoot, string modelId, string version, string fileName)
+    private static string CreatePackage(
+        string packageRoot,
+        string modelId,
+        string version,
+        string fileName,
+        string taskType = "Detect",
+        string postprocessorKey = "",
+        string scoreNormalization = "",
+        Dictionary<string, string>? postprocessOptions = null)
     {
         string packageDir = Path.Combine(packageRoot, modelId);
         Directory.CreateDirectory(packageDir);
@@ -1321,7 +1486,10 @@ public class ProductionModelActivationServiceTests
                 ModelFileName = fileName,
                 ModelHash = ComputeSha256(modelPath),
                 Labels = new List<string> { "part" },
-                TaskType = "Detect",
+                TaskType = taskType,
+                PostprocessorKey = postprocessorKey,
+                ScoreNormalization = scoreNormalization,
+                PostprocessOptions = postprocessOptions ?? new Dictionary<string, string>(),
                 InputWidth = 640,
                 InputHeight = 640,
                 Approval = new ModelApprovalMetadata
@@ -1498,7 +1666,7 @@ public class ProductionModelActivationServiceTests
 
     private sealed record FileState(string Path, bool Exists, byte[] Content);
 
-    private sealed class FakeDetectionService : IDetectionService
+    private sealed class FakeDetectionService : IDetectionService, IConfigurableDetectionService
     {
         private string _primaryPath = string.Empty;
         private string _aux1Path = string.Empty;
@@ -1511,6 +1679,7 @@ public class ProductionModelActivationServiceTests
         public event Action<string>? ErrorOccurred;
 
         public HashSet<string> FailLoadPaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<ModelRole, DetectionModelLoadOptions> LoadOptionsByRole { get; } = new Dictionary<ModelRole, DetectionModelLoadOptions>();
         public Func<ModelRole, string, Task>? BeforeLoadAsync { get; set; }
         public int MaxConcurrentLoads => _maxConcurrentLoads;
         public bool IsModelLoaded => !string.IsNullOrWhiteSpace(_primaryPath);
@@ -1549,17 +1718,36 @@ public class ProductionModelActivationServiceTests
 
         public Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0)
         {
-            return LoadSlotAsync(ModelRole.Primary, modelPath, fullPath => _primaryPath = fullPath);
+            return LoadModelAsync(modelPath, useGpu, gpuDeviceId, DetectionModelLoadOptions.Default);
+        }
+
+        public Task<bool> LoadModelAsync(
+            string modelPath,
+            bool useGpu,
+            int gpuDeviceId,
+            DetectionModelLoadOptions? options)
+        {
+            return LoadSlotAsync(ModelRole.Primary, modelPath, options, fullPath => _primaryPath = fullPath);
         }
 
         public Task<bool> LoadAuxiliary1ModelAsync(string modelPath)
         {
-            return LoadSlotAsync(ModelRole.Auxiliary1, modelPath, fullPath => _aux1Path = fullPath);
+            return LoadAuxiliary1ModelAsync(modelPath, DetectionModelLoadOptions.Default);
+        }
+
+        public Task<bool> LoadAuxiliary1ModelAsync(string modelPath, DetectionModelLoadOptions? options)
+        {
+            return LoadSlotAsync(ModelRole.Auxiliary1, modelPath, options, fullPath => _aux1Path = fullPath);
         }
 
         public Task<bool> LoadAuxiliary2ModelAsync(string modelPath)
         {
-            return LoadSlotAsync(ModelRole.Auxiliary2, modelPath, fullPath => _aux2Path = fullPath);
+            return LoadAuxiliary2ModelAsync(modelPath, DetectionModelLoadOptions.Default);
+        }
+
+        public Task<bool> LoadAuxiliary2ModelAsync(string modelPath, DetectionModelLoadOptions? options)
+        {
+            return LoadSlotAsync(ModelRole.Auxiliary2, modelPath, options, fullPath => _aux2Path = fullPath);
         }
 
         public void UnloadPrimaryModel() => _primaryPath = string.Empty;
@@ -1576,7 +1764,11 @@ public class ProductionModelActivationServiceTests
         public object? GetLastMetrics() => null;
         public void Dispose() { }
 
-        private async Task<bool> LoadSlotAsync(ModelRole role, string modelPath, Action<string> assign)
+        private async Task<bool> LoadSlotAsync(
+            ModelRole role,
+            string modelPath,
+            DetectionModelLoadOptions? options,
+            Action<string> assign)
         {
             string fullPath = Path.GetFullPath(modelPath);
             int active = Interlocked.Increment(ref _activeLoads);
@@ -1593,6 +1785,15 @@ public class ProductionModelActivationServiceTests
                     return false;
                 }
 
+                DetectionModelLoadOptions normalizedOptions = options ?? DetectionModelLoadOptions.Default;
+                LoadOptionsByRole[role] = new DetectionModelLoadOptions
+                {
+                    PostprocessorKey = normalizedOptions.PostprocessorKey,
+                    ScoreNormalization = normalizedOptions.ScoreNormalization,
+                    PostprocessOptions = normalizedOptions.PostprocessOptions != null
+                        ? new Dictionary<string, string>(normalizedOptions.PostprocessOptions, StringComparer.OrdinalIgnoreCase)
+                        : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                };
                 assign(fullPath);
                 return true;
             }

@@ -157,12 +157,28 @@ namespace ClearFrost
                     }
                     catch (OperationCanceledException)
                     {
-                        try { ReleaseCameraResources(); } catch { }
+                        try
+                        {
+                            ReleaseCameraResources();
+                        }
+                        catch (Exception cleanupEx)
+                        {
+                            Debug.WriteLine($"[StartSystem] 取消后释放相机资源失败: {cleanupEx.Message}");
+                        }
+
                         return (false, "操作已取消", string.Empty);
                     }
                     catch (Exception ex)
                     {
-                        try { ReleaseCameraResources(); } catch { }
+                        try
+                        {
+                            ReleaseCameraResources();
+                        }
+                        catch (Exception cleanupEx)
+                        {
+                            Debug.WriteLine($"[StartSystem] 异常后释放相机资源失败: {cleanupEx.Message}");
+                        }
+
                         return (false, ex.Message, string.Empty);
                     }
                 }, token);

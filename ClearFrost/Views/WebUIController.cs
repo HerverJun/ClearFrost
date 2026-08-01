@@ -32,6 +32,7 @@ using System.Text.Json;
 using System.Text;
 using System.Linq;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading;
 using OpenCvSharp;
 using ClearFrost.Core.Inspection;
@@ -59,6 +60,16 @@ namespace ClearFrost
         public string PayloadJson { get; }
     }
 
+    public sealed class StatisticsHistoryRequestEventArgs : EventArgs
+    {
+        public StatisticsHistoryRequestEventArgs(int days)
+        {
+            Days = days;
+        }
+
+        public int Days { get; }
+    }
+
     /// <summary>
     /// Manages the WebView2 control and communication between C# and the Web frontend.
     /// </summary>
@@ -71,12 +82,61 @@ namespace ClearFrost
         private readonly object _logThrottleLock = new object();
         private long _lastFrontendLogTick;
         private const int FrontendLogThrottleMs = 100;
+        private const int DefaultStatisticsHistoryDays = 30;
+        private const int MaxStatisticsHistoryDays = 366;
         private long _lastImagePushTick;
         private int _imagePushInProgress;
         private int _previewFrameToggle;
         private long _previewFrameId;
         private string _webPreviewCachePath = string.Empty;
         private const int ImagePushMinIntervalMs = 50;
+        private static readonly HashSet<string> CommandsRequiringValue = new(StringComparer.Ordinal)
+        {
+            "save_project_preset",
+            "delete_project_preset",
+            "change_model",
+            "update_roi",
+            "set_confidence",
+            "set_iou",
+            "set_task_type",
+            "save_settings",
+            "set_roi_threshold",
+            "set_roi_threshold_final",
+            "get_ng_hours",
+            "get_ng_images",
+            "run_history_rule_preview",
+            "manual_release",
+            "capture_camera_preview",
+            "verify_diagnostic_package",
+            "maintenance_advice_action",
+            "shift_task_action",
+            "vision_debug_query_recent",
+            "vision_debug_run_current",
+            "vision_debug_run_history",
+            "vision_debug_run_batch",
+            "vision_debug_save_params",
+            "vision_debug_apply_template",
+            "switch_camera",
+            "add_camera",
+            "delete_camera",
+            "direct_connect_camera",
+            "set_auxiliary1_model",
+            "set_auxiliary2_model",
+            "toggle_multi_model",
+            "query_manual_review_records",
+            "save_manual_review",
+            "create_replay_dataset",
+            "run_replay_comparison",
+            "approve_replay_candidate",
+            "preview_replay_dataset",
+            "query_replay_datasets",
+            "archive_replay_dataset",
+            "cancel_replay_run",
+            "query_replay_runs",
+            "query_replay_report",
+            "query_model_approval_evidence",
+            "run_replay_integrity_scan",
+        };
         private EventHandler<CoreWebView2WebMessageReceivedEventArgs>? _webMessageReceivedHandler;
         private EventHandler<CoreWebView2NavigationCompletedEventArgs>? _navigationCompletedHandler;
         private bool _disposed;
@@ -121,7 +181,7 @@ namespace ClearFrost
         public event EventHandler? OnExportConfigMigration;
         public event EventHandler? OnImportConfigMigration;
         public event EventHandler? OnSelectStorageFolder;
-        public event EventHandler? OnGetStatisticsHistory;
+        public event EventHandler<StatisticsHistoryRequestEventArgs>? OnGetStatisticsHistory;
         public event EventHandler? OnClearStatisticsHistory;
         public event EventHandler? OnResetStatistics;
         public event EventHandler? OnCollectDataset;
@@ -721,6 +781,15 @@ namespace ClearFrost
                     if (root.TryGetProperty("cmd", out JsonElement cmdElement))
                     {
                         cmd = cmdElement.GetString() ?? string.Empty;
+                        if (CommandRequiresValue(cmd) && IsMissingCommandValue(root))
+                        {
+                            await SendCommandErrorAsync(
+                                cmd,
+                                requestId,
+                                "MissingValue",
+                                $"前端命令缺少 value 字段: {cmd}");
+                            return;
+                        }
 
                         switch (cmd)
                         {
@@ -740,17 +809,24 @@ namespace ClearFrost
                                 OnManualDetect?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "capture_camera_preview":
-                                OnCaptureCameraPreview?.Invoke(
-                                    this,
-                                    root.TryGetProperty("value", out JsonElement previewElement)
-                                        ? previewElement.GetRawText()
-                                        : "{}");
+                                if (TryReadObjectCommandValue(root, out string previewPayload))
+                                {
+                                    OnCaptureCameraPreview?.Invoke(this, previewPayload);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 必须是对象: capture_camera_preview");
+                                }
                                 break;
                             case "manual_release":
-                                string releasePayload = root.TryGetProperty("value", out JsonElement releaseElement)
-                                    ? releaseElement.GetRawText()
-                                    : "{}";
-                                OnManualRelease?.Invoke(this, releasePayload);
+                                if (TryReadObjectCommandValue(root, out string releasePayload))
+                                {
+                                    OnManualRelease?.Invoke(this, releasePayload);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 必须是对象: manual_release");
+                                }
                                 break;
                             case "open_settings":
                                 OnOpenSettings?.Invoke(this, EventArgs.Empty);
@@ -765,9 +841,13 @@ namespace ClearFrost
                                 OnImportConfigMigration?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "save_project_preset":
-                                if (root.TryGetProperty("value", out JsonElement presetSaveElement))
+                                if (TryReadObjectCommandValue(root, out string presetSaveJson))
                                 {
-                                    OnSaveProjectPreset?.Invoke(this, presetSaveElement.GetRawText());
+                                    OnSaveProjectPreset?.Invoke(this, presetSaveJson);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 必须是对象: save_project_preset");
                                 }
                                 break;
                             case "delete_project_preset":
@@ -777,9 +857,13 @@ namespace ClearFrost
                                 }
                                 break;
                             case "change_model":
-                                if (root.TryGetProperty("value", out JsonElement modelElement))
+                                if (TryReadNonEmptyStringCommandValue(root, out string modelName))
                                 {
-                                    OnChangeModel?.Invoke(this, modelElement.GetString() ?? "");
+                                    OnChangeModel?.Invoke(this, modelName);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 不能为空: change_model");
                                 }
                                 break;
                             case "get_model_list":
@@ -797,24 +881,16 @@ namespace ClearFrost
 #endif
                                 break;
                             case "update_roi":
-                                if (root.TryGetProperty("value", out JsonElement valueElement) &&
-                                    valueElement.TryGetProperty("rect", out JsonElement rectElement))
+                                if (TryReadRoiRect(root, out float[] rectArray, out string roiError))
                                 {
-                                    try
-                                    {
-                                        var rectArray = JsonSerializer.Deserialize<float[]>(rectElement.GetRawText());
-                                        if (rectArray != null && rectArray.Length == 4)
-                                        {
-                                            OnUpdateROI?.Invoke(this, rectArray);
+                                    OnUpdateROI?.Invoke(this, rectArray);
 #if DEBUG
-                                            await LogToFrontend($"ROI已更新: [{string.Join(", ", rectArray.Select(v => v.ToString("F3")))}]");
+                                    await LogToFrontend($"ROI已更新: [{string.Join(", ", rectArray.Select(v => v.ToString("F3")))}]");
 #endif
-                                        }
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        await LogToFrontend($"ROI解析错误: {ex.Message}", "error");
-                                    }
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, roiError);
                                 }
                                 break;
                             case "exit_app":
@@ -843,13 +919,13 @@ namespace ClearFrost
                                 OnQueryDiagnosticPackages?.Invoke(this, CreateCommandEventArgs(root, requestId));
                                 break;
                             case "verify_diagnostic_package":
-                                OnVerifyDiagnosticPackage?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnVerifyDiagnosticPackage?.Invoke(this, args));
                                 break;
                             case "maintenance_advice_action":
-                                OnMaintenanceAdviceAction?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnMaintenanceAdviceAction?.Invoke(this, args));
                                 break;
                             case "shift_task_action":
-                                OnShiftTaskAction?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnShiftTaskAction?.Invoke(this, args));
                                 break;
                             case "export_field_handoff_report":
                                 OnExportFieldHandoffReport?.Invoke(this, CreateCommandEventArgs(root, requestId));
@@ -870,32 +946,37 @@ namespace ClearFrost
                             case "vision_debug_run_batch":
                             case "vision_debug_save_params":
                             case "vision_debug_apply_template":
-                                OnVisionDebugCommand?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnVisionDebugCommand?.Invoke(this, args));
                                 break;
                             case "set_confidence":
-                                if (root.TryGetProperty("value", out JsonElement confElement))
+                                if (TryReadUnitFloatCommandValue(root, out float conf))
                                 {
-                                    float conf = confElement.GetSingle();
                                     OnSetConfidence?.Invoke(this, conf);
 #if DEBUG
                                     await LogToFrontend($"置信度已设置: {conf:F2}");
 #endif
                                 }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 必须是 0 到 1 的数值: set_confidence");
+                                }
                                 break;
                             case "set_iou":
-                                if (root.TryGetProperty("value", out JsonElement iouElement))
+                                if (TryReadUnitFloatCommandValue(root, out float iou))
                                 {
-                                    float iou = iouElement.GetSingle();
                                     OnSetIou?.Invoke(this, iou);
 #if DEBUG
                                     await LogToFrontend($"IOU阈值已设置: {iou:F2}");
 #endif
                                 }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 必须是 0 到 1 的数值: set_iou");
+                                }
                                 break;
                             case "set_task_type":
-                                if (root.TryGetProperty("value", out JsonElement taskTypeElement))
+                                if (TryReadInt32CommandValue(root, out int taskType) && IsSupportedTaskType(taskType))
                                 {
-                                    int taskType = taskTypeElement.GetInt32();
                                     OnSetTaskType?.Invoke(this, taskType);
                                     string taskName = taskType switch
                                     {
@@ -911,49 +992,77 @@ namespace ClearFrost
                                     await LogToFrontend($"任务类型已设置: {taskName}");
 #endif
                                 }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 不是受支持的任务类型: set_task_type");
+                                }
                                 break;
                             case "save_settings":
-                                if (root.TryGetProperty("value", out JsonElement settingsElement))
+                                if (TryReadObjectCommandValue(root, out string settingsJson))
                                 {
-                                    // value 现在是JSON对象，用 GetRawText() 获取其JSON字符串
-                                    string jsonStr = settingsElement.GetRawText();
-                                    OnSaveSettings?.Invoke(this, jsonStr);
+                                    OnSaveSettings?.Invoke(this, settingsJson);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 必须是对象: save_settings");
                                 }
                                 break;
                             case "set_roi_threshold":
                             case "set_roi_threshold_final":
-                                if (root.TryGetProperty("value", out JsonElement valElement))
+                                if (TryReadInt32CommandValue(root, out int threshold))
                                 {
-                                    if (valElement.TryGetInt32(out int threshold))
-                                    {
-                                        OnThresholdChanged?.Invoke(this, threshold);
-                                    }
+                                    OnThresholdChanged?.Invoke(this, threshold);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, $"前端命令 value 必须是整数: {cmd}");
                                 }
                                 break;
                             case "get_ng_dates":
                                 await SendNGDates();
                                 break;
                             case "get_ng_hours":
-                                if (root.TryGetProperty("value", out JsonElement dateElement))
+                                if (TryReadNonEmptyStringCommandValue(root, out string traceDateKey))
                                 {
-                                    await SendNGHours(dateElement.GetString());
+                                    if (TryParseTraceDate(traceDateKey, out _))
+                                    {
+                                        await SendNGHours(traceDateKey);
+                                    }
+                                    else
+                                    {
+                                        await SendInvalidValueAsync(cmd, requestId, "追溯日期格式无效: get_ng_hours");
+                                    }
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 不能为空: get_ng_hours");
                                 }
                                 break;
                             case "get_ng_images":
-                                if (root.TryGetProperty("value", out JsonElement paramsElement))
+                                if (TryReadTraceImagesRequest(
+                                        root,
+                                        out string date,
+                                        out string hour,
+                                        out int pageSize,
+                                        out string? afterTimestamp,
+                                        out long? afterId,
+                                        out string traceError))
                                 {
-                                    string date = paramsElement.GetProperty("date").GetString() ?? "";
-                                    string hour = paramsElement.GetProperty("hour").GetString() ?? "";
-                                    int pageSize = TryGetInt32Property(paramsElement, "pageSize") ?? 100;
-                                    string? afterTimestamp = TryGetStringProperty(paramsElement, "afterTimestamp");
-                                    long? afterId = TryGetInt64Property(paramsElement, "afterId");
                                     await SendNGImages(date, hour, pageSize, afterTimestamp, afterId, requestId);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, traceError);
                                 }
                                 break;
                             case "run_history_rule_preview":
-                                if (root.TryGetProperty("value", out JsonElement historyRuleElement))
+                                if (TryReadObjectCommandValue(root, out string historyRuleJson))
                                 {
-                                    OnRunHistoryRulePreview?.Invoke(this, historyRuleElement.GetRawText());
+                                    OnRunHistoryRulePreview?.Invoke(this, historyRuleJson);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 必须是对象: run_history_rule_preview");
                                 }
                                 break;
                             case "select_storage_folder":
@@ -963,14 +1072,18 @@ namespace ClearFrost
                                 await SendDetectionLogs();
                                 break;
                             case "query_audit_records":
-                                if (root.TryGetProperty("value", out JsonElement auditQueryElement))
                                 {
+                                    JsonElement auditQueryElement = root.TryGetProperty("value", out JsonElement auditQueryValueElement)
+                                        ? auditQueryValueElement
+                                        : default;
                                     await SendAuditRecordsAsync(auditQueryElement, requestId);
                                 }
                                 break;
                             case "export_audit_records":
-                                if (root.TryGetProperty("value", out JsonElement auditExportElement))
                                 {
+                                    JsonElement auditExportElement = root.TryGetProperty("value", out JsonElement auditExportValueElement)
+                                        ? auditExportValueElement
+                                        : default;
                                     await ExportAuditRecordsAsync(auditExportElement, requestId);
                                 }
                                 break;
@@ -978,7 +1091,10 @@ namespace ClearFrost
                                 await SendAuditChainVerificationAsync(requestId);
                                 break;
                             case "get_statistics_history":
-                                OnGetStatisticsHistory?.Invoke(this, EventArgs.Empty);
+                                int statisticsHistoryDays = TryReadInt32CommandValue(root, out int requestedStatisticsHistoryDays)
+                                    ? NormalizeStatisticsHistoryDays(requestedStatisticsHistoryDays)
+                                    : DefaultStatisticsHistoryDays;
+                                OnGetStatisticsHistory?.Invoke(this, new StatisticsHistoryRequestEventArgs(statisticsHistoryDays));
                                 break;
                             case "clear_stats_history":
                                 OnClearStatisticsHistory?.Invoke(this, EventArgs.Empty);
@@ -990,43 +1106,43 @@ namespace ClearFrost
                                 OnCollectDataset?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "query_manual_review_records":
-                                OnQueryManualReviewRecords?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnQueryManualReviewRecords?.Invoke(this, args));
                                 break;
                             case "save_manual_review":
-                                OnSaveManualReview?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnSaveManualReview?.Invoke(this, args));
                                 break;
                             case "create_replay_dataset":
-                                OnCreateReplayDataset?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnCreateReplayDataset?.Invoke(this, args));
                                 break;
                             case "run_replay_comparison":
-                                OnRunReplayComparison?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnRunReplayComparison?.Invoke(this, args));
                                 break;
                             case "approve_replay_candidate":
-                                OnApproveReplayCandidate?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnApproveReplayCandidate?.Invoke(this, args));
                                 break;
                             case "preview_replay_dataset":
-                                OnPreviewReplayDataset?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnPreviewReplayDataset?.Invoke(this, args));
                                 break;
                             case "query_replay_datasets":
-                                OnQueryReplayDatasets?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnQueryReplayDatasets?.Invoke(this, args));
                                 break;
                             case "archive_replay_dataset":
-                                OnArchiveReplayDataset?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnArchiveReplayDataset?.Invoke(this, args));
                                 break;
                             case "cancel_replay_run":
-                                OnCancelReplayRun?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnCancelReplayRun?.Invoke(this, args));
                                 break;
                             case "query_replay_runs":
-                                OnQueryReplayRuns?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnQueryReplayRuns?.Invoke(this, args));
                                 break;
                             case "query_replay_report":
-                                OnQueryReplayReport?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnQueryReplayReport?.Invoke(this, args));
                                 break;
                             case "query_model_approval_evidence":
-                                OnQueryModelApprovalEvidence?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnQueryModelApprovalEvidence?.Invoke(this, args));
                                 break;
                             case "run_replay_integrity_scan":
-                                OnRunReplayIntegrityScan?.Invoke(this, CreateCommandEventArgs(root, requestId));
+                                await DispatchObjectCommandAsync(cmd, requestId, root, args => OnRunReplayIntegrityScan?.Invoke(this, args));
                                 break;
 
                             // ================== 多相机命令 ==================
@@ -1034,30 +1150,33 @@ namespace ClearFrost
                                 OnGetCameraList?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "switch_camera":
-                                if (root.TryGetProperty("value", out JsonElement camIdElement))
+                                if (TryReadNonEmptyStringCommandValue(root, out string camId))
                                 {
-                                    string camId = camIdElement.GetString() ?? "";
-                                    if (!string.IsNullOrEmpty(camId))
-                                    {
-                                        OnSwitchCamera?.Invoke(this, camId);
-                                    }
+                                    OnSwitchCamera?.Invoke(this, camId);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 不能为空: switch_camera");
                                 }
                                 break;
                             case "add_camera":
-                                if (root.TryGetProperty("value", out JsonElement addCamElement))
+                                if (TryReadObjectCommandValue(root, out string addCameraJson))
                                 {
-                                    string camJson = addCamElement.GetRawText();
-                                    OnAddCamera?.Invoke(this, camJson);
+                                    OnAddCamera?.Invoke(this, addCameraJson);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 必须是对象: add_camera");
                                 }
                                 break;
                             case "delete_camera":
-                                if (root.TryGetProperty("value", out JsonElement delCamElement))
+                                if (TryReadNonEmptyStringCommandValue(root, out string camIdToDelete))
                                 {
-                                    string camIdToDelete = delCamElement.GetString() ?? "";
-                                    if (!string.IsNullOrEmpty(camIdToDelete))
-                                    {
-                                        OnDeleteCamera?.Invoke(this, camIdToDelete);
-                                    }
+                                    OnDeleteCamera?.Invoke(this, camIdToDelete);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 不能为空: delete_camera");
                                 }
                                 break;
                             case "super_search_cameras":
@@ -1069,30 +1188,45 @@ namespace ClearFrost
                                 OnSuperSearchCamerasHik?.Invoke(this, EventArgs.Empty);
                                 break;
                             case "direct_connect_camera":
-                                if (root.TryGetProperty("value", out JsonElement directConnectElement))
+                                if (TryReadObjectCommandValue(root, out string directConnectJson))
                                 {
-                                    string camJson = directConnectElement.GetRawText();
-                                    OnDirectConnectCamera?.Invoke(this, camJson);
+                                    OnDirectConnectCamera?.Invoke(this, directConnectJson);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 必须是对象: direct_connect_camera");
                                 }
                                 break;
 
                             // ================== 多模型切换命令 ==================
                             case "set_auxiliary1_model":
-                                if (root.TryGetProperty("value", out JsonElement aux1Element))
+                                if (TryReadStringCommandValue(root, out string aux1ModelName))
                                 {
-                                    OnSetAuxiliary1Model?.Invoke(this, aux1Element.GetString() ?? "");
+                                    OnSetAuxiliary1Model?.Invoke(this, aux1ModelName);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 必须是字符串: set_auxiliary1_model");
                                 }
                                 break;
                             case "set_auxiliary2_model":
-                                if (root.TryGetProperty("value", out JsonElement aux2Element))
+                                if (TryReadStringCommandValue(root, out string aux2ModelName))
                                 {
-                                    OnSetAuxiliary2Model?.Invoke(this, aux2Element.GetString() ?? "");
+                                    OnSetAuxiliary2Model?.Invoke(this, aux2ModelName);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 必须是字符串: set_auxiliary2_model");
                                 }
                                 break;
                             case "toggle_multi_model":
-                                if (root.TryGetProperty("value", out JsonElement toggleElement))
+                                if (TryReadBoolCommandValue(root, out bool enableMultiModel))
                                 {
-                                    OnToggleMultiModelFallback?.Invoke(this, toggleElement.GetBoolean());
+                                    OnToggleMultiModelFallback?.Invoke(this, enableMultiModel);
+                                }
+                                else
+                                {
+                                    await SendInvalidValueAsync(cmd, requestId, "前端命令 value 必须是布尔值: toggle_multi_model");
                                 }
                                 break;
 
@@ -1143,6 +1277,279 @@ namespace ClearFrost
                     System.Diagnostics.Debug.WriteLine($"Error reporting web message failure: {notifyEx.Message}");
                 }
             }
+        }
+
+        private static bool CommandRequiresValue(string cmd)
+        {
+            return CommandsRequiringValue.Contains(cmd);
+        }
+
+        private static bool IsMissingCommandValue(JsonElement root)
+        {
+            return !root.TryGetProperty("value", out JsonElement value) ||
+                   value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null;
+        }
+
+        private static bool TryReadNonEmptyStringCommandValue(JsonElement root, out string value)
+        {
+            value = string.Empty;
+            if (!root.TryGetProperty("value", out JsonElement valueElement) ||
+                valueElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                return false;
+            }
+
+            value = valueElement.ValueKind == JsonValueKind.String
+                ? valueElement.GetString() ?? string.Empty
+                : valueElement.GetRawText();
+            value = value.Trim();
+            return !string.IsNullOrWhiteSpace(value);
+        }
+
+        private static bool TryReadStringCommandValue(JsonElement root, out string value)
+        {
+            value = string.Empty;
+            if (!root.TryGetProperty("value", out JsonElement valueElement) ||
+                valueElement.ValueKind != JsonValueKind.String)
+            {
+                return false;
+            }
+
+            value = valueElement.GetString() ?? string.Empty;
+            return true;
+        }
+
+        private static bool TryReadObjectCommandValue(JsonElement root, out string valueJson)
+        {
+            valueJson = "{}";
+            if (!root.TryGetProperty("value", out JsonElement valueElement) ||
+                valueElement.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            valueJson = valueElement.GetRawText();
+            return true;
+        }
+
+        private static bool TryReadInt32CommandValue(JsonElement root, out int value)
+        {
+            value = 0;
+            if (!root.TryGetProperty("value", out JsonElement valueElement) ||
+                valueElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                return false;
+            }
+
+            if (valueElement.TryGetInt32(out value))
+            {
+                return true;
+            }
+
+            return valueElement.ValueKind == JsonValueKind.String &&
+                   int.TryParse(valueElement.GetString(), out value);
+        }
+
+        private static int NormalizeStatisticsHistoryDays(int days)
+        {
+            return Math.Clamp(days, 1, MaxStatisticsHistoryDays);
+        }
+
+        private static bool TryReadUnitFloatCommandValue(JsonElement root, out float value)
+        {
+            value = 0f;
+            if (!root.TryGetProperty("value", out JsonElement valueElement) ||
+                valueElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                return false;
+            }
+
+            bool parsed = valueElement.TryGetSingle(out value) ||
+                          (valueElement.ValueKind == JsonValueKind.String &&
+                           float.TryParse(valueElement.GetString(), out value));
+            return parsed && value is >= 0f and <= 1f;
+        }
+
+        private static bool TryReadBoolCommandValue(JsonElement root, out bool value)
+        {
+            value = false;
+            if (!root.TryGetProperty("value", out JsonElement valueElement) ||
+                valueElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                return false;
+            }
+
+            if (valueElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                value = valueElement.GetBoolean();
+                return true;
+            }
+
+            return valueElement.ValueKind == JsonValueKind.String &&
+                   bool.TryParse(valueElement.GetString(), out value);
+        }
+
+        private static bool IsSupportedTaskType(int taskType)
+        {
+            return taskType is 0 or 1 or 2 or 3 or 5 or 6;
+        }
+
+        private static bool TryReadRoiRect(JsonElement root, out float[] rect, out string error)
+        {
+            rect = Array.Empty<float>();
+            error = string.Empty;
+
+            if (!root.TryGetProperty("value", out JsonElement valueElement) ||
+                valueElement.ValueKind != JsonValueKind.Object ||
+                !valueElement.TryGetProperty("rect", out JsonElement rectElement))
+            {
+                error = "前端命令缺少 ROI rect 字段";
+                return false;
+            }
+
+            try
+            {
+                float[]? parsed = JsonSerializer.Deserialize<float[]>(rectElement.GetRawText());
+                if (parsed == null || parsed.Length != 4)
+                {
+                    error = "ROI rect 必须包含 4 个数值";
+                    return false;
+                }
+
+                if (parsed.Any(value => float.IsNaN(value) || float.IsInfinity(value)))
+                {
+                    error = "ROI rect 必须是有限数值";
+                    return false;
+                }
+
+                if (parsed.Any(value => value < 0f || value > 1f))
+                {
+                    error = "ROI rect 数值必须在 0 到 1 之间";
+                    return false;
+                }
+
+                float x = parsed[0];
+                float y = parsed[1];
+                float width = parsed[2];
+                float height = parsed[3];
+                bool isClearRoi = x == 0f && y == 0f && width == 0f && height == 0f;
+                if (!isClearRoi && (width <= 0.001f || height <= 0.001f))
+                {
+                    error = "ROI rect 宽高必须大于 0，清除 ROI 请使用 [0,0,0,0]";
+                    return false;
+                }
+
+                const float BoundaryTolerance = 0.0005f;
+                if (!isClearRoi &&
+                    (x + width > 1f + BoundaryTolerance || y + height > 1f + BoundaryTolerance))
+                {
+                    error = "ROI rect 不能超出图像边界";
+                    return false;
+                }
+
+                rect = parsed;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = $"ROI rect 解析失败: {ex.Message}";
+                return false;
+            }
+        }
+
+        private static bool TryReadTraceImagesRequest(
+            JsonElement root,
+            out string date,
+            out string hour,
+            out int pageSize,
+            out string? afterTimestamp,
+            out long? afterId,
+            out string error)
+        {
+            date = string.Empty;
+            hour = string.Empty;
+            pageSize = 100;
+            afterTimestamp = null;
+            afterId = null;
+            error = string.Empty;
+
+            if (!root.TryGetProperty("value", out JsonElement valueElement) ||
+                valueElement.ValueKind != JsonValueKind.Object)
+            {
+                error = "追溯图片请求 value 必须是对象";
+                return false;
+            }
+
+            date = (TryGetStringProperty(valueElement, "date") ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(date))
+            {
+                error = "追溯图片请求缺少 date";
+                return false;
+            }
+
+            hour = (TryGetStringProperty(valueElement, "hour") ?? string.Empty).Trim();
+            if (!TryParseTraceDate(date, out _))
+            {
+                error = "追溯图片请求 date 格式无效";
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(hour) && !TryParseTraceHour(hour, out _))
+            {
+                error = "追溯图片请求 hour 必须是 0 到 23";
+                return false;
+            }
+
+            pageSize = Math.Clamp(TryGetInt32Property(valueElement, "pageSize") ?? 100, 1, 200);
+            string? cursorTimestamp = TryGetStringProperty(valueElement, "afterTimestamp");
+            long? cursorId = TryGetInt64Property(valueElement, "afterId");
+            bool hasCursorTimestamp = !string.IsNullOrWhiteSpace(cursorTimestamp);
+            bool hasCursorId = cursorId.HasValue;
+            if (hasCursorTimestamp != hasCursorId)
+            {
+                error = "追溯图片分页游标必须同时包含 afterTimestamp 和 afterId";
+                return false;
+            }
+
+            if (hasCursorTimestamp)
+            {
+                if (!TryNormalizeTraceCursorTimestamp(cursorTimestamp!, out string normalizedTimestamp))
+                {
+                    error = "追溯图片分页游标 afterTimestamp 格式无效";
+                    return false;
+                }
+
+                if (cursorId.GetValueOrDefault() <= 0)
+                {
+                    error = "追溯图片分页游标 afterId 必须大于 0";
+                    return false;
+                }
+
+                afterTimestamp = normalizedTimestamp;
+                afterId = cursorId;
+            }
+
+            return true;
+        }
+
+        private Task SendInvalidValueAsync(string cmd, string? requestId, string message)
+        {
+            return SendCommandErrorAsync(cmd, requestId, "InvalidValue", message);
+        }
+
+        private async Task DispatchObjectCommandAsync(
+            string cmd,
+            string? requestId,
+            JsonElement root,
+            Action<WebUiCommandEventArgs> dispatch)
+        {
+            if (TryReadObjectCommandValue(root, out string payloadJson))
+            {
+                dispatch(new WebUiCommandEventArgs(requestId ?? string.Empty, payloadJson, cmd));
+                return;
+            }
+
+            await SendInvalidValueAsync(cmd, requestId, $"前端命令 value 必须是对象: {cmd}");
         }
 
         private Task SendCommandErrorAsync(string cmd, string? requestId, string errorCode, string message)
@@ -1501,8 +1908,13 @@ namespace ClearFrost
             }
             catch (Exception ex)
             {
-                await LogToFrontend($"获取日期列表失败: {ex.Message}", "error");
-                PostMessage("historyDates", Array.Empty<string>());
+                string message = $"获取日期列表失败: {ex.Message}";
+                await LogToFrontend(message, "error");
+                PostMessage("historyDates", new
+                {
+                    dates = Array.Empty<string>(),
+                    error = message
+                });
             }
         }
 
@@ -1520,7 +1932,16 @@ namespace ClearFrost
                 List<string> hours = await DatabaseService.GetTraceHourKeysAsync(traceDate, isQualified: false);
                 PostMessage("historyHours", hours);
             }
-            catch { PostMessage("historyHours", Array.Empty<string>()); }
+            catch (Exception ex)
+            {
+                string message = $"获取时段列表失败: {ex.Message}";
+                await LogToFrontend(message, "error");
+                PostMessage("historyHours", new
+                {
+                    hours = Array.Empty<string>(),
+                    error = message
+                });
+            }
         }
 
         private async Task SendNGImages(string date, string hour, int pageSize, string? afterTimestamp, long? afterId, string? requestId)
@@ -1575,8 +1996,10 @@ namespace ClearFrost
                     nextCursorId = page.NextCursorId
                 }, requestId);
             }
-            catch
+            catch (Exception ex)
             {
+                string message = $"获取追溯图片失败: {ex.Message}";
+                await LogToFrontend(message, "error");
                 PostMessage("historyImages", new
                 {
                     records = Array.Empty<object>(),
@@ -1584,7 +2007,8 @@ namespace ClearFrost
                     hasMore = false,
                     pageSize = 0,
                     nextCursorTimestamp = (string?)null,
-                    nextCursorId = (long?)null
+                    nextCursorId = (long?)null,
+                    error = message
                 }, requestId);
             }
         }
@@ -1834,9 +2258,16 @@ namespace ClearFrost
 
         private static string? TryGetStringProperty(JsonElement element, string propertyName)
         {
-            return element.TryGetProperty(propertyName, out JsonElement propertyElement)
+            if (element.ValueKind != JsonValueKind.Object ||
+                !element.TryGetProperty(propertyName, out JsonElement propertyElement) ||
+                propertyElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                return null;
+            }
+
+            return propertyElement.ValueKind == JsonValueKind.String
                 ? propertyElement.GetString()
-                : null;
+                : propertyElement.GetRawText();
         }
 
         private static int? TryGetInt32Property(JsonElement element, string propertyName)
@@ -1918,6 +2349,22 @@ namespace ClearFrost
                 null,
                 System.Globalization.DateTimeStyles.None,
                 out date);
+        }
+
+        private static bool TryNormalizeTraceCursorTimestamp(string value, out string timestamp)
+        {
+            timestamp = string.Empty;
+            if (!DateTime.TryParse(
+                    value,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeLocal,
+                    out DateTime parsed))
+            {
+                return false;
+            }
+
+            timestamp = parsed.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+            return true;
         }
 
         private static bool TryParseTraceHour(string value, out int hour)
@@ -2066,37 +2513,52 @@ namespace ClearFrost
                 return;
             }
 
+            OperationAuditQuery query = ParseAuditQuery(queryElement);
             if (AuditService == null)
             {
                 PostMessage("auditRecords", new
                 {
+                    query = BuildAuditQueryEcho(queryElement, query),
                     records = Array.Empty<object>(),
                     error = "审计服务未初始化"
                 }, requestId);
                 return;
             }
 
-            OperationAuditQuery query = ParseAuditQuery(queryElement);
-            OperationAuditQueryResult result = await AuditService.QueryAsync(query).ConfigureAwait(false);
-            PostMessage("auditRecords", new
+            try
             {
-                records = result.Records.Select(record => new
+                OperationAuditQueryResult result = await AuditService.QueryAsync(query).ConfigureAwait(false);
+                PostMessage("auditRecords", new
                 {
-                    timestamp = record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"),
-                    correlationId = record.CorrelationId,
-                    operation = record.Operation,
-                    status = record.Status.ToString(),
-                    operatorId = record.OperatorId,
-                    role = record.Role.ToString(),
-                    reason = record.Reason,
-                    inspectionId = record.InspectionId,
-                    details = record.Details,
-                    failureBlocker = record.FailureBlocker,
-                    previousRecordSha256 = record.PreviousRecordSha256,
-                    recordSha256 = record.RecordSha256
-                }).ToArray(),
-                error = result.ErrorMessage
-            }, requestId);
+                    query = BuildAuditQueryEcho(queryElement, query),
+                    records = result.Records.Select(record => new
+                    {
+                        timestamp = record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"),
+                        correlationId = record.CorrelationId,
+                        operation = record.Operation,
+                        status = record.Status.ToString(),
+                        operatorId = record.OperatorId,
+                        role = record.Role.ToString(),
+                        reason = record.Reason,
+                        inspectionId = record.InspectionId,
+                        details = record.Details,
+                        failureBlocker = record.FailureBlocker,
+                        previousRecordSha256 = record.PreviousRecordSha256,
+                        recordSha256 = record.RecordSha256
+                    }).ToArray(),
+                    error = result.ErrorMessage
+                }, requestId);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WebUIController] Audit records query failed: {ex.Message}");
+                PostMessage("auditRecords", new
+                {
+                    query = BuildAuditQueryEcho(queryElement, query),
+                    records = Array.Empty<object>(),
+                    error = ex.Message
+                }, requestId);
+            }
         }
 
         private async Task SendAuditChainVerificationAsync(string? requestId)
@@ -2111,6 +2573,7 @@ namespace ClearFrost
                 PostMessage("auditChainVerification", new
                 {
                     status = "Unavailable",
+                    checkedAt = DateTimeOffset.Now,
                     totalRecords = 0,
                     verifiedRecords = 0,
                     findingCount = 0,
@@ -2121,28 +2584,67 @@ namespace ClearFrost
                 return;
             }
 
-            OperationAuditChainVerificationResult result = AuditChainVerifier != null
-                ? await AuditChainVerifier(CancellationToken.None).ConfigureAwait(false)
-                : await AuditService!.VerifyChainAsync().ConfigureAwait(false);
-            PostMessage("auditChainVerification", new
+            try
             {
-                status = result.Status,
-                totalRecords = result.TotalRecords,
-                verifiedRecords = result.VerifiedRecords,
-                findingCount = result.Findings.Count,
-                lastRecordSha256 = result.LastRecordSha256,
-                findings = result.Findings.Take(5).Select(finding => new
+                OperationAuditChainVerificationResult result = AuditChainVerifier != null
+                    ? await AuditChainVerifier(CancellationToken.None).ConfigureAwait(false)
+                    : await AuditService!.VerifyChainAsync().ConfigureAwait(false);
+                PostMessage("auditChainVerification", new
                 {
-                    auditFileName = string.IsNullOrWhiteSpace(finding.FilePath)
-                        ? string.Empty
-                        : Path.GetFileName(finding.FilePath),
-                    lineNumber = finding.LineNumber,
-                    severity = finding.Severity,
-                    errorCode = finding.ErrorCode,
-                    message = finding.Message
-                }).ToArray(),
-                error = string.Empty
-            }, requestId);
+                    status = result.Status,
+                    checkedAt = DateTimeOffset.Now,
+                    totalRecords = result.TotalRecords,
+                    verifiedRecords = result.VerifiedRecords,
+                    findingCount = result.Findings.Count,
+                    lastRecordSha256 = result.LastRecordSha256,
+                    findings = result.Findings.Take(5).Select(finding => new
+                    {
+                        filePath = finding.FilePath,
+                        auditFileName = string.IsNullOrWhiteSpace(finding.FilePath)
+                            ? string.Empty
+                            : Path.GetFileName(finding.FilePath),
+                        lineNumber = finding.LineNumber,
+                        severity = finding.Severity,
+                        errorCode = finding.ErrorCode,
+                        message = finding.Message,
+                        expectedPreviousSha256 = finding.ExpectedPreviousSha256,
+                        actualPreviousSha256 = finding.ActualPreviousSha256,
+                        expectedRecordSha256 = finding.ExpectedRecordSha256,
+                        actualRecordSha256 = finding.ActualRecordSha256
+                    }).ToArray(),
+                    error = string.Empty
+                }, requestId);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WebUIController] Audit chain verification failed: {ex.Message}");
+                PostMessage("auditChainVerification", new
+                {
+                    status = "Unavailable",
+                    checkedAt = DateTimeOffset.Now,
+                    totalRecords = 0,
+                    verifiedRecords = 0,
+                    findingCount = 1,
+                    lastRecordSha256 = "",
+                    findings = new[]
+                    {
+                        new
+                        {
+                            filePath = string.Empty,
+                            auditFileName = string.Empty,
+                            lineNumber = 0,
+                            severity = "Blocking",
+                            errorCode = "AuditChainVerificationFailed",
+                            message = ex.Message,
+                            expectedPreviousSha256 = string.Empty,
+                            actualPreviousSha256 = string.Empty,
+                            expectedRecordSha256 = string.Empty,
+                            actualRecordSha256 = string.Empty
+                        }
+                    },
+                    error = ex.Message
+                }, requestId);
+            }
         }
 
         private async Task ExportAuditRecordsAsync(JsonElement queryElement, string? requestId)
@@ -2175,6 +2677,11 @@ namespace ClearFrost
 
         private static OperationAuditQuery ParseAuditQuery(JsonElement element)
         {
+            if (element.ValueKind != JsonValueKind.Object)
+            {
+                return new OperationAuditQuery();
+            }
+
             OperationAuditStatus? status = null;
             string statusText = TryGetStringProperty(element, "status") ?? TryGetStringProperty(element, "Status") ?? string.Empty;
             if (Enum.TryParse(statusText, ignoreCase: true, out OperationAuditStatus parsedStatus))
@@ -2195,46 +2702,98 @@ namespace ClearFrost
             };
         }
 
+        private static object BuildAuditQueryEcho(JsonElement element, OperationAuditQuery query)
+        {
+            return new
+            {
+                startTime = TryGetStringProperty(element, "startTime") ??
+                            TryGetStringProperty(element, "StartTime") ??
+                            query.StartTime?.ToString("yyyy-MM-ddTHH:mm") ??
+                            string.Empty,
+                endTime = TryGetStringProperty(element, "endTime") ??
+                          TryGetStringProperty(element, "EndTime") ??
+                          query.EndTime?.ToString("yyyy-MM-ddTHH:mm") ??
+                          string.Empty,
+                operation = query.Operation,
+                operatorId = query.OperatorId,
+                role = query.Role,
+                status = query.Status?.ToString() ??
+                         TryGetStringProperty(element, "status") ??
+                         TryGetStringProperty(element, "Status") ??
+                         string.Empty,
+                failureReason = query.FailureReason,
+                limit = query.Limit
+            };
+        }
+
         /// <summary>
         /// Sends statistics history to frontend
         /// </summary>
-        public async Task SendStatisticsHistory(StatisticsHistory history, DetectionStatistics current)
+        public async Task SendStatisticsHistory(StatisticsHistory history, DetectionStatistics current, int days = DefaultStatisticsHistoryDays)
         {
             if (!IsWebViewControlUsable(_webView)) return;
 
             try
             {
-                var records = history.GetOrderedRecords();
-
-                // Add current day as first item
-                var allRecords = new List<object>();
-                allRecords.Add(new
-                {
-                    date = current.CurrentDate,
-                    total = current.TotalCount,
-                    ok = current.QualifiedCount,
-                    ng = current.UnqualifiedCount,
-                    rate = current.QualifiedPercentage
-                });
-
-                foreach (var r in records)
-                {
-                    allRecords.Add(new
-                    {
-                        date = r.Date,
-                        total = r.TotalCount,
-                        ok = r.QualifiedCount,
-                        ng = r.UnqualifiedCount,
-                        rate = r.QualifiedPercentage
-                    });
-                }
-
-                PostMessage("statisticsHistory", allRecords);
+                PostMessage("statisticsHistory", BuildStatisticsHistoryRows(history, current, days));
             }
             catch (Exception ex)
             {
                 await LogToFrontend($"获取历史统计失败: {ex.Message}", "error");
             }
+        }
+
+        internal static IReadOnlyList<IReadOnlyDictionary<string, object?>> BuildStatisticsHistoryRows(
+            StatisticsHistory history,
+            DetectionStatistics current,
+            int days = DefaultStatisticsHistoryDays)
+        {
+            int requestedDays = NormalizeStatisticsHistoryDays(days);
+            string currentDate = current.CurrentDate?.Trim() ?? string.Empty;
+            var allRecords = new List<IReadOnlyDictionary<string, object?>>();
+
+            allRecords.Add(CreateStatisticsHistoryRow(
+                currentDate,
+                current.TotalCount,
+                current.QualifiedCount,
+                current.UnqualifiedCount,
+                current.QualifiedPercentage));
+
+            foreach (var record in history.GetOrderedRecords())
+            {
+                string date = record.Date?.Trim() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(currentDate) &&
+                    string.Equals(date, currentDate, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                allRecords.Add(CreateStatisticsHistoryRow(
+                    date,
+                    record.TotalCount,
+                    record.QualifiedCount,
+                    record.UnqualifiedCount,
+                    record.QualifiedPercentage));
+            }
+
+            return allRecords.Take(requestedDays).ToList();
+        }
+
+        private static IReadOnlyDictionary<string, object?> CreateStatisticsHistoryRow(
+            string date,
+            int total,
+            int ok,
+            int ng,
+            double rate)
+        {
+            return new Dictionary<string, object?>
+            {
+                ["date"] = date,
+                ["total"] = total,
+                ["ok"] = ok,
+                ["ng"] = ng,
+                ["rate"] = rate
+            };
         }
 
         // ================== 多相机方法 ==================

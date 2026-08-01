@@ -10,6 +10,79 @@
     let roiStartY = 0;
     let currentROIRect = null;
     let normalizedROIRect = null;
+    const RoiBridgeErrorMessage = "ROI 通信失败，请刷新页面后重试";
+    const RoiCommandPendingTtlMs = 30000;
+    const pendingRoiCommands = new Map();
+
+    function sendRoiCommand(rect, onSuccess, onFailure = null) {
+        try {
+            const requestId = window.sendCommand?.("update_roi", { rect });
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            registerPendingRoiCommand(requestId, onFailure);
+            if (typeof onSuccess === "function") onSuccess(requestId);
+            return requestId;
+        } catch (error) {
+            console.error("ROI command failed:", error);
+            window.showToast?.(RoiBridgeErrorMessage, "error", 1800);
+            window.addLog?.(RoiBridgeErrorMessage, "error");
+            if (typeof onFailure === "function") onFailure(RoiBridgeErrorMessage);
+            return "";
+        }
+    }
+
+    function registerPendingRoiCommand(requestId, onFailure) {
+        const id = String(requestId || "").trim();
+        if (!id || typeof onFailure !== "function") return;
+        const timeoutId = window.setTimeout?.(() => {
+            pendingRoiCommands.delete(id);
+        }, RoiCommandPendingTtlMs);
+        pendingRoiCommands.set(id, { onFailure, timeoutId });
+    }
+
+    function takePendingRoiCommand(requestId) {
+        const id = String(requestId || "").trim();
+        if (!id) return null;
+        const pending = pendingRoiCommands.get(id);
+        if (!pending) return null;
+        if (pending.timeoutId) window.clearTimeout?.(pending.timeoutId);
+        pendingRoiCommands.delete(id);
+        return pending;
+    }
+
+    function getRoiCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || RoiBridgeErrorMessage,
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function cloneNormalizedRoiRect() {
+        return normalizedROIRect
+            ? { x: normalizedROIRect.x, y: normalizedROIRect.y, w: normalizedROIRect.w, h: normalizedROIRect.h }
+            : null;
+    }
+
+    function restoreNormalizedRoiRect(rect) {
+        normalizedROIRect = rect
+            ? { x: rect.x, y: rect.y, w: rect.w, h: rect.h }
+            : null;
+        currentROIRect = null;
+        redrawROI();
+    }
+
+    function handleRoiCommandError(event) {
+        const { cmd, message, requestId } = getRoiCommandErrorDetail(event);
+        if (cmd !== "update_roi") return;
+        const pending = takePendingRoiCommand(requestId);
+        if (!pending || typeof pending.onFailure !== "function") return;
+        pending.onFailure(message || RoiBridgeErrorMessage);
+    }
 
     function initRoiInteractions() {
         roiCanvas = document.getElementById("roi-canvas");
@@ -93,8 +166,14 @@
             const normW = w / roiCanvas.width;
             const normH = h / roiCanvas.height;
 
-            window.sendCommand("update_roi", { rect: [normX, normY, normW, normH] });
-            window.addLog?.(`ROI Set: [${normX.toFixed(2)}, ${normY.toFixed(2)}, ${normW.toFixed(2)}, ${normH.toFixed(2)}]`);
+            const previousRect = cloneNormalizedRoiRect();
+            const requestId = sendRoiCommand([normX, normY, normW, normH], () => {
+                window.addLog?.(`ROI Set: [${normX.toFixed(2)}, ${normY.toFixed(2)}, ${normW.toFixed(2)}, ${normH.toFixed(2)}]`);
+            }, (message) => {
+                restoreNormalizedRoiRect(previousRect);
+                window.addLog?.(`ROI 设置失败: ${message || RoiBridgeErrorMessage}`, "error");
+            });
+            if (!requestId) return;
             normalizedROIRect = { x: normX, y: normY, w: normW, h: normH };
             currentROIRect = { x, y, w, h };
         });
@@ -106,11 +185,16 @@
 
     function clearRoi() {
         const canvas = document.getElementById("roi-canvas");
+        const previousRect = cloneNormalizedRoiRect();
         if (canvas) canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
         currentROIRect = null;
         normalizedROIRect = null;
-        window.sendCommand("update_roi", { rect: [0, 0, 0, 0] });
-        window.addLog?.("ROI Cleared");
+        sendRoiCommand([0, 0, 0, 0], () => {
+            window.addLog?.("ROI Cleared");
+        }, (message) => {
+            restoreNormalizedRoiRect(previousRect);
+            window.addLog?.(`ROI 清除失败: ${message || RoiBridgeErrorMessage}`, "error");
+        });
     }
 
     function redrawROI() {
@@ -154,5 +238,7 @@
     window.clearRoi = clearRoi;
     window.initRoiInteractions = initRoiInteractions;
     window.redrawROI = redrawROI;
+    window.sendRoiCommand = sendRoiCommand;
     window.setRoi = setRoi;
+    window.addEventListener("cf-command-error", handleRoiCommandError);
 })();

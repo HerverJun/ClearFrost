@@ -187,7 +187,106 @@ public class OfflineReplayServiceTests
             batch.ImageMissingCount.Should().Be(1);
             batch.ImageReadFailedCount.Should().Be(1);
             batch.InferenceFailedCount.Should().Be(1);
+            batch.ReplayFailedCount.Should().Be(0);
             batch.PassRate.Should().Be(1.0);
+
+            batch.Results.Should().HaveCount(4);
+            OfflineReplayResult replayed = batch.Results.Single(result => result.InspectionId == "OK");
+            replayed.Status.Should().Be("Replayed");
+            replayed.OriginalIsQualified.Should().BeFalse();
+            replayed.NewIsQualified.Should().BeTrue();
+            replayed.Difference.Should().Be("ResultChanged");
+            batch.Results.Single(result => result.InspectionId == "MISSING").Status.Should().Be("ImageMissing");
+            batch.Results.Single(result => result.InspectionId == "READFAIL").Status.Should().Be("ImageReadFailed");
+            batch.Results.Single(result => result.InspectionId == "INFER").Status.Should().Be("InferenceFailed");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayAsync_推理调用异常单独统计为ReplayFailed()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string imagePath = Path.Combine(tempDir, "throw.jpg");
+            using (var image = new Mat(32, 32, MatType.CV_8UC3, Scalar.All(100)))
+            {
+                Cv2.ImWrite(imagePath, image);
+            }
+
+            var database = new FakeDatabaseService(new DetectionRecord
+            {
+                Id = 25,
+                InspectionId = "THROW",
+                IsQualified = true,
+                ImagePath = imagePath,
+                ModelName = "old.onnx"
+            });
+            var diagnostics = new List<string>();
+            var detection = new FakeDetectionService
+            {
+                DetectException = new InvalidOperationException("detect pipeline crashed")
+            };
+            var service = new OfflineReplayService(database, detection, CreateRuleSet, diagnostics.Add);
+
+            OfflineReplayBatchResult batch = await service.ReplayAsync(new DetectionReplayQuery(), 0.5f, 0.3f);
+
+            batch.ReplayedCount.Should().Be(0);
+            batch.SuccessCount.Should().Be(0);
+            batch.DifferenceCount.Should().Be(0);
+            batch.ReplayFailedCount.Should().Be(1);
+            batch.Errors.Should().ContainSingle(error => error.Contains("detect pipeline crashed"));
+            diagnostics.Should().ContainSingle(message =>
+                message.Contains("THROW", StringComparison.Ordinal) &&
+                message.Contains("detect pipeline crashed", StringComparison.Ordinal));
+
+            OfflineReplayResult result = batch.Results.Single();
+            result.Status.Should().Be("ReplayFailed");
+            result.Difference.Should().Be("ReplayFailed");
+            result.NewIsQualified.Should().BeNull();
+            result.ErrorMessage.Should().Be("detect pipeline crashed");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReplayAsync_推理调用异常消息为空时保留异常类型()
+    {
+        string tempDir = CreateTempDirectory();
+        try
+        {
+            string imagePath = Path.Combine(tempDir, "throw-empty-message.jpg");
+            using (var image = new Mat(32, 32, MatType.CV_8UC3, Scalar.All(100)))
+            {
+                Cv2.ImWrite(imagePath, image);
+            }
+
+            var database = new FakeDatabaseService(new DetectionRecord
+            {
+                Id = 26,
+                InspectionId = "THROW-EMPTY",
+                IsQualified = true,
+                ImagePath = imagePath,
+                ModelName = "old.onnx"
+            });
+            var detection = new FakeDetectionService
+            {
+                DetectException = new Exception("")
+            };
+            var service = new OfflineReplayService(database, detection, CreateRuleSet);
+
+            OfflineReplayBatchResult batch = await service.ReplayAsync(new DetectionReplayQuery(), 0.5f, 0.3f);
+
+            batch.ReplayFailedCount.Should().Be(1);
+            batch.Errors.Should().ContainSingle(error => error.Contains("THROW-EMPTY") && error.Contains("Exception"));
+            batch.Results.Single().ErrorMessage.Should().Be("Exception");
         }
         finally
         {
@@ -358,6 +457,7 @@ public class OfflineReplayServiceTests
             UsedModelLabels = new[] { "part" }
         };
         public Queue<DetectionResultData> Results { get; } = new Queue<DetectionResultData>();
+        public Exception? DetectException { get; init; }
 
         public bool IsModelLoaded => true;
         public string CurrentModelName => "fake.onnx";
@@ -369,8 +469,17 @@ public class OfflineReplayServiceTests
         public Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
         public Task<bool> ScanAndLoadModelsAsync(string modelsDirectory, bool useGpu, int gpuDeviceId = 0) => Task.FromResult(true);
         public Task<bool> SwitchModelAsync(string modelName) => Task.FromResult(true);
-        public Task<DetectionResultData> DetectAsync(Mat image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal = null, MultiModelCandidateEvaluator? candidateEvaluator = null)
-            => Task.FromResult(Results.Count > 0 ? Results.Dequeue() : Result);
+        public Task<DetectionResultData> DetectAsync(
+            Mat image,
+            float confidence,
+            float iouThreshold,
+            InspectionFallbackGoal? fallbackGoal = null,
+            MultiModelCandidateEvaluator? candidateEvaluator = null)
+        {
+            return DetectException == null
+                ? Task.FromResult(Results.Count > 0 ? Results.Dequeue() : Result)
+                : Task.FromException<DetectionResultData>(DetectException);
+        }
         public Task<DetectionResultData> DetectAsync(Bitmap image, float confidence, float iouThreshold, InspectionFallbackGoal? fallbackGoal = null, MultiModelCandidateEvaluator? candidateEvaluator = null)
             => Task.FromResult(Result);
         public Bitmap GenerateResultImage(Bitmap original, List<YoloResult> results, string[] labels) => new Bitmap(original);

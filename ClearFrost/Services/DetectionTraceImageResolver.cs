@@ -404,12 +404,16 @@ namespace ClearFrost.Services
                 name[6] == '_' &&
                 char.IsDigit(name[7]) && char.IsDigit(name[8]) && char.IsDigit(name[9]))
             {
-                int hour = int.Parse(name.Substring(0, 2), CultureInfo.InvariantCulture);
-                int minute = int.Parse(name.Substring(2, 2), CultureInfo.InvariantCulture);
-                int second = int.Parse(name.Substring(4, 2), CultureInfo.InvariantCulture);
-                int millisecond = int.Parse(name.Substring(7, 3), CultureInfo.InvariantCulture);
-                timestamp = date.AddHours(hour).AddMinutes(minute).AddSeconds(second).AddMilliseconds(millisecond);
-                return true;
+                string legacyToken = date.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + "_" + name.Substring(0, 10);
+                if (DateTime.TryParseExact(
+                    legacyToken,
+                    "yyyyMMdd_HHmmss_fff",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out timestamp))
+                {
+                    return true;
+                }
             }
 
             timestamp = default;

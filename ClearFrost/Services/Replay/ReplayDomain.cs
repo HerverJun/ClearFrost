@@ -83,6 +83,9 @@ namespace ClearFrost.Services.Replay
         public string ManifestPath { get; set; } = string.Empty;
         public IReadOnlyList<string> Labels { get; set; } = Array.Empty<string>();
         public string TaskType { get; set; } = string.Empty;
+        public string PostprocessorKey { get; set; } = string.Empty;
+        public string ScoreNormalization { get; set; } = string.Empty;
+        public IReadOnlyDictionary<string, string> PostprocessOptions { get; set; } = new Dictionary<string, string>();
         public int InputWidth { get; set; }
         public int InputHeight { get; set; }
         public string ApprovalStatus { get; set; } = ModelApprovalStatuses.Pending;
@@ -99,13 +102,73 @@ namespace ClearFrost.Services.Replay
                 Sha256 = entry.ModelHash ?? string.Empty,
                 ModelPath = entry.ModelPath ?? string.Empty,
                 ManifestPath = entry.ManifestPath ?? string.Empty,
-                Labels = entry.Labels?.Where(label => !string.IsNullOrWhiteSpace(label)).ToArray() ?? Array.Empty<string>(),
-                TaskType = entry.TaskType ?? string.Empty,
-                InputWidth = entry.InputWidth,
-                InputHeight = entry.InputHeight,
+                Labels = ResolveLabels(entry).Where(label => !string.IsNullOrWhiteSpace(label)).ToArray(),
+                TaskType = ResolveTaskType(entry),
+                PostprocessorKey = ResolvePostprocessorKey(entry),
+                ScoreNormalization = ResolveScoreNormalization(entry),
+                PostprocessOptions = CopyPostprocessOptions(ResolvePostprocessOptions(entry)),
+                InputWidth = ResolveInputWidth(entry),
+                InputHeight = ResolveInputHeight(entry),
                 ApprovalStatus = entry.ApprovalStatus ?? ModelApprovalStatuses.Pending,
                 IsPackage = entry.IsPackage
             };
+        }
+
+        private static string ResolveTaskType(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveTaskType();
+        }
+
+        private static string ResolvePostprocessorKey(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectivePostprocessorKey();
+        }
+
+        private static string ResolveScoreNormalization(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveScoreNormalization();
+        }
+
+        private static IReadOnlyList<string> ResolveLabels(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveLabels();
+        }
+
+        private static int ResolveInputWidth(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveInputWidth();
+        }
+
+        private static int ResolveInputHeight(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveInputHeight();
+        }
+
+        private static IReadOnlyDictionary<string, string>? ResolvePostprocessOptions(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectivePostprocessOptions();
+        }
+
+        internal static IReadOnlyDictionary<string, string> CopyPostprocessOptions(IReadOnlyDictionary<string, string>? options)
+        {
+            if (options == null || options.Count == 0)
+            {
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var copy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> pair in options)
+            {
+                string key = (pair.Key ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(key) || copy.ContainsKey(key))
+                {
+                    continue;
+                }
+
+                copy[key] = pair.Value ?? string.Empty;
+            }
+
+            return copy;
         }
 
         public string IdentityKey => $"{ModelId}|{Version}|{Sha256}".ToLowerInvariant();

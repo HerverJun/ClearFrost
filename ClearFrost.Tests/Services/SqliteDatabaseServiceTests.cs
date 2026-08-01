@@ -223,6 +223,56 @@ public class SqliteDatabaseServiceTests
     }
 
     [Fact]
+    public async Task GetRecordsAsync_坏时间戳不会中断历史查询()
+    {
+        string tempDir = CreateTempDirectory();
+
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "runtime", "detection.db");
+            CreateMinimalDatabaseWithRows(dbPath, "bad-timestamp");
+
+            using var service = new SqliteDatabaseService(dbPath);
+
+            List<DetectionRecord> records = await service.GetRecordsAsync(limit: 10);
+
+            records.Should().ContainSingle();
+            records[0].Timestamp.Should().Be(DateTime.MinValue);
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task GetRecordsAsync_非法Limit使用默认上限避免无界查询()
+    {
+        string tempDir = CreateTempDirectory();
+
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "runtime", "detection.db");
+            string[] timestamps = Enumerable
+                .Range(0, 101)
+                .Select(index => new DateTime(2026, 4, 8, 8, 0, 0).AddMinutes(index).ToString("yyyy-MM-dd HH:mm:ss"))
+                .ToArray();
+            CreateMinimalDatabaseWithRows(dbPath, timestamps);
+
+            using var service = new SqliteDatabaseService(dbPath);
+
+            List<DetectionRecord> records = await service.GetRecordsAsync(limit: -1);
+
+            records.Should().HaveCount(100);
+            records[0].Timestamp.Should().Be(new DateTime(2026, 4, 8, 9, 40, 0));
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task InitializeAsync_极旧表缺少检测列_补齐后仍可保存()
     {
         string tempDir = CreateTempDirectory();
@@ -474,6 +524,117 @@ public class SqliteDatabaseServiceTests
 
             records.Should().ContainSingle();
             records[0].InspectionId.Should().Be("CF-REPLAY-001");
+        }
+        finally
+        {
+            DeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task GetReplayRecordsAsync_读取完整检测字段()
+    {
+        string tempDir = CreateTempDirectory();
+
+        try
+        {
+            string dbPath = Path.Combine(tempDir, "runtime", "detection.db");
+            using var service = new SqliteDatabaseService(dbPath);
+            await service.InitializeAsync();
+
+            await service.SaveDetectionRecordAsync(new DetectionRecord
+            {
+                Timestamp = new DateTime(2026, 5, 2, 10, 15, 30),
+                IsQualified = false,
+                InspectionId = "CF-REPLAY-FULL-001",
+                TriggerSource = "PLC",
+                TriggerSeq = 21,
+                ResultSeq = 22,
+                TerminalHandshakeAttempted = true,
+                TerminalHandshakeSucceeded = false,
+                TerminalHandshakeErrorCode = "E_TIMEOUT",
+                TerminalHandshakeSignalName = "Done",
+                TerminalHandshakeAddress = "D100",
+                TerminalHandshakeMessage = "终端握手超时",
+                CycleSucceeded = false,
+                ProductBarcode = "BC-FULL-001",
+                Barcode = "BC-FULL-001",
+                BarcodeReadSucceeded = true,
+                TraceStatus = TraceStatus.Partial,
+                QueueStatus = "{\"Pending\":1}",
+                ImagePath = Path.Combine(tempDir, "source.jpg"),
+                RenderedImagePath = Path.Combine(tempDir, "rendered.jpg"),
+                ErrorStage = "TerminalHandshake",
+                ErrorCode = "TerminalTimeout",
+                ErrorMessage = "等待终端完成信号超时",
+                TotalMs = 120,
+                CaptureMs = 10,
+                RoiMs = 3,
+                PlcWriteMs = 8,
+                SaveImageMs = 4,
+                SaveRecordMs = 2,
+                RecipeId = "recipe-a",
+                RecipeVersion = "r-full",
+                ModelId = "model-id-a",
+                ModelVersion = "v-full",
+                ModelHash = "hash-full",
+                WasFallback = true,
+                UsedModelName = "fallback.onnx",
+                TargetLabel = "screw",
+                ExpectedCount = 4,
+                ActualCount = 3,
+                InferenceMs = 18,
+                ModelName = "main.onnx",
+                CameraId = "cam-01",
+                RuleSummary = "数量不足",
+                RuleResultJson = "{\"ok\":false}",
+                RuleSetJson = "{\"rules\":1}",
+                ResultJson = "{\"detections\":3}"
+            });
+
+            List<DetectionRecord> records = await service.GetReplayRecordsAsync(new DetectionReplayQuery
+            {
+                ProductOrBarcode = "BC-FULL-001",
+                ModelName = "main.onnx",
+                ModelVersion = "v-full",
+                RecipeVersion = "r-full",
+                Limit = 10
+            });
+
+            records.Should().ContainSingle();
+            DetectionRecord record = records[0];
+            record.Id.Should().BeGreaterThan(0);
+            record.InspectionId.Should().Be("CF-REPLAY-FULL-001");
+            record.TriggerSeq.Should().Be(21);
+            record.PlcTriggerSeq.Should().Be(21);
+            record.ResultSeq.Should().Be(22);
+            record.TerminalHandshakeAttempted.Should().BeTrue();
+            record.TerminalHandshakeSucceeded.Should().BeFalse();
+            record.TerminalHandshakeErrorCode.Should().Be("E_TIMEOUT");
+            record.TerminalHandshakeSignalName.Should().Be("Done");
+            record.TerminalHandshakeAddress.Should().Be("D100");
+            record.TerminalHandshakeMessage.Should().Be("终端握手超时");
+            record.CycleSucceeded.Should().BeFalse();
+            record.BarcodeReadSucceeded.Should().BeTrue();
+            record.TraceStatus.Should().Be(TraceStatus.Partial);
+            record.QueueStatus.Should().Contain("Pending");
+            record.TraceImagePath.Should().Contain("rendered.jpg");
+            record.ErrorStage.Should().Be("TerminalHandshake");
+            record.ErrorCode.Should().Be("TerminalTimeout");
+            record.TotalMs.Should().Be(120);
+            record.RoiMs.Should().Be(3);
+            record.RecipeId.Should().Be("recipe-a");
+            record.ModelId.Should().Be("model-id-a");
+            record.ModelHash.Should().Be("hash-full");
+            record.WasFallback.Should().BeTrue();
+            record.UsedModelName.Should().Be("fallback.onnx");
+            record.TargetLabel.Should().Be("screw");
+            record.ExpectedCount.Should().Be(4);
+            record.ActualCount.Should().Be(3);
+            record.RuleSummary.Should().Be("数量不足");
+            record.RuleResultJson.Should().Contain("false");
+            record.RuleSetJson.Should().Contain("rules");
+            record.ResultJson.Should().Contain("detections");
         }
         finally
         {

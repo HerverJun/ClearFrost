@@ -91,6 +91,37 @@ public class YoloContractUpgradeTests
     }
 
     [Fact]
+    public void CreateDescriptor_DuplicateCaseMetadataKeys_KeepsFirstValidEntry()
+    {
+        YoloModelDescriptor descriptor = YoloModelContractResolver.CreateDescriptor(
+            modelPath: "detect.onnx",
+            inputName: "images",
+            inputDimensions: new[] { 1, 3, 640, 640 },
+            outputs: new[]
+            {
+                new YoloOutputDescriptor
+                {
+                    Name = "output0",
+                    Dimensions = new[] { 1, 5, 8400 }
+                }
+            },
+            metadata: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [" names "] = "{0: 'first'}",
+                ["NAMES"] = "{0: 'second'}",
+                [" "] = "ignored",
+                ["version"] = "8.0.0"
+            },
+            requestedYoloVersion: 0,
+            preprocessingMode: YoloPreprocessingMode.StandardLetterBox,
+            requestedTaskMode: YoloTaskType.Auto);
+
+        descriptor.Labels.Should().Equal("first");
+        descriptor.Metadata.Should().ContainKey("names").WhoseValue.Should().Be("{0: 'first'}");
+        descriptor.Metadata.Should().NotContainKey(" ");
+    }
+
+    [Fact]
     public void StandardLetterBoxMat_居中填充114并记录ScalePad()
     {
         object detector = CreateDetector(tensorWidth: 4, tensorHeight: 4, imageWidth: 4, imageHeight: 2);

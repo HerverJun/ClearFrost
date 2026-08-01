@@ -19,6 +19,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
+using ClearFrost.Core.DeepLearning;
 using ClearFrost.Core.Rules;
 using ClearFrost.Helpers;
 using ClearFrost.Interfaces;
@@ -29,7 +30,7 @@ namespace ClearFrost.Services
     /// <summary>
     /// 检测服务实现
     /// </summary>
-    public class DetectionService : IDetectionService
+    public class DetectionService : IDetectionService, IConfigurableDetectionService
     {
         #region 私有字段
 
@@ -122,8 +123,18 @@ namespace ClearFrost.Services
         /// <param name="modelPath">模型文件的完整路径</param>
         /// <param name="useGpu">是否使用 GPU 进行推理</param>
         /// <returns>如果是加载成功返回 true，否则返回 false</returns>
-        public async Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0)
+        public Task<bool> LoadModelAsync(string modelPath, bool useGpu, int gpuDeviceId = 0)
         {
+            return LoadModelAsync(modelPath, useGpu, gpuDeviceId, DetectionModelLoadOptions.Default);
+        }
+
+        public async Task<bool> LoadModelAsync(
+            string modelPath,
+            bool useGpu,
+            int gpuDeviceId,
+            DetectionModelLoadOptions? options)
+        {
+            options = NormalizeLoadOptions(options);
             gpuDeviceId = Math.Max(0, gpuDeviceId);
             _gpuDeviceId = gpuDeviceId;
 
@@ -142,7 +153,7 @@ namespace ClearFrost.Services
             {
                 try
                 {
-                    bool loaded = await LoadModelCoreAsync(modelPath, useGpu: true, gpuDeviceId).ConfigureAwait(false);
+                    bool loaded = await LoadModelCoreAsync(modelPath, useGpu: true, gpuDeviceId, options).ConfigureAwait(false);
                     if (loaded)
                     {
                         _runtimeStatus = CreateRuntimeStatusFromDetector(PrimaryDetector, true, gpuDeviceId);
@@ -161,7 +172,7 @@ namespace ClearFrost.Services
 
                     try
                     {
-                        bool loaded = await LoadModelCoreAsync(modelPath, useGpu: false, gpuDeviceId).ConfigureAwait(false);
+                        bool loaded = await LoadModelCoreAsync(modelPath, useGpu: false, gpuDeviceId, options).ConfigureAwait(false);
                         _runtimeStatus = CreateRuntimeStatus(true, false, gpuDeviceId, reason);
                         if (loaded)
                         {
@@ -184,7 +195,7 @@ namespace ClearFrost.Services
 
             try
             {
-                bool loaded = await LoadModelCoreAsync(modelPath, useGpu: false, gpuDeviceId).ConfigureAwait(false);
+                bool loaded = await LoadModelCoreAsync(modelPath, useGpu: false, gpuDeviceId, options).ConfigureAwait(false);
                 _runtimeStatus = CreateRuntimeStatus(false, false, gpuDeviceId, string.Empty);
                 return loaded;
             }
@@ -200,7 +211,11 @@ namespace ClearFrost.Services
             }
         }
 
-        private async Task<bool> LoadModelCoreAsync(string modelPath, bool useGpu, int gpuDeviceId)
+        private async Task<bool> LoadModelCoreAsync(
+            string modelPath,
+            bool useGpu,
+            int gpuDeviceId,
+            DetectionModelLoadOptions options)
         {
             bool rebuildManager = false;
             bool committedTempManager = false;
@@ -237,7 +252,11 @@ namespace ClearFrost.Services
                     ?? throw new InvalidOperationException("多模型管理器初始化失败");
 
                 // 使用多模型管理器加载主模型
-                await Task.Run(() => manager.LoadPrimaryModel(modelPath));
+                await Task.Run(() => manager.LoadPrimaryModel(
+                    modelPath,
+                    options.PostprocessorKey,
+                    options.ScoreNormalization,
+                    options.PostprocessOptions));
 
                 if (!manager.IsPrimaryLoaded)
                 {
@@ -250,7 +269,7 @@ namespace ClearFrost.Services
                     await Task.Run(() =>
                     {
                         _yolo?.Dispose(); // 显式释放旧资源
-                        _yolo = new YoloDetector(modelPath, 0, gpuDeviceId, useGpu);
+                        _yolo = CreateDetector(modelPath, useGpu, gpuDeviceId, options);
                     });
                 }
 
@@ -259,11 +278,11 @@ namespace ClearFrost.Services
                     // 主模型加载成功且本次发生过 GPU 重建，按新 GPU 设置恢复辅助槽。
                     if (TryValidateModelFileForLoad(preservedAux1Path, out string safeAux1Path, out _))
                     {
-                        await TryLoadAuxiliaryModelAsync(manager, safeAux1Path, 1);
+                        await TryLoadAuxiliaryModelAsync(manager, safeAux1Path, 1, DetectionModelLoadOptions.Default);
                     }
                     if (TryValidateModelFileForLoad(preservedAux2Path, out string safeAux2Path, out _))
                     {
-                        await TryLoadAuxiliaryModelAsync(manager, safeAux2Path, 2);
+                        await TryLoadAuxiliaryModelAsync(manager, safeAux2Path, 2, DetectionModelLoadOptions.Default);
                     }
 
                     _modelManager = manager;
@@ -314,6 +333,66 @@ namespace ClearFrost.Services
             {
                 _lifecycleLock.Release();
             }
+        }
+
+        private static DetectionModelLoadOptions NormalizeLoadOptions(DetectionModelLoadOptions? options)
+        {
+            if (options == null)
+            {
+                return DetectionModelLoadOptions.Default;
+            }
+
+            return new DetectionModelLoadOptions
+            {
+                PostprocessorKey = options.PostprocessorKey?.Trim() ?? string.Empty,
+                ScoreNormalization = options.ScoreNormalization,
+                PostprocessOptions = CopyPostprocessOptions(options.PostprocessOptions)
+            };
+        }
+
+        private static IReadOnlyDictionary<string, string> CopyPostprocessOptions(IReadOnlyDictionary<string, string>? options)
+        {
+            if (options == null || options.Count == 0)
+            {
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var copy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> pair in options)
+            {
+                string key = (pair.Key ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(key) || copy.ContainsKey(key))
+                {
+                    continue;
+                }
+
+                copy[key] = pair.Value ?? string.Empty;
+            }
+
+            return copy;
+        }
+
+        private static YoloDetector CreateDetector(
+            string modelPath,
+            bool useGpu,
+            int gpuDeviceId,
+            DetectionModelLoadOptions options)
+        {
+            if (!options.HasPostprocessorConfiguration)
+            {
+                return new YoloDetector(modelPath, 0, gpuDeviceId, useGpu);
+            }
+
+            return new YoloDetector(new YoloDetectorConfig
+            {
+                ModelPath = modelPath,
+                YoloVersion = 0,
+                GpuDeviceId = gpuDeviceId,
+                UseGpu = useGpu,
+                PostprocessorKey = options.PostprocessorKey,
+                ScoreNormalization = options.ScoreNormalization,
+                PostprocessOptions = options.PostprocessOptions
+            });
         }
 
         /// <summary>
@@ -810,8 +889,14 @@ namespace ClearFrost.Services
             }
         }
 
-        public async Task<bool> LoadAuxiliary1ModelAsync(string modelPath)
+        public Task<bool> LoadAuxiliary1ModelAsync(string modelPath)
         {
+            return LoadAuxiliary1ModelAsync(modelPath, DetectionModelLoadOptions.Default);
+        }
+
+        public async Task<bool> LoadAuxiliary1ModelAsync(string modelPath, DetectionModelLoadOptions? options)
+        {
+            options = NormalizeLoadOptions(options);
             await _lifecycleLock.WaitAsync().ConfigureAwait(false);
             try
             {
@@ -824,7 +909,7 @@ namespace ClearFrost.Services
                     return false;
                 }
 
-                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, safeModelPath, 1);
+                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, safeModelPath, 1, options);
                 if (ok)
                 {
                     Debug.WriteLine($"[DetectionService] 辅助模型1已加载: {Path.GetFileName(safeModelPath)}");
@@ -838,8 +923,14 @@ namespace ClearFrost.Services
             }
         }
 
-        public async Task<bool> LoadAuxiliary2ModelAsync(string modelPath)
+        public Task<bool> LoadAuxiliary2ModelAsync(string modelPath)
         {
+            return LoadAuxiliary2ModelAsync(modelPath, DetectionModelLoadOptions.Default);
+        }
+
+        public async Task<bool> LoadAuxiliary2ModelAsync(string modelPath, DetectionModelLoadOptions? options)
+        {
+            options = NormalizeLoadOptions(options);
             await _lifecycleLock.WaitAsync().ConfigureAwait(false);
             try
             {
@@ -852,7 +943,7 @@ namespace ClearFrost.Services
                     return false;
                 }
 
-                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, safeModelPath, 2);
+                bool ok = await TryLoadAuxiliaryModelAsync(_modelManager, safeModelPath, 2, options);
                 if (ok)
                 {
                     Debug.WriteLine($"[DetectionService] 辅助模型2已加载: {Path.GetFileName(safeModelPath)}");
@@ -1105,7 +1196,11 @@ namespace ClearFrost.Services
                 StringComparison.OrdinalIgnoreCase);
         }
 
-        private async Task<bool> TryLoadAuxiliaryModelAsync(MultiModelManager manager, string modelPath, int modelIndex)
+        private async Task<bool> TryLoadAuxiliaryModelAsync(
+            MultiModelManager manager,
+            string modelPath,
+            int modelIndex,
+            DetectionModelLoadOptions options)
         {
             if (string.IsNullOrEmpty(modelPath))
             {
@@ -1118,11 +1213,19 @@ namespace ClearFrost.Services
                 {
                     if (modelIndex == 1)
                     {
-                        manager.LoadAuxiliary1Model(modelPath);
+                        manager.LoadAuxiliary1Model(
+                            modelPath,
+                            options.PostprocessorKey,
+                            options.ScoreNormalization,
+                            options.PostprocessOptions);
                     }
                     else
                     {
-                        manager.LoadAuxiliary2Model(modelPath);
+                        manager.LoadAuxiliary2Model(
+                            modelPath,
+                            options.PostprocessorKey,
+                            options.ScoreNormalization,
+                            options.PostprocessOptions);
                     }
                 });
 

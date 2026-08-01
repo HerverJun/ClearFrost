@@ -694,9 +694,9 @@ namespace ClearFrost.Services
                 ApprovalStatus = match?.ApprovalStatus ?? string.Empty,
                 ApprovedForProduction = match?.ApprovedForProduction ?? false,
                 IsPackage = match?.IsPackage ?? false,
-                TaskType = match?.TaskType ?? string.Empty,
-                InputWidth = match?.InputWidth ?? 0,
-                InputHeight = match?.InputHeight ?? 0
+                TaskType = ResolveTaskType(match),
+                InputWidth = ResolveInputWidth(match),
+                InputHeight = ResolveInputHeight(match)
             };
         }
 
@@ -716,12 +716,12 @@ namespace ClearFrost.Services
                     IsPackage = entry.IsPackage,
                     Status = entry.Status.ToString(),
                     Message = entry.Message ?? string.Empty,
-                    TaskType = entry.TaskType ?? string.Empty,
-                    InputWidth = entry.InputWidth,
-                    InputHeight = entry.InputHeight,
+                    TaskType = ResolveTaskType(entry),
+                    InputWidth = ResolveInputWidth(entry),
+                    InputHeight = ResolveInputHeight(entry),
                     ApprovalStatus = entry.ApprovalStatus ?? string.Empty,
                     ApprovedForProduction = entry.ApprovedForProduction,
-                    LabelCount = entry.Labels?.Count ?? 0
+                    LabelCount = ResolveLabels(entry).Count
                 })
                 .ToList();
         }
@@ -814,14 +814,51 @@ namespace ClearFrost.Services
                     entry.IsPackage,
                     entry.Status,
                     entry.Message,
-                    entry.TaskType,
-                    entry.InputWidth,
-                    entry.InputHeight,
+                    TaskType = ResolveTaskType(entry),
+                    InputWidth = ResolveInputWidth(entry),
+                    InputHeight = ResolveInputHeight(entry),
                     entry.ApprovalStatus,
                     entry.ApprovedForProduction
                 })
                 .Cast<object>()
                 .ToList();
+        }
+
+        private static string ResolveTaskType(ModelRegistryEntry? entry)
+        {
+            if (entry == null)
+            {
+                return string.Empty;
+            }
+
+            return entry.GetEffectiveTaskType();
+        }
+
+        private static int ResolveInputWidth(ModelRegistryEntry? entry)
+        {
+            if (entry == null)
+            {
+                return 0;
+            }
+
+            return entry.GetEffectiveInputWidth();
+        }
+
+        private static int ResolveInputHeight(ModelRegistryEntry? entry)
+        {
+            if (entry == null)
+            {
+                return 0;
+            }
+
+            return entry.GetEffectiveInputHeight();
+        }
+
+        private static IReadOnlyList<string> ResolveLabels(ModelRegistryEntry entry)
+        {
+            return entry.GetEffectiveLabels()
+                .Where(label => !string.IsNullOrWhiteSpace(label))
+                .ToArray();
         }
 
         private static IReadOnlyList<object> SanitizeRecentRecords(IReadOnlyList<DetectionRecord> records)

@@ -309,6 +309,22 @@ public class DetectionServiceTests
         service.GetLabels()[0].Should().Be("ok");
     }
 
+    [Fact]
+    public void CopyPostprocessOptions_DuplicateCaseKeys_KeepsFirstValidOption()
+    {
+        var options = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [" top_k "] = "2",
+            ["TOP_K"] = "3",
+            [" "] = "ignored"
+        };
+
+        IReadOnlyDictionary<string, string> copied = InvokeCopyPostprocessOptions(options);
+
+        copied.Should().ContainSingle();
+        copied.Should().ContainKey("top_k").WhoseValue.Should().Be("2");
+    }
+
     private static MultiModelManager? GetModelManager(DetectionService service)
     {
         var field = typeof(DetectionService).GetField(
@@ -316,6 +332,16 @@ public class DetectionServiceTests
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
         return (MultiModelManager?)field?.GetValue(service);
+    }
+
+    private static IReadOnlyDictionary<string, string> InvokeCopyPostprocessOptions(IReadOnlyDictionary<string, string> options)
+    {
+        var method = typeof(DetectionService).GetMethod(
+            "CopyPostprocessOptions",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+
+        method.Should().NotBeNull("CopyPostprocessOptions should exist");
+        return (IReadOnlyDictionary<string, string>)method!.Invoke(null, new object[] { options })!;
     }
 
     private static void SetPrivateField(object target, string fieldName, object? value)

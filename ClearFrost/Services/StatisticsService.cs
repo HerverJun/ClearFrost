@@ -98,13 +98,7 @@ namespace ClearFrost.Services
                 lock (_statsLock)
                 {
                     var records = _statisticsHistory.GetOrderedRecords();
-                    return records.Select(r => new DailyStatisticsRecord
-                    {
-                        Date = r.Date,
-                        TotalCount = r.TotalCount,
-                        QualifiedCount = r.QualifiedCount,
-                        UnqualifiedCount = r.UnqualifiedCount
-                    }).ToList().AsReadOnly();
+                    return records.Select(CloneRecord).ToList().AsReadOnly();
                 }
             }
         }
@@ -344,7 +338,7 @@ namespace ClearFrost.Services
         {
             lock (_statsLock)
             {
-                return (_statisticsHistory, _detectionStats);
+                return (CloneHistory(_statisticsHistory), CloneStats(_detectionStats));
             }
         }
 
@@ -359,6 +353,36 @@ namespace ClearFrost.Services
         public StatisticsHistory GetStatisticsHistory() => _statisticsHistory;
 
         #endregion
+
+        private static DetectionStatistics CloneStats(DetectionStatistics stats)
+        {
+            return new DetectionStatistics
+            {
+                TotalCount = stats.TotalCount,
+                QualifiedCount = stats.QualifiedCount,
+                UnqualifiedCount = stats.UnqualifiedCount,
+                CurrentDate = stats.CurrentDate
+            };
+        }
+
+        private static StatisticsHistory CloneHistory(StatisticsHistory history)
+        {
+            return new StatisticsHistory
+            {
+                Records = history.GetOrderedRecords().Select(CloneRecord).ToList()
+            };
+        }
+
+        private static DailyStatisticsRecord CloneRecord(DailyStatisticsRecord record)
+        {
+            return new DailyStatisticsRecord
+            {
+                Date = record.Date,
+                TotalCount = record.TotalCount,
+                QualifiedCount = record.QualifiedCount,
+                UnqualifiedCount = record.UnqualifiedCount
+            };
+        }
 
         #region IDisposable
 

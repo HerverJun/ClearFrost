@@ -641,6 +641,11 @@ namespace ClearFrost.Yolo
             for (int i = dataList.Count - 1; i >= 0; i--)
             {
                 YoloResult item = dataList[i];
+                if (item.DataKind == YoloResultDataKind.Classification)
+                {
+                    continue;
+                }
+
                 if (!IsFinite(item.CenterX) ||
                     !IsFinite(item.CenterY) ||
                     !IsFinite(item.Width) ||

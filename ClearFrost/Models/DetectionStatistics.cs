@@ -1,6 +1,7 @@
 ﻿using System;
 using ClearFrost.Models;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using ClearFrost.Helpers;
@@ -127,6 +128,7 @@ namespace ClearFrost.Models
                     if (stats != null)
                     {
                         stats._savePath = filePath;
+                        stats.NormalizeLoadedData();
                         return stats;
                     }
                 }
@@ -162,6 +164,34 @@ namespace ClearFrost.Models
                 LogError("Save", ex);
                 return false;
             }
+        }
+
+        private void NormalizeLoadedData()
+        {
+            QualifiedCount = Math.Max(0, QualifiedCount);
+            UnqualifiedCount = Math.Max(0, UnqualifiedCount);
+            TotalCount = Math.Max(0, TotalCount);
+
+            int detailedTotal = QualifiedCount + UnqualifiedCount;
+            if (detailedTotal > 0)
+            {
+                TotalCount = detailedTotal;
+            }
+
+            if (!IsDateKey(CurrentDate))
+            {
+                CurrentDate = DateTime.Now.ToString("yyyy-MM-dd");
+            }
+        }
+
+        private static bool IsDateKey(string? value)
+        {
+            return DateTime.TryParseExact(
+                value?.Trim(),
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out _);
         }
     }
 }

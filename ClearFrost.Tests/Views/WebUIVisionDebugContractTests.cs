@@ -59,16 +59,33 @@ public class WebUIVisionDebugContractTests
         index.Should().NotContain("模板匹配");
 
         controller.Should().Contain("OnVisionDebugCommand");
+        controller.Should().Contain("case \"vision_debug_query_recent\"");
         controller.Should().Contain("case \"vision_debug_run_current\"");
         controller.Should().Contain("case \"vision_debug_run_history\"");
         controller.Should().Contain("case \"vision_debug_run_batch\"");
         controller.Should().Contain("case \"vision_debug_save_params\"");
         controller.Should().Contain("case \"vision_debug_apply_template\"");
+        controller.Should().Contain("await DispatchObjectCommandAsync(cmd, requestId, root, args => OnVisionDebugCommand?.Invoke(this, args))");
+        controller.Should().Contain("前端命令 value 必须是对象");
         controller.Should().Contain("PostMessage(\"visionDebugResult\"");
 
         renderMain.Should().Contain("CF_COORDINATE_MAPPING");
         renderMain.Should().Contain("function openVisionDebugPanel");
         renderMain.Should().Contain("function applySelectedVisionDebugTemplate");
+        renderMain.Should().Contain("const VisionDebugBridgeErrorMessage = \"视觉调试通信失败，请刷新页面后重试\"");
+        renderMain.Should().Contain("const VisionDebugPendingTtlMs = 120000");
+        renderMain.Should().Contain("const pendingVisionDebugFailures = new Map()");
+        renderMain.Should().Contain("function sendVisionDebugCommand(cmd, value, onFailure = null)");
+        renderMain.Should().Contain("const requestId = window.sendCommand?.(cmd, value)");
+        renderMain.Should().Contain("throw new Error(\"WebViewBridgeUnavailable\")");
+        renderMain.Should().Contain("registerPendingVisionDebugFailure(requestId, cmd, onFailure)");
+        renderMain.Should().Contain("window.handleCommandDispatched?.(cmd)");
+        renderMain.Should().Contain("console.error(`Vision debug command failed: ${cmd}`, error)");
+        renderMain.Should().Contain("showToast(VisionDebugBridgeErrorMessage, \"error\", 1800)");
+        renderMain.Should().Contain("function handleVisionDebugCommandError(event)");
+        renderMain.Should().Contain("takePendingVisionDebugFailure(requestId)");
+        renderMain.Should().Contain("pending.onFailure(makeVisionDebugFailure(message, errorCode)");
+        renderMain.Should().Contain("window.addEventListener(\"cf-command-error\", handleVisionDebugCommandError)");
         renderMain.Should().Contain("validateVisionDebugRuleJson");
         renderMain.Should().Contain("updateVisionDebugRuleSummary");
         renderMain.Should().Contain("function runVisionDebugCurrent");
@@ -85,15 +102,64 @@ public class WebUIVisionDebugContractTests
         renderMain.Should().Contain("姿态关键点");
         renderMain.Should().Contain("关联目标框");
         renderMain.Should().Contain("function redrawVisionDebugOverlay");
-        renderMain.Should().Contain("registerMessageHandler(\"visionDebugResult\"");
+        renderMain.Should().Contain("function handleVisionDebugResult(data, envelope)");
+        renderMain.Should().Contain("clearPendingVisionDebugFailure(envelope?.requestId || data?.requestId || data?.RequestId || \"\")");
+        renderMain.Should().Contain("registerMessageHandler(\"visionDebugResult\", handleVisionDebugResult)");
         state.Should().Contain("applyVisionDebugResult");
+        renderMain.Should().Contain("sendVisionDebugCommand(\"vision_debug_query_recent\", {}, (error) =>");
+        renderMain.Should().Contain("setText(\"vision-debug-history-status\", getVisionDebugFailureMessage(error))");
+        renderMain.Should().Contain("sendVisionDebugCommand(\"vision_debug_run_current\", collectVisionDebugParams(), (error) =>");
+        renderMain.Should().Contain("renderVisionDebugFailure(getVisionDebugFailureMessage(error), error?.name || \"BridgeUnavailable\")");
+        renderMain.Should().Contain("sendVisionDebugCommand(\"vision_debug_run_history\", collectVisionDebugParams({ recordId }), (error) =>");
+        renderMain.Should().Contain("sendVisionDebugCommand(\"vision_debug_run_batch\", collectVisionDebugParams({ batchLimit, batchResult }), (error) =>");
+        renderMain.Should().Contain("sendVisionDebugCommand(\"vision_debug_save_params\", collectVisionDebugParams(), (error) =>");
+        renderMain.Should().Contain("sendVisionDebugCommand(\"vision_debug_apply_template\", collectVisionDebugParams({ templateId, labels }), (error) =>");
 
         bundle.Should().Contain("function openVisionDebugPanel");
-        bundle.Should().Contain("registerMessageHandler(\"visionDebugResult\"");
+        bundle.Should().Contain("registerMessageHandler(\"visionDebugResult\", handleVisionDebugResult)");
         bundle.Should().Contain("calculateImageContentMapping");
+        bundle.Should().Contain("const VisionDebugBridgeErrorMessage = \"视觉调试通信失败，请刷新页面后重试\"");
+        bundle.Should().Contain("const pendingVisionDebugFailures = new Map()");
+        bundle.Should().Contain("function sendVisionDebugCommand(cmd, value, onFailure = null)");
+        bundle.Should().Contain("window.addEventListener(\"cf-command-error\", handleVisionDebugCommandError)");
         bundle.Should().Contain("vision_debug_run_batch");
         bundle.Should().Contain("规则 JSON 无效");
         bundle.Should().Contain("本地图片导入暂未开放，请先使用当前相机或历史样本。");
+    }
+
+    [Fact]
+    public void WebUi算法调试_左右分栏布局和缓存版本受契约保护()
+    {
+        string root = FindRepositoryRoot();
+        string index = File.ReadAllText(Path.Combine(root, "ClearFrost", "html", "index.html"));
+        string styleCss = File.ReadAllText(Path.Combine(root, "ClearFrost", "html", "css", "style.css"));
+
+        index.Should().Contain("css/style.css?v=");
+        index.Should().Contain("js/bundle.js?v=");
+        index.Should().Contain("<div class=\"cf-vision-debug-left\">");
+        index.Should().Contain("<div class=\"cf-vision-debug-right\">");
+        index.IndexOf("cf-vision-debug-left", StringComparison.Ordinal)
+            .Should().BeLessThan(index.IndexOf("cf-vision-debug-right", StringComparison.Ordinal));
+
+        styleCss.Should().Contain(".cf-stitch-page .cf-vision-debug-body");
+        styleCss.Should().Contain("grid-template-columns: minmax(320px, 390px) minmax(0, 1fr) !important;");
+        styleCss.Should().Contain(".cf-stitch-page .cf-vision-debug-left");
+        styleCss.Should().Contain(".cf-stitch-page .cf-vision-debug-right");
+        styleCss.Should().Contain("@media (max-width: 960px)");
+        styleCss.Should().Contain(".cf-stitch-page .cf-vision-debug-right .cf-vision-debug-list");
+    }
+
+    [Fact]
+    public void WebUi算法调试_操作员提示保留在面板内且不重复弹Toast()
+    {
+        string root = FindRepositoryRoot();
+        string index = File.ReadAllText(Path.Combine(root, "ClearFrost", "html", "index.html"));
+        string renderMain = File.ReadAllText(Path.Combine(root, "ClearFrost", "html", "js", "render-main.js"));
+        string bundle = File.ReadAllText(Path.Combine(root, "ClearFrost", "html", "js", "bundle.js"));
+
+        index.Should().Contain("这是工程师调试工具，生产操作无需进入。");
+        renderMain.Should().NotContain("showToast(\"这是工程师调试工具，生产操作无需进入。\"");
+        bundle.Should().NotContain("showToast(\"这是工程师调试工具，生产操作无需进入。\"");
     }
 
     private static string FindRepositoryRoot()

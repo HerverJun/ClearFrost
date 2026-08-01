@@ -2,6 +2,7 @@
 using ClearFrost.Models;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -100,6 +101,7 @@ namespace ClearFrost.Models
                     if (history != null)
                     {
                         history._savePath = filePath;
+                        history.NormalizeLoadedData();
                         return history;
                     }
                 }
@@ -151,6 +153,45 @@ namespace ClearFrost.Models
         {
             Records.Clear();
             Save();
+        }
+
+        private void NormalizeLoadedData()
+        {
+            Records = (Records ?? new List<DailyStatisticsRecord>())
+                .OfType<DailyStatisticsRecord>()
+                .Select(NormalizeRecord)
+                .Where(record => IsDateKey(record.Date))
+                .GroupBy(record => record.Date, StringComparer.Ordinal)
+                .Select(group => group.Last())
+                .OrderByDescending(record => record.Date)
+                .Take(MaxDays)
+                .ToList();
+        }
+
+        private static DailyStatisticsRecord NormalizeRecord(DailyStatisticsRecord record)
+        {
+            record.Date = record.Date?.Trim() ?? string.Empty;
+            record.QualifiedCount = Math.Max(0, record.QualifiedCount);
+            record.UnqualifiedCount = Math.Max(0, record.UnqualifiedCount);
+            record.TotalCount = Math.Max(0, record.TotalCount);
+
+            int detailedTotal = record.QualifiedCount + record.UnqualifiedCount;
+            if (detailedTotal > 0)
+            {
+                record.TotalCount = detailedTotal;
+            }
+
+            return record;
+        }
+
+        private static bool IsDateKey(string? value)
+        {
+            return DateTime.TryParseExact(
+                value?.Trim(),
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out _);
         }
     }
 }

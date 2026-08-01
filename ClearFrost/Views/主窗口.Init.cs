@@ -242,7 +242,7 @@ namespace ClearFrost
             _uiController.OnGetStatisticsHistory += async (s, e) =>
             {
                 var (history, stats) = _statisticsService.GetStatisticsData();
-                await _uiController.SendStatisticsHistory(history, stats);
+                await _uiController.SendStatisticsHistory(history, stats, e.Days);
             };
             _uiController.OnClearStatisticsHistory += async (s, e) =>
             {
@@ -397,6 +397,10 @@ namespace ClearFrost
                 {
                     await _uiController.LogToFrontend($"切换相机错误: {ex.Message}", "error");
                 }
+                finally
+                {
+                    await SendConfiguredCameraListToFrontendAsync();
+                }
             };
 
             _uiController.OnAddCamera += async (s, json) =>
@@ -411,8 +415,8 @@ namespace ClearFrost
                     string serialNumber = r.TryGetProperty("serialNumber", out var sn) ? sn.GetString()?.Trim() ?? "" : "";
                     string manufacturer = r.TryGetProperty("manufacturer", out var mf) ? mf.GetString() ?? "Huaray" : "Huaray";
                     string pixelFormat = r.TryGetProperty("pixelFormat", out var pf) ? NormalizeCameraPixelFormatForSave(pf.GetString()) : "Auto";
-                    double exposure = r.TryGetProperty("exposureTime", out var exp) ? exp.GetDouble() : 50000;
-                    double gain = r.TryGetProperty("gain", out var g) ? g.GetDouble() : 1.0;
+                    double exposure = r.TryGetProperty("exposureTime", out var exp) ? GetJsonDoubleValue(exp, 50000) : 50000;
+                    double gain = r.TryGetProperty("gain", out var g) ? GetJsonDoubleValue(g, 1.0) : 1.0;
 
                     if (string.IsNullOrEmpty(serialNumber))
                     {
@@ -462,23 +466,14 @@ namespace ClearFrost
                     {
                         TrySaveCurrentRecipeSnapshot("相机配置更新");
                     }
-
-                    // 刷新前端列表
-                    var cameras = _appConfig.Cameras.Select(c => new
-                    {
-                        id = c.Id,
-                        displayName = c.DisplayName,
-                        serialNumber = c.SerialNumber,
-                        manufacturer = c.Manufacturer,
-                        pixelFormat = c.PixelFormat,
-                        exposureTime = c.ExposureTime,
-                        gain = c.Gain
-                    }).ToList();
-                    await _uiController.SendCameraList(cameras, _cameraManager.ActiveCameraId ?? _appConfig.ActiveCameraId);
                 }
                 catch (Exception ex)
                 {
                     await _uiController.LogToFrontend($"添加相机失败: {ex.Message}", "error");
+                }
+                finally
+                {
+                    await SendConfiguredCameraListToFrontendAsync();
                 }
             };
 
@@ -496,29 +491,21 @@ namespace ClearFrost
 
                     _cameraManager.RemoveCamera(cameraId);
                     _appConfig.Cameras.Remove(camToRemove);
+                    NormalizeConfiguredActiveCameraId();
                     if (_appConfig.Save())
                     {
                         TrySaveCurrentRecipeSnapshot("相机配置删除");
                     }
 
                     await _uiController.LogToFrontend($"? 已删除相机: {camToRemove.DisplayName}");
-
-                    // 刷新前端列表
-                    var cameras = _appConfig.Cameras.Select(c => new
-                    {
-                        id = c.Id,
-                        displayName = c.DisplayName,
-                        serialNumber = c.SerialNumber,
-                        manufacturer = c.Manufacturer,
-                        pixelFormat = c.PixelFormat,
-                        exposureTime = c.ExposureTime,
-                        gain = c.Gain
-                    }).ToList();
-                    await _uiController.SendCameraList(cameras, _cameraManager.ActiveCameraId ?? _appConfig.ActiveCameraId);
                 }
                 catch (Exception ex)
                 {
                     await _uiController.LogToFrontend($"删除相机失败: {ex.Message}", "error");
+                }
+                finally
+                {
+                    await SendConfiguredCameraListToFrontendAsync();
                 }
             };
 
@@ -863,6 +850,10 @@ namespace ClearFrost
                 {
                     await _uiController.LogToFrontend($"加载辅助模型1失败: {ex.Message}", "error");
                 }
+                finally
+                {
+                    await SyncModelSelectionStateAsync();
+                }
             };
 
             _uiController.OnSetAuxiliary2Model += async (sender, modelName) =>
@@ -899,6 +890,10 @@ namespace ClearFrost
                 catch (Exception ex)
                 {
                     await _uiController.LogToFrontend($"加载辅助模型2失败: {ex.Message}", "error");
+                }
+                finally
+                {
+                    await SyncModelSelectionStateAsync();
                 }
             };
 
@@ -1036,9 +1031,9 @@ namespace ClearFrost
 
                         if (root.TryGetProperty("TriggerSource", out var ts)) triggerSource = GetJsonEnumValue(ts, triggerSource);
                         if (root.TryGetProperty("SerialPhotoelectricPortName", out var spn)) serialPortName = GetJsonStringValue(spn, serialPortName);
-                        if (root.TryGetProperty("SerialPhotoelectricBaudRate", out var sbr)) serialBaudRate = sbr.TryGetInt32(out int sbrVal) ? Math.Max(1200, sbrVal) : serialBaudRate;
-                        if (root.TryGetProperty("SerialPhotoelectricDebounceMs", out var sdm)) serialDebounceMs = sdm.TryGetInt32(out int sdmVal) ? Math.Max(0, sdmVal) : serialDebounceMs;
-                        if (root.TryGetProperty("SerialPhotoelectricTimeoutMs", out var stm)) serialTimeoutMs = stm.TryGetInt32(out int stmVal) ? Math.Max(100, stmVal) : serialTimeoutMs;
+                        if (root.TryGetProperty("SerialPhotoelectricBaudRate", out var sbr)) serialBaudRate = Math.Max(1200, GetJsonInt32Value(sbr, serialBaudRate));
+                        if (root.TryGetProperty("SerialPhotoelectricDebounceMs", out var sdm)) serialDebounceMs = Math.Max(0, GetJsonInt32Value(sdm, serialDebounceMs));
+                        if (root.TryGetProperty("SerialPhotoelectricTimeoutMs", out var stm)) serialTimeoutMs = Math.Max(100, GetJsonInt32Value(stm, serialTimeoutMs));
                         serialPortName = NormalizeSerialPortNameForSave(serialPortName);
                         if (triggerSource == TriggerSource.SerialPhotoelectric && string.IsNullOrWhiteSpace(serialPortName))
                         {
@@ -1064,19 +1059,19 @@ namespace ClearFrost
                             _appConfig.InspectionRuleSetJson = InspectionRuleSetSerializer.Serialize(ruleSet);
                         }
 
-                        if (root.TryGetProperty("WireSequenceJudgeEnabled", out var wsEnabled)) _appConfig.WireSequenceJudgeEnabled = wsEnabled.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("WireSequenceJudgeEnabled", out var wsEnabled)) _appConfig.WireSequenceJudgeEnabled = GetJsonBooleanValue(wsEnabled, _appConfig.WireSequenceJudgeEnabled);
                         if (root.TryGetProperty("WireSequenceExpectedLabels", out var wsLabels)) _appConfig.WireSequenceExpectedLabels = NormalizeWireSequenceLabelsForSave(GetJsonStringValue(wsLabels, _appConfig.WireSequenceExpectedLabels));
                         if (root.TryGetProperty("WireSequenceSortBy", out var wsSortBy)) _appConfig.WireSequenceSortBy = GetJsonStringValue(wsSortBy, _appConfig.WireSequenceSortBy);
                         if (root.TryGetProperty("WireSequenceDirection", out var wsDirection)) _appConfig.WireSequenceDirection = GetJsonStringValue(wsDirection, _appConfig.WireSequenceDirection);
-                        if (root.TryGetProperty("WireSequenceExpectedCount", out var wsCount)) _appConfig.WireSequenceExpectedCount = wsCount.TryGetInt32(out int wsCountVal) ? Math.Clamp(wsCountVal, 0, 256) : _appConfig.WireSequenceExpectedCount;
-                        if (root.TryGetProperty("WireSequenceMinConfidence", out var wsMinConfidence) && wsMinConfidence.TryGetDouble(out double wsMinConfidenceVal)) _appConfig.WireSequenceMinConfidence = Math.Clamp(wsMinConfidenceVal, 0d, 1d);
-                        if (root.TryGetProperty("WireSequenceAllowMissing", out var wsAllowMissing)) _appConfig.WireSequenceAllowMissing = wsAllowMissing.ValueKind == JsonValueKind.True;
-                        if (root.TryGetProperty("WireSequenceAllowDuplicate", out var wsAllowDuplicate)) _appConfig.WireSequenceAllowDuplicate = wsAllowDuplicate.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("WireSequenceExpectedCount", out var wsCount)) _appConfig.WireSequenceExpectedCount = Math.Clamp(GetJsonInt32Value(wsCount, _appConfig.WireSequenceExpectedCount), 0, 256);
+                        if (root.TryGetProperty("WireSequenceMinConfidence", out var wsMinConfidence)) _appConfig.WireSequenceMinConfidence = Math.Clamp(GetJsonDoubleValue(wsMinConfidence, _appConfig.WireSequenceMinConfidence), 0d, 1d);
+                        if (root.TryGetProperty("WireSequenceAllowMissing", out var wsAllowMissing)) _appConfig.WireSequenceAllowMissing = GetJsonBooleanValue(wsAllowMissing, _appConfig.WireSequenceAllowMissing);
+                        if (root.TryGetProperty("WireSequenceAllowDuplicate", out var wsAllowDuplicate)) _appConfig.WireSequenceAllowDuplicate = GetJsonBooleanValue(wsAllowDuplicate, _appConfig.WireSequenceAllowDuplicate);
                         if (root.TryGetProperty("PlcProtocol", out var ppr)) plcProtocol = ppr.GetString() ?? plcProtocol;
                         if (root.TryGetProperty("PlcDriverProvider", out var pdp)) plcDriverProvider = pdp.GetString() ?? plcDriverProvider;
                         if (root.TryGetProperty("PlcProtocolMode", out var ppm)) plcProtocolMode = GetJsonEnumValue(ppm, plcProtocolMode);
                         if (root.TryGetProperty("PlcIp", out var pi)) plcIp = pi.GetString() ?? plcIp;
-                        if (root.TryGetProperty("PlcPort", out var pp)) plcPort = pp.TryGetInt32(out int ppVal) ? ppVal : plcPort;
+                        if (root.TryGetProperty("PlcPort", out var pp)) plcPort = GetJsonInt32Value(pp, plcPort);
                         if (root.TryGetProperty("PlcTriggerAddress", out var pt)) plcTriggerAddress = GetJsonStringValue(pt, plcTriggerAddress);
                         if (root.TryGetProperty("PlcResultAddress", out var pr)) plcResultAddress = GetJsonStringValue(pr, plcResultAddress);
                         if (root.TryGetProperty("PlcTriggerSeqAddress", out var pts)) plcTriggerSeqAddress = GetJsonStringValue(pts, plcTriggerSeqAddress);
@@ -1092,19 +1087,19 @@ namespace ClearFrost
                         if (root.TryGetProperty("PlcTriggerAckAddress", out var pta)) plcTriggerAckAddress = GetJsonStringValue(pta, plcTriggerAckAddress);
                         if (root.TryGetProperty("PlcResultValidAddress", out var prv)) plcResultValidAddress = GetJsonStringValue(prv, plcResultValidAddress);
                         if (root.TryGetProperty("PlcResultAckAddress", out var pra)) plcResultAckAddress = GetJsonStringValue(pra, plcResultAckAddress);
-                        if (root.TryGetProperty("PlcResultAckTimeoutMs", out var prat)) plcResultAckTimeoutMs = prat.TryGetInt32(out int pratVal) ? Math.Clamp(pratVal, 0, 30000) : plcResultAckTimeoutMs;
-                        if (root.TryGetProperty("PlcTriggerDelayMs", out var ptd)) plcTriggerDelayMs = ptd.TryGetInt32(out int ptdVal) ? Math.Max(0, ptdVal) : plcTriggerDelayMs;
-                        if (root.TryGetProperty("PlcPollingIntervalMs", out var ppi)) plcPollingIntervalMs = ppi.TryGetInt32(out int ppiVal) ? Math.Max(50, ppiVal) : plcPollingIntervalMs;
-                        if (root.TryGetProperty("PlcOkValue", out var pok)) plcOkValue = pok.TryGetInt16(out short pokVal) ? pokVal : plcOkValue;
-                        if (root.TryGetProperty("PlcNgValue", out var png)) plcNgValue = png.TryGetInt16(out short pngVal) ? pngVal : plcNgValue;
+                        if (root.TryGetProperty("PlcResultAckTimeoutMs", out var prat)) plcResultAckTimeoutMs = Math.Clamp(GetJsonInt32Value(prat, plcResultAckTimeoutMs), 0, 30000);
+                        if (root.TryGetProperty("PlcTriggerDelayMs", out var ptd)) plcTriggerDelayMs = Math.Max(0, GetJsonInt32Value(ptd, plcTriggerDelayMs));
+                        if (root.TryGetProperty("PlcPollingIntervalMs", out var ppi)) plcPollingIntervalMs = Math.Max(50, GetJsonInt32Value(ppi, plcPollingIntervalMs));
+                        if (root.TryGetProperty("PlcOkValue", out var pok)) plcOkValue = GetJsonInt16Value(pok, plcOkValue);
+                        if (root.TryGetProperty("PlcNgValue", out var png)) plcNgValue = GetJsonInt16Value(png, plcNgValue);
                         if (root.TryGetProperty("PlcSiemensCpuModel", out var pscm)) plcSiemensCpuModel = pscm.GetString() ?? plcSiemensCpuModel;
-                        if (root.TryGetProperty("PlcSiemensRack", out var psr)) plcSiemensRack = psr.TryGetInt32(out int psrVal) ? Math.Max(0, psrVal) : plcSiemensRack;
-                        if (root.TryGetProperty("PlcSiemensSlot", out var pss)) plcSiemensSlot = pss.TryGetInt32(out int pssVal) ? Math.Max(0, pssVal) : plcSiemensSlot;
-                        if (root.TryGetProperty("BarcodeEnabled", out var be)) barcodeEnabled = be.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("PlcSiemensRack", out var psr)) plcSiemensRack = Math.Max(0, GetJsonInt32Value(psr, plcSiemensRack));
+                        if (root.TryGetProperty("PlcSiemensSlot", out var pss)) plcSiemensSlot = Math.Max(0, GetJsonInt32Value(pss, plcSiemensSlot));
+                        if (root.TryGetProperty("BarcodeEnabled", out var be)) barcodeEnabled = GetJsonBooleanValue(be, barcodeEnabled);
                         if (root.TryGetProperty("BarcodeAddress", out var ba)) barcodeAddress = GetJsonStringValue(ba, barcodeAddress);
-                        if (root.TryGetProperty("BarcodeWordLength", out var bwl)) barcodeWordLength = bwl.TryGetInt32(out int bwlVal) ? Math.Clamp(bwlVal, 1, 64) : barcodeWordLength;
+                        if (root.TryGetProperty("BarcodeWordLength", out var bwl)) barcodeWordLength = Math.Clamp(GetJsonInt32Value(bwl, barcodeWordLength), 1, 64);
                         if (root.TryGetProperty("BarcodeEncoding", out var benc)) barcodeEncoding = benc.GetString() ?? barcodeEncoding;
-                        if (root.TryGetProperty("BarcodeRequired", out var br)) barcodeRequired = br.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("BarcodeRequired", out var br)) barcodeRequired = GetJsonBooleanValue(br, barcodeRequired);
                         if (root.TryGetProperty("CurrentOperatorId", out var coi)) currentOperatorId = GetJsonStringValue(coi, currentOperatorId);
                         if (root.TryGetProperty("CurrentOperatorRole", out var cor)) currentOperatorRole = GetJsonEnumValue(cor, currentOperatorRole);
 
@@ -1233,12 +1228,12 @@ namespace ClearFrost
                         }
                         if (root.TryGetProperty("ExposureTime", out var et))
                         {
-                            _appConfig.ExposureTime = et.TryGetDouble(out double etVal) ? etVal : _appConfig.ExposureTime;
+                            _appConfig.ExposureTime = GetJsonDoubleValue(et, _appConfig.ExposureTime);
                             if (activeCam != null) activeCam.ExposureTime = _appConfig.ExposureTime;
                         }
                         if (root.TryGetProperty("GainRaw", out var gr))
                         {
-                            _appConfig.GainRaw = gr.TryGetDouble(out double grVal) ? grVal : _appConfig.GainRaw;
+                            _appConfig.GainRaw = GetJsonDoubleValue(gr, _appConfig.GainRaw);
                             if (activeCam != null) activeCam.Gain = _appConfig.GainRaw;
                         }
                         activeCam = _appConfig.EnsureActiveCameraConfigFromLegacy();
@@ -1256,36 +1251,28 @@ namespace ClearFrost
                         if (root.TryGetProperty("TargetLabel", out var tl)) _appConfig.TargetLabel = tl.GetString() ?? _appConfig.TargetLabel;
                         if (root.TryGetProperty("TargetCount", out var tc))
                         {
-                            if (tc.TryGetInt32(out int tcVal))
-                            {
-                                if (tcVal < 0) throw new InvalidOperationException("目标数量不能为负数");
-                                _appConfig.TargetCount = tcVal;
-                            }
+                            int targetCount = GetJsonInt32Value(tc, _appConfig.TargetCount);
+                            if (targetCount < 0) throw new InvalidOperationException("目标数量不能为负数");
+                            _appConfig.TargetCount = targetCount;
                         }
                         if (root.TryGetProperty("MaxRetryCount", out var mrc))
                         {
-                            _appConfig.MaxRetryCount = mrc.TryGetInt32(out int mrcVal)
-                                ? Math.Clamp(mrcVal, 0, 5)
-                                : _appConfig.MaxRetryCount;
+                            _appConfig.MaxRetryCount = Math.Clamp(GetJsonInt32Value(mrc, _appConfig.MaxRetryCount), 0, 5);
                         }
                         if (root.TryGetProperty("RetryIntervalMs", out var rim))
                         {
-                            _appConfig.RetryIntervalMs = rim.TryGetInt32(out int rimVal)
-                                ? Math.Clamp(rimVal, 0, 60000)
-                                : _appConfig.RetryIntervalMs;
+                            _appConfig.RetryIntervalMs = Math.Clamp(GetJsonInt32Value(rim, _appConfig.RetryIntervalMs), 0, 60000);
                         }
-                        if (root.TryGetProperty("TaskType", out var taskType)) _appConfig.TaskType = taskType.TryGetInt32(out int taskTypeVal) ? taskTypeVal : _appConfig.TaskType;
-                        if (root.TryGetProperty("Confidence", out var conf) && conf.TryGetDouble(out double confVal)) _appConfig.Confidence = (float)Math.Clamp(confVal, 0d, 1d);
-                        if (root.TryGetProperty("IouThreshold", out var iou) && iou.TryGetDouble(out double iouVal)) _appConfig.IouThreshold = (float)Math.Clamp(iouVal, 0d, 1d);
-                        if (root.TryGetProperty("EnableGpu", out var eg)) _appConfig.EnableGpu = eg.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("TaskType", out var taskType)) _appConfig.TaskType = GetJsonInt32Value(taskType, _appConfig.TaskType);
+                        if (root.TryGetProperty("Confidence", out var conf)) _appConfig.Confidence = (float)Math.Clamp(GetJsonDoubleValue(conf, _appConfig.Confidence), 0d, 1d);
+                        if (root.TryGetProperty("IouThreshold", out var iou)) _appConfig.IouThreshold = (float)Math.Clamp(GetJsonDoubleValue(iou, _appConfig.IouThreshold), 0d, 1d);
+                        if (root.TryGetProperty("EnableGpu", out var eg)) _appConfig.EnableGpu = GetJsonBooleanValue(eg, _appConfig.EnableGpu);
                         if (root.TryGetProperty("GpuIndex", out var gpuIndex))
                         {
-                            _appConfig.GpuIndex = gpuIndex.TryGetInt32(out int gpuIndexVal)
-                                ? Math.Max(0, gpuIndexVal)
-                                : _appConfig.GpuIndex;
+                            _appConfig.GpuIndex = Math.Max(0, GetJsonInt32Value(gpuIndex, _appConfig.GpuIndex));
                         }
-                        if (root.TryGetProperty("IndustrialRenderMode", out var irm)) _appConfig.IndustrialRenderMode = irm.ValueKind == JsonValueKind.True;
-                        if (root.TryGetProperty("UseFileBackedWebImageTransport", out var fileTransport)) _appConfig.UseFileBackedWebImageTransport = fileTransport.ValueKind == JsonValueKind.True;
+                        if (root.TryGetProperty("IndustrialRenderMode", out var irm)) _appConfig.IndustrialRenderMode = GetJsonBooleanValue(irm, _appConfig.IndustrialRenderMode);
+                        if (root.TryGetProperty("UseFileBackedWebImageTransport", out var fileTransport)) _appConfig.UseFileBackedWebImageTransport = GetJsonBooleanValue(fileTransport, _appConfig.UseFileBackedWebImageTransport);
                         YoloDetector.IndustrialRenderMode = _appConfig.IndustrialRenderMode;
                         _uiController.UseFileBackedImageTransport = _appConfig.UseFileBackedWebImageTransport;
                         _detectionService.SetTaskMode(_appConfig.TaskType);
@@ -1610,7 +1597,38 @@ namespace ClearFrost
                 gain = c.Gain
             }).Cast<object>().ToArray();
 
-            return _uiController.SendCameraList(cameras, _cameraManager.ActiveCameraId ?? _appConfig.ActiveCameraId);
+            return _uiController.SendCameraList(cameras, ResolveConfiguredActiveCameraId());
+        }
+
+        private string ResolveConfiguredActiveCameraId()
+        {
+            string managerActiveId = _cameraManager.ActiveCameraId ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(managerActiveId) &&
+                _appConfig.Cameras.Any(camera => string.Equals(camera.Id, managerActiveId, StringComparison.Ordinal)))
+            {
+                return managerActiveId;
+            }
+
+            string configActiveId = _appConfig.ActiveCameraId ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(configActiveId) &&
+                _appConfig.Cameras.Any(camera => string.Equals(camera.Id, configActiveId, StringComparison.Ordinal)))
+            {
+                return configActiveId;
+            }
+
+            return _appConfig.Cameras.FirstOrDefault(camera => camera.IsEnabled)?.Id ??
+                   _appConfig.Cameras.FirstOrDefault()?.Id ??
+                   string.Empty;
+        }
+
+        private void NormalizeConfiguredActiveCameraId()
+        {
+            string activeCameraId = ResolveConfiguredActiveCameraId();
+            _appConfig.ActiveCameraId = activeCameraId;
+            if (!string.IsNullOrWhiteSpace(activeCameraId))
+            {
+                _cameraManager.ActiveCameraId = activeCameraId;
+            }
         }
 
         /// <summary>
@@ -2053,6 +2071,19 @@ namespace ClearFrost
             RefreshStartupDiagnostics();
         }
 
+        private async Task SyncModelSelectionStateAsync()
+        {
+            try
+            {
+                await _uiController.InitSettings(_appConfig);
+                await _uiController.SendModelList(GetModelListPayload());
+            }
+            catch (Exception ex)
+            {
+                await _uiController.LogToFrontend($"同步模型选择状态失败: {ex.Message}", "warning");
+            }
+        }
+
         private object[] GetModelListPayload()
         {
             try
@@ -2066,6 +2097,13 @@ namespace ClearFrost
                         version = option.Version,
                         sha256 = option.Sha256,
                         fileName = option.FileName,
+                        taskType = option.TaskType,
+                        postprocessorKey = option.PostprocessorKey,
+                        scoreNormalization = option.ScoreNormalization,
+                        postprocessOptions = option.PostprocessOptions,
+                        inputWidth = option.InputWidth,
+                        inputHeight = option.InputHeight,
+                        labelCount = option.LabelCount,
                         isApprovedPackage = option.IsApprovedPackage
                     })
                     .Cast<object>()
@@ -2470,6 +2508,110 @@ namespace ClearFrost
                 {
                     return longValue.ToString();
                 }
+            }
+
+            return fallback;
+        }
+
+        private static double GetJsonDoubleValue(JsonElement value, double fallback)
+        {
+            if (value.ValueKind == JsonValueKind.Number &&
+                value.TryGetDouble(out double numberValue) &&
+                double.IsFinite(numberValue))
+            {
+                return numberValue;
+            }
+
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                string raw = value.GetString()?.Trim() ?? string.Empty;
+                if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedValue) &&
+                    double.IsFinite(parsedValue))
+                {
+                    return parsedValue;
+                }
+            }
+
+            return fallback;
+        }
+
+        private static int GetJsonInt32Value(JsonElement value, int fallback)
+        {
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int numberValue))
+            {
+                return numberValue;
+            }
+
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                string raw = value.GetString()?.Trim() ?? string.Empty;
+                if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedValue))
+                {
+                    return parsedValue;
+                }
+            }
+
+            return fallback;
+        }
+
+        private static short GetJsonInt16Value(JsonElement value, short fallback)
+        {
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt16(out short numberValue))
+            {
+                return numberValue;
+            }
+
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                string raw = value.GetString()?.Trim() ?? string.Empty;
+                if (short.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out short parsedValue))
+                {
+                    return parsedValue;
+                }
+            }
+
+            return fallback;
+        }
+
+        private static bool GetJsonBooleanValue(JsonElement value, bool fallback)
+        {
+            if (value.ValueKind == JsonValueKind.True)
+            {
+                return true;
+            }
+
+            if (value.ValueKind == JsonValueKind.False)
+            {
+                return false;
+            }
+
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                string raw = value.GetString()?.Trim() ?? string.Empty;
+                if (bool.TryParse(raw, out bool parsedValue))
+                {
+                    return parsedValue;
+                }
+
+                if (string.Equals(raw, "1", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (string.Equals(raw, "0", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int numberValue))
+            {
+                return numberValue switch
+                {
+                    0 => false,
+                    1 => true,
+                    _ => fallback
+                };
             }
 
             return fallback;
@@ -3452,7 +3594,10 @@ namespace ClearFrost
                                         s1 = Path.GetFullPath(s1).TrimEnd('\\', '/');
                                         s2 = Path.GetFullPath(s2).TrimEnd('\\', '/');
                                     }
-                                    catch { }
+                                    catch (Exception ex)
+                                    {
+                                        Debug.WriteLine($"[RuntimeConfig] StoragePath 标准化失败: {ex.Message}");
+                                    }
                                 }
                                 else if (name == "InspectionRuleSetJson")
                                 {
@@ -3465,31 +3610,31 @@ namespace ClearFrost
                             else if (prop.PropertyType == typeof(bool))
                             {
                                 bool b1 = curVal is bool bv && bv;
-                                bool b2 = val.ValueKind == JsonValueKind.True;
+                                bool b2 = GetJsonBooleanValue(val, b1);
                                 changed = (b1 != b2);
                             }
                             else if (prop.PropertyType == typeof(int))
                             {
                                 int i1 = curVal is int ivVal ? ivVal : 0;
-                                int i2 = val.TryGetInt32(out int iv) ? iv : i1;
+                                int i2 = GetJsonInt32Value(val, i1);
                                 changed = (i1 != i2);
                             }
                             else if (prop.PropertyType == typeof(float))
                             {
                                 float f1 = curVal is float fvVal ? fvVal : 0f;
-                                float f2 = val.TryGetDouble(out double dv) ? (float)dv : f1;
+                                float f2 = (float)GetJsonDoubleValue(val, f1);
                                 changed = (Math.Abs(f1 - f2) > 1e-4f);
                             }
                             else if (prop.PropertyType == typeof(double))
                             {
                                 double d1 = curVal is double dvVal ? dvVal : 0.0;
-                                double d2 = val.TryGetDouble(out double dv) ? dv : d1;
+                                double d2 = GetJsonDoubleValue(val, d1);
                                 changed = (Math.Abs(d1 - d2) > 1e-4);
                             }
                             else if (prop.PropertyType == typeof(short))
                             {
                                 short sh1 = curVal is short svVal ? svVal : (short)0;
-                                short sh2 = val.TryGetInt16(out short sv) ? sv : sh1;
+                                short sh2 = GetJsonInt16Value(val, sh1);
                                 changed = (sh1 != sh2);
                             }
                             else if (prop.PropertyType.IsEnum)
@@ -3503,8 +3648,9 @@ namespace ClearFrost
                                 changed = true;
                             }
                         }
-                        catch
+                        catch (Exception ex)
                         {
+                            Debug.WriteLine($"[RuntimeConfig] 比较配置项 {name} 失败: {ex.Message}");
                             changed = true;
                         }
 
@@ -3516,8 +3662,9 @@ namespace ClearFrost
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                Debug.WriteLine($"[RuntimeConfig] 判断配置变更失败: {ex.Message}");
                 return true;
             }
             return false;
@@ -3536,7 +3683,10 @@ namespace ClearFrost
                     return string.Equals(s1, s2, StringComparison.Ordinal);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[RuntimeConfig] 比较规则 JSON 失败: {ex.Message}");
+            }
             return false;
         }
 

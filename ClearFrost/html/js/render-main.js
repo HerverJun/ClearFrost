@@ -31,6 +31,28 @@
     let plcTriggerResetTimer = null;
     const FullRenderReasons = new Set(["bootstrap", "state"]);
     const KnownRenderReasons = new Set(["inspection", "stats", "health", "replay", "manualReview", "fieldDebug", "visionDebug", "bootstrap", "state"]);
+    const MainBridgeErrorMessage = "主界面通信失败，请刷新页面后重试";
+    const FieldDiagnosticsBridgeErrorMessage = "现场诊断通信失败，请刷新页面后重试";
+    const SystemCommandBridgeErrorMessage = "系统控制通信失败，请刷新页面后重试";
+    const FieldDebugPendingTimeoutMessage = "现场调试等待超时，请查看日志或稍后重试";
+    const FieldExportPendingTimeoutMessage = "现场报告导出等待超时，请查看日志或稍后重试";
+    const MainCommandPendingTtlMs = 30000;
+    const FieldDebugPendingTtlMs = 30000;
+    const FieldExportPendingTtlMs = 60000;
+    const pendingMainCommandFailures = new Map();
+    let fieldDebugPendingResetTimer = null;
+    const fieldExportPendingTimers = new Map();
+    const FieldDebugCommandLabels = Object.freeze({
+        field_debug_step_capture: "单步取图",
+        field_debug_step_infer: "单步推理",
+        field_debug_plc_write_test: "PLC 写入测试",
+        field_debug_barcode_read_test: "条码读取测试",
+        field_debug_simulate_trigger: "触发模拟",
+    });
+    const FieldExportOperationLabels = Object.freeze({
+        export_diagnostic_package: "导出诊断包",
+        export_field_handoff_report: "导出交接报告",
+    });
     const InspectionStageLabels = Object.freeze({
         Unknown: "未知",
         Triggered: "已触发",
@@ -89,6 +111,65 @@
     function shouldRenderFull(reasons) {
         if (!Array.isArray(reasons) || reasons.length === 0) return true;
         return reasons.some((reason) => FullRenderReasons.has(reason) || !KnownRenderReasons.has(reason));
+    }
+
+    function sendMainCommand(cmd, value = null, onFailure = null, failureMessage = MainBridgeErrorMessage) {
+        try {
+            const requestId = window.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            registerPendingMainCommandFailure(requestId, cmd, onFailure);
+            return requestId;
+        } catch (error) {
+            console.error(`Main command failed: ${cmd}`, error);
+            showToast(failureMessage, "error", 1800);
+            addLog(`${failureMessage}: ${cmd}`, "error");
+            if (typeof onFailure === "function") onFailure(error);
+            return "";
+        }
+    }
+
+    function registerPendingMainCommandFailure(requestId, cmd, onFailure) {
+        const id = String(requestId || "").trim();
+        if (!id || typeof onFailure !== "function") return;
+        const timeoutId = window.setTimeout?.(() => {
+            pendingMainCommandFailures.delete(id);
+        }, MainCommandPendingTtlMs);
+        pendingMainCommandFailures.set(id, { cmd, onFailure, timeoutId });
+    }
+
+    function takePendingMainCommandFailure(requestId, cmd = "") {
+        const id = String(requestId || "").trim();
+        if (!id) return null;
+        const pending = pendingMainCommandFailures.get(id);
+        if (!pending) return null;
+        if (cmd && pending.cmd && pending.cmd !== cmd) return null;
+        if (pending.timeoutId) window.clearTimeout?.(pending.timeoutId);
+        pendingMainCommandFailures.delete(id);
+        return pending;
+    }
+
+    function getMainCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || MainBridgeErrorMessage,
+            errorCode: detail.errorCode || data.errorCode || data.ErrorCode || "CommandError",
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function handleMainCommandError(event) {
+        const { cmd, message, errorCode, requestId } = getMainCommandErrorDetail(event);
+        const pending = takePendingMainCommandFailure(requestId, cmd);
+        if (!pending || typeof pending.onFailure !== "function") return;
+
+        const error = new Error(message || MainBridgeErrorMessage);
+        error.name = errorCode || "CommandError";
+        pending.onFailure(error);
     }
 
     function hasRenderReason(reasons, reason) {
@@ -790,12 +871,14 @@
     }
 
     function requestDiagnosticPackageHistory() {
-        window.sendCommand("query_diagnostic_packages");
+        const requestId = sendMainCommand("query_diagnostic_packages", null, null, FieldDiagnosticsBridgeErrorMessage);
+        if (!requestId) return;
         addLog("正在刷新诊断包历史...", "info");
     }
 
     function requestFieldHandoffReportHistory() {
-        window.sendCommand("query_field_handoff_reports");
+        const requestId = sendMainCommand("query_field_handoff_reports", null, null, FieldDiagnosticsBridgeErrorMessage);
+        if (!requestId) return;
         addLog("正在刷新交接报告历史...", "info");
     }
 
@@ -806,13 +889,16 @@
             return;
         }
 
-        window.sendCommand("verify_diagnostic_package", { path: packagePath });
+        const requestId = sendMainCommand("verify_diagnostic_package", { path: packagePath }, null, FieldDiagnosticsBridgeErrorMessage);
+        if (!requestId) return;
         addLog("正在复核诊断包完整性...", "info");
         showToast("正在复核诊断包...", "info", 1200);
     }
 
     function exportFieldHandoffReport() {
-        window.sendCommand("export_field_handoff_report");
+        const requestId = sendMainCommand("export_field_handoff_report", null, null, FieldDiagnosticsBridgeErrorMessage);
+        if (!requestId) return;
+        markFieldExportPending("export_field_handoff_report");
         addLog("正在导出现场交接报告...", "info");
         showToast("正在导出交接报告...", "info", 1200);
     }
@@ -824,7 +910,8 @@
             return;
         }
 
-        window.sendCommand("maintenance_advice_action", { adviceId: id, action });
+        const requestId = sendMainCommand("maintenance_advice_action", { adviceId: id, action }, null, FieldDiagnosticsBridgeErrorMessage);
+        if (!requestId) return;
         addLog(action === "recheck" ? "维护建议复检请求已发送" : "维护建议处理记录已提交", "info");
     }
 
@@ -845,7 +932,8 @@
             return;
         }
 
-        window.sendCommand("shift_task_action", { taskId, linkedAdviceId, action });
+        const requestId = sendMainCommand("shift_task_action", { taskId, linkedAdviceId, action }, null, FieldDiagnosticsBridgeErrorMessage);
+        if (!requestId) return;
         addLog(action === "recheck" ? "班次待办复检请求已发送" : "班次待办处理记录已提交", "info");
     }
 
@@ -1114,8 +1202,25 @@
             : statusLower === "warning"
                 ? " warning"
                 : " error";
-        const hashText = lastHash ? ` · Last ${shortHash(lastHash)}` : "";
-        return `<em class="cf-diagnostic-badge${badgeClass}">${escapeHtml(status)}</em> Verified ${escapeHtml(verifiedRecords)}/${escapeHtml(totalRecords)} · Findings ${escapeHtml(findingCount)}${escapeHtml(hashText)}`;
+        const hashText = lastHash ? ` · 最后 ${shortHash(lastHash)}` : "";
+        return `<em class="cf-diagnostic-badge${badgeClass}">${escapeHtml(status)}</em> 已验证 ${escapeHtml(verifiedRecords)}/${escapeHtml(totalRecords)} · 异常 ${escapeHtml(findingCount)}${escapeHtml(hashText)}`;
+    }
+
+    function getDiagnosticStatusBadgeClass(status) {
+        const statusLower = String(status || "").trim().toLowerCase();
+        if (["healthy", "ready", "pass", "passed", "ok", "success"].includes(statusLower)) {
+            return "ok";
+        }
+
+        if (["blocking", "blocked", "failed", "fail", "error", "critical"].includes(statusLower)) {
+            return "error";
+        }
+
+        if (["", "pending", "notchecked", "unknown"].includes(statusLower)) {
+            return "pending";
+        }
+
+        return "warning";
     }
 
     function renderFieldAcceptanceChecklist(health, modelProbe) {
@@ -1295,12 +1400,7 @@
             const integrityEntries = getDiagnosticPackageValue(pkg, "integrityEntryCount", "IntegrityEntryCount", "");
             const findingCount = getDiagnosticPackageValue(pkg, "integrityFindingCount", "IntegrityFindingCount", "");
             const verifiedAt = getDiagnosticPackageValue(pkg, "verifiedAt", "VerifiedAt", "");
-            const statusLower = String(status || "").toLowerCase();
-            const statusClass = statusLower === "healthy"
-                ? "ok"
-                : statusLower === "pending"
-                    ? "pending"
-                    : "warning";
+            const statusClass = getDiagnosticStatusBadgeClass(status);
             const entryText = integrityEntries
                 ? `${verifiedEntries || 0}/${integrityEntries}`
                 : "待复核";
@@ -1343,12 +1443,7 @@
             const shiftTaskCount = getFieldHandoffReportValue(report, "shiftTaskCount", "ShiftTaskCount", "");
             const generatedAt = getFieldHandoffReportValue(report, "generatedAt", "GeneratedAt", "") ||
                 getFieldHandoffReportValue(report, "lastWriteTime", "LastWriteTime", "");
-            const statusLower = String(status || "").toLowerCase();
-            const statusClass = statusLower === "ready"
-                ? "ok"
-                : statusLower === "blocked"
-                    ? "error"
-                    : "warning";
+            const statusClass = getDiagnosticStatusBadgeClass(status);
             return `<div class="cf-handoff-report-history-item">
                 <div>
                     <strong title="${escapeHtml(path)}">${escapeHtml(fileName)}</strong>
@@ -1553,7 +1648,7 @@
         if (!modal) return;
         modal.classList.remove("hidden");
         updateTriggerSourceStatus();
-        window.sendCommand("request_health_snapshot");
+        sendMainCommand("request_health_snapshot", null, null, FieldDiagnosticsBridgeErrorMessage);
         requestDiagnosticPackageHistory();
         requestFieldHandoffReportHistory();
     }
@@ -1755,9 +1850,6 @@
         const role = String(getVisionDebugSettings().CurrentOperatorRole || getVisionDebugSettings().currentOperatorRole || "Operator");
         const note = el("vision-debug-operator-note");
         if (note) note.classList.toggle("hidden", role !== "Operator");
-        if (role === "Operator") {
-            showToast("这是工程师调试工具，生产操作无需进入。", "info", 1800);
-        }
         el("vision-debug-modal")?.classList.remove("hidden");
         requestVisionDebugRecentRecords();
         setVisionDebugImageEmptyVisible(true);
@@ -1781,8 +1873,86 @@
         };
     }
 
+    const VisionDebugBridgeErrorMessage = "视觉调试通信失败，请刷新页面后重试";
+    const VisionDebugPendingTtlMs = 120000;
+    const VisionDebugCommands = new Set([
+        "vision_debug_query_recent",
+        "vision_debug_run_current",
+        "vision_debug_run_history",
+        "vision_debug_run_batch",
+        "vision_debug_save_params",
+        "vision_debug_apply_template",
+    ]);
+    const pendingVisionDebugFailures = new Map();
+
+    function registerPendingVisionDebugFailure(requestId, cmd, onFailure) {
+        const id = String(requestId || "").trim();
+        if (!id || typeof onFailure !== "function") return;
+        const timeoutId = window.setTimeout?.(() => {
+            pendingVisionDebugFailures.delete(id);
+        }, VisionDebugPendingTtlMs);
+        pendingVisionDebugFailures.set(id, { cmd, onFailure, timeoutId });
+    }
+
+    function takePendingVisionDebugFailure(requestId) {
+        const id = String(requestId || "").trim();
+        if (!id) return null;
+        const pending = pendingVisionDebugFailures.get(id);
+        if (!pending) return null;
+        if (pending.timeoutId) window.clearTimeout?.(pending.timeoutId);
+        pendingVisionDebugFailures.delete(id);
+        return pending;
+    }
+
+    function clearPendingVisionDebugFailure(requestId) {
+        const pending = takePendingVisionDebugFailure(requestId);
+        return Boolean(pending);
+    }
+
+    function getVisionDebugCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || VisionDebugBridgeErrorMessage,
+            errorCode: detail.errorCode || data.errorCode || data.ErrorCode || "CommandError",
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function getVisionDebugFailureMessage(error) {
+        return error?.message || VisionDebugBridgeErrorMessage;
+    }
+
+    function makeVisionDebugFailure(message, errorCode = "CommandError") {
+        const error = new Error(message || VisionDebugBridgeErrorMessage);
+        error.name = errorCode || "CommandError";
+        return error;
+    }
+
+    function sendVisionDebugCommand(cmd, value, onFailure = null) {
+        try {
+            const requestId = window.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            registerPendingVisionDebugFailure(requestId, cmd, onFailure);
+            window.handleCommandDispatched?.(cmd);
+            return requestId;
+        } catch (error) {
+            console.error(`Vision debug command failed: ${cmd}`, error);
+            showToast(VisionDebugBridgeErrorMessage, "error", 1800);
+            if (typeof onFailure === "function") onFailure(error);
+            return "";
+        }
+    }
+
     function requestVisionDebugRecentRecords() {
-        window.sendCommand("vision_debug_query_recent", {});
+        sendVisionDebugCommand("vision_debug_query_recent", {}, (error) => {
+            setText("vision-debug-history-status", getVisionDebugFailureMessage(error));
+            setVisionDebugImageEmptyVisible(true);
+        });
     }
 
     function applySelectedVisionDebugTemplate() {
@@ -1803,8 +1973,9 @@
     function runVisionDebugCurrent() {
         if (!validateVisionDebugRuleJson()) return;
         setText("vision-debug-primary-reason", "正在重跑当前帧...");
-        window.sendCommand("vision_debug_run_current", collectVisionDebugParams());
-        window.handleCommandDispatched?.("vision_debug_run_current");
+        sendVisionDebugCommand("vision_debug_run_current", collectVisionDebugParams(), (error) => {
+            renderVisionDebugFailure(getVisionDebugFailureMessage(error), error?.name || "BridgeUnavailable");
+        });
     }
 
     function runVisionDebugHistory() {
@@ -1815,8 +1986,9 @@
         }
         if (!validateVisionDebugRuleJson()) return;
         setText("vision-debug-history-status", "正在用当前调试参数重跑历史样本...");
-        window.sendCommand("vision_debug_run_history", collectVisionDebugParams({ recordId }));
-        window.handleCommandDispatched?.("vision_debug_run_history");
+        sendVisionDebugCommand("vision_debug_run_history", collectVisionDebugParams({ recordId }), (error) => {
+            setText("vision-debug-history-status", getVisionDebugFailureMessage(error));
+        });
     }
 
     function runVisionDebugBatch() {
@@ -1825,14 +1997,16 @@
         const batchLimit = Math.max(1, Math.min(50, Math.trunc(rawLimit || 20)));
         const batchResult = String(el("vision-debug-batch-result")?.value || "All");
         setText("vision-debug-history-status", `正在批量回放最近 ${batchLimit} 条样本...`);
-        window.sendCommand("vision_debug_run_batch", collectVisionDebugParams({ batchLimit, batchResult }));
-        window.handleCommandDispatched?.("vision_debug_run_batch");
+        sendVisionDebugCommand("vision_debug_run_batch", collectVisionDebugParams({ batchLimit, batchResult }), (error) => {
+            setText("vision-debug-history-status", getVisionDebugFailureMessage(error));
+        });
     }
 
     function saveVisionDebugParams() {
         if (!validateVisionDebugRuleJson()) return;
-        window.sendCommand("vision_debug_save_params", collectVisionDebugParams());
-        window.handleCommandDispatched?.("vision_debug_save_params");
+        sendVisionDebugCommand("vision_debug_save_params", collectVisionDebugParams(), (error) => {
+            setText("vision-debug-primary-reason", getVisionDebugFailureMessage(error));
+        });
     }
 
     function applyVisionDebugTemplate(templateId) {
@@ -1852,8 +2026,9 @@
             : Array.from(el("vision-debug-target-label")?.options || [])
                 .map((option) => option.value)
                 .filter(Boolean);
-        window.sendCommand("vision_debug_apply_template", collectVisionDebugParams({ templateId, labels }));
-        window.handleCommandDispatched?.("vision_debug_apply_template");
+        sendVisionDebugCommand("vision_debug_apply_template", collectVisionDebugParams({ templateId, labels }), (error) => {
+            setText("vision-debug-primary-reason", getVisionDebugFailureMessage(error));
+        });
     }
 
     function renderVisionDebugRecentRecords(records) {
@@ -1926,6 +2101,26 @@
         renderVisionDebugComparison(snapshot);
         updateVisionDebugPreprocessHint(snapshot);
         redrawVisionDebugOverlay();
+    }
+
+    function handleVisionDebugResult(data, envelope) {
+        clearPendingVisionDebugFailure(envelope?.requestId || data?.requestId || data?.RequestId || "");
+        store.applyVisionDebugResult(data);
+    }
+
+    function handleVisionDebugCommandError(event) {
+        const { cmd, message, errorCode, requestId } = getVisionDebugCommandErrorDetail(event);
+        if (!VisionDebugCommands.has(cmd)) return;
+
+        const pending = takePendingVisionDebugFailure(requestId);
+        if (!pending || typeof pending.onFailure !== "function") return;
+
+        pending.onFailure(makeVisionDebugFailure(message, errorCode), {
+            cmd,
+            errorCode,
+            message,
+            requestId,
+        });
     }
 
     function renderVisionDebugFailure(message, errorCode = "") {
@@ -2507,7 +2702,11 @@
         setWindowButtonsBusy(true);
         addLog("已发送 exit_app 指令，正在等待安全退出...", "info");
         showToast("正在安全退出...", "info", 1500);
-        window.sendCommand("exit_app");
+        const requestId = sendMainCommand("exit_app", null, () => {
+            exitAppPending = false;
+            setWindowButtonsBusy(false);
+        }, SystemCommandBridgeErrorMessage);
+        if (!requestId) return;
     }
 
     function setOpenCameraButtonBusy(isBusy) {
@@ -2546,7 +2745,10 @@
 
         if (systemRunning) {
             setStartSystemButtonState(true, true);
-            window.sendCommand("stop_system");
+            const requestId = sendMainCommand("stop_system", null, () => {
+                setStartSystemButtonState(true, false);
+            }, SystemCommandBridgeErrorMessage);
+            if (!requestId) return false;
             addLog("停止检测指令已发送", "info");
             showToast("停止检测指令已发送", "info", 1200);
             return true;
@@ -2568,7 +2770,15 @@
             openCameraUnlockTimer = null;
         }, 1500);
 
-        window.sendCommand("start_system");
+        const requestId = sendMainCommand("start_system", null, () => {
+            openCameraPending = false;
+            if (openCameraUnlockTimer) {
+                window.clearTimeout(openCameraUnlockTimer);
+                openCameraUnlockTimer = null;
+            }
+            setOpenCameraButtonBusy(false);
+        }, SystemCommandBridgeErrorMessage);
+        if (!requestId) return false;
         addLog("启动系统指令已发送", "info");
         showToast("启动系统指令已发送", "info", 1400);
         return true;
@@ -2731,19 +2941,57 @@
         const message = data?.message || data?.Message || `前端命令处理失败: ${cmd || errorCode}`;
         const requestId = envelope?.requestId ? ` (${envelope.requestId})` : "";
 
+        if (isFieldDebugCommand(cmd)) {
+            setFieldDebugPending(false);
+            store.applyFieldDebugResult({
+                command: cmd,
+                message,
+                errorCode,
+                pending: false,
+                succeeded: false,
+            });
+        }
+
+        if (isFieldExportOperation(cmd)) {
+            setFieldExportPending(cmd, false);
+            applyFieldExportPendingState(cmd, {
+                message,
+                errorCode,
+                pending: false,
+                succeeded: false,
+            });
+        }
+
         addLog(`${message}${requestId}`, "error");
+        showToast(message, "error", 1800);
+        try {
+            window.dispatchEvent(new CustomEvent("cf-command-error", {
+                detail: {
+                    data,
+                    envelope,
+                    cmd,
+                    errorCode,
+                    message,
+                    requestId: envelope?.requestId || "",
+                },
+            }));
+        } catch (error) {
+            if (window.__CF_DEV_MODE) console.warn("Command error dispatch failed:", error);
+        }
         if (window.__CF_DEV_MODE) console.warn("Command error:", data, envelope);
     }
 
     function handleFieldDebugResult(data) {
-        store.applyFieldDebugResult(data);
+        setFieldDebugPending(false);
+        store.applyFieldDebugResult({ ...(data || {}), pending: false });
         const succeeded = data?.succeeded ?? data?.Succeeded;
         const message = data?.message || data?.Message || "";
         if (message) addLog(message, succeeded === false ? "error" : "info");
     }
 
     function handleDiagnosticPackageExportResult(data) {
-        store.applyDiagnosticPackageExportResult(data);
+        setFieldExportPending("export_diagnostic_package", false);
+        store.applyDiagnosticPackageExportResult({ ...(data || {}), pending: false });
         const succeeded = data?.succeeded ?? data?.Succeeded;
         const message = data?.message || data?.Message || "";
         if (message) addLog(message, succeeded === false ? "error" : "info");
@@ -2789,7 +3037,8 @@
     }
 
     function handleFieldHandoffReportResult(data) {
-        store.applyFieldHandoffReportResult(data);
+        setFieldExportPending("export_field_handoff_report", false);
+        store.applyFieldHandoffReportResult({ ...(data || {}), pending: false });
         const succeeded = data?.succeeded ?? data?.Succeeded;
         const message = data?.message || data?.Message || "";
         if (message) {
@@ -2805,6 +3054,114 @@
         if (message && succeeded === false) addLog(message, "error");
     }
 
+    function isFieldExportOperation(cmd) {
+        return Object.prototype.hasOwnProperty.call(FieldExportOperationLabels, cmd);
+    }
+
+    function getFieldExportButtons(cmd) {
+        if (cmd === "export_diagnostic_package") {
+            return document.querySelectorAll('[data-cmd="export_diagnostic_package"]');
+        }
+
+        if (cmd === "export_field_handoff_report") {
+            return document.querySelectorAll('[data-action="exportFieldHandoffReport"]');
+        }
+
+        return [];
+    }
+
+    function applyFieldExportPendingState(cmd, payload) {
+        if (cmd === "export_diagnostic_package") {
+            store.applyDiagnosticPackageExportResult(payload);
+            return;
+        }
+
+        if (cmd === "export_field_handoff_report") {
+            store.applyFieldHandoffReportResult(payload);
+        }
+    }
+
+    function setFieldExportPending(cmd, isPending) {
+        const existingTimer = fieldExportPendingTimers.get(cmd);
+        if (existingTimer) {
+            window.clearTimeout?.(existingTimer);
+            fieldExportPendingTimers.delete(cmd);
+        }
+
+        getFieldExportButtons(cmd).forEach((button) => {
+            button.disabled = !!isPending;
+            button.classList.toggle("is-pending", !!isPending);
+        });
+
+        if (isPending) {
+            const timeoutId = window.setTimeout?.(() => {
+                fieldExportPendingTimers.delete(cmd);
+                setFieldExportPending(cmd, false);
+                applyFieldExportPendingState(cmd, {
+                    message: FieldExportPendingTimeoutMessage,
+                    errorCode: "FieldExportTimeout",
+                    pending: false,
+                    succeeded: false,
+                });
+                addLog(FieldExportPendingTimeoutMessage, "warning");
+            }, FieldExportPendingTtlMs);
+            if (timeoutId) fieldExportPendingTimers.set(cmd, timeoutId);
+        }
+    }
+
+    function markFieldExportPending(cmd) {
+        const label = FieldExportOperationLabels[cmd] || "现场报告导出";
+        setFieldExportPending(cmd, true);
+        applyFieldExportPendingState(cmd, {
+            message: `${label}已发送，等待结果...`,
+            errorCode: "",
+            pending: true,
+            succeeded: null,
+        });
+    }
+
+    function isFieldDebugCommand(cmd) {
+        return Object.prototype.hasOwnProperty.call(FieldDebugCommandLabels, cmd);
+    }
+
+    function setFieldDebugPending(isPending) {
+        if (fieldDebugPendingResetTimer) {
+            window.clearTimeout?.(fieldDebugPendingResetTimer);
+            fieldDebugPendingResetTimer = null;
+        }
+
+        document.querySelectorAll('[data-cmd^="field_debug_"]').forEach((button) => {
+            button.disabled = !!isPending;
+            button.classList.toggle("is-pending", !!isPending);
+        });
+
+        if (isPending) {
+            fieldDebugPendingResetTimer = window.setTimeout?.(() => {
+                fieldDebugPendingResetTimer = null;
+                setFieldDebugPending(false);
+                store.applyFieldDebugResult({
+                    message: FieldDebugPendingTimeoutMessage,
+                    errorCode: "FieldDebugTimeout",
+                    pending: false,
+                    succeeded: false,
+                });
+                addLog(FieldDebugPendingTimeoutMessage, "warning");
+            }, FieldDebugPendingTtlMs);
+        }
+    }
+
+    function markFieldDebugCommandPending(cmd) {
+        const label = FieldDebugCommandLabels[cmd] || "现场调试";
+        setFieldDebugPending(true);
+        store.applyFieldDebugResult({
+            command: cmd,
+            message: `${label}已发送，等待结果...`,
+            errorCode: "",
+            pending: true,
+            succeeded: null,
+        });
+    }
+
     function handleCommandDispatched(cmd) {
         switch (cmd) {
             case "manual_detect":
@@ -2816,6 +3173,7 @@
                 showToast("强制放行申请已提交", "warning", 1200);
                 break;
             case "export_diagnostic_package":
+                markFieldExportPending(cmd);
                 addLog("正在导出诊断包...", "info");
                 showToast("正在导出诊断包...", "info", 1200);
                 break;
@@ -2842,6 +3200,7 @@
             case "field_debug_plc_write_test":
             case "field_debug_barcode_read_test":
             case "field_debug_simulate_trigger":
+                markFieldDebugCommandPending(cmd);
                 addLog("现场调试命令已发送", "info");
                 break;
             case "vision_debug_run_current":
@@ -2991,7 +3350,7 @@
     bridge.registerMessageHandler("inspectionUpdate", handleInspectionUpdate);
     bridge.registerMessageHandler("healthSnapshot", handleHealthSnapshot);
     bridge.registerMessageHandler("fieldDebugResult", handleFieldDebugResult);
-    bridge.registerMessageHandler("visionDebugResult", (data) => store.applyVisionDebugResult(data));
+    bridge.registerMessageHandler("visionDebugResult", handleVisionDebugResult);
     bridge.registerMessageHandler("diagnosticPackageExportResult", handleDiagnosticPackageExportResult);
     bridge.registerMessageHandler("diagnosticPackageHistoryResult", handleDiagnosticPackageHistoryResult);
     bridge.registerMessageHandler("diagnosticPackageVerificationResult", handleDiagnosticPackageVerificationResult);
@@ -3012,6 +3371,8 @@
     bridge.registerMessageHandler("detectionFrame", handleDetectionFrame);
     bridge.registerMessageHandler("uiCommand", handleUiCommand);
     bridge.registerMessageHandler("commandError", handleCommandError);
+    window.addEventListener("cf-command-error", handleMainCommandError);
+    window.addEventListener("cf-command-error", handleVisionDebugCommandError);
 
     document.addEventListener("input", (event) => {
         const target = event.target;

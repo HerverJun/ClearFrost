@@ -5,6 +5,92 @@
     "use strict";
 
     let windowDragging = false;
+    const ShellBridgeErrorMessage = "界面通信失败，请刷新页面后重试";
+    const ShellCommandPendingTtlMs = 30000;
+    const pendingShellCommandFailures = new Map();
+
+    function sendShellCommand(cmd, value = null, onFailure = null, failureMessage = ShellBridgeErrorMessage) {
+        try {
+            const requestId = window.sendCommand?.(cmd, value);
+            if (!requestId) {
+                throw new Error("WebViewBridgeUnavailable");
+            }
+            registerPendingShellCommandFailure(requestId, cmd, onFailure);
+            return requestId;
+        } catch (error) {
+            console.error(`Shell command failed: ${cmd}`, error);
+            window.showToast?.(failureMessage, "error", 1800);
+            window.addLog?.(`${failureMessage}: ${cmd}`, "error");
+            if (typeof onFailure === "function") onFailure(error);
+            return "";
+        }
+    }
+
+    function registerPendingShellCommandFailure(requestId, cmd, onFailure) {
+        const id = String(requestId || "").trim();
+        if (!id || typeof onFailure !== "function") return;
+        const timeoutId = window.setTimeout?.(() => {
+            pendingShellCommandFailures.delete(id);
+        }, ShellCommandPendingTtlMs);
+        pendingShellCommandFailures.set(id, { cmd, onFailure, timeoutId });
+    }
+
+    function takePendingShellCommandFailure(requestId, cmd = "") {
+        const id = String(requestId || "").trim();
+        if (!id) return null;
+        const pending = pendingShellCommandFailures.get(id);
+        if (!pending) return null;
+        if (cmd && pending.cmd && pending.cmd !== cmd) return null;
+        if (pending.timeoutId) window.clearTimeout?.(pending.timeoutId);
+        pendingShellCommandFailures.delete(id);
+        return pending;
+    }
+
+    function getShellCommandErrorDetail(event) {
+        const detail = event?.detail || {};
+        const data = detail.data || {};
+        const envelope = detail.envelope || {};
+        return {
+            cmd: detail.cmd || data.cmd || data.Cmd || "",
+            message: detail.message || data.message || data.Message || ShellBridgeErrorMessage,
+            errorCode: detail.errorCode || data.errorCode || data.ErrorCode || "CommandError",
+            requestId: String(detail.requestId || envelope.requestId || data.requestId || data.RequestId || "").trim(),
+        };
+    }
+
+    function handleShellCommandError(event) {
+        const { cmd, message, errorCode, requestId } = getShellCommandErrorDetail(event);
+        const pending = takePendingShellCommandFailure(requestId, cmd);
+        if (!pending || typeof pending.onFailure !== "function") return;
+
+        const error = new Error(message || ShellBridgeErrorMessage);
+        error.name = errorCode || "CommandError";
+        pending.onFailure(error);
+    }
+
+    function getChangeCommandValue(element) {
+        if (!element) return "";
+        if (element.type === "checkbox") return !!element.checked;
+        return element.value ?? "";
+    }
+
+    function restoreChangeCommandValue(element, value) {
+        if (!element) return;
+        if (element.type === "checkbox") {
+            element.checked = !!value;
+            return;
+        }
+        element.value = value ?? "";
+    }
+
+    function captureChangeCommandBaseline(event) {
+        const commandElement = event.target.closest("[data-change-cmd]");
+        if (!commandElement) return;
+        commandElement.dataset.previousValue = String(getChangeCommandValue(commandElement) ?? "");
+        if (commandElement.dataset.confirmedValue === undefined) {
+            commandElement.dataset.confirmedValue = commandElement.dataset.previousValue;
+        }
+    }
 
     function startDrag(event) {
         if (
@@ -15,7 +101,7 @@
             return;
         }
         windowDragging = true;
-        window.sendCommand("start_drag");
+        sendShellCommand("start_drag");
     }
 
     function toggleDrawer(panelId) {
@@ -79,7 +165,14 @@
 
     function confirmIfNeeded(element) {
         const message = element.dataset.confirm;
-        return !message || window.confirm(message);
+        if (!message) return true;
+        if (typeof window.confirm !== "function") {
+            const warning = "当前环境无法显示确认框，操作已取消";
+            window.showToast?.(warning, "warning", 2200);
+            window.addLog?.(warning, "warning");
+            return false;
+        }
+        return window.confirm(message);
     }
 
     function getCurrentSettings() {
@@ -173,7 +266,12 @@
             inspectionId: modal.dataset.inspectionId || "",
         };
 
-        window.sendCommand("manual_release", payload);
+        const requestId = sendShellCommand("manual_release", payload, (error) => {
+            modal.classList.remove("hidden");
+            window.addLog?.(`强制放行提交失败: ${error?.message || ShellBridgeErrorMessage}`, "error");
+            document.getElementById("manual-release-token")?.focus();
+        });
+        if (!requestId) return;
         window.handleCommandDispatched?.("manual_release", modal);
         closeManualReleaseModal();
     }
@@ -185,7 +283,8 @@
                 const cmd = commandElement.dataset.cmd;
                 if (!cmd || !confirmIfNeeded(commandElement)) return;
                 const value = parseDatasetValue(commandElement.dataset.value);
-                window.sendCommand(cmd, value === undefined ? null : value);
+                const requestId = sendShellCommand(cmd, value === undefined ? null : value);
+                if (!requestId) return;
                 window.handleCommandDispatched?.(cmd, commandElement);
                 return;
             }
@@ -198,10 +297,38 @@
             }
         });
 
+        document.addEventListener("pointerdown", captureChangeCommandBaseline);
+
+        document.addEventListener("focusin", captureChangeCommandBaseline);
+
         document.addEventListener("change", (event) => {
             const commandElement = event.target.closest("[data-change-cmd]");
             if (commandElement) {
-                window.sendCommand(commandElement.dataset.changeCmd, commandElement.value);
+                const cmd = commandElement.dataset.changeCmd;
+                const previousValue = commandElement.dataset.confirmedValue ?? commandElement.dataset.previousValue ?? "";
+                const nextValue = getChangeCommandValue(commandElement);
+                let requestId = "";
+                requestId = sendShellCommand(cmd, nextValue, (error) => {
+                    if (
+                        requestId &&
+                        commandElement.dataset.pendingChangeRequestId &&
+                        commandElement.dataset.pendingChangeRequestId !== requestId
+                    ) {
+                        return;
+                    }
+
+                    restoreChangeCommandValue(commandElement, previousValue);
+                    commandElement.dataset.confirmedValue = String(previousValue ?? "");
+                    if (requestId && commandElement.dataset.pendingChangeRequestId === requestId) {
+                        delete commandElement.dataset.pendingChangeRequestId;
+                        const message = error?.message || ShellBridgeErrorMessage;
+                        window.showToast?.(message, "error", 2200);
+                        window.addLog?.(message, "error");
+                    }
+                });
+                if (!requestId) return;
+                commandElement.dataset.pendingChangeRequestId = requestId;
+                commandElement.dataset.confirmedValue = String(nextValue ?? "");
                 return;
             }
 
@@ -239,6 +366,8 @@
         windowDragging = false;
     });
 
+    window.addEventListener("cf-command-error", handleShellCommandError);
+
     document.addEventListener("DOMContentLoaded", () => {
         setupDelegatedActions();
         window.moveVisionControlsToSettings?.();
@@ -248,13 +377,14 @@
         window.renderRecentInspections?.();
         window.CF_RENDER?.renderAll?.();
         updateOperatorStatus();
-        setTimeout(() => window.sendCommand("app_ready"), 500);
+        setTimeout(() => sendShellCommand("app_ready"), 500);
     });
 
     Object.assign(window, {
         closeManualReleaseModal,
         openManualReleaseModal,
         submitManualRelease,
+        sendShellCommand,
         startDrag,
         toggleDrawer,
         updateOperatorStatus,

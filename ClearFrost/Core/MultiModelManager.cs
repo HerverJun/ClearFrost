@@ -14,6 +14,7 @@ using System.Drawing;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using ClearFrost.Core.DeepLearning;
 using OpenCvSharp;
 
 namespace ClearFrost.Yolo
@@ -304,6 +305,23 @@ namespace ClearFrost.Yolo
         /// </summary>
         public void LoadPrimaryModel(string modelPath)
         {
+            LoadPrimaryModel(modelPath, string.Empty, DeepLearningScoreNormalization.None);
+        }
+
+        public void LoadPrimaryModel(
+            string modelPath,
+            string postprocessorKey,
+            DeepLearningScoreNormalization scoreNormalization)
+        {
+            LoadPrimaryModel(modelPath, postprocessorKey, scoreNormalization, null);
+        }
+
+        public void LoadPrimaryModel(
+            string modelPath,
+            string postprocessorKey,
+            DeepLearningScoreNormalization scoreNormalization,
+            IReadOnlyDictionary<string, string>? postprocessOptions)
+        {
             if (string.IsNullOrWhiteSpace(modelPath)) return;
 
             ThrowIfDisposed();
@@ -312,7 +330,7 @@ namespace ClearFrost.Yolo
 
             try
             {
-                newModel = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
+                newModel = CreateDetector(modelPath, postprocessorKey, scoreNormalization, postprocessOptions);
 
                 _modelLock.EnterWriteLock();
                 try
@@ -371,6 +389,23 @@ namespace ClearFrost.Yolo
         /// </summary>
         public void LoadAuxiliary1Model(string modelPath)
         {
+            LoadAuxiliary1Model(modelPath, string.Empty, DeepLearningScoreNormalization.None);
+        }
+
+        public void LoadAuxiliary1Model(
+            string modelPath,
+            string postprocessorKey,
+            DeepLearningScoreNormalization scoreNormalization)
+        {
+            LoadAuxiliary1Model(modelPath, postprocessorKey, scoreNormalization, null);
+        }
+
+        public void LoadAuxiliary1Model(
+            string modelPath,
+            string postprocessorKey,
+            DeepLearningScoreNormalization scoreNormalization,
+            IReadOnlyDictionary<string, string>? postprocessOptions)
+        {
             if (string.IsNullOrWhiteSpace(modelPath)) return;
 
             ThrowIfDisposed();
@@ -379,7 +414,7 @@ namespace ClearFrost.Yolo
 
             try
             {
-                newModel = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
+                newModel = CreateDetector(modelPath, postprocessorKey, scoreNormalization, postprocessOptions);
 
                 _modelLock.EnterWriteLock();
                 try
@@ -414,6 +449,23 @@ namespace ClearFrost.Yolo
         /// </summary>
         public void LoadAuxiliary2Model(string modelPath)
         {
+            LoadAuxiliary2Model(modelPath, string.Empty, DeepLearningScoreNormalization.None);
+        }
+
+        public void LoadAuxiliary2Model(
+            string modelPath,
+            string postprocessorKey,
+            DeepLearningScoreNormalization scoreNormalization)
+        {
+            LoadAuxiliary2Model(modelPath, postprocessorKey, scoreNormalization, null);
+        }
+
+        public void LoadAuxiliary2Model(
+            string modelPath,
+            string postprocessorKey,
+            DeepLearningScoreNormalization scoreNormalization,
+            IReadOnlyDictionary<string, string>? postprocessOptions)
+        {
             if (string.IsNullOrWhiteSpace(modelPath)) return;
 
             ThrowIfDisposed();
@@ -422,7 +474,7 @@ namespace ClearFrost.Yolo
 
             try
             {
-                newModel = new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
+                newModel = CreateDetector(modelPath, postprocessorKey, scoreNormalization, postprocessOptions);
 
                 _modelLock.EnterWriteLock();
                 try
@@ -450,6 +502,31 @@ namespace ClearFrost.Yolo
                 oldModel?.Dispose();
                 newModel?.Dispose();
             }
+        }
+
+        private YoloDetector CreateDetector(
+            string modelPath,
+            string postprocessorKey,
+            DeepLearningScoreNormalization scoreNormalization,
+            IReadOnlyDictionary<string, string>? postprocessOptions)
+        {
+            if (string.IsNullOrWhiteSpace(postprocessorKey) &&
+                scoreNormalization == DeepLearningScoreNormalization.None &&
+                (postprocessOptions == null || postprocessOptions.Count == 0))
+            {
+                return new YoloDetector(modelPath, 0, _gpuDeviceId, _useGpu);
+            }
+
+            return new YoloDetector(new YoloDetectorConfig
+            {
+                ModelPath = modelPath,
+                YoloVersion = 0,
+                GpuDeviceId = _gpuDeviceId,
+                UseGpu = _useGpu,
+                PostprocessorKey = postprocessorKey ?? string.Empty,
+                ScoreNormalization = scoreNormalization,
+                PostprocessOptions = postprocessOptions ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            });
         }
 
         /// <summary>

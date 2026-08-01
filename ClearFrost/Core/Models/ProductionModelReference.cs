@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -252,6 +253,13 @@ namespace ClearFrost.Core.Models
         public string Version { get; init; } = string.Empty;
         public string Sha256 { get; init; } = string.Empty;
         public string FileName { get; init; } = string.Empty;
+        public string TaskType { get; init; } = string.Empty;
+        public string PostprocessorKey { get; init; } = string.Empty;
+        public string ScoreNormalization { get; init; } = string.Empty;
+        public IReadOnlyDictionary<string, string> PostprocessOptions { get; init; } = new Dictionary<string, string>();
+        public int InputWidth { get; init; }
+        public int InputHeight { get; init; }
+        public int LabelCount { get; init; }
         public bool IsApprovedPackage { get; init; }
     }
 }

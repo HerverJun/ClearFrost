@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Threading.Tasks;
 using OpenCvSharp;
+using ClearFrost.Core.DeepLearning;
 using ClearFrost.Core.Rules;
 using ClearFrost.Yolo;
 
@@ -138,6 +139,37 @@ namespace ClearFrost.Interfaces
         {
             Role = ModelRole.Auxiliary2
         };
+    }
+
+    public sealed class DetectionModelLoadOptions
+    {
+        public string PostprocessorKey { get; init; } = string.Empty;
+        public DeepLearningScoreNormalization ScoreNormalization { get; init; } = DeepLearningScoreNormalization.None;
+        public IReadOnlyDictionary<string, string> PostprocessOptions { get; init; } = new Dictionary<string, string>();
+
+        public bool HasPostprocessorConfiguration =>
+            !string.IsNullOrWhiteSpace(PostprocessorKey) ||
+            ScoreNormalization != DeepLearningScoreNormalization.None ||
+            (PostprocessOptions?.Count ?? 0) > 0;
+
+        public static DetectionModelLoadOptions Default { get; } = new DetectionModelLoadOptions();
+    }
+
+    public interface IConfigurableDetectionService
+    {
+        Task<bool> LoadModelAsync(
+            string modelPath,
+            bool useGpu,
+            int gpuDeviceId,
+            DetectionModelLoadOptions? options);
+
+        Task<bool> LoadAuxiliary1ModelAsync(
+            string modelPath,
+            DetectionModelLoadOptions? options);
+
+        Task<bool> LoadAuxiliary2ModelAsync(
+            string modelPath,
+            DetectionModelLoadOptions? options);
     }
 
     /// <summary>

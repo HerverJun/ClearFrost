@@ -14,6 +14,7 @@
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using OpenCvSharp;
+using ClearFrost.Core.DeepLearning;
 using ClearFrost.Helpers;
 using System.Collections.Generic;
 using System.Drawing;
@@ -110,6 +111,22 @@ namespace ClearFrost.Yolo
         /// 任务模式偏好。Auto 表示由 ONNX metadata 和输出 shape 推断。
         /// </summary>
         public YoloTaskType TaskType { get; set; } = YoloTaskType.Auto;
+        /// <summary>
+        /// 深度学习后处理器 Key。为空时沿用 YOLO 自动契约；非空时交给通用后处理注册表。
+        /// </summary>
+        public string PostprocessorKey { get; set; } = string.Empty;
+        /// <summary>
+        /// 通用后处理器对分类分数的归一化方式。
+        /// </summary>
+        public DeepLearningScoreNormalization ScoreNormalization { get; set; } = DeepLearningScoreNormalization.None;
+        /// <summary>
+        /// 模型包或调用方提供的通用后处理参数，会覆盖 ONNX metadata 中的同名键。
+        /// </summary>
+        public IReadOnlyDictionary<string, string> PostprocessOptions { get; set; } = new Dictionary<string, string>();
+        /// <summary>
+        /// 可选自定义后处理注册表，用于接入 YOLO 之外的模型输出解释器。
+        /// </summary>
+        public DeepLearningPostprocessorRegistry? PostprocessorRegistry { get; set; }
 
         /// <summary>
         /// 验证配置参数
@@ -177,6 +194,11 @@ namespace ClearFrost.Yolo
         private string _taskType = "";
         private YoloPreprocessingMode _defaultPreprocessingMode = YoloPreprocessingMode.StandardLetterBox;
         private YoloTaskType _requestedTaskMode = YoloTaskType.Auto;
+        private string _postprocessorAlgorithmKey = string.Empty;
+        private DeepLearningScoreNormalization _scoreNormalization = DeepLearningScoreNormalization.None;
+        private DeepLearningPostprocessorRegistry? _deepLearningPostprocessorRegistry;
+        private IReadOnlyDictionary<string, string> _modelMetadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private IReadOnlyDictionary<string, string> _configuredPostprocessOptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private bool _requestedGpu;
         private bool _gpuActive;
         private int _gpuDeviceId;
@@ -326,7 +348,11 @@ namespace ClearFrost.Yolo
                 config.IntraOpNumThreads,
                 config.InterOpNumThreads,
                 config.PreprocessingMode,
-                config.TaskType);
+                config.TaskType,
+                config.PostprocessorKey,
+                config.ScoreNormalization,
+                config.PostprocessOptions,
+                config.PostprocessorRegistry);
         }
 
         /// <summary>
@@ -349,7 +375,11 @@ namespace ClearFrost.Yolo
                 intraOpThreads: 0,
                 interOpThreads: 0,
                 preprocessingMode: YoloPreprocessingMode.StandardLetterBox,
-                requestedTaskMode: YoloTaskType.Auto);
+                requestedTaskMode: YoloTaskType.Auto,
+                postprocessorKey: string.Empty,
+                scoreNormalization: DeepLearningScoreNormalization.None,
+                postprocessOptions: null,
+                postprocessorRegistry: null);
         }
 
         private void InitializeDetector(
@@ -360,7 +390,11 @@ namespace ClearFrost.Yolo
             int intraOpThreads,
             int interOpThreads,
             YoloPreprocessingMode preprocessingMode,
-            YoloTaskType requestedTaskMode)
+            YoloTaskType requestedTaskMode,
+            string postprocessorKey,
+            DeepLearningScoreNormalization scoreNormalization,
+            IReadOnlyDictionary<string, string>? postprocessOptions,
+            DeepLearningPostprocessorRegistry? postprocessorRegistry)
         {
             if (string.IsNullOrWhiteSpace(modelPath))
                 throw new ArgumentNullException(nameof(modelPath));
@@ -374,6 +408,10 @@ namespace ClearFrost.Yolo
             _executionProvider = useGpu ? "DmlExecutionProvider" : "CPUExecutionProvider";
             _defaultPreprocessingMode = preprocessingMode;
             _requestedTaskMode = requestedTaskMode;
+            _postprocessorAlgorithmKey = NormalizePostprocessorKey(postprocessorKey);
+            _scoreNormalization = scoreNormalization;
+            _configuredPostprocessOptions = CopyPostprocessOptions(postprocessOptions);
+            _deepLearningPostprocessorRegistry = postprocessorRegistry ?? DeepLearningPostprocessorRegistry.CreateDefault();
 
             if (!useGpu)
             {
@@ -437,13 +475,23 @@ namespace ClearFrost.Yolo
             _maskScaleW = 0;
             _maskScaleH = 0;
             var modelMetadata = _inferenceSession.ModelMetadata.CustomMetadataMap;
-            Labels = modelMetadata.TryGetValue("names", out string? labelNames)
+            _modelMetadata = CopyMetadata(modelMetadata);
+            if (string.IsNullOrWhiteSpace(_postprocessorAlgorithmKey))
+            {
+                _postprocessorAlgorithmKey = ResolveMetadataPostprocessorKey(_modelMetadata);
+            }
+            if (_scoreNormalization == DeepLearningScoreNormalization.None)
+            {
+                _scoreNormalization = ResolveMetadataScoreNormalization(_modelMetadata);
+            }
+
+            Labels = _modelMetadata.TryGetValue("names", out string? labelNames)
                 ? SplitLabelNames(labelNames)
                 : Array.Empty<string>();
-            _modelVersion = modelMetadata.TryGetValue("version", out string? modelVersion)
+            _modelVersion = _modelMetadata.TryGetValue("version", out string? modelVersion)
                 ? modelVersion
                 : string.Empty;
-            if (modelMetadata.TryGetValue("task", out string? taskType))
+            if (_modelMetadata.TryGetValue("task", out string? taskType))
             {
                 _taskType = NormalizeTaskName(taskType);
                 if (_taskType == "segment")
@@ -486,7 +534,14 @@ namespace ClearFrost.Yolo
                 }
                 else
                 {
-                    throw new Exception("Model not supported yet");
+                    if (ShouldUseConfiguredDeepLearningPostprocessor())
+                    {
+                        _taskType = string.IsNullOrWhiteSpace(_taskType) ? "custom" : _taskType;
+                    }
+                    else
+                    {
+                        throw new Exception("Model not supported yet");
+                    }
                 }
             }
             _yoloVersion = DetermineModelVersion(yoloVersion);
@@ -506,17 +561,223 @@ namespace ClearFrost.Yolo
                 _modelInputName,
                 _inputTensorInfo,
                 outputs,
-                modelMetadata,
+                _modelMetadata,
                 yoloVersion,
                 _defaultPreprocessingMode,
                 _requestedTaskMode);
 
-            if (!ModelDescriptor.IsSupported)
+            if (!ModelDescriptor.IsSupported && !ShouldUseConfiguredDeepLearningPostprocessor())
             {
                 throw new NotSupportedException(ModelDescriptor.SupportMessage);
             }
 
-            TaskMode = ModelDescriptor.ExecutionTaskMode;
+            if (ModelDescriptor.IsSupported)
+            {
+                TaskMode = ModelDescriptor.ExecutionTaskMode;
+            }
+        }
+
+        private static string NormalizePostprocessorKey(string? value)
+        {
+            string normalized = (value ?? string.Empty).Trim();
+            return IsYoloPostprocessorKey(normalized) ? string.Empty : normalized;
+        }
+
+        private static IReadOnlyDictionary<string, string> CopyPostprocessOptions(IReadOnlyDictionary<string, string>? options)
+        {
+            if (options == null || options.Count == 0)
+            {
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var copy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> pair in options)
+            {
+                string key = (pair.Key ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(key) || copy.ContainsKey(key))
+                {
+                    continue;
+                }
+
+                copy[key] = pair.Value ?? string.Empty;
+            }
+
+            return copy;
+        }
+
+        private static IReadOnlyDictionary<string, string> CopyMetadata(IReadOnlyDictionary<string, string>? metadata)
+        {
+            if (metadata == null || metadata.Count == 0)
+            {
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var copy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> pair in metadata)
+            {
+                string key = (pair.Key ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(key) || copy.ContainsKey(key))
+                {
+                    continue;
+                }
+
+                copy[key] = pair.Value ?? string.Empty;
+            }
+
+            return copy;
+        }
+
+        private static string ResolveMetadataPostprocessorKey(IReadOnlyDictionary<string, string>? metadata)
+        {
+            if (metadata == null || metadata.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            foreach (string key in new[] { "postprocessor", "postprocess", "postprocessor_key" })
+            {
+                if (metadata.TryGetValue(key, out string? value))
+                {
+                    string normalized = NormalizePostprocessorKey(value);
+                    if (!string.IsNullOrWhiteSpace(normalized))
+                    {
+                        return normalized;
+                    }
+                }
+            }
+
+            foreach (string key in new[] { "algorithm", "algorithm_key" })
+            {
+                if (metadata.TryGetValue(key, out string? value))
+                {
+                    string normalized = NormalizePostprocessorKey(value);
+                    if (!string.IsNullOrWhiteSpace(normalized) &&
+                        DeepLearningPostprocessorConfiguration.IsKnownPostprocessorKey(normalized))
+                    {
+                        return normalized;
+                    }
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static bool IsYoloPostprocessorKey(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            string normalized = value.Trim().ToLowerInvariant();
+            return normalized == "yolo" || normalized.StartsWith("yolov", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static DeepLearningScoreNormalization ResolveMetadataScoreNormalization(IReadOnlyDictionary<string, string>? metadata)
+        {
+            if (metadata == null || metadata.Count == 0)
+            {
+                return DeepLearningScoreNormalization.None;
+            }
+
+            foreach (string key in new[] { "score_normalization", "score-normalization", "scoreNormalization", "score_normalization_type" })
+            {
+                if (TryGetMetadataValue(metadata, key, out string value))
+                {
+                    if (DeepLearningPostprocessorConfiguration.TryParseScoreNormalization(value, out DeepLearningScoreNormalization normalization))
+                    {
+                        return normalization;
+                    }
+
+                    throw new NotSupportedException(
+                        $"Unknown score normalization metadata value: {value}. Known score normalizations: {FormatKnownScoreNormalizations()}.");
+                }
+            }
+
+            foreach (string key in new[] { "normalization", "activation" })
+            {
+                if (!TryGetMetadataValue(metadata, key, out string value))
+                {
+                    continue;
+                }
+
+                if (DeepLearningPostprocessorConfiguration.TryParseScoreNormalization(value, out DeepLearningScoreNormalization normalization))
+                {
+                    return normalization;
+                }
+            }
+
+            return DeepLearningScoreNormalization.None;
+        }
+
+        private static bool TryGetMetadataValue(
+            IReadOnlyDictionary<string, string>? metadata,
+            string key,
+            out string value)
+        {
+            value = string.Empty;
+            if (metadata == null || metadata.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (KeyValuePair<string, string> pair in metadata)
+            {
+                if (string.Equals(pair.Key?.Trim(), key, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = pair.Value ?? string.Empty;
+                    return !string.IsNullOrWhiteSpace(value);
+                }
+            }
+
+            return false;
+        }
+
+        private static string FormatKnownScoreNormalizations()
+        {
+            return string.Join(", ", DeepLearningPostprocessorConfiguration.KnownScoreNormalizationValues
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase));
+        }
+
+        private string ResolveEffectivePostprocessorKey()
+        {
+            if (!string.IsNullOrWhiteSpace(_postprocessorAlgorithmKey))
+            {
+                return _postprocessorAlgorithmKey.Trim();
+            }
+
+            return ResolveMetadataPostprocessorKey(_modelMetadata);
+        }
+
+        private bool ShouldUseConfiguredDeepLearningPostprocessor()
+        {
+            return !string.IsNullOrWhiteSpace(ResolveEffectivePostprocessorKey());
+        }
+
+        private DeepLearningPostprocessorRegistry PostprocessorRegistry =>
+            _deepLearningPostprocessorRegistry ??= DeepLearningPostprocessorRegistry.CreateDefault();
+
+        private IReadOnlyDictionary<string, string> CreateEffectivePostprocessMetadata()
+        {
+            var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> pair in _modelMetadata ?? new Dictionary<string, string>())
+            {
+                if (!string.IsNullOrWhiteSpace(pair.Key))
+                {
+                    metadata[pair.Key.Trim()] = pair.Value ?? string.Empty;
+                }
+            }
+
+            foreach (KeyValuePair<string, string> pair in _configuredPostprocessOptions ?? new Dictionary<string, string>())
+            {
+                if (!string.IsNullOrWhiteSpace(pair.Key))
+                {
+                    metadata[pair.Key.Trim()] = pair.Value ?? string.Empty;
+                }
+            }
+
+            return metadata;
         }
 
         private static string NormalizeTaskName(string? taskType)
@@ -1084,8 +1345,17 @@ namespace ClearFrost.Yolo
 
                 // ==================== 推理阶段 ====================
                 List<YoloResult> finalResult = new List<YoloResult>();
+                bool usedConfiguredPostprocessor = false;
 
-                if (_executionTaskMode == YoloTaskType.Classify)
+                if (ShouldUseConfiguredDeepLearningPostprocessor())
+                {
+                    usedConfiguredPostprocessor = true;
+                    using var resultData = _inferenceSession.Run(container);
+                    metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
+                    sw.Restart();
+                    finalResult = PostprocessWithConfiguredDeepLearningProcessor(resultData, confidence, iouThreshold, globalIou);
+                }
+                else if (_executionTaskMode == YoloTaskType.Classify)
                 {
                     using var resultData = _inferenceSession.Run(container);
                     var output0 = resultData.First().AsTensor<float>();
@@ -1139,7 +1409,7 @@ namespace ClearFrost.Yolo
 
                 // ==================== 推理阶段 ====================
                 RestoreCoordinates(ref finalResult);
-                if (_executionTaskMode != YoloTaskType.Classify)
+                if (ShouldApplyGeometryBoundsFilter(finalResult, usedConfiguredPostprocessor))
                 {
                     RemoveOutOfBoundsCoordinates(ref finalResult);
                 }
@@ -1206,8 +1476,17 @@ namespace ClearFrost.Yolo
 
             // ==================== 推理阶段 ====================
             List<YoloResult> finalResult = new List<YoloResult>();
+            bool usedConfiguredPostprocessor = false;
 
-            if (_executionTaskMode == YoloTaskType.Classify)
+            if (ShouldUseConfiguredDeepLearningPostprocessor())
+            {
+                usedConfiguredPostprocessor = true;
+                using var resultData = _inferenceSession.Run(container);
+                metrics.InferenceMs = sw.Elapsed.TotalMilliseconds;
+                sw.Restart();
+                finalResult = PostprocessWithConfiguredDeepLearningProcessor(resultData, confidence, iouThreshold, globalIou);
+            }
+            else if (_executionTaskMode == YoloTaskType.Classify)
             {
                 using var resultData = _inferenceSession.Run(container);
                 var output0 = resultData.First().AsTensor<float>();
@@ -1261,7 +1540,7 @@ namespace ClearFrost.Yolo
 
             // ==================== 后处理阶段 ====================
             RestoreCoordinates(ref finalResult);
-            if (_executionTaskMode != YoloTaskType.Classify)
+            if (ShouldApplyGeometryBoundsFilter(finalResult, usedConfiguredPostprocessor))
             {
                 RemoveOutOfBoundsCoordinates(ref finalResult);
             }
@@ -1285,6 +1564,53 @@ namespace ClearFrost.Yolo
             }
 
             return NmsFilter(filteredDataList, iouThreshold, globalIou);
+        }
+
+        private List<YoloResult> PostprocessWithConfiguredDeepLearningProcessor(
+            IEnumerable<DisposableNamedOnnxValue> resultData,
+            float confidence,
+            float iouThreshold,
+            bool globalIou)
+        {
+            DeepLearningOutputTensor[] outputs = resultData
+                .Select(value => new DeepLearningOutputTensor(value.Name, value.AsTensor<float>()))
+                .ToArray();
+
+            return PostprocessWithConfiguredDeepLearningProcessor(outputs, confidence, iouThreshold, globalIou);
+        }
+
+        internal List<YoloResult> PostprocessWithConfiguredDeepLearningProcessor(
+            IReadOnlyList<DeepLearningOutputTensor> outputs,
+            float confidence,
+            float iouThreshold,
+            bool globalIou)
+        {
+            var request = new DeepLearningPostprocessRequest
+            {
+                AlgorithmKey = ResolveEffectivePostprocessorKey(),
+                TaskKey = _taskType ?? string.Empty,
+                Outputs = outputs ?? Array.Empty<DeepLearningOutputTensor>(),
+                Metadata = CreateEffectivePostprocessMetadata(),
+                Labels = Labels ?? Array.Empty<string>(),
+                ConfidenceThreshold = confidence,
+                IouThreshold = iouThreshold,
+                GlobalIou = globalIou,
+                ScoreNormalization = _scoreNormalization,
+                InputWidth = _tensorWidth,
+                InputHeight = _tensorHeight
+            };
+
+            return PostprocessorRegistry.Process(request).ToList();
+        }
+
+        private bool ShouldApplyGeometryBoundsFilter(IReadOnlyList<YoloResult> results, bool usedConfiguredPostprocessor)
+        {
+            if (usedConfiguredPostprocessor)
+            {
+                return results.Any(result => result.DataKind != YoloResultDataKind.Classification);
+            }
+
+            return _executionTaskMode != YoloTaskType.Classify;
         }
 
         private static bool IsDecodedDetectionOutput(Tensor<float> output0)
