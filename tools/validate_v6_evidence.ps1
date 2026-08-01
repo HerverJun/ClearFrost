@@ -1,7 +1,7 @@
 ﻿param(
     [Parameter(Mandatory = $true)]
     [string]$EvidencePath,
-    [int]$MinimumHermeticTests = 852
+    [int]$MinimumHermeticTests = 853
 )
 
 $ErrorActionPreference = "Stop"
@@ -94,6 +94,17 @@ try {
     }
     if ($promotionEligibility -eq "BLOCKED" -and @($evidence.promotionBlockingReasons).Count -eq 0) {
         Add-ValidationError "BLOCKED promotion must include promotionBlockingReasons."
+    }
+
+    $publish = Require-Property $evidence "publish"
+    foreach ($profile in @("Lite", "Full")) {
+        $publishStep = if ($null -eq $publish) { $null } else { Require-Property $publish $profile }
+        if ($null -ne $publishStep -and [string]$publishStep.status -eq "NOT_VERIFIED") {
+            $exitCodeProperty = $publishStep.PSObject.Properties["exitCode"]
+            if ($null -ne $exitCodeProperty -and $null -ne $exitCodeProperty.Value) {
+                Add-ValidationError "$profile NOT_VERIFIED publish evidence must not contain a non-null exitCode."
+            }
+        }
     }
 
     $tests = Require-Property $evidence "tests"

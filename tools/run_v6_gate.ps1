@@ -26,7 +26,7 @@ $notVerifiedReasons = [System.Collections.Generic.List[string]]::new()
 $promotionBlockingReasons = [System.Collections.Generic.List[string]]::new()
 $logicalSkips = [System.Collections.Generic.List[object]]::new()
 $manifest = $null
-$minimumHermeticTests = 852
+$minimumHermeticTests = 853
 
 New-Item -ItemType Directory -Force -Path $evidenceRoot, $logRoot, $testResultRoot, $publishRoot | Out-Null
 
@@ -716,13 +716,13 @@ if ($archiveStatus -eq "PASS" -and -not [string]::IsNullOrWhiteSpace($powerShell
 $litePublishStep = [ordered]@{
     name = "Lite positive publish evidence"
     status = "NOT_VERIFIED"
-    exitCode = 0
+    exitCode = $null
     reason = "Development validation does not claim an authorized Lite package."
 }
 $fullPublishStep = [ordered]@{
     name = "Full positive publish evidence"
     status = "NOT_VERIFIED"
-    exitCode = 0
+    exitCode = $null
     reason = "Development validation does not claim an authorized Full package."
 }
 Add-PromotionBlockingReason "Authorized positive Lite and Full package evidence was not supplied."

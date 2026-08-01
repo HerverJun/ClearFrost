@@ -44,6 +44,13 @@ namespace ClearFrost.Hardware
             }
         }
 
+        internal HuaraySdkCamera(HuaraySdkBridge bridge, string? targetSerialNumber = null)
+        {
+            _targetSerialNumber = targetSerialNumber?.Trim() ?? string.Empty;
+            _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
+            _bridgeError = string.Empty;
+        }
+
         public string ProviderName => "Huaray";
 
         public bool IsConnected => _isConnected;
@@ -60,7 +67,7 @@ namespace ClearFrost.Hardware
                 return new List<CameraDeviceInfo>();
             }
 
-            int result = _bridge.EnumerateDevices(out List<CameraDeviceInfo> devices);
+            int result = _bridge.EnumerateDevices(_bridge.InterfaceTypeAll, out List<CameraDeviceInfo> devices);
             if (result != CameraSdk.Ok)
             {
                 Debug.WriteLine($"[HuaraySdkCamera] EnumerateDevices failed: {result}");
@@ -79,10 +86,16 @@ namespace ClearFrost.Hardware
         public int IMV_EnumDevices(ref CameraDeviceList deviceList, uint interfaceType)
         {
             deviceList ??= new CameraDeviceList();
-            List<CameraDeviceInfo> devices = EnumerateDevices();
             deviceList.Devices.Clear();
+            if (_bridge == null)
+            {
+                LogSdkUnavailable();
+                return SdkUnavailable;
+            }
+
+            int result = _bridge.EnumerateDevices(interfaceType, out List<CameraDeviceInfo> devices);
             deviceList.Devices.AddRange(devices);
-            return _bridge == null ? SdkUnavailable : CameraSdk.Ok;
+            return result;
         }
 
         public int IMV_CreateHandle(CameraCreateHandleMode mode, int index)
@@ -156,17 +169,18 @@ namespace ClearFrost.Hardware
                 return false;
             }
 
-            _currentDevice = EnumerateDevices().FirstOrDefault(device => string.Equals(
+            List<CameraDeviceInfo> devices = EnumerateDevices();
+            int index = devices.FindIndex(device => string.Equals(
                 device.SerialNumber,
                 serialNumber?.Trim(),
                 StringComparison.OrdinalIgnoreCase));
-            if (_currentDevice == null)
+            if (index < 0)
             {
                 return false;
             }
 
-            int createResult = IMV_CreateHandle(CameraCreateHandleMode.ByIndex, EnumerateDevices().FindIndex(
-                device => string.Equals(device.SerialNumber, _currentDevice.SerialNumber, StringComparison.OrdinalIgnoreCase)));
+            _currentDevice = devices[index];
+            int createResult = IMV_CreateHandle(CameraCreateHandleMode.ByIndex, index);
             return createResult == CameraSdk.Ok && IMV_Open() == CameraSdk.Ok;
         }
 
@@ -488,8 +502,9 @@ namespace ClearFrost.Hardware
         private readonly Type _bayerDemosaicType;
         private readonly Type _interfaceType;
         private readonly Type _cameraTypeEnum;
+        private readonly uint _interfaceTypeAll;
 
-        private HuaraySdkBridge(Assembly assembly)
+        internal HuaraySdkBridge(Assembly assembly)
         {
             _cameraType = GetRequiredType(assembly, "MVSDK_Net.MyCamera");
             Type defineType = GetRequiredType(assembly, "MVSDK_Net.IMVDefine");
@@ -507,7 +522,10 @@ namespace ClearFrost.Hardware
             _interfaceType = GetNestedType(defineType, "IMV_EInterfaceType");
             _cameraTypeEnum = GetNestedType(defineType, "IMV_ECameraType");
             ValidateSdkContract();
+            _interfaceTypeAll = Convert.ToUInt32(Enum.Parse(_interfaceType, "interfaceTypeAll"));
         }
+
+        public uint InterfaceTypeAll => _interfaceTypeAll;
 
         public static bool TryCreate(out HuaraySdkBridge? bridge, out string error)
         {
@@ -546,11 +564,11 @@ namespace ClearFrost.Hardware
             }
         }
 
-        public int EnumerateDevices(out List<CameraDeviceInfo> devices)
+        public int EnumerateDevices(uint interfaceType, out List<CameraDeviceInfo> devices)
         {
             devices = new List<CameraDeviceInfo>();
             object deviceList = Activator.CreateInstance(_deviceListType)!;
-            object?[] args = { deviceList, 0xFFFFFFFFu };
+            object?[] args = { deviceList, interfaceType };
             int result = InvokeStatic("IMV_EnumDevices", args);
             if (result != CameraSdk.Ok)
             {

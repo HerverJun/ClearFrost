@@ -58,16 +58,16 @@ jobs:
         if: always()
         shell: pwsh
         env:
-          GATE_CONCLUSION: ${{ steps.gate.conclusion }}
-          EVIDENCE_SCHEMA_CONCLUSION: ${{ steps.evidence-schema.conclusion }}
+          GATE_OUTCOME: ${{ steps.gate.outcome }}
+          EVIDENCE_SCHEMA_OUTCOME: ${{ steps.evidence-schema.outcome }}
         run: |
           $evidencePath = Join-Path $env:GITHUB_WORKSPACE "artifacts\v6-gate\evidence.json"
-          if ($env:GATE_CONCLUSION -ne "success") {
-              Write-Error "V6 gate step failed: $env:GATE_CONCLUSION"
+          if ($env:GATE_OUTCOME -ne "success") {
+              Write-Error "V6 gate step failed: $env:GATE_OUTCOME"
               exit 1
           }
-          if ($env:EVIDENCE_SCHEMA_CONCLUSION -ne "success") {
-              Write-Error "V6 evidence schema step failed: $env:EVIDENCE_SCHEMA_CONCLUSION"
+          if ($env:EVIDENCE_SCHEMA_OUTCOME -ne "success") {
+              Write-Error "V6 evidence schema step failed: $env:EVIDENCE_SCHEMA_OUTCOME"
               exit 1
           }
           if (-not (Test-Path -LiteralPath $evidencePath -PathType Leaf)) {
