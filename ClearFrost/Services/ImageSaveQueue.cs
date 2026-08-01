@@ -9,6 +9,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using ClearFrost.Helpers;
 using OpenCvSharp;
 
 namespace ClearFrost.Services
@@ -113,7 +114,7 @@ namespace ClearFrost.Services
 
             lock (_enqueueLock)
             {
-                if (_disposed)
+                if (_disposed || _stopped)
                 {
                     return false;
                 }
@@ -188,14 +189,15 @@ namespace ClearFrost.Services
 
         public async Task StopAsync(CancellationToken cancellationToken = default)
         {
-            if (_stopped)
+            lock (_enqueueLock)
             {
-                await _workerTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-                return;
+                if (!_stopped)
+                {
+                    _stopped = true;
+                    _channel.Writer.TryComplete();
+                }
             }
 
-            _stopped = true;
-            _channel.Writer.TryComplete();
             await _workerTask.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -258,7 +260,22 @@ namespace ClearFrost.Services
 
         private static bool WriteImageWithOpenCv(ImageSavePayload item)
         {
-            return Cv2.ImWrite(item.Path, item.Image, BuildEncodingParams(item));
+            string extension = Path.GetExtension(item.Path);
+            if (string.IsNullOrWhiteSpace(extension))
+            {
+                throw new IOException($"图像保存目标缺少扩展名: {item.Path}");
+            }
+
+            // OpenCV's Windows filename bridge is not reliable for every Unicode path.
+            // Encode in memory and let .NET perform the Unicode filesystem write.
+            Cv2.ImEncode(extension, item.Image, out byte[] encoded, BuildEncodingParams(item));
+            if (encoded == null || encoded.Length == 0)
+            {
+                throw new IOException($"OpenCV 图像编码失败: {item.Path}");
+            }
+
+            AtomicFileWriter.RestoreAllBytes(item.Path, encoded);
+            return true;
         }
 
         private static void EnsureImageTargetSafe(string fullPath, string directory)
@@ -311,10 +328,13 @@ namespace ClearFrost.Services
 
         public void Dispose()
         {
-            if (_disposed) return;
-            _disposed = true;
-
-            _channel.Writer.TryComplete();
+            lock (_enqueueLock)
+            {
+                if (_disposed) return;
+                _disposed = true;
+                _stopped = true;
+                _channel.Writer.TryComplete();
+            }
 
             try
             {

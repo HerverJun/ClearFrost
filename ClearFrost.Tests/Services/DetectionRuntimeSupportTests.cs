@@ -139,6 +139,37 @@ namespace ClearFrost.Tests.Services
         }
 
         [Fact]
+        public async Task ImageSaveQueue_中文目录使用编码后写入且StopAsync等待完成()
+        {
+            string tempDir = Path.Combine(
+                Path.GetTempPath(),
+                "清霜图像队列测试",
+                Guid.NewGuid().ToString("N"));
+            string imagePath = Path.Combine(tempDir, "2026年08月01日", "trace.jpg");
+            Directory.CreateDirectory(Path.GetDirectoryName(imagePath)!);
+
+            try
+            {
+                using var queue = new ImageSaveQueue();
+                using var image = new Mat(8, 8, MatType.CV_8UC3, Scalar.All(128));
+
+                queue.Enqueue(image, imagePath).Should().BeTrue();
+
+                await queue.StopAsync();
+
+                File.Exists(imagePath).Should().BeTrue();
+                new FileInfo(imagePath).Length.Should().BeGreaterThan(0);
+                queue.SavedCount.Should().Be(1);
+                queue.FailedCount.Should().Be(0);
+                queue.PendingCount.Should().Be(0);
+            }
+            finally
+            {
+                DeleteDirectory(tempDir);
+            }
+        }
+
+        [Fact]
         public async Task ImageSaveQueue_拒绝链接目录目标且不调用写图器()
         {
             string tempDir = Path.Combine(Path.GetTempPath(), "ClearFrostImageQueueTests", Guid.NewGuid().ToString("N"));

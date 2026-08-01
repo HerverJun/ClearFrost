@@ -14,13 +14,21 @@ namespace ClearFrost.Helpers
         private const string AppFolderName = "ClearFrost";
         private const string OverrideRootEnvVar = "CLEARFROST_APPDATA_ROOT";
 
-        public static string RootPath => EnsureWritableDirectory(GetPreferredRootCandidate());
+        public static string RootPath => EnsureWritableDirectory(
+            GetPreferredRootCandidate(),
+            allowFallback: !HasExplicitRootOverride());
 
-        public static string ConfigDirectory => EnsureWritableDirectory(Path.Combine(RootPath, "Config"));
+        public static string ConfigDirectory => EnsureWritableDirectory(
+            Path.Combine(RootPath, "Config"),
+            allowFallback: !HasExplicitRootOverride());
 
-        public static string LogsDirectory => EnsureWritableDirectory(Path.Combine(RootPath, "Logs"));
+        public static string LogsDirectory => EnsureWritableDirectory(
+            Path.Combine(RootPath, "Logs"),
+            allowFallback: !HasExplicitRootOverride());
 
-        public static string DataDirectory => EnsureWritableDirectory(Path.Combine(RootPath, "Data"));
+        public static string DataDirectory => EnsureWritableDirectory(
+            Path.Combine(RootPath, "Data"),
+            allowFallback: !HasExplicitRootOverride());
 
         public static string ConfigPath => Path.Combine(ConfigDirectory, "config.json");
 
@@ -68,6 +76,11 @@ namespace ClearFrost.Helpers
             }
 
             return GetScopedDefaultRootCandidate(Path.GetTempPath(), AppDomain.CurrentDomain.BaseDirectory);
+        }
+
+        private static bool HasExplicitRootOverride()
+        {
+            return !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(OverrideRootEnvVar));
         }
 
         private static string GetLegacySharedRootCandidate()
@@ -139,6 +152,43 @@ namespace ClearFrost.Helpers
 
         private static string EnsureWritableDirectory(string primaryPath)
         {
+            return EnsureWritableDirectory(primaryPath, allowFallback: true);
+        }
+
+        private static string EnsureWritableDirectory(string primaryPath, bool allowFallback)
+        {
+            if (!allowFallback)
+            {
+                string normalized = Path.GetFullPath(primaryPath);
+                try
+                {
+                    if (DirectoryPathHasReparsePoint(normalized))
+                    {
+                        throw new IOException($"显式运行根目录包含链接目录，拒绝回退或写入: {normalized}");
+                    }
+
+                    Directory.CreateDirectory(normalized);
+                    if (DirectoryPathHasReparsePoint(normalized))
+                    {
+                        throw new IOException($"显式运行根目录创建后包含链接目录，拒绝回退或写入: {normalized}");
+                    }
+
+                    return normalized;
+                }
+                catch (IOException)
+                {
+                    throw;
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    throw new IOException($"显式运行根目录不可写，拒绝回退: {normalized}", ex);
+                }
+                catch (Exception ex)
+                {
+                    throw new IOException($"显式运行根目录不可用，拒绝回退: {normalized}", ex);
+                }
+            }
+
             foreach (string candidate in GetCandidates(primaryPath))
             {
                 try
@@ -159,7 +209,7 @@ namespace ClearFrost.Helpers
                 }
                 catch
                 {
-                    // 尝试下一个候选目录
+                    // 未指定显式运行根目录时，继续尝试隔离的临时 fallback。
                 }
             }
 

@@ -1,27 +1,22 @@
-﻿name: ClearFrost V6 gate
+name: ClearFrost V6 promotion gate
 
 on:
-  push:
-    branches:
-      - V6_test
-  pull_request:
-    branches:
-      - V6_test
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  v6-gate:
+  promotion-gate:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout candidate with complete history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup .NET
+      - name: Setup .NET 8 SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.419"
@@ -40,13 +35,13 @@ jobs:
         with:
           node-version: "20.x"
 
-      - name: Run tracked-only fail-closed gate
+      - name: Run promotion gate without release mutation
         id: gate
         continue-on-error: true
         shell: pwsh
         env:
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: .\tools\run_v6_gate.ps1 -Root $env:GITHUB_WORKSPACE
+        run: .\tools\run_v6_gate.ps1 -Root $env:GITHUB_WORKSPACE -PromotionGate
 
       - name: Validate V6 evidence schema
         id: evidence-schema
@@ -54,7 +49,7 @@ jobs:
         shell: pwsh
         run: .\tools\validate_v6_evidence.ps1 -EvidencePath (Join-Path $env:GITHUB_WORKSPACE "artifacts\v6-gate\evidence.json")
 
-      - name: Enforce development validation decision
+      - name: Enforce promotion decision
         if: always()
         shell: pwsh
         env:
@@ -63,7 +58,7 @@ jobs:
         run: |
           $evidencePath = Join-Path $env:GITHUB_WORKSPACE "artifacts\v6-gate\evidence.json"
           if ($env:GATE_OUTCOME -ne "success") {
-              Write-Error "V6 gate step failed: $env:GATE_OUTCOME"
+              Write-Error "Promotion gate step failed: $env:GATE_OUTCOME"
               exit 1
           }
           if ($env:EVIDENCE_SCHEMA_OUTCOME -ne "success") {
@@ -71,25 +66,22 @@ jobs:
               exit 1
           }
           if (-not (Test-Path -LiteralPath $evidencePath -PathType Leaf)) {
-              Write-Error "V6 gate evidence is missing: $evidencePath"
+              Write-Error "Promotion evidence is missing: $evidencePath"
               exit 1
           }
 
           $evidence = Get-Content -LiteralPath $evidencePath -Raw -Encoding UTF8 | ConvertFrom-Json
           Write-Host "Development validation: $($evidence.developmentValidation.status)"
           Write-Host "Promotion eligibility: $($evidence.promotionEligibility)"
-          if ($evidence.overallStatus -ne "PASS" -or $evidence.developmentValidation.status -ne "PASS") {
-              Write-Error "V6 development validation failed. See uploaded evidence for blocking reasons."
+          if ($evidence.promotionEligibility -ne "PASS") {
+              Write-Error "Promotion gate is BLOCKED. Required external production evidence is missing or invalid."
               exit 1
           }
-          if ($evidence.promotionEligibility -eq "BLOCKED") {
-              Write-Host "Promotion remains BLOCKED because external production evidence is intentionally absent."
-          }
 
-      - name: Upload V6 gate evidence
+      - name: Upload promotion evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v6-gate-evidence
+          name: v6-promotion-evidence
           path: artifacts/v6-gate
           if-no-files-found: error

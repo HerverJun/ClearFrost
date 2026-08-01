@@ -486,6 +486,8 @@ namespace ClearFrost.Hardware
         private readonly Type _pixelType;
         private readonly Type _createHandleModeType;
         private readonly Type _bayerDemosaicType;
+        private readonly Type _interfaceType;
+        private readonly Type _cameraTypeEnum;
 
         private HuaraySdkBridge(Assembly assembly)
         {
@@ -502,6 +504,9 @@ namespace ClearFrost.Hardware
             _pixelType = GetNestedType(defineType, "IMV_EPixelType");
             _createHandleModeType = GetNestedType(defineType, "IMV_ECreateHandleMode");
             _bayerDemosaicType = GetNestedType(defineType, "IMV_EBayerDemosaic");
+            _interfaceType = GetNestedType(defineType, "IMV_EInterfaceType");
+            _cameraTypeEnum = GetNestedType(defineType, "IMV_ECameraType");
+            ValidateSdkContract();
         }
 
         public static bool TryCreate(out HuaraySdkBridge? bridge, out string error)
@@ -546,7 +551,7 @@ namespace ClearFrost.Hardware
             devices = new List<CameraDeviceInfo>();
             object deviceList = Activator.CreateInstance(_deviceListType)!;
             object?[] args = { deviceList, 0xFFFFFFFFu };
-            int result = Invoke("IMV_EnumDevices", args);
+            int result = InvokeStatic("IMV_EnumDevices", args);
             if (result != CameraSdk.Ok)
             {
                 return result;
@@ -768,7 +773,7 @@ namespace ClearFrost.Hardware
             }
         }
 
-        private int Invoke(string methodName, params object?[] args)
+        private int InvokeStatic(string methodName, params object?[] args)
         {
             try
             {
@@ -787,8 +792,170 @@ namespace ClearFrost.Hardware
             MethodInfo method = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
                 .Where(candidate => candidate.Name == methodName)
                 .Where(candidate => candidate.GetParameters().Length == args.Length)
-                .Single();
+                .Single(candidate => ParametersMatch(candidate.GetParameters(), args));
             return method.Invoke(target, args);
+        }
+
+        private void ValidateSdkContract()
+        {
+            RequireStaticMethod("IMV_EnumDevices", typeof(int), _deviceListType.MakeByRefType(), typeof(uint));
+            RequireMethod("IMV_CreateHandle", typeof(int), _createHandleModeType, typeof(int), typeof(string));
+            RequireMethod("IMV_Open", typeof(int));
+            RequireMethod("IMV_Close", typeof(int));
+            RequireMethod("IMV_DestroyHandle", typeof(int));
+            RequireMethod("IMV_StartGrabbing", typeof(int));
+            RequireMethod("IMV_StopGrabbing", typeof(int));
+            RequireMethod("IMV_GetFrame", typeof(int), _frameType.MakeByRefType(), typeof(uint));
+            RequireMethod("IMV_ReleaseFrame", typeof(int), _frameType.MakeByRefType());
+            RequireMethod("IMV_FeatureIsReadable", typeof(bool), typeof(string));
+            RequireMethod("IMV_FeatureIsWriteable", typeof(bool), typeof(string));
+            RequireMethod("IMV_GetEnumFeatureSymbol", typeof(int), typeof(string), _stringType.MakeByRefType());
+            RequireMethod("IMV_SetEnumFeatureSymbol", typeof(int), typeof(string), typeof(string));
+            RequireMethod("IMV_GetEnumFeatureEntryNum", typeof(int), typeof(string), typeof(uint).MakeByRefType());
+            RequireMethod("IMV_GetEnumFeatureEntrys", typeof(int), typeof(string), _enumEntryListType.MakeByRefType());
+            RequireMethod("IMV_GetDoubleFeatureValue", typeof(int), typeof(string), typeof(double).MakeByRefType());
+            RequireMethod("IMV_SetDoubleFeatureValue", typeof(int), typeof(string), typeof(double));
+            RequireMethod("IMV_GetIntFeatureValue", typeof(int), typeof(string), typeof(long).MakeByRefType());
+            RequireMethod("IMV_SetIntFeatureValue", typeof(int), typeof(string), typeof(long));
+            RequireMethod("IMV_GetBoolFeatureValue", typeof(int), typeof(string), typeof(bool).MakeByRefType());
+            RequireMethod("IMV_SetBoolFeatureValue", typeof(int), typeof(string), typeof(bool));
+            RequireMethod("IMV_GetStringFeatureValue", typeof(int), typeof(string), _stringType.MakeByRefType());
+            RequireMethod("IMV_SetStringFeatureValue", typeof(int), typeof(string), typeof(string));
+            RequireMethod("IMV_GetEnumFeatureValue", typeof(int), typeof(string), typeof(ulong).MakeByRefType());
+            RequireMethod("IMV_SetEnumFeatureValue", typeof(int), typeof(string), typeof(ulong));
+            RequireMethod("IMV_PixelConvert", typeof(int), _pixelConvertParamType.MakeByRefType());
+            RequireMethod("IMV_SetBufferCount", typeof(int), typeof(uint));
+            RequireMethod("IMV_ClearFrameBuffer", typeof(int));
+            RequireMethod("IMV_ExecuteCommandFeature", typeof(int), typeof(string));
+            RequireMethod("IMV_IsGrabbing", typeof(bool));
+
+            RequireField(_deviceListType, "nDevNum", typeof(uint));
+            RequireField(_deviceListType, "pDevInfo", typeof(IntPtr));
+            RequireField(_deviceInfoType, "nCameraType", _cameraTypeEnum);
+            RequireField(_deviceInfoType, "cameraKey", typeof(string));
+            RequireField(_deviceInfoType, "cameraName", typeof(string));
+            RequireField(_deviceInfoType, "serialNumber", typeof(string));
+            RequireField(_deviceInfoType, "vendorName", typeof(string));
+            RequireField(_deviceInfoType, "modelName", typeof(string));
+            RequireField(_deviceInfoType, "nInterfaceType", _interfaceType);
+            RequireField(_frameType, "frameHandle", typeof(IntPtr));
+            RequireField(_frameType, "pData", typeof(IntPtr));
+            RequireField(_frameType, "frameInfo", _frameInfoType);
+            RequireField(_frameInfoType, "blockId", typeof(ulong));
+            RequireField(_frameInfoType, "status", typeof(uint));
+            RequireField(_frameInfoType, "width", typeof(uint));
+            RequireField(_frameInfoType, "height", typeof(uint));
+            RequireField(_frameInfoType, "size", typeof(uint));
+            RequireField(_frameInfoType, "pixelFormat", _pixelType);
+            RequireField(_frameInfoType, "timeStamp", typeof(ulong));
+            RequireField(_frameInfoType, "paddingX", typeof(uint));
+            RequireField(_frameInfoType, "paddingY", typeof(uint));
+            RequireField(_pixelConvertParamType, "nWidth", typeof(uint));
+            RequireField(_pixelConvertParamType, "nHeight", typeof(uint));
+            RequireField(_pixelConvertParamType, "ePixelFormat", _pixelType);
+            RequireField(_pixelConvertParamType, "pSrcData", typeof(IntPtr));
+            RequireField(_pixelConvertParamType, "nSrcDataLen", typeof(uint));
+            RequireField(_pixelConvertParamType, "nPaddingX", typeof(uint));
+            RequireField(_pixelConvertParamType, "nPaddingY", typeof(uint));
+            RequireField(_pixelConvertParamType, "eBayerDemosaic", _bayerDemosaicType);
+            RequireField(_pixelConvertParamType, "eDstPixelFormat", _pixelType);
+            RequireField(_pixelConvertParamType, "pDstBuf", typeof(IntPtr));
+            RequireField(_pixelConvertParamType, "nDstBufSize", typeof(uint));
+            RequireField(_pixelConvertParamType, "nDstDataLen", typeof(uint));
+            RequireField(_stringType, "str", typeof(string));
+            RequireField(_enumEntryInfoType, "value", typeof(ulong));
+            RequireField(_enumEntryInfoType, "name", typeof(string));
+            RequireField(_enumEntryListType, "nEnumEntryBufferSize", typeof(uint));
+            RequireField(_enumEntryListType, "pEnumEntryInfo", typeof(IntPtr));
+
+            RequireEnumValue(_createHandleModeType, "modeByIndex", 0);
+            RequireEnumValue(_createHandleModeType, "modeByCameraKey", 1);
+            RequireEnumValue(_createHandleModeType, "modeByDeviceUserID", 2);
+            RequireEnumValue(_createHandleModeType, "modeByIPAddress", 3);
+            RequireEnumValue(_interfaceType, "interfaceTypeAll", 0);
+            RequireEnumValue(_pixelType, "gvspPixelMono8", 0x01080001);
+            RequireEnumValue(_pixelType, "gvspPixelBGR8", CameraSdk.GvspPixelBgr8);
+            RequireEnumValue(_bayerDemosaicType, "demosaicEdgeSensing", 2);
+        }
+
+        private void RequireMethod(string name, Type returnType, params Type[] parameterTypes)
+        {
+            MethodInfo? method = _cameraType.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
+                .SingleOrDefault(candidate =>
+                    candidate.Name == name &&
+                    !candidate.IsStatic &&
+                    candidate.ReturnType == returnType &&
+                    candidate.GetParameters().Select(parameter => parameter.ParameterType)
+                        .SequenceEqual(parameterTypes));
+            if (method == null)
+            {
+                string signature = string.Join(", ", parameterTypes.Select(type => type.FullName));
+                throw new MissingMethodException(_cameraType.FullName, $"{name}({signature})");
+            }
+        }
+
+        private void RequireStaticMethod(string name, Type returnType, params Type[] parameterTypes)
+        {
+            MethodInfo? method = _cameraType.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
+                .SingleOrDefault(candidate =>
+                    candidate.Name == name &&
+                    candidate.IsStatic &&
+                    candidate.ReturnType == returnType &&
+                    candidate.GetParameters().Select(parameter => parameter.ParameterType)
+                        .SequenceEqual(parameterTypes));
+            if (method == null)
+            {
+                string signature = string.Join(", ", parameterTypes.Select(type => type.FullName));
+                throw new MissingMethodException(_cameraType.FullName, $"static {name}({signature})");
+            }
+        }
+
+        private static void RequireField(Type type, string name, Type expectedType)
+        {
+            FieldInfo? field = type.GetField(name, BindingFlags.Public | BindingFlags.Instance);
+            if (field == null || field.FieldType != expectedType)
+            {
+                throw new MissingFieldException(type.FullName, name);
+            }
+        }
+
+        private static void RequireEnumValue(Type enumType, string name, long expectedValue)
+        {
+            FieldInfo? field = enumType.GetField(name, BindingFlags.Public | BindingFlags.Static);
+            if (field == null || Convert.ToInt64(field.GetValue(null)) != expectedValue)
+            {
+                throw new MissingFieldException(enumType.FullName, $"{name}={expectedValue}");
+            }
+        }
+
+        private static bool ParametersMatch(ParameterInfo[] parameters, object?[] args)
+        {
+            for (int index = 0; index < parameters.Length; index++)
+            {
+                Type parameterType = parameters[index].ParameterType;
+                if (parameterType.IsByRef)
+                {
+                    parameterType = parameterType.GetElementType()!;
+                }
+
+                object? argument = args[index];
+                if (argument == null)
+                {
+                    if (parameterType.IsValueType && Nullable.GetUnderlyingType(parameterType) == null)
+                    {
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                if (!parameterType.IsInstanceOfType(argument))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static object? GetMember(object target, string name)
@@ -809,7 +976,13 @@ namespace ClearFrost.Hardware
             }
 
             PropertyInfo? property = type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
-            property?.SetValue(target, value);
+            if (property?.CanWrite == true)
+            {
+                property.SetValue(target, value);
+                return;
+            }
+
+            throw new MissingMemberException(type.FullName, name);
         }
 
         private static string ReadString(object target, string name)
