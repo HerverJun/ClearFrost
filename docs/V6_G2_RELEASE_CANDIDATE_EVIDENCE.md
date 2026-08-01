@@ -17,7 +17,7 @@
 
 任务开始时的代码基线为 `1a7d2cf2166205e1d99cddfdfc75f20fc291444d`，分支为 `V6_test`，并与 `github/V6_test` 一致。fetch 后的 `github/main` 为 `4d843a9f490e7680f2ac72f31993dcaac3b63bc6`；本轮不修改 `main`。
 
-G1-R2 远端门禁已闭合：最新 V6 Actions run 为 [30708487100](https://github.com/HerverJun/ClearFrost/actions/runs/30708487100)，head SHA 为基线 SHA，状态为 `completed / success`。该工作流的最终 enforcement 同时检查 gate outcome、Evidence schema 和 Development validation；本轮没有改写该结果。
+G1-R2 远端门禁已闭合：前置复核 run 为 [30708487100](https://github.com/HerverJun/ClearFrost/actions/runs/30708487100)，head SHA 为 `1a7d2cf2166205e1d99cddfdfc75f20fc291444d`，状态为 `completed / success`。本轮最终提交 `5271e41caa4ae8dfb1c97e80817a8e14435b3d0d` 已同步到 `github/V6_test`，对应最新 V6 Actions run 为 [30713999055](https://github.com/HerverJun/ClearFrost/actions/runs/30713999055)，状态为 `completed / success`。该工作流的最终 enforcement 同时检查 gate outcome、Evidence schema 和 Development validation；本轮没有修改 `main`。
 
 ## 外部输入合同
 
