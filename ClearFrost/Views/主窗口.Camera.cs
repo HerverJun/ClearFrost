@@ -1,4 +1,4 @@
-﻿using MVSDK_Net;
+﻿
 using ClearFrost.Hardware;
 using ClearFrost.Config;
 using OpenCvSharp;
@@ -30,50 +30,26 @@ namespace ClearFrost
         {
             try
             {
-                var config = _appConfig.ActiveCamera;
-                if (config == null || string.IsNullOrEmpty(config.SerialNumber))
+                CameraConfig? config = _appConfig.ActiveCamera;
+                if (config == null || string.IsNullOrWhiteSpace(config.SerialNumber))
                 {
                     SafeFireAndForget(_uiController.LogToFrontend("未配置活动相机序列号", "error"), "查找相机");
                     return -1;
                 }
 
-                string targetSn = config.SerialNumber?.Trim() ?? "";
-
-                // 使用官方 SDK 的 MyCamera 静态方法进行设备枚举
-                IMVDefine.IMV_DeviceList deviceList = new IMVDefine.IMV_DeviceList();
-                int res = MyCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
-
-                if (res != IMVDefine.IMV_OK || deviceList.nDevNum == 0)
+                string targetSn = config.SerialNumber.Trim();
+                List<CameraDeviceInfo> devices = _cameraManager.DiscoverAllCameras();
+                int index = devices.FindIndex(device => string.Equals(
+                    device.SerialNumber,
+                    targetSn,
+                    StringComparison.OrdinalIgnoreCase));
+                if (index >= 0)
                 {
-                    SafeFireAndForget(_uiController.LogToFrontend("未找到任何相机设备", "error"), "查找相机");
-                    return -1;
+                    return index;
                 }
 
-                Debug.WriteLine($"[FindTargetCamera] Looking for '{targetSn}' in {deviceList.nDevNum} devices");
-
-                for (int i = 0; i < (int)deviceList.nDevNum; i++)
-                {
-                    var info = (IMVDefine.IMV_DeviceInfo)Marshal.PtrToStructure(
-                        deviceList.pDevInfo + Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo)) * i,
-                        typeof(IMVDefine.IMV_DeviceInfo))!;
-
-                    string foundSn = info.serialNumber?.Trim() ?? "";
-                    Debug.WriteLine($"[FindTargetCamera] Device[{i}] SerialNumber: '{foundSn}'");
-
-                    if (foundSn.Equals(targetSn, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return i;
-                    }
-                }
-
-                // 未找到匹配的序列号
                 SafeFireAndForget(_uiController.LogToFrontend($"未找到序列号为 {targetSn} 的相机", "error"), "查找相机");
-                SafeFireAndForget(_uiController.LogToFrontend($"请检查相机连接或在设置中修改序列号", "warning"), "查找相机提示");
-                return -1;
-            }
-            catch (DllNotFoundException dllEx)
-            {
-                SafeFireAndForget(_uiController.LogToFrontend($"相机驱动缺失: {dllEx.Message}", "error"), "驱动检查");
+                SafeFireAndForget(_uiController.LogToFrontend("请检查相机连接或在设置中修改序列号", "warning"), "查找相机提示");
                 return -1;
             }
             catch (Exception ex)
@@ -140,9 +116,13 @@ namespace ClearFrost
                         }
 
                         cam = activeCamera.Camera;
-                        string mockCameraNotice = cam is MockCamera
-                            ? "警告：当前连接的是模拟相机，画面为软件生成的测试图，不是真实工业相机。请检查 IsDebugMode 和相机配置。"
-                            : string.Empty;
+                        string mockCameraNotice = string.Empty;
+#if DEBUG
+                        if (cam is MockCamera)
+                        {
+                            mockCameraNotice = "警告：当前连接的是模拟相机，画面为软件生成的测试图，不是真实工业相机。请检查 IsDebugMode 和相机配置。";
+                        }
+#endif
 
                         token.ThrowIfCancellationRequested();
                         getParam();
@@ -562,13 +542,13 @@ namespace ClearFrost
             catch (Exception ex) { Debug.WriteLine($"[主窗口] ReleaseCameraResources failed: {ex.Message}"); }
         }
 
-        private Bitmap ConvertFrameToBitmap(IMVDefine.IMV_Frame frame)
+        private Bitmap ConvertFrameToBitmap(CameraFrame frame)
         {
-            if (frame.frameInfo.pixelFormat != IMVDefine.IMV_EPixelType.gvspPixelMono8) throw new Exception("非Mono8格式");
+            if (frame.PixelFormat != CameraPixelFormat.Mono8) throw new Exception("非Mono8格式");
 
-            int width = (int)frame.frameInfo.width;
-            int height = (int)frame.frameInfo.height;
-            int srcStride = width + (int)frame.frameInfo.paddingX; // SDK 帧的实际行步长
+            int width = frame.Width;
+            int height = frame.Height;
+            int srcStride = width + checked((int)frame.PaddingX); // SDK 帧的实际行步长
 
             var bitmap = new Bitmap(width, height, PixelFormat.Format8bppIndexed);
             BitmapData? bmpData = null;
@@ -584,7 +564,7 @@ namespace ClearFrost
                 if (srcStride == dstStride)
                 {
                     // stride 一致，可以整块拷贝
-                    CopyMemory(bmpData.Scan0, frame.pData, (uint)(srcStride * height));
+                    CopyMemory(bmpData.Scan0, frame.DataPtr, (uint)(srcStride * height));
                 }
                 else
                 {
@@ -593,7 +573,7 @@ namespace ClearFrost
                     {
                         CopyMemory(
                             bmpData.Scan0 + row * dstStride,
-                            frame.pData + row * srcStride,
+                            frame.DataPtr + row * srcStride,
                             (uint)width);
                     }
                 }
@@ -618,11 +598,11 @@ namespace ClearFrost
         /// 将相机帧转换为 OpenCV Mat 格式
         /// 注意：SDK 帧可能有 paddingX 对齐，stride 不一定等于 width
         /// </summary>
-        private Mat ConvertFrameToMat(IMVDefine.IMV_Frame frame)
+        private Mat ConvertFrameToMat(CameraFrame frame)
         {
-            int width = (int)frame.frameInfo.width;
-            int height = (int)frame.frameInfo.height;
-            int srcStride = width + (int)frame.frameInfo.paddingX; // SDK 帧的实际行步长
+            int width = frame.Width;
+            int height = frame.Height;
+            int srcStride = width + checked((int)frame.PaddingX); // SDK 帧的实际行步长
 
             // 创建 Mono8 格式的 Mat
             Mat mat = new Mat(height, width, MatType.CV_8UC1);
@@ -633,7 +613,7 @@ namespace ClearFrost
                 // 复制图像数据（处理 stride 对齐）
                 unsafe
                 {
-                    byte* srcPtr = (byte*)frame.pData.ToPointer();
+                    byte* srcPtr = (byte*)frame.DataPtr.ToPointer();
                     byte* dstPtr = (byte*)mat.Data.ToPointer();
 
                     if (srcStride == dstStride)

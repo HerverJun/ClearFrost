@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework>
@@ -22,12 +22,6 @@
   <ItemGroup>
     <ProjectReference Include="..\ClearFrost\ClearFrost.csproj" />
     <ProjectReference Include="..\tools\ClearFrost.SimStress\ClearFrost.SimStress.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Reference Include="MVSDK_Net">
-      <HintPath>..\ClearFrost\DLL\MVSDK_Net.dll</HintPath>
-    </Reference>
   </ItemGroup>
 
   <!-- 测试项目不使用 WebView2 WPF 组件，移除以避免 WindowsBase 版本冲突 -->

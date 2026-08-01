@@ -1,4 +1,4 @@
-﻿using MVSDK_Net;
+﻿
 using ClearFrost.Config;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;

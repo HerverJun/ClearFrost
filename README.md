@@ -1,4 +1,4 @@
-# 清霜视觉检测系统 V6.0.0 正式版 (ClearFrost)
+﻿# 清霜视觉检测系统 V6.1.0 预发布候选 (ClearFrost)
 
 <p align="center">
   <img src="ClearFrost/icon_transparent.png" width="120" alt="ClearFrost Logo">
@@ -14,10 +14,10 @@
   <img src="https://img.shields.io/badge/YOLO-v8%2Fv11%2Fv26-00FFFF" alt="YOLO">
   <img src="https://img.shields.io/badge/OpenCV-4.8-5C3EE8?logo=opencv" alt="OpenCV">
   <img src="https://img.shields.io/badge/Platform-Windows%20x64-0078D6?logo=windows" alt="Windows x64">
-  <img src="https://img.shields.io/badge/Release-V6.0.0-16A34A" alt="ClearFrost V6.0.0">
+  <img src="https://img.shields.io/badge/Channel-V6.1.0--preview.1-F59E0B" alt="ClearFrost V6.1.0 preview candidate">
 </p>
 
-> V6.0.0 的重点是生产闭环：稳定检测链路、多模型追溯、回放验证审批、配置迁移、可版本化发布，以及更适合产线维护的发布流程。
+> V6.1.0-preview.1 是研发分支上的预发布候选。发布候选资格由 clean-room 门禁和 evidence manifest 决定，当前不代表正式版或现场可交付。
 
 > V6_test 默认以现场轻量部署为主，严格模型准入和回放验证属于工程师高级维护能力。普通产线不强制模型审批证据，详见 `docs/V6_FIELD_DEPLOYMENT_MODE.md`。
 
@@ -27,8 +27,8 @@
 
 | 项目 | 内容 |
 |------|------|
-| 当前系列 | `V6.0.0` |
-| 默认项目版本 | `6.0.0` |
+| 当前系列 | `V6.1.0-preview.1` |
+| 默认项目版本 | `6.1.0-preview.1` |
 | 目标框架 | `net8.0-windows10.0.17763.0` |
 | 平台 | Windows x64 |
 | 主项目 | `ClearFrost/ClearFrost.csproj` |
@@ -38,7 +38,7 @@
 
 ---
 
-## V6.0.0 重点能力
+## V6.1.0 研发能力
 
 ### 视觉检测
 
@@ -68,7 +68,7 @@
 
 - 新增统一发布器 `脚本/publish.ps1`
 - 支持 Lite / Full / Both 三种发布模式
-- 发布时输入版本号，例如 `6.0.0`
+- 发布时输入版本号，例如 `6.1.0-preview.1`
 - 自动生成版本化输出目录和 `VERSION.txt`
 - 可选生成 zip 包
 - 缺少根目录 `check_env.bat` 时自动生成环境检查脚本
@@ -140,38 +140,38 @@ dotnet run --project ClearFrost/ClearFrost.csproj -c Debug
 版本输入示例：
 
 ```text
-6.0.0
+6.1.0-preview.1
 ```
 
 ### 命令行发布
 
 ```bat
-脚本\publish_lite.bat 6.0.0 -Zip
-脚本\publish_full.bat 6.0.0 -Zip
+脚本\publish_lite.bat 6.1.0-preview.1 -Zip
+脚本\publish_full.bat 6.1.0-preview.1 -Zip
 ```
 
 或直接使用 PowerShell：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\脚本\publish.ps1 -Mode Full -Version 6.0.0 -Zip -OpenOutput
+powershell -NoProfile -ExecutionPolicy Bypass -File .\脚本\publish.ps1 -Mode Full -Version 6.1.0-preview.1 -Zip -OpenOutput
 ```
 
 输出目录示例：
 
 ```text
-PublishOutput\ClearFrost_6.0.0_Lite
-PublishOutput\ClearFrost_6.0.0_Lite.zip
-PublishOutput\ClearFrost_6.0.0_Full
-PublishOutput\ClearFrost_6.0.0_Full.zip
+PublishOutput\ClearFrost_6.1.0-preview.1_Lite
+PublishOutput\ClearFrost_6.1.0-preview.1_Lite.zip
+PublishOutput\ClearFrost_6.1.0-preview.1_Full
+PublishOutput\ClearFrost_6.1.0-preview.1_Full.zip
 ```
 
 版本号建议：
 
 | 类型 | 示例 | 说明 |
 |------|------|------|
-| 当前正式版 | `6.0.0` | V6.0.0 初始正式包 |
-| 修复版 | `6.0.1` | 小 bug 修复、补丁更新 |
-| 功能更新 | `6.1.0` | 新增一批功能但仍在 V6 系列 |
+| 当前预发布候选 | `6.1.0-preview.1` | V6_test 研发验证版本，不能替代正式发布 |
+| 修复版 | `6.1.0-preview.2` | 预发布验证修复 |
+| 正式版 | `6.1.0` | 仅在正式 Tag/Release 和 promotion evidence 具备后使用 |
 | 大版本 | `7.0.0` | 兼容性或架构级变化 |
 
 ---
@@ -240,10 +240,10 @@ NuGet 依赖由 `dotnet restore` 自动还原，主要包括：
 
 ### 发布时输入什么版本号？
 
-如果当前是 `6.0.0`，后续修复版输入：
+预发布候选应显式带有 prerelease 后缀，例如：
 
 ```text
-6.0.1
+6.1.0-preview.2
 ```
 
 如果只是重新打当前版本的包，直接按回车使用默认值即可。
@@ -272,7 +272,7 @@ VERSION.txt
 
 ## 更新日志
 
-### v6.0.0 (2026-07-04)
+### v6.1.0-preview.1 (2026-08-01)
 
 - 新增统一发布器，支持发布时指定版本号
 - 窗口标题从程序集版本自动生成，避免手工忘改
@@ -294,7 +294,7 @@ VERSION.txt
 
 ## 维护建议
 
-- 发布正式包时固定使用三段版本号，例如 `6.0.0`
+- 发布正式包前必须完成 clean-room 门禁，并使用与 Tag/Release 一致的版本号
 - 每次现场交付保留 `PublishOutput` 中的 zip 包和 `VERSION.txt`
 - 模型文件、相机 SDK、现场配置不要直接提交到 Git
 - 修改发布流程后至少验证一次 Lite 发布和一次 Debug x64 构建

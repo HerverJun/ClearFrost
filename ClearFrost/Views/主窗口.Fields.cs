@@ -1,4 +1,4 @@
-﻿using MVSDK_Net;
+﻿
 using ClearFrost.Config;
 using ClearFrost.Core.Security;
 using ClearFrost.Hardware;

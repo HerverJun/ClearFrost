@@ -2,7 +2,6 @@
 using ClearFrost.Config;
 using ClearFrost.Hardware;
 using FluentAssertions;
-using MVSDK_Net;
 
 namespace ClearFrost.Tests.Hardware.Camera
 {
@@ -93,7 +92,11 @@ namespace ClearFrost.Tests.Hardware.Camera
             manager.LoadFromConfig(appConfig);
 
             manager.ActiveCamera.Should().NotBeNull();
+#if DEBUG
             manager.ActiveCamera!.Camera.Should().NotBeOfType<MockCamera>();
+#else
+            manager.ActiveCamera!.Camera.Should().BeOfType<RealCamera>();
+#endif
         }
 
         [Fact]
@@ -121,7 +124,7 @@ namespace ClearFrost.Tests.Hardware.Camera
 #if DEBUG
             manager.ActiveCamera!.Camera.Should().BeOfType<MockCamera>();
 #else
-            manager.ActiveCamera!.Camera.Should().NotBeOfType<MockCamera>();
+            manager.ActiveCamera!.Camera.Should().BeOfType<RealCamera>();
 #endif
         }
 
@@ -167,52 +170,52 @@ namespace ClearFrost.Tests.Hardware.Camera
 
             public bool IsConnected { get; private set; }
 
-            public int IMV_EnumDevices(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType) => IMVDefine.IMV_OK;
+            public int IMV_EnumDevices(ref CameraDeviceList deviceList, uint interfaceType) => CameraSdk.Ok;
 
-            public int IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode mode, int index) => IMVDefine.IMV_OK;
+            public int IMV_CreateHandle(CameraCreateHandleMode mode, int index) => CameraSdk.Ok;
 
             public int IMV_Open()
             {
                 IsConnected = true;
-                return IMVDefine.IMV_OK;
+                return CameraSdk.Ok;
             }
 
-            public int IMV_SetEnumFeatureSymbol(string name, string value) => IMVDefine.IMV_OK;
+            public int IMV_SetEnumFeatureSymbol(string name, string value) => CameraSdk.Ok;
 
-            public int IMV_SetDoubleFeatureValue(string name, double value) => IMVDefine.IMV_OK;
+            public int IMV_SetDoubleFeatureValue(string name, double value) => CameraSdk.Ok;
 
-            public int IMV_SetBufferCount(int count) => IMVDefine.IMV_OK;
+            public int IMV_SetBufferCount(int count) => CameraSdk.Ok;
 
             public int IMV_StartGrabbing()
             {
                 _isGrabbing = true;
-                return IMVDefine.IMV_OK;
+                return CameraSdk.Ok;
             }
 
             public int IMV_StopGrabbing()
             {
                 _isGrabbing = false;
-                return IMVDefine.IMV_OK;
+                return CameraSdk.Ok;
             }
 
             public int IMV_Close()
             {
                 IsConnected = false;
                 _isGrabbing = false;
-                return IMVDefine.IMV_OK;
+                return CameraSdk.Ok;
             }
 
-            public int IMV_DestroyHandle() => IMVDefine.IMV_OK;
+            public int IMV_DestroyHandle() => CameraSdk.Ok;
 
-            public int IMV_ExecuteCommandFeature(string name) => IMVDefine.IMV_OK;
+            public int IMV_ExecuteCommandFeature(string name) => CameraSdk.Ok;
 
-            public int IMV_ClearFrameBuffer() => IMVDefine.IMV_OK;
+            public int IMV_ClearFrameBuffer() => CameraSdk.Ok;
 
             public bool IMV_IsGrabbing() => _isGrabbing;
 
-            public int IMV_GetFrame(ref IMVDefine.IMV_Frame frame, int timeout) => IMVDefine.IMV_OK;
+            public int IMV_GetFrame(ref CameraFrame frame, int timeout) => CameraSdk.Ok;
 
-            public int IMV_ReleaseFrame(ref IMVDefine.IMV_Frame frame) => IMVDefine.IMV_OK;
+            public int IMV_ReleaseFrame(ref CameraFrame frame) => CameraSdk.Ok;
 
             public void Dispose()
             {

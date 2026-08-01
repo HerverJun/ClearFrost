@@ -54,10 +54,28 @@ internal static class YoloProbe
                 PrintBenchmark(benchmark);
             }
 
+            ExecutionProviderValidationResult? providerValidation = null;
+            if (!string.IsNullOrWhiteSpace(options.RequiredExecutionProvider))
+            {
+                providerValidation = ExecutionProviderValidation.Validate(
+                    options.RequiredExecutionProvider,
+                    benchmark?.ExecutionProvider);
+                Console.WriteLine($"  Provider check: {providerValidation.Status}");
+                if (!providerValidation.IsSatisfied)
+                {
+                    Console.Error.WriteLine($"Provider validation BLOCKED: {providerValidation.FailureReason}");
+                }
+            }
+
             if (!string.IsNullOrWhiteSpace(options.JsonOutputPath))
             {
-                SaveJson(options.JsonOutputPath, report.Descriptor, benchmark);
+                SaveJson(options.JsonOutputPath, report.Descriptor, benchmark, providerValidation);
                 Console.WriteLine($"JSON report: {options.JsonOutputPath}");
+            }
+
+            if (providerValidation is { IsSatisfied: false })
+            {
+                return 3;
             }
 
             return report.Descriptor.IsSupported ? 0 : 1;
@@ -107,12 +125,17 @@ internal static class YoloProbe
         Console.WriteLine($"  Postprocess:   {benchmark.AveragePostprocessMs:F2} ms");
     }
 
-    private static void SaveJson(string path, YoloModelDescriptor descriptor, YoloBenchmarkReport? benchmark)
+    private static void SaveJson(
+        string path,
+        YoloModelDescriptor descriptor,
+        YoloBenchmarkReport? benchmark,
+        ExecutionProviderValidationResult? providerValidation)
     {
         var payload = new
         {
             Descriptor = descriptor,
-            Benchmark = benchmark
+            Benchmark = benchmark,
+            ProviderValidation = providerValidation
         };
         string json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
         {
@@ -135,6 +158,7 @@ internal sealed class ProbeOptions
     public float IouThreshold { get; private init; } = 0.45f;
     public bool UseGpu { get; private init; }
     public bool RunBenchmark { get; private init; }
+    public string? RequiredExecutionProvider { get; private init; }
     public YoloPreprocessingMode PreprocessingMode { get; private init; } = YoloPreprocessingMode.StandardLetterBox;
     public YoloTaskType TaskMode { get; private init; } = YoloTaskType.Auto;
     public bool ShowHelp { get; private init; }
@@ -156,6 +180,7 @@ internal sealed class ProbeOptions
         float iouThreshold = 0.45f;
         bool useGpu = false;
         bool runBenchmark = false;
+        string? requiredExecutionProvider = null;
         YoloPreprocessingMode preprocessingMode = YoloPreprocessingMode.StandardLetterBox;
         YoloTaskType taskMode = YoloTaskType.Auto;
 
@@ -189,6 +214,17 @@ internal sealed class ProbeOptions
             if (arg is "--gpu")
             {
                 useGpu = true;
+                continue;
+            }
+            if (arg is "--require-provider")
+            {
+                requiredExecutionProvider = ReadValue(args, ref i, arg).Trim();
+                if (string.IsNullOrWhiteSpace(requiredExecutionProvider))
+                {
+                    throw new ArgumentException("--require-provider 不能为空");
+                }
+
+                runBenchmark = true;
                 continue;
             }
             if (arg is "--warmup")
@@ -256,6 +292,7 @@ internal sealed class ProbeOptions
             IouThreshold = iouThreshold,
             UseGpu = useGpu,
             RunBenchmark = runBenchmark,
+            RequiredExecutionProvider = requiredExecutionProvider,
             PreprocessingMode = preprocessingMode,
             TaskMode = taskMode
         };
@@ -276,6 +313,7 @@ internal sealed class ProbeOptions
         Console.WriteLine("      --confidence <value>    置信度阈值，默认 0.25");
         Console.WriteLine("      --iou <value>           IoU 阈值，默认 0.45");
         Console.WriteLine("      --gpu                   使用 DirectML；失败时按检测器逻辑回退 CPU");
+        Console.WriteLine("      --require-provider <n>  严格验证实际 provider；不匹配时返回非零");
         Console.WriteLine("      --version <n>           显式 YOLO 主版本，0 表示自动");
         Console.WriteLine("      --preprocess <mode>     standard 或 fast");
         Console.WriteLine("      --task <mode>           auto、detect、segment、pose、obb、classify");

@@ -82,6 +82,20 @@ namespace ClearFrost.Hardware
         public CameraPixelFormat PixelFormat { get; set; } = CameraPixelFormat.Mono8;
 
         /// <summary>
+        /// Original SDK frame status. Non-zero means the vendor returned an invalid frame.
+        /// </summary>
+        public uint Status { get; set; }
+
+        public uint PaddingX { get; set; }
+
+        public uint PaddingY { get; set; }
+
+        /// <summary>
+        /// Original GenICam pixel format value used for diagnostics and compatibility.
+        /// </summary>
+        public uint RawPixelFormat { get; set; }
+
+        /// <summary>
         /// 
         /// </summary>
         public ulong FrameNumber { get; set; }

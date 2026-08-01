@@ -2,7 +2,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
-using MVSDK_Net;
 
 namespace ClearFrost.Hardware
 {
@@ -37,80 +36,76 @@ namespace ClearFrost.Hardware
             _bufferHandle = GCHandle.Alloc(_dummyBuffer, GCHandleType.Pinned);
         }
 
-        public int IMV_EnumDevices(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType)
+        public int IMV_EnumDevices(ref CameraDeviceList deviceList, uint interfaceType)
         {
             // Mock finding one device
-            deviceList.nDevNum = 1u;
-
-            // Allocate unmanaged memory for one device info
-            int size = Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo));
-            deviceList.pDevInfo = Marshal.AllocHGlobal(size);
-
-            var info = new IMVDefine.IMV_DeviceInfo
+            deviceList.Devices.Clear();
+            deviceList.Devices.Add(new CameraDeviceInfo
             {
-                serialNumber = "EF59632AAK00074"
-            };
-            Marshal.StructureToPtr(info, deviceList.pDevInfo, false);
+                SerialNumber = "EF59632AAK00074",
+                Manufacturer = "Mock",
+                Model = "Virtual Camera"
+            });
 
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
-        public int IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode mode, int index)
+        public int IMV_CreateHandle(CameraCreateHandleMode mode, int index)
         {
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
         public int IMV_Open()
         {
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
         public int IMV_SetEnumFeatureSymbol(string name, string value)
         {
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
         public int IMV_SetDoubleFeatureValue(string name, double value)
         {
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
         public int IMV_SetBufferCount(int count)
         {
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
         public int IMV_StartGrabbing()
         {
             _isGrabbing = true;
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
         public int IMV_StopGrabbing()
         {
             _isGrabbing = false;
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
         public int IMV_Close()
         {
             _isGrabbing = false;
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
         public int IMV_DestroyHandle()
         {
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
         public int IMV_ExecuteCommandFeature(string name)
         {
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
         public int IMV_ClearFrameBuffer()
         {
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
         public bool IMV_IsGrabbing()
@@ -118,28 +113,29 @@ namespace ClearFrost.Hardware
             return _isGrabbing;
         }
 
-        public int IMV_GetFrame(ref IMVDefine.IMV_Frame frame, int timeout)
+        public int IMV_GetFrame(ref CameraFrame frame, int timeout)
         {
             if (!_isGrabbing || _disposed) return -1;
 
             // Simulate frame capture delay
             Thread.Sleep(50);
 
-            frame.pData = _bufferHandle.AddrOfPinnedObject();
-            frame.frameInfo = new IMVDefine.IMV_FrameInfo
+            frame = new CameraFrame
             {
-                width = 1280u,
-                height = 1024u,
-                size = (uint)_dummyBuffer.Length,
-                pixelFormat = IMVDefine.IMV_EPixelType.gvspPixelMono8
+                DataPtr = _bufferHandle.AddrOfPinnedObject(),
+                Width = 1280,
+                Height = 1024,
+                Size = _dummyBuffer.Length,
+                PixelFormat = CameraPixelFormat.Mono8,
+                RawPixelFormat = CameraSdk.GvspPixelMono8
             };
 
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
-        public int IMV_ReleaseFrame(ref IMVDefine.IMV_Frame frame)
+        public int IMV_ReleaseFrame(ref CameraFrame frame)
         {
-            return IMVDefine.IMV_OK;
+            return CameraSdk.Ok;
         }
 
         #region IDisposable 实现

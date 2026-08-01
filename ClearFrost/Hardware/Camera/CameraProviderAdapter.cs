@@ -1,27 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
-using MVSDK_Net;
 
 namespace ClearFrost.Hardware
 {
     /// <summary>
-    /// 
-    /// 
+    /// Adapts the provider-neutral camera contract to the legacy ICamera surface.
     /// </summary>
     public class CameraProviderAdapter : ICamera, ICameraFeatureInspector
     {
-        private const uint GvspPixelMono8 = 0x01080001;
-        private const uint GvspPixelRgb8 = 0x02180014;
-        private const uint GvspPixelBgr8 = 0x02180015;
-        private const uint GvspPixelBayerGr8 = 0x01080008;
-        private const uint GvspPixelBayerRg8 = 0x01080009;
-        private const uint GvspPixelBayerGb8 = 0x0108000A;
-        private const uint GvspPixelBayerBg8 = 0x0108000B;
-
         private readonly ICameraProvider _provider;
         private readonly string _deviceSerialNumber;
-        private bool _disposed = false;
+        private bool _disposed;
         private CameraFrame? _currentFrame;
 
         public CameraProviderAdapter(ICameraProvider provider, string? deviceSerialNumber = null)
@@ -34,23 +23,20 @@ namespace ClearFrost.Hardware
 
         public bool IsConnected => _provider.IsConnected;
 
-        public int IMV_EnumDevices(ref IMVDefine.IMV_DeviceList deviceList, uint interfaceType)
+        public int IMV_EnumDevices(ref CameraDeviceList deviceList, uint interfaceType)
         {
-            // 
-            return IMVDefine.IMV_OK;
+            deviceList.Devices.Clear();
+            deviceList.Devices.AddRange(_provider.EnumerateDevices());
+            return CameraSdk.Ok;
         }
 
-        public int IMV_CreateHandle(IMVDefine.IMV_ECreateHandleMode mode, int index)
-        {
-            // 
-            return IMVDefine.IMV_OK;
-        }
+        public int IMV_CreateHandle(CameraCreateHandleMode mode, int index) => CameraSdk.Ok;
 
         public int IMV_Open()
         {
             if (_provider.IsConnected)
             {
-                return IMVDefine.IMV_OK;
+                return CameraSdk.Ok;
             }
 
             string serialNumber = !string.IsNullOrWhiteSpace(_deviceSerialNumber)
@@ -64,7 +50,7 @@ namespace ClearFrost.Hardware
 
             try
             {
-                return _provider.Open(serialNumber) ? IMVDefine.IMV_OK : -1;
+                return _provider.Open(serialNumber) ? CameraSdk.Ok : -1;
             }
             catch (Exception ex)
             {
@@ -81,9 +67,10 @@ namespace ClearFrost.Hardware
             }
             else if (name == "PixelFormat")
             {
-                return _provider.SetPixelFormat(value) ? IMVDefine.IMV_OK : -1;
+                return _provider.SetPixelFormat(value) ? CameraSdk.Ok : -1;
             }
-            return IMVDefine.IMV_OK;
+
+            return CameraSdk.Ok;
         }
 
         public bool TryGetEnumFeatureSymbol(string name, out string value)
@@ -120,104 +107,74 @@ namespace ClearFrost.Hardware
         public int IMV_SetDoubleFeatureValue(string name, double value)
         {
             if (name == "ExposureTime")
+            {
                 _provider.SetExposure(value);
+            }
             else if (name == "GainRaw" || name == "Gain")
+            {
                 _provider.SetGain(value);
-            return IMVDefine.IMV_OK;
+            }
+
+            return CameraSdk.Ok;
         }
 
-        public int IMV_SetBufferCount(int count)
-        {
-            // 
-            return IMVDefine.IMV_OK;
-        }
+        public int IMV_SetBufferCount(int count) => CameraSdk.Ok;
 
-        public int IMV_StartGrabbing()
-        {
-            return _provider.StartGrabbing() ? IMVDefine.IMV_OK : -1;
-        }
+        public int IMV_StartGrabbing() => _provider.StartGrabbing() ? CameraSdk.Ok : -1;
 
-        public int IMV_StopGrabbing()
-        {
-            return _provider.StopGrabbing() ? IMVDefine.IMV_OK : -1;
-        }
+        public int IMV_StopGrabbing() => _provider.StopGrabbing() ? CameraSdk.Ok : -1;
 
         public int IMV_Close()
         {
             _currentFrame?.Dispose();
             _currentFrame = null;
-            return _provider.Close() ? IMVDefine.IMV_OK : -1;
+            return _provider.Close() ? CameraSdk.Ok : -1;
         }
 
-        public int IMV_DestroyHandle()
-        {
-            // 
-            return IMVDefine.IMV_OK;
-        }
+        public int IMV_DestroyHandle() => CameraSdk.Ok;
 
         public int IMV_ExecuteCommandFeature(string name)
         {
             if (name == "TriggerSoftware")
+            {
                 _provider.ExecuteSoftwareTrigger();
-            return IMVDefine.IMV_OK;
+            }
+
+            return CameraSdk.Ok;
         }
 
-        public int IMV_ClearFrameBuffer()
-        {
-            return IMVDefine.IMV_OK;
-        }
+        public int IMV_ClearFrameBuffer() => CameraSdk.Ok;
 
-        public bool IMV_IsGrabbing()
-        {
-            return _provider.IsGrabbing;
-        }
+        public bool IMV_IsGrabbing() => _provider.IsGrabbing;
 
-        public int IMV_GetFrame(ref IMVDefine.IMV_Frame frame, int timeout)
+        public int IMV_GetFrame(ref CameraFrame frame, int timeout)
         {
             _currentFrame?.Dispose();
             _currentFrame = _provider.GetFrame(timeout);
 
             if (_currentFrame == null)
-                return -1;
-
-            // 
-            frame.pData = _currentFrame.DataPtr;
-            frame.frameInfo = new IMVDefine.IMV_FrameInfo
             {
-                width = (uint)_currentFrame.Width,
-                height = (uint)_currentFrame.Height,
-                size = (uint)_currentFrame.Size,
-                pixelFormat = ConvertToMvPixelFormat(_currentFrame.PixelFormat)
-            };
+                return -1;
+            }
 
-            return IMVDefine.IMV_OK;
+            frame = _currentFrame;
+            return CameraSdk.Ok;
         }
 
-        public int IMV_ReleaseFrame(ref IMVDefine.IMV_Frame frame)
+        public int IMV_ReleaseFrame(ref CameraFrame frame)
         {
             _currentFrame?.Dispose();
             _currentFrame = null;
-            return IMVDefine.IMV_OK;
-        }
-
-        private static IMVDefine.IMV_EPixelType ConvertToMvPixelFormat(CameraPixelFormat format)
-        {
-            return format switch
-            {
-                CameraPixelFormat.Mono8 => (IMVDefine.IMV_EPixelType)GvspPixelMono8,
-                CameraPixelFormat.RGB8 => (IMVDefine.IMV_EPixelType)GvspPixelRgb8,
-                CameraPixelFormat.BGR8 => (IMVDefine.IMV_EPixelType)GvspPixelBgr8,
-                CameraPixelFormat.BayerRG8 => (IMVDefine.IMV_EPixelType)GvspPixelBayerRg8,
-                CameraPixelFormat.BayerGB8 => (IMVDefine.IMV_EPixelType)GvspPixelBayerGb8,
-                CameraPixelFormat.BayerGR8 => (IMVDefine.IMV_EPixelType)GvspPixelBayerGr8,
-                CameraPixelFormat.BayerBG8 => (IMVDefine.IMV_EPixelType)GvspPixelBayerBg8,
-                _ => throw new NotSupportedException($"不支持的像素格式: {format}")
-            };
+            frame = new CameraFrame();
+            return CameraSdk.Ok;
         }
 
         public void Dispose()
         {
-            if (_disposed) return;
+            if (_disposed)
+            {
+                return;
+            }
 
             _currentFrame?.Dispose();
             _provider.Dispose();
@@ -225,5 +182,3 @@ namespace ClearFrost.Hardware
         }
     }
 }
-
-

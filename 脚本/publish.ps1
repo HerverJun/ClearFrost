@@ -50,7 +50,7 @@ function Pause-IfNeeded {
 
 function Get-DefaultVersion {
     if (-not (Test-Path -LiteralPath $script:ProjectPath)) {
-        return "6.0.0"
+        return "6.1.0-preview.1"
     }
 
     $content = Get-Content -LiteralPath $script:ProjectPath -Raw -Encoding UTF8
@@ -58,7 +58,7 @@ function Get-DefaultVersion {
         return $Matches.version.Trim()
     }
 
-    return "6.0.0"
+    return "6.1.0-preview.1"
 }
 
 function Get-AssemblyName {
@@ -80,12 +80,12 @@ function Convert-VersionSpec([string]$Spec) {
         $normalized = $normalized.Substring(1)
     }
 
-    if ($normalized -notmatch "^\d+(\.\d+){1,3}$") {
-        throw "Invalid version '$Spec'. Use 6.0, 6.0.0, or 6.0.0.1."
+    if ($normalized -notmatch "^(?<core>\d+(\.\d+){1,3})(?<suffix>-[0-9A-Za-z.-]+)?$") {
+        throw "Invalid version '$Spec'. Use 6.1.0-preview.1 or 6.1.0."
     }
 
     $parts = @()
-    foreach ($part in $normalized.Split(".")) {
+    foreach ($part in $Matches.core.Split(".")) {
         $number = 0
         if (-not [int]::TryParse($part, [ref]$number) -or $number -lt 0) {
             throw "Invalid version '$Spec'."
@@ -98,7 +98,7 @@ function Convert-VersionSpec([string]$Spec) {
         $parts += 0
     }
 
-    $packageVersion = "{0}.{1}.{2}" -f $parts[0], $parts[1], $parts[2]
+    $packageVersion = "{0}.{1}.{2}{3}" -f $parts[0], $parts[1], $parts[2], $Matches.suffix
 
     while ($parts.Count -lt 4) {
         $parts += 0
@@ -374,18 +374,6 @@ function Verify-PublishOutput($PublishMode, $VersionInfo, [string]$TargetPath, [
         $errors += "html\index.html is missing."
     }
 
-    if (-not (Test-Path -LiteralPath (Join-Path $TargetPath "HslCommunication.dll"))) {
-        $errors += "HslCommunication.dll is missing."
-    }
-
-    if (-not (Test-Path -LiteralPath (Join-Path $TargetPath "McpXLib.dll"))) {
-        $errors += "McpXLib.dll is missing."
-    }
-
-    if (-not (Test-Path -LiteralPath (Join-Path $TargetPath "HaoCommunication.dll"))) {
-        $warnings += "HaoCommunication.dll is missing. HaoCommunication PLC driver will be unavailable unless the DLL is copied next to the exe."
-    }
-
     $deps = Get-ChildItem -LiteralPath $TargetPath -Filter "*.deps.json" -File -ErrorAction SilentlyContinue
     if ($PublishMode -eq "Lite" -and $deps.Count -eq 0) {
         $errors += ".deps.json is missing. Lite package cannot resolve NuGet dependencies without it."
@@ -407,10 +395,6 @@ function Verify-PublishOutput($PublishMode, $VersionInfo, [string]$TargetPath, [
         $errors += "ONNX model files must not be packaged: $($onnxFiles.FullName -join '; ')"
     }
 
-    if ($PublishMode -eq "Full" -and -not (Test-Path -LiteralPath (Join-Path $TargetPath "MVSDKmd.dll"))) {
-        $warnings += "MVSDKmd.dll is missing."
-    }
-
     if (Test-Path -LiteralPath $ExePath) {
         $fileInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($ExePath)
         if ($fileInfo.ProductVersion -notlike "$($VersionInfo.PackageVersion)*") {
@@ -430,6 +414,26 @@ function Verify-PublishOutput($PublishMode, $VersionInfo, [string]$TargetPath, [
         throw "Publish verification failed."
     }
 
+    $dependencyScript = Join-Path $script:RepoRoot "tools\verify_release_dependencies.ps1"
+    $dependencyReportPath = Join-Path $TargetPath "release-dependencies.json"
+    $shell = (Get-Command pwsh -ErrorAction SilentlyContinue)
+    if ($null -eq $shell) {
+        $shell = Get-Command powershell.exe -ErrorAction Stop
+    }
+
+    $dependencyOutput = & $shell.Source -NoProfile -ExecutionPolicy Bypass -File $dependencyScript `
+        -Root $script:RepoRoot `
+        -OutputDir $TargetPath `
+        -Profile $PublishMode `
+        -ReportPath $dependencyReportPath 2>&1
+    $dependencyExitCode = $LASTEXITCODE
+    foreach ($line in $dependencyOutput) {
+        Write-Host $line
+    }
+    if ($dependencyExitCode -ne 0) {
+        throw "Release dependency verification blocked $PublishMode promotion (exit code $dependencyExitCode)."
+    }
+
     Write-Ok "Publish output verified."
 }
 
@@ -445,10 +449,11 @@ function Invoke-PublishPackage($PublishMode, $VersionInfo, [string]$ResolvedOutp
     $assemblyName = Get-AssemblyName
     $exePath = Join-Path $targetPath ($assemblyName + ".exe")
 
-    Write-Step "Preparing $PublishMode package"
-    New-Item -ItemType Directory -Force -Path $ResolvedOutputRoot | Out-Null
-    Remove-ExistingOutput $ResolvedOutputRoot $targetPath
-    New-Item -ItemType Directory -Force -Path $targetPath | Out-Null
+    try {
+        Write-Step "Preparing $PublishMode package"
+        New-Item -ItemType Directory -Force -Path $ResolvedOutputRoot | Out-Null
+        Remove-ExistingOutput $ResolvedOutputRoot $targetPath
+        New-Item -ItemType Directory -Force -Path $targetPath | Out-Null
 
     Write-Step "Running dotnet publish"
     $publishArgs = @(
@@ -468,7 +473,6 @@ function Invoke-PublishPackage($PublishMode, $VersionInfo, [string]$ResolvedOutp
         "-p:PublishSingleFile=false",
         "-p:DebugType=None",
         "-p:DebugSymbols=false",
-        "-p:RestoreIgnoreFailedSources=true",
         "-p:NuGetAudit=false"
     )
 
@@ -520,10 +524,22 @@ function Invoke-PublishPackage($PublishMode, $VersionInfo, [string]$ResolvedOutp
         Write-Ok "Zip created: $zipPath"
     }
 
-    [pscustomobject]@{
-        Mode = $PublishMode
-        Output = $targetPath
-        Zip = $zipPath
+        [pscustomobject]@{
+            Mode = $PublishMode
+            Output = $targetPath
+            Zip = $zipPath
+        }
+    }
+    catch {
+        if (Test-Path -LiteralPath $targetPath) {
+            Remove-Item -LiteralPath $targetPath -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        $failedZipPath = "$targetPath.zip"
+        if (Test-Path -LiteralPath $failedZipPath) {
+            Remove-Item -LiteralPath $failedZipPath -Force -ErrorAction SilentlyContinue
+        }
+
+        throw
     }
 }
 

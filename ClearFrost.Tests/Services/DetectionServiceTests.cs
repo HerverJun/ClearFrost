@@ -46,6 +46,7 @@ public class DetectionServiceTests
     }
 
     [Fact]
+    [Trait("Lane", "ExternalModel")]
     public async Task LoadModelAsync_GpuRebuildFailure_PreservesExistingAuxiliarySlots()
     {
         string tempDir = CreateTempDirectory();
@@ -89,6 +90,7 @@ public class DetectionServiceTests
     }
 
     [Fact]
+    [Trait("Lane", "ExternalModel")]
     public async Task LoadModelAsync_拒绝链接Onnx模型文件()
     {
         string tempDir = CreateTempDirectory();
@@ -119,6 +121,7 @@ public class DetectionServiceTests
     }
 
     [Fact]
+    [Trait("Lane", "ExternalModel")]
     public async Task ScanAndLoadModelsAsync_拒绝链接模型目录()
     {
         string tempDir = CreateTempDirectory();
@@ -163,6 +166,7 @@ public class DetectionServiceTests
     }
 
     [Fact]
+    [Trait("Lane", "ExternalModel")]
     public async Task LoadModelAsync_GpuRebuildAuxFailure_StillRaisesModelLoaded()
     {
         string tempDir = CreateTempDirectory();
@@ -204,6 +208,7 @@ public class DetectionServiceTests
     }
 
     [Fact]
+    [Trait("Lane", "ExternalModel")]
     public async Task LoadModelAsync_GpuIndex_RecordsRequestedDevice()
     {
         string tempDir = CreateTempDirectory();
@@ -225,6 +230,7 @@ public class DetectionServiceTests
     }
 
     [Fact]
+    [Trait("Lane", "ExternalModel")]
     public async Task LoadModelAsync_DirectMlFailure_FallsBackToCpuAndRecordsReason()
     {
         string tempDir = CreateTempDirectory();
@@ -248,6 +254,7 @@ public class DetectionServiceTests
     }
 
     [Fact]
+    [Trait("Lane", "ExternalModel")]
     public async Task UnloadPrimaryModel_清理主运行时和兼容缓存()
     {
         string tempDir = CreateTempDirectory();
@@ -275,6 +282,7 @@ public class DetectionServiceTests
     }
 
     [Fact]
+    [Trait("Lane", "ExternalModel")]
     public async Task SetEnableFallback_返回前同步更新多模型管理器()
     {
         string tempDir = CreateTempDirectory();
@@ -361,8 +369,12 @@ public class DetectionServiceTests
             .OrderBy(file => Path.GetFileName(file), StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
 
-        sample.Should().NotBeNullOrWhiteSpace("test output should contain a copied ONNX model");
-        return sample!;
+        if (string.IsNullOrWhiteSpace(sample))
+        {
+            throw new InvalidOperationException("NOT_VERIFIED: real-model lane requires an externally supplied ONNX model.");
+        }
+
+        return sample;
     }
 
     private static string CopyModel(string sourcePath, string targetDirectory, string fileName)

@@ -51,6 +51,7 @@ public class MultiModelManagerSelectionTests
     }
 
     [Fact]
+    [Trait("Lane", "ExternalModel")]
     public void InferenceWithFallback_NoHitResetsLastUsedModel()
     {
         string tempDir = CreateTempDirectory();
@@ -75,6 +76,7 @@ public class MultiModelManagerSelectionTests
     }
 
     [Fact]
+    [Trait("Lane", "ExternalModel")]
     public void InferenceWithFallback_FallbackDisabledRecordsSingleAttemptAndReason()
     {
         string tempDir = CreateTempDirectory();
@@ -113,9 +115,16 @@ public class MultiModelManagerSelectionTests
 
     private static string CopySampleOnnx(string targetDirectory, string fileName)
     {
-        string source = Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "ONNX"), "*.onnx")
+        string? source = Directory.Exists(Path.Combine(AppContext.BaseDirectory, "ONNX"))
+            ? Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "ONNX"), "*.onnx")
             .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
-            .First();
+            .FirstOrDefault()
+            : null;
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            throw new InvalidOperationException("NOT_VERIFIED: real-model lane requires an externally supplied ONNX model.");
+        }
+
         string target = Path.Combine(targetDirectory, fileName);
         File.Copy(source, target, true);
         return target;

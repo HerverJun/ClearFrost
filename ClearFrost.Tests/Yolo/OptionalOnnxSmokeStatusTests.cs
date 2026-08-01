@@ -5,6 +5,7 @@ namespace ClearFrost.Tests.Yolo;
 public class OptionalOnnxSmokeStatusTests
 {
     [Fact]
+    [Trait("Lane", "ExternalModel")]
     public void OptionalRealOnnxSmoke_本地样例不存在时明确记录Skipped()
     {
         string root = FindRepositoryRoot();
@@ -13,21 +14,12 @@ public class OptionalOnnxSmokeStatusTests
             ? Directory.EnumerateFiles(samplesRoot, "*.onnx", SearchOption.AllDirectories).FirstOrDefault()
             : null;
 
-        string status = string.IsNullOrWhiteSpace(localOnnx)
-            ? "SKIPPED: optional local ONNX fixture unavailable"
-            : "PASS: optional local ONNX fixture available";
-
-        status.Should().BeOneOf(
-            "SKIPPED: optional local ONNX fixture unavailable",
-            "PASS: optional local ONNX fixture available");
         if (string.IsNullOrWhiteSpace(localOnnx))
         {
-            status.Should().Be("SKIPPED: optional local ONNX fixture unavailable");
+            throw new InvalidOperationException("NOT_VERIFIED: optional real ONNX fixture unavailable.");
         }
-        else
-        {
-            File.Exists(localOnnx).Should().BeTrue();
-        }
+
+        File.Exists(localOnnx).Should().BeTrue();
     }
 
     private static string FindRepositoryRoot()

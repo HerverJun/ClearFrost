@@ -1,4 +1,4 @@
-﻿using MVSDK_Net;
+﻿
 using ClearFrost.Config;
 using ClearFrost.Hardware;
 using ClearFrost.Hardware.Triggers;

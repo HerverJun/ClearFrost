@@ -19,7 +19,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using OpenCvSharp;
 using ClearFrost.Interfaces;
-using MVSDK_Net;
 
 namespace ClearFrost.Services
 {
@@ -403,7 +402,7 @@ namespace ClearFrost.Services
                 if (!activeCamera.Camera.IMV_IsGrabbing())
                 {
                     int res = activeCamera.Camera.IMV_StartGrabbing();
-                    if (res != IMVDefine.IMV_OK)
+                    if (res != CameraSdk.Ok)
                     {
                         string message = $"启动采集失败: {res}";
                         SetCaptureError(CameraCaptureFailureKind.NotReady, message);
@@ -561,19 +560,19 @@ namespace ClearFrost.Services
                     }
                 }
 
-                IMVDefine.IMV_Frame frame = new IMVDefine.IMV_Frame();
+                CameraFrame frame = new CameraFrame();
                 bool shouldReleaseFrame = false;
 
                 try
                 {
                     int clearRes = camera.IMV_ClearFrameBuffer();
-                    if (clearRes != IMVDefine.IMV_OK)
+                    if (clearRes != CameraSdk.Ok)
                     {
                         Debug.WriteLine($"[CameraService] ClearFrameBuffer failed: {clearRes}");
                     }
 
                     int res = camera.IMV_ExecuteCommandFeature("TriggerSoftware");
-                    if (res != IMVDefine.IMV_OK)
+                    if (res != CameraSdk.Ok)
                     {
                         SetCaptureError(CameraCaptureFailureKind.TriggerFailed, $"软触发失败: {res}");
                         activeCamera.SetGrabbing(false);
@@ -581,14 +580,14 @@ namespace ClearFrost.Services
                     }
 
                     res = camera.IMV_GetFrame(ref frame, timeoutMs);
-                    shouldReleaseFrame = res == IMVDefine.IMV_OK;
+                    shouldReleaseFrame = res == CameraSdk.Ok;
                     if (!shouldReleaseFrame)
                     {
                         SetCaptureError(CameraCaptureFailureKind.GetFrameFailed, $"取帧失败: {res}");
                         return null;
                     }
 
-                    if (frame.frameInfo.size == 0 || frame.pData == IntPtr.Zero)
+                    if (frame.Size == 0 || frame.DataPtr == IntPtr.Zero)
                     {
                         SetCaptureError(CameraCaptureFailureKind.EmptyFrame, "SDK 返回空帧");
                         return null;
@@ -675,16 +674,13 @@ namespace ClearFrost.Services
             }
         }
 
-        private void LogFramePixelFormatDiagnostics(CameraInstance activeCamera, IMVDefine.IMV_Frame frame, Mat mat, string source)
-        {
-            uint pixelFormat = unchecked((uint)frame.frameInfo.pixelFormat);
-            LogFramePixelFormatDiagnostics(activeCamera, source, $"0x{pixelFormat:X8}", mat);
-        }
-
         private void LogFramePixelFormatDiagnostics(CameraInstance activeCamera, CameraFrame frame, Mat mat, string source)
         {
-            string framePixelFormat = TryGetGvspPixelFormat(frame.PixelFormat, out uint pixelFormat)
-                ? $"0x{pixelFormat:X8}"
+            uint rawPixelFormat = frame.RawPixelFormat != 0
+                ? frame.RawPixelFormat
+                : CameraSdk.ToRawPixelFormat(frame.PixelFormat);
+            string framePixelFormat = rawPixelFormat != 0
+                ? $"0x{rawPixelFormat:X8}"
                 : frame.PixelFormat.ToString();
 
             LogFramePixelFormatDiagnostics(activeCamera, source, framePixelFormat, mat);
@@ -727,12 +723,14 @@ namespace ClearFrost.Services
         /// <param name="camera">相机实例</param>
         /// <param name="frame">SDK 原始帧</param>
         /// <returns>OpenCV Mat</returns>
-        private static Mat ConvertFrameToMat(ICamera camera, IMVDefine.IMV_Frame frame)
+        private static Mat ConvertFrameToMat(ICamera camera, CameraFrame frame)
         {
-            int width = (int)frame.frameInfo.width;
-            int height = (int)frame.frameInfo.height;
-            int paddingX = (int)frame.frameInfo.paddingX;
-            uint pixelFormat = unchecked((uint)frame.frameInfo.pixelFormat);
+            int width = frame.Width;
+            int height = frame.Height;
+            int paddingX = checked((int)frame.PaddingX);
+            uint pixelFormat = frame.RawPixelFormat != 0
+                ? frame.RawPixelFormat
+                : CameraSdk.ToRawPixelFormat(frame.PixelFormat);
 
             if (camera is ICameraFramePixelConverter converter &&
                 converter.TryConvertFrameToBgr8(frame, out var convertedFrame))
@@ -743,7 +741,7 @@ namespace ClearFrost.Services
                 }
             }
 
-            return ConvertRawFrameToMat(frame.pData, width, height, paddingX, pixelFormat);
+            return ConvertRawFrameToMat(frame.DataPtr, width, height, paddingX, pixelFormat);
         }
 
         private static Mat ConvertCameraFrameToMat(CameraFrame frame)
@@ -807,21 +805,23 @@ namespace ClearFrost.Services
         }
 
         private static bool TryValidateFrame(
-            IMVDefine.IMV_Frame frame,
+            CameraFrame frame,
             out string error,
             out CameraCaptureFailureKind failureKind)
         {
             error = string.Empty;
             failureKind = CameraCaptureFailureKind.None;
 
-            int width = (int)frame.frameInfo.width;
-            int height = (int)frame.frameInfo.height;
-            int paddingX = (int)frame.frameInfo.paddingX;
-            uint pixelFormat = unchecked((uint)frame.frameInfo.pixelFormat);
+            int width = frame.Width;
+            int height = frame.Height;
+            int paddingX = checked((int)frame.PaddingX);
+            uint pixelFormat = frame.RawPixelFormat != 0
+                ? frame.RawPixelFormat
+                : CameraSdk.ToRawPixelFormat(frame.PixelFormat);
 
-            if (frame.frameInfo.status != 0)
+            if (frame.Status != 0)
             {
-                error = $"SDK 返回异常帧: status={frame.frameInfo.status}, format=0x{pixelFormat:X8}, size={frame.frameInfo.size}";
+                error = $"SDK 返回异常帧: status={frame.Status}, format=0x{pixelFormat:X8}, size={frame.Size}";
                 failureKind = CameraCaptureFailureKind.InvalidFrame;
                 return false;
             }
@@ -842,7 +842,7 @@ namespace ClearFrost.Services
                 return false;
             }
 
-            long actualBytes = frame.frameInfo.size;
+            long actualBytes = frame.Size;
             if (actualBytes < minimumBytes)
             {
                 error = $"SDK 帧长度不足: actual={actualBytes}, expected>={minimumBytes}, width={width}, height={height}, paddingX={paddingX}, format=0x{pixelFormat:X8}";

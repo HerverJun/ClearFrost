@@ -20,7 +20,11 @@ namespace ClearFrost.Helpers
 
         public static string CacheKey { get; } = SanitizeForPath(InformationalVersion);
 
-        public static string WindowTitle => $"清霜 V{DisplayVersion} 正式版";
+        public static bool IsPreRelease => InformationalVersion.Contains('-', StringComparison.Ordinal);
+
+        public static string ReleaseChannel => IsPreRelease ? "预发布候选" : "开发构建";
+
+        public static string WindowTitle => $"清霜 V{DisplayVersion} {ReleaseChannel}";
 
         private static string GetInformationalVersion()
         {

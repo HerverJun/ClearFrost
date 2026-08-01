@@ -4,8 +4,6 @@ using ClearFrost.Hardware;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Runtime.InteropServices;
-using MVSDK_Net;
 
 namespace ClearFrost.Hardware
 {
@@ -97,7 +95,7 @@ namespace ClearFrost.Hardware
                 ICamera camera = Camera;
                 int result = camera.IMV_Open();
                 LastOpenResult = result;
-                IsOpen = result == IMVDefine.IMV_OK;
+                IsOpen = result == CameraSdk.Ok;
                 if (!IsOpen)
                 {
                     Debug.WriteLine($"[CameraInstance] IMV_Open failed: ErrorCode={result}, Camera={Config.DisplayName}");
@@ -129,7 +127,7 @@ namespace ClearFrost.Hardware
                 foreach (string candidate in FilterCandidatesBySupportedEntries(AutoPixelFormatCandidates, supportedEntries))
                 {
                     int result = camera.IMV_SetEnumFeatureSymbol("PixelFormat", candidate);
-                    if (result == IMVDefine.IMV_OK)
+                    if (result == CameraSdk.Ok)
                     {
                         LogPixelFormatDiagnostics(camera, $"Auto PixelFormat selected: {candidate}");
                         return;
@@ -143,7 +141,7 @@ namespace ClearFrost.Hardware
             }
 
             int pixelResult = camera.IMV_SetEnumFeatureSymbol("PixelFormat", requested);
-            if (pixelResult == IMVDefine.IMV_OK)
+            if (pixelResult == CameraSdk.Ok)
             {
                 LogPixelFormatDiagnostics(camera, $"PixelFormat selected: {requested}");
                 return;
@@ -160,7 +158,7 @@ namespace ClearFrost.Hardware
                          !string.Equals(candidate, requested, StringComparison.OrdinalIgnoreCase)))
             {
                 int result = camera.IMV_SetEnumFeatureSymbol("PixelFormat", candidate);
-                if (result == IMVDefine.IMV_OK)
+                if (result == CameraSdk.Ok)
                 {
                     LogPixelFormatDiagnostics(camera, $"Color PixelFormat fallback selected: {candidate}, Requested={requested}");
                     return;
@@ -324,7 +322,7 @@ namespace ClearFrost.Hardware
             try
             {
                 int result = camera.IMV_SetEnumFeatureSymbol("TriggerMode", "Off");
-                if (result != IMVDefine.IMV_OK)
+                if (result != CameraSdk.Ok)
                 {
                     Debug.WriteLine($"[CameraInstance] Restore TriggerMode Off failed: {result}");
                 }
@@ -477,22 +475,14 @@ namespace ClearFrost.Hardware
 
             try
             {
-                var deviceList = new IMVDefine.IMV_DeviceList();
-                // 使用官方 SDK 的 MyCamera 静态方法进行设备枚举
-                int enumResult = MyCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
+                var deviceList = new CameraDeviceList();
+                int enumResult = HuaraySdkCamera.EnumerateDevicesStatic(ref deviceList, uint.MaxValue);
 
-                if (enumResult == IMVDefine.IMV_OK && deviceList.nDevNum > 0)
+                if (enumResult == CameraSdk.Ok)
                 {
-                    for (int i = 0; i < (int)deviceList.nDevNum; i++)
-                    {
-                        var devInfo = (IMVDefine.IMV_DeviceInfo)Marshal.PtrToStructure(
-                            deviceList.pDevInfo + Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo)) * i,
-                            typeof(IMVDefine.IMV_DeviceInfo))!;
-                        if (!string.IsNullOrEmpty(devInfo.serialNumber))
-                        {
-                            result.Add(devInfo.serialNumber);
-                        }
-                    }
+                    result.AddRange(deviceList.Devices
+                        .Where(device => !string.IsNullOrWhiteSpace(device.SerialNumber))
+                        .Select(device => device.SerialNumber));
                 }
             }
             catch (Exception ex)
@@ -603,10 +593,12 @@ namespace ClearFrost.Hardware
                 return _cameraFactoryOverride(config);
             }
 
+#if DEBUG
             if (ShouldUseMockCamera() && IsMockCameraConfig(config))
             {
                 return new MockCamera();
             }
+#endif
 
             if (string.Equals(config.Manufacturer, "Hikvision", StringComparison.OrdinalIgnoreCase))
             {

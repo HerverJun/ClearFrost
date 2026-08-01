@@ -1,15 +1,18 @@
-name: ClearFrost CI
+﻿name: ClearFrost V6 gate
 
 on:
   push:
     branches:
-      - main
-      - master
-      - "codex/**"
+      - V6_test
   pull_request:
+    branches:
+      - V6_test
+
+permissions:
+  contents: read
 
 jobs:
-  build-test:
+  v6-gate:
     runs-on: windows-latest
 
     steps:
@@ -21,19 +24,39 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: Verify text encoding
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+
+      - name: Run tracked-only fail-closed gate
+        id: gate
+        continue-on-error: true
         shell: pwsh
-        run: .\tools\verify_text_encoding.ps1
+        run: .\tools\run_v6_gate.ps1 -Root $env:GITHUB_WORKSPACE
 
-      - name: Restore
-        run: dotnet restore ClearFrost.sln
-
-      - name: Build
-        run: dotnet build ClearFrost.sln -c Debug -p:Platform=x64 --no-restore
-
-      - name: Test
-        run: dotnet test ClearFrost.Tests\ClearFrost.Tests.csproj -c Debug -p:Platform=x64 --no-build
-
-      - name: Verify release dependencies
+      - name: Enforce gate decision
+        if: always()
         shell: pwsh
-        run: .\tools\verify_release_dependencies.ps1 -OutputDir .\ClearFrost\bin\x64\Debug\net8.0-windows10.0.17763.0
+        run: |
+          $evidencePath = Join-Path $env:GITHUB_WORKSPACE "artifacts\v6-gate\evidence.json"
+          if (-not (Test-Path -LiteralPath $evidencePath -PathType Leaf)) {
+              Write-Error "V6 gate evidence is missing: $evidencePath"
+              exit 1
+          }
+
+          $evidence = Get-Content -LiteralPath $evidencePath -Raw -Encoding UTF8 | ConvertFrom-Json
+          Write-Host "Overall status: $($evidence.overallStatus)"
+          Write-Host "Promotion eligibility: $($evidence.promotionEligibility)"
+          if ($evidence.overallStatus -ne "PASS" -or $evidence.promotionEligibility -ne "PASS") {
+              Write-Error "V6 promotion gate is not eligible. See uploaded evidence for blocking and not-verified reasons."
+              exit 1
+          }
+
+      - name: Upload V6 gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6-gate-evidence
+          path: artifacts/v6-gate
+          if-no-files-found: error

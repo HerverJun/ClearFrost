@@ -1,4 +1,4 @@
-﻿using MVSDK_Net;
+﻿
 using ClearFrost.Config;
 using ClearFrost.Models;
 using ClearFrost.Hardware;
@@ -519,51 +519,23 @@ namespace ClearFrost
                     Debug.WriteLine("[华睿搜索] 事件触发开始");
                     await _uiController.LogToFrontend("正在通过华睿SDK搜索局域网相机...");
 
-                    // 直接调用华睿 SDK（与 CameraManager.AddCamera 完全一致的调用方式）
-                    var deviceList = new IMVDefine.IMV_DeviceList();
-                    int res = MyCamera.IMV_EnumDevices(ref deviceList, (uint)IMVDefine.IMV_EInterfaceType.interfaceTypeAll);
-
-                    Debug.WriteLine($"[华睿搜索] IMV_EnumDevices 返回码: {res}, 设备数: {deviceList.nDevNum}");
-
-                    if (res == IMVDefine.IMV_OK && deviceList.nDevNum > 0)
+                    List<CameraDeviceInfo> discoveredDevices = _cameraManager.DiscoverAllCameras()
+                        .Where(device => string.Equals(device.Manufacturer, "Huaray", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    foreach (CameraDeviceInfo device in discoveredDevices)
                     {
-                        int structSize = Marshal.SizeOf(typeof(IMVDefine.IMV_DeviceInfo));
-                        for (int i = 0; i < (int)deviceList.nDevNum; i++)
+                        Debug.WriteLine($"[华睿搜索] 发现设备: SN='{device.SerialNumber}'");
+                        if (!string.IsNullOrWhiteSpace(device.SerialNumber))
                         {
-                            try
+                            cameraList.Add(new Dictionary<string, string>
                             {
-                                var info = (IMVDefine.IMV_DeviceInfo)Marshal.PtrToStructure(
-                                    deviceList.pDevInfo + structSize * i,
-                                    typeof(IMVDefine.IMV_DeviceInfo))!;
-
-                                string sn = info.serialNumber?.Trim() ?? "";
-                                Debug.WriteLine($"[华睿搜索] 发现设备[{i}]: SN='{sn}'");
-
-                                if (!string.IsNullOrEmpty(sn))
-                                {
-                                    cameraList.Add(new Dictionary<string, string>
-                                    {
-                                        ["serialNumber"] = sn,
-                                        ["manufacturer"] = "Huaray",
-                                        ["model"] = "Huaray Camera",
-                                        ["userDefinedName"] = sn,
-                                        ["interfaceType"] = "GigE/USB"
-                                    });
-                                }
-                            }
-                            catch (Exception innerEx)
-                            {
-                                Debug.WriteLine($"[华睿搜索] 解析设备[{i}]失败: {innerEx.Message}");
-                            }
+                                ["serialNumber"] = device.SerialNumber,
+                                ["manufacturer"] = "Huaray",
+                                ["model"] = string.IsNullOrWhiteSpace(device.Model) ? "Huaray Camera" : device.Model,
+                                ["userDefinedName"] = string.IsNullOrWhiteSpace(device.UserDefinedName) ? device.SerialNumber : device.UserDefinedName,
+                                ["interfaceType"] = string.IsNullOrWhiteSpace(device.InterfaceType) ? "GigE/USB" : device.InterfaceType
+                            });
                         }
-                    }
-                    else if (res != IMVDefine.IMV_OK)
-                    {
-                        Debug.WriteLine($"[华睿搜索] SDK 枚举失败，错误码: {res}");
-                    }
-                    else
-                    {
-                        Debug.WriteLine("[华睿搜索] 未发现任何设备");
                     }
 
                     await _uiController.LogToFrontend($"华睿SDK发现 {cameraList.Count} 台相机", cameraList.Count > 0 ? "success" : "warning");
