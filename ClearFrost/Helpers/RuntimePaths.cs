@@ -14,19 +14,19 @@ namespace ClearFrost.Helpers
         private const string AppFolderName = "ClearFrost";
         private const string OverrideRootEnvVar = "CLEARFROST_APPDATA_ROOT";
 
-        public static string RootPath => EnsureWritableDirectory(
+        public static string RootPath => EnsureWritableDirectoryWithPolicy(
             GetPreferredRootCandidate(),
             allowFallback: !HasExplicitRootOverride());
 
-        public static string ConfigDirectory => EnsureWritableDirectory(
+        public static string ConfigDirectory => EnsureWritableDirectoryWithPolicy(
             Path.Combine(RootPath, "Config"),
             allowFallback: !HasExplicitRootOverride());
 
-        public static string LogsDirectory => EnsureWritableDirectory(
+        public static string LogsDirectory => EnsureWritableDirectoryWithPolicy(
             Path.Combine(RootPath, "Logs"),
             allowFallback: !HasExplicitRootOverride());
 
-        public static string DataDirectory => EnsureWritableDirectory(
+        public static string DataDirectory => EnsureWritableDirectoryWithPolicy(
             Path.Combine(RootPath, "Data"),
             allowFallback: !HasExplicitRootOverride());
 
@@ -152,10 +152,10 @@ namespace ClearFrost.Helpers
 
         private static string EnsureWritableDirectory(string primaryPath)
         {
-            return EnsureWritableDirectory(primaryPath, allowFallback: true);
+            return EnsureWritableDirectoryWithPolicy(primaryPath, allowFallback: true);
         }
 
-        private static string EnsureWritableDirectory(string primaryPath, bool allowFallback)
+        private static string EnsureWritableDirectoryWithPolicy(string primaryPath, bool allowFallback)
         {
             if (!allowFallback)
             {
