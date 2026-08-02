@@ -135,9 +135,9 @@ jobs:
         shell: pwsh
         run: dotnet build .\tools\ClearFrost.MigrationProbe\ClearFrost.MigrationProbe.csproj -c Debug -p:Platform=x64 --no-restore
 
-      - name: Run full test suite
+      - name: Run full hermetic test suite
         shell: pwsh
-        run: dotnet test .\ClearFrost.Tests\ClearFrost.Tests.csproj -c Debug -p:Platform=x64 --no-restore
+        run: dotnet test .\ClearFrost.Tests\ClearFrost.Tests.csproj -c Debug -p:Platform=x64 --no-restore --filter "Lane!=ExternalModel&Lane!=ExternalHuaraySdk"
 
       - name: Run G2 behavior and positive evidence contracts
         shell: pwsh

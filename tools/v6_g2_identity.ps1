@@ -1,4 +1,4 @@
-function Resolve-V6G2Path([string]$Root, [string]$PathValue) {
+﻿function Resolve-V6G2Path([string]$Root, [string]$PathValue) {
     if ([string]::IsNullOrWhiteSpace($PathValue)) { return "" }
     if ([System.IO.Path]::IsPathRooted($PathValue)) { return [System.IO.Path]::GetFullPath($PathValue) }
     return [System.IO.Path]::GetFullPath((Join-Path $Root $PathValue))
