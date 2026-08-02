@@ -794,7 +794,10 @@ public sealed class V6G2EvidenceContractTests
 
         using Process? process = Process.Start(startInfo);
         process.Should().NotBeNull();
+        Task<string> standardOutput = process!.StandardOutput.ReadToEndAsync();
+        Task<string> standardError = process.StandardError.ReadToEndAsync();
         await process!.WaitForExitAsync();
+        await Task.WhenAll(standardOutput, standardError);
         return process.ExitCode;
     }
 
