@@ -322,6 +322,7 @@ namespace ClearFrost.Services
         private long _droppedCount;
         private long _savedCount;
         private long _failedCount;
+        private long _inFlightCount;
         private bool _disposed;
         private bool _stopped;
 
@@ -348,6 +349,10 @@ namespace ClearFrost.Services
         public long SavedCount => Interlocked.Read(ref _savedCount);
 
         public long FailedCount => Interlocked.Read(ref _failedCount);
+
+        public long InFlightCount => Interlocked.Read(ref _inFlightCount);
+
+        public bool WorkerCompleted => _workerTask.IsCompleted;
 
         public bool Enqueue(DetectionPersistencePayload payload)
         {
@@ -397,6 +402,7 @@ namespace ClearFrost.Services
                     while (_channel.Reader.TryRead(out DetectionPersistencePayload? payload))
                     {
                         Interlocked.Decrement(ref _pendingCount);
+                        Interlocked.Increment(ref _inFlightCount);
                         try
                         {
                             await _databaseService
@@ -410,6 +416,10 @@ namespace ClearFrost.Services
                             DetectionTraceOutbox.Append(payload, $"DatabaseSaveFailed: {ex.Message}");
                             Debug.WriteLine($"[DetectionRecordQueue] 数据库写入失败: {ex.Message}");
                             Trace.TraceError($"[DetectionRecordQueue] 数据库写入失败: {ex}");
+                        }
+                        finally
+                        {
+                            Interlocked.Decrement(ref _inFlightCount);
                         }
                     }
                 }

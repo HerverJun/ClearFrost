@@ -34,6 +34,7 @@ namespace ClearFrost.Services
         private long _droppedBytes;
         private long _savedCount;
         private long _failedCount;
+        private long _inFlightCount;
         private bool _disposed;
         private bool _stopped;
 
@@ -80,6 +81,10 @@ namespace ClearFrost.Services
         public long SavedCount => Interlocked.Read(ref _savedCount);
 
         public long FailedCount => Interlocked.Read(ref _failedCount);
+
+        public long InFlightCount => Interlocked.Read(ref _inFlightCount);
+
+        public bool WorkerCompleted => _workerTask.IsCompleted;
 
         /// <summary>
         /// 将图像入队。内部会 clone 一份，调用方可立即释放原 Mat。
@@ -210,6 +215,7 @@ namespace ClearFrost.Services
                     while (_channel.Reader.TryRead(out ImageSavePayload? item))
                     {
                         RemovePending(item);
+                        Interlocked.Increment(ref _inFlightCount);
                         try
                         {
                             string fullPath = Path.GetFullPath(item.Path);
@@ -236,6 +242,7 @@ namespace ClearFrost.Services
                         }
                         finally
                         {
+                            Interlocked.Decrement(ref _inFlightCount);
                             item.Dispose();
                         }
                     }

@@ -10,6 +10,7 @@
 
 $ErrorActionPreference = "Stop"
 $rootPath = [System.IO.Path]::GetFullPath($Root)
+. (Join-Path $rootPath "tools\v6_g2_identity.ps1")
 $resolvedOutputRoot = if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     Join-Path $rootPath "artifacts\v6-g2\publish"
 }
@@ -419,11 +420,18 @@ if ($publishStatus -eq "BLOCKED" -and $requiredInputStatus -eq "BLOCKED") {
     $publishStatus = "BLOCKED"
     Add-BlockingReason "Required external input validation is BLOCKED; positive publishing is fail-closed."
 }
+$inputManifestForIdentity = if ($null -eq $inputReport) { "" } else { Get-String $inputReport "manifestPath" }
+$identity = New-V6G2EvidenceIdentity -Root $rootPath `
+    -InputManifestPath $inputManifestForIdentity `
+    -DetectModelPath (Get-String $detect "path") `
+    -ValidationImagePath (Get-String $detect.validationImage "path") `
+    -Provider "NOT_VERIFIED"
 $report = [ordered]@{
     schemaVersion = "v6-g2-release-lab-1.0"
     generatedAtUtc = [DateTime]::UtcNow.ToString("o")
     root = $rootPath
     commitSha = $commitSha
+    identity = $identity
     packageVersion = $packageVersion
     runtimeIdentifier = "win-x64"
     inputValidation = $inputReport

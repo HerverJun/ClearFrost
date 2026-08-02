@@ -93,3 +93,187 @@ jobs:
           name: v6-gate-evidence
           path: artifacts/v6-gate
           if-no-files-found: error
+
+  v6-g2-development:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.419"
+
+      - name: Assert .NET SDK identity
+        shell: pwsh
+        run: |
+          $version = (& dotnet --version).Trim()
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^8\.\d+\.\d+$') {
+              Write-Error "Expected an 8.x .NET SDK, got '$version'."
+              exit 1
+          }
+
+      - name: Restore G2 development tools
+        shell: pwsh
+        run: |
+          dotnet restore .\tools\ClearFrost.V6SoakHost\ClearFrost.V6SoakHost.csproj -p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet restore .\tools\ClearFrost.MigrationProbe\ClearFrost.MigrationProbe.csproj -p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build ClearFrost.V6SoakHost
+        shell: pwsh
+        run: dotnet build .\tools\ClearFrost.V6SoakHost\ClearFrost.V6SoakHost.csproj -c Debug -p:Platform=x64 --no-restore
+
+      - name: Build ClearFrost.MigrationProbe
+        shell: pwsh
+        run: dotnet build .\tools\ClearFrost.MigrationProbe\ClearFrost.MigrationProbe.csproj -c Debug -p:Platform=x64 --no-restore
+
+      - name: Run G2 no-input evidence lane
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = $env:GITHUB_WORKSPACE
+          $g2Root = Join-Path $root "artifacts\v6-g2"
+          $modelsRoot = Join-Path $g2Root "models"
+          $publishRoot = Join-Path $g2Root "publish"
+          $migrationRoot = Join-Path $g2Root "migration"
+          $soakRoot = Join-Path $g2Root "soak"
+          $validationRoot = Join-Path $g2Root "validation"
+          New-Item -ItemType Directory -Force -Path $modelsRoot, $publishRoot, $migrationRoot, $soakRoot, $validationRoot | Out-Null
+
+          $shell = (Get-Command powershell.exe -ErrorAction Stop).Source
+          $dotnet = (Get-Command dotnet -ErrorAction Stop).Source
+
+          function Assert-NotVerifiedReport([string]$Name, [string]$ReportPath, [string]$SchemaVersion) {
+              if (-not (Test-Path -LiteralPath $ReportPath -PathType Leaf)) {
+                  throw "$Name did not produce evidence: $ReportPath"
+              }
+              $report = Get-Content -LiteralPath $ReportPath -Raw -Encoding UTF8 | ConvertFrom-Json
+              if ([string]$report.schemaVersion -ne $SchemaVersion) {
+                  throw "$Name schema mismatch: $($report.schemaVersion)"
+              }
+              if ([string]$report.status -ne "NOT_VERIFIED") {
+                  throw "$Name must be NOT_VERIFIED in the no-input lane, got $($report.status)"
+              }
+              return $report
+          }
+
+          function Invoke-NotVerifiedScript([string]$Name, [string]$ScriptPath, [string]$LogPath, [string[]]$Arguments) {
+              & $shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ScriptPath @Arguments *> $LogPath
+              $exitCode = $LASTEXITCODE
+              if ($exitCode -ne 2) {
+                  throw "$Name expected exit code 2 for NOT_VERIFIED, got $exitCode"
+              }
+              return $exitCode
+          }
+
+          function Invoke-NotVerifiedTool([string]$Name, [string]$DllPath, [string]$LogPath, [string[]]$Arguments) {
+              & $dotnet $DllPath @Arguments *> $LogPath
+              $exitCode = $LASTEXITCODE
+              if ($exitCode -ne 2) {
+                  throw "$Name expected exit code 2 for NOT_VERIFIED, got $exitCode"
+              }
+              return $exitCode
+          }
+
+          $inputPath = Join-Path $modelsRoot "external-inputs.json"
+          Invoke-NotVerifiedScript "external input contract" (Join-Path $root "tools\verify_v6_external_inputs.ps1") (Join-Path $modelsRoot "external-inputs.log") @(
+              "-Root", $root, "-ReportPath", $inputPath
+          )
+          Assert-NotVerifiedReport "external input contract" $inputPath "v6-g2-inputs-1.0" | Out-Null
+
+          $modelPath = Join-Path $modelsRoot "model-matrix.json"
+          Invoke-NotVerifiedScript "model matrix" (Join-Path $root "tools\run_v6_model_matrix.ps1") (Join-Path $modelsRoot "model-matrix.log") @(
+              "-Root", $root, "-OutputPath", $modelPath, "-DotnetPath", $dotnet
+          )
+          Assert-NotVerifiedReport "model matrix" $modelPath "v6-g2-model-matrix-1.0" | Out-Null
+
+          $migrationPath = Join-Path $migrationRoot "migration-evidence.json"
+          $migrationDll = Join-Path $root "tools\ClearFrost.MigrationProbe\bin\x64\Debug\net8.0-windows10.0.17763.0\ClearFrost.MigrationProbe.dll"
+          Invoke-NotVerifiedTool "MigrationProbe" $migrationDll (Join-Path $migrationRoot "migration-probe.log") @(
+              "--root", $migrationRoot, "--output", $migrationPath
+          )
+          if (-not (Test-Path -LiteralPath $migrationPath -PathType Leaf)) {
+              throw "MigrationProbe did not produce evidence."
+          }
+          $migration = Get-Content -LiteralPath $migrationPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($migration.SchemaVersion -ne "v6-g2-migration-lab-1.0" -or $migration.Status -ne "NOT_VERIFIED") {
+              throw "MigrationProbe no-input contract failed: schema=$($migration.SchemaVersion), status=$($migration.Status)"
+          }
+          if ($migration.Identity.CommitSha -ne $env:GITHUB_SHA) {
+              throw "MigrationProbe identity commit does not match GITHUB_SHA."
+          }
+
+          $releasePath = Join-Path $publishRoot "release-lab-evidence.json"
+          Invoke-NotVerifiedScript "release lab" (Join-Path $root "tools\publish_v6_release_lab.ps1") (Join-Path $publishRoot "release-lab.log") @(
+              "-Root", $root, "-OutputRoot", (Join-Path $publishRoot "packages"), "-EvidencePath", $releasePath, "-DotnetPath", $dotnet
+          )
+          Assert-NotVerifiedReport "release lab" $releasePath "v6-g2-release-lab-1.0" | Out-Null
+
+          $isolationPath = Join-Path $publishRoot "isolation-evidence.json"
+          Invoke-NotVerifiedScript "release isolation" (Join-Path $root "tools\run_v6_release_isolation.ps1") (Join-Path $publishRoot "isolation.log") @(
+              "-Root", $root, "-ReleaseEvidencePath", $releasePath, "-OutputPath", $isolationPath, "-DotnetPath", $dotnet, "-StartupTimeoutSeconds", "10", "-Repetitions", "1"
+          )
+          Assert-NotVerifiedReport "release isolation" $isolationPath "v6-g2-isolated-lab-1.0" | Out-Null
+
+          $soakPath = Join-Path $soakRoot "soak-evidence.json"
+          $soakDll = Join-Path $root "tools\ClearFrost.V6SoakHost\bin\x64\Debug\net8.0-windows10.0.17763.0\ClearFrost.V6SoakHost.dll"
+          Invoke-NotVerifiedTool "SoakHost" $soakDll (Join-Path $soakRoot "soak-host.log") @(
+              "--root", $root, "--output", $soakPath, "--preflight-cycles", "0", "--cycles", "0"
+          )
+          Assert-NotVerifiedReport "SoakHost" $soakPath "v6-g2-soak-1.0" | Out-Null
+
+          $validationPath = Join-Path $validationRoot "evidence-validation.json"
+          & $shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $root "tools\validate_v6_g2_evidence.ps1") `
+              -Root $root -InputReportPath $inputPath -ModelMatrixPath $modelPath -MigrationEvidencePath $migrationPath -ReleaseEvidencePath $releasePath `
+              -IsolationEvidencePath $isolationPath -SoakEvidencePath $soakPath -OutputPath $validationPath *> (Join-Path $validationRoot "validator.log")
+          $validationExitCode = $LASTEXITCODE
+          if ($validationExitCode -ne 2) {
+              throw "G2 validator expected exit code 2 for aggregate NOT_VERIFIED, got $validationExitCode"
+          }
+          $validation = Get-Content -LiteralPath $validationPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($validation.status -ne "NOT_VERIFIED" -or $validation.schemaStatus -ne "PASS") {
+              throw "G2 validator contract failed: status=$($validation.status), schemaStatus=$($validation.schemaStatus)"
+          }
+          if (@($validation.errors).Count -ne 0) {
+              throw "G2 validator reported schema/contract errors: $($validation.errors -join '; ')"
+          }
+          $configLabScenarios = @($migration.Scenarios | Where-Object { ([string]$_.Name) -like "config-import-lab-*" })
+          if ($configLabScenarios.Count -eq 0 -or @($configLabScenarios | Where-Object { ([string]$_.Status) -ne "PASS" }).Count -gt 0) {
+              throw "MigrationProbe config-import lab scenarios did not all PASS."
+          }
+          if ([string]$migration.Rollback.Status -ne "PASS") {
+              throw "MigrationProbe snapshot rollback did not PASS."
+          }
+          $realUpgrade = @($migration.Scenarios | Where-Object { ([string]$_.Name) -eq "real-v6-upgrade-startup" })
+          if ($realUpgrade.Count -ne 1 -or [string]$realUpgrade[0].Status -ne "NOT_VERIFIED") {
+              throw "MigrationProbe no-input real upgrade scenario must remain NOT_VERIFIED."
+          }
+          foreach ($artifact in @($validation.artifacts.PSObject.Properties)) {
+              if ([string]$artifact.Value.status -ne "NOT_VERIFIED") {
+                  throw "No-input G2 artifact '$($artifact.Name)' was not NOT_VERIFIED: $($artifact.Value.status)"
+              }
+          }
+          Write-Host "G2 development aggregate: NOT_VERIFIED (expected without private model/DLL/hardware inputs)."
+
+          [ordered]@{
+              workflow = $env:GITHUB_WORKFLOW
+              runId = $env:GITHUB_RUN_ID
+              sha = $env:GITHUB_SHA
+              branch = $env:GITHUB_REF_NAME
+              aggregateStatus = $validation.status
+              schemaStatus = $validation.schemaStatus
+          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $g2Root "ci-run.json") -Encoding UTF8
+
+      - name: Upload complete G2 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6-g2-development
+          path: artifacts/v6-g2
+          if-no-files-found: error

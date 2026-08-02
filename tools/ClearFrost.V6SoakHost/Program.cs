@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
+using System.Management;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -52,6 +53,17 @@ internal static class SoakHost
         {
             ExternalInputContract input = ExternalInputContract.Load(options);
             evidence.InputContract = input.ToEvidence();
+            evidence.ScenarioContract = input.ScenarioContract.ToEvidence();
+            evidence.ScenarioCoverageStatus = input.ScenarioContract.Status;
+            if (input.ScenarioContract.Status != "PASS")
+            {
+                evidence.BlockingReasons.AddRange(input.ScenarioContract.BlockingReasons);
+                evidence.NotVerifiedReasons.AddRange(input.ScenarioContract.NotVerifiedReasons);
+                if (input.ScenarioContract.BlockingReasons.Count > 0)
+                {
+                    evidence.Status = "BLOCKED";
+                }
+            }
             if (input.Status != "PASS")
             {
                 evidence.Status = input.Status;
@@ -84,6 +96,10 @@ internal static class SoakHost
                 AppDataRoot = appDataRoot,
                 StorageRoot = storageRoot,
                 ProfileRoot = profileRoot,
+                DatabasePath = Path.Combine(storageRoot, "detection.db"),
+                ConfigPath = Path.Combine(appDataRoot, "Config", "config.json"),
+                ProcessId = Environment.ProcessId,
+                BaselineThreadCount = ExternalFileIdentity.GetCurrentThreadCount(),
                 IsolatedAppData = string.Equals(
                     Path.GetFullPath(appDataRoot).TrimEnd(Path.DirectorySeparatorChar),
                     Path.GetFullPath(runtimeRoot).TrimEnd(Path.DirectorySeparatorChar),
@@ -277,7 +293,7 @@ internal static class SoakHost
                 evidence.Queues = QueueEvidence.From(runtime.ImageSaveQueue, runtime.DetectionRecordQueue);
                 evidence.Health = runtime.HealthMonitor.GetSnapshot();
                 await runtime.DisposeAsync().ConfigureAwait(false);
-                evidence.Runtime.FileLocksReleased = true;
+                ExternalFileIdentity.VerifyShutdownResources(evidence, runtime);
             }
             else
             {
@@ -424,6 +440,7 @@ internal sealed class SoakOptions
 {
     public string Root { get; init; } = Directory.GetCurrentDirectory();
     public string ManifestPath { get; init; } = string.Empty;
+    public string ScenarioManifestPath { get; init; } = string.Empty;
     public string ModelPath { get; init; } = string.Empty;
     public string ImagePath { get; init; } = string.Empty;
     public string ModelSha256 { get; init; } = string.Empty;
@@ -473,6 +490,7 @@ internal sealed class SoakOptions
         {
             Root = Path.GetFullPath(root),
             ManifestPath = ReadString(args, "--manifest") ?? string.Empty,
+            ScenarioManifestPath = ReadString(args, "--scenario-manifest") ?? string.Empty,
             ModelPath = ReadString(args, "--model") ?? string.Empty,
             ImagePath = ReadString(args, "--image") ?? string.Empty,
             ModelSha256 = ReadString(args, "--model-sha256") ?? string.Empty,
@@ -510,6 +528,7 @@ internal sealed class SoakOptions
         Console.WriteLine("--seed <n>                  Deterministic trigger/fault seed.");
         Console.WriteLine("--output <path>             Evidence output path.");
         Console.WriteLine("--runtime-root <path>       Isolated runtime root; defaults beside the evidence file.");
+        Console.WriteLine("--scenario-manifest <path>  External scenario contract with hashes and expected outcomes.");
         Console.WriteLine("--no-fault-injection        Run only the normal production graph path.");
     }
 
@@ -552,6 +571,7 @@ internal sealed class ExternalInputContract
     public string ManifestPath { get; private set; } = string.Empty;
     public ExternalFileIdentity Model { get; private set; } = ExternalFileIdentity.Missing("model");
     public ExternalFileIdentity Image { get; private set; } = ExternalFileIdentity.Missing("image");
+    public ExternalScenarioContract ScenarioContract { get; private set; } = ExternalScenarioContract.Missing(string.Empty);
     public string Task { get; private set; } = "Detect";
     public string Opset { get; private set; } = "";
     public List<string> BlockingReasons { get; } = new List<string>();
@@ -567,7 +587,8 @@ internal sealed class ExternalInputContract
         var direct = new ExternalInputContract
         {
             ManifestPath = string.Empty,
-            Task = "Detect"
+            Task = "Detect",
+            ScenarioContract = ExternalScenarioContract.Load(options.Root, options.ScenarioManifestPath)
         };
         if (string.IsNullOrWhiteSpace(options.ModelPath) || string.IsNullOrWhiteSpace(options.ImagePath))
         {
@@ -605,6 +626,7 @@ internal sealed class ExternalInputContract
             opset = Opset,
             model = Model.ToEvidence(),
             validationImage = Image.ToEvidence(),
+            scenarios = ScenarioContract.ToEvidence(),
             blockingReasons = BlockingReasons.ToArray(),
             notVerifiedReasons = NotVerifiedReasons.ToArray()
         };
@@ -643,6 +665,10 @@ internal sealed class ExternalInputContract
                     contract.ManifestPath = linkedPath;
                 }
             }
+
+            contract.ScenarioContract = string.IsNullOrWhiteSpace(options.ScenarioManifestPath)
+                ? ExternalScenarioContract.FromJson(options.Root, sourceManifest, contract.ManifestPath)
+                : ExternalScenarioContract.Load(options.Root, options.ScenarioManifestPath);
 
             JsonElement? detect = FindLane(sourceManifest, "Detect");
             if (!detect.HasValue)
@@ -956,4 +982,430 @@ internal sealed class ExternalFileIdentity
             reason = Reason
         };
     }
+
+    internal static void VerifyShutdownResources(SoakEvidence evidence, AppRuntime runtime)
+    {
+        Thread.Sleep(100);
+        bool queuesDrained = runtime.ImageSaveQueue.PendingCount == 0 &&
+            runtime.DetectionRecordQueue.PendingCount == 0 &&
+            runtime.ImageSaveQueue.InFlightCount == 0 &&
+            runtime.DetectionRecordQueue.InFlightCount == 0;
+        bool workersCompleted = runtime.ImageSaveQueue.WorkerCompleted &&
+            runtime.DetectionRecordQueue.WorkerCompleted;
+        evidence.Runtime.QueueDrainStatus = queuesDrained && workersCompleted ? "DRAINED" : "BLOCKED";
+        evidence.Runtime.FileRenameVerification = VerifyFileRename(evidence.Runtime.DatabasePath) &&
+            VerifyFileRename(evidence.Runtime.ConfigPath) ? "PASS" : "BLOCKED";
+        evidence.Runtime.SqliteOpenVerification = VerifySqliteOpen(evidence.Runtime.DatabasePath) ? "PASS" : "BLOCKED";
+        evidence.Runtime.ProfileResidualStatus = CountFiles(evidence.Runtime.ProfileRoot) == 0 ? "PASS" : "BLOCKED";
+
+        int childProcessCount = CountChildProcesses(evidence.Runtime.ProcessId);
+        evidence.Runtime.ChildProcessCountAfterShutdown = Math.Max(0, childProcessCount);
+        evidence.Runtime.ProcessCountAfterShutdown = evidence.Runtime.ChildProcessCountAfterShutdown;
+        evidence.Runtime.ChildProcessStatus = childProcessCount == 0 ? "PASS" : "BLOCKED";
+
+        int currentThreadCount = GetCurrentThreadCount();
+        if (evidence.Runtime.BaselineThreadCount < 0 || currentThreadCount < 0)
+        {
+            evidence.Runtime.ResidualThreadCount = -1;
+            evidence.Runtime.ThreadStatus = "BLOCKED";
+        }
+        else
+        {
+            evidence.Runtime.ResidualThreadCount = currentThreadCount - evidence.Runtime.BaselineThreadCount;
+            evidence.Runtime.ThreadStatus = currentThreadCount == evidence.Runtime.BaselineThreadCount ? "PASS" : "BLOCKED";
+        }
+        evidence.Runtime.ResidualTaskCount = (runtime.ImageSaveQueue.WorkerCompleted ? 0 : 1) +
+            (runtime.DetectionRecordQueue.WorkerCompleted ? 0 : 1);
+        evidence.Runtime.TaskStatus = evidence.Runtime.ResidualTaskCount == 0 ? "PASS" : "BLOCKED";
+
+        bool verified = queuesDrained && workersCompleted &&
+            evidence.Runtime.FileRenameVerification == "PASS" &&
+            evidence.Runtime.SqliteOpenVerification == "PASS" &&
+            evidence.Runtime.ProfileResidualStatus == "PASS" &&
+            evidence.Runtime.ChildProcessStatus == "PASS" &&
+            evidence.Runtime.ThreadStatus == "PASS" &&
+            evidence.Runtime.TaskStatus == "PASS";
+        evidence.Runtime.FileLocksReleased = verified;
+        if (!verified)
+        {
+            evidence.BlockingReasons.Add(
+                $"Shutdown resource verification failed: queues={evidence.Runtime.QueueDrainStatus}, " +
+                $"sqlite={evidence.Runtime.SqliteOpenVerification}, rename={evidence.Runtime.FileRenameVerification}, " +
+                $"profile={evidence.Runtime.ProfileResidualStatus}, childProcesses={evidence.Runtime.ChildProcessStatus}, " +
+                $"threads={evidence.Runtime.ThreadStatus}, tasks={evidence.Runtime.TaskStatus}.");
+        }
+    }
+
+    internal static bool VerifySqliteOpen(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var connection = new SqliteConnection($"Data Source={path};Mode=ReadWrite;Cache=Shared");
+            connection.Open();
+            using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = "PRAGMA quick_check;";
+            return string.Equals(Convert.ToString(command.ExecuteScalar(), CultureInfo.InvariantCulture), "ok", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static bool VerifyFileRename(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return false;
+        }
+
+        string temporaryPath = path + ".shutdown-check-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            File.Move(path, temporaryPath);
+            File.Move(temporaryPath, path);
+            return File.Exists(path) && !File.Exists(temporaryPath);
+        }
+        catch
+        {
+            try
+            {
+                if (!File.Exists(path) && File.Exists(temporaryPath))
+                {
+                    File.Move(temporaryPath, path);
+                }
+            }
+            catch
+            {
+            }
+            return false;
+        }
+    }
+
+    internal static int CountFiles(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return 0;
+        }
+
+        return Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Count();
+    }
+
+    internal static int GetCurrentThreadCount()
+    {
+        try
+        {
+            using Process process = Process.GetCurrentProcess();
+            return process.Threads.Count;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    internal static int GetCurrentHandleCount()
+    {
+        try
+        {
+            using Process process = Process.GetCurrentProcess();
+            return process.HandleCount;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    internal static int CountChildProcesses(int parentProcessId)
+    {
+        if (parentProcessId <= 0)
+        {
+            return -1;
+        }
+
+        try
+        {
+            var pending = new Queue<int>(new[] { parentProcessId });
+            var children = new HashSet<int>();
+            while (pending.Count > 0)
+            {
+                int parent = pending.Dequeue();
+                using var searcher = new ManagementObjectSearcher(
+                    $"SELECT ProcessId FROM Win32_Process WHERE ParentProcessId = {parent}");
+                foreach (ManagementObject process in searcher.Get())
+                {
+                    int child = Convert.ToInt32(process["ProcessId"], CultureInfo.InvariantCulture);
+                    if (children.Add(child))
+                    {
+                        pending.Enqueue(child);
+                    }
+                }
+            }
+            return children.Count;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+}
+
+public sealed class ExternalScenarioContract
+{
+    public string SchemaVersion { get; init; } = "v6-g2-scenarios-1.0";
+    public string Status { get; private set; } = "NOT_VERIFIED";
+    public string ManifestPath { get; init; } = string.Empty;
+    public string ManifestSha256 { get; init; } = string.Empty;
+    public List<ExternalScenarioSample> Samples { get; } = new List<ExternalScenarioSample>();
+    public List<string> BlockingReasons { get; } = new List<string>();
+    public List<string> NotVerifiedReasons { get; } = new List<string>();
+
+    public static ExternalScenarioContract Missing(string path)
+    {
+        var result = new ExternalScenarioContract { ManifestPath = path ?? string.Empty };
+        result.NotVerifiedReasons.Add("No external scenario manifest was supplied; a single image cannot claim complete scenario coverage.");
+        return result;
+    }
+
+    public static ExternalScenarioContract Load(string root, string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return Missing(string.Empty);
+        }
+
+        string fullPath = Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(root, path));
+        if (!File.Exists(fullPath))
+        {
+            var missing = Missing(fullPath);
+            missing.NotVerifiedReasons.Add($"External scenario manifest is unavailable: {fullPath}");
+            return missing;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(fullPath));
+            return FromJson(root, document.RootElement, fullPath);
+        }
+        catch (JsonException ex)
+        {
+            var invalid = new ExternalScenarioContract { ManifestPath = fullPath };
+            invalid.BlockingReasons.Add($"External scenario manifest is not valid JSON: {ex.Message}");
+            invalid.Status = "BLOCKED";
+            return invalid;
+        }
+        catch (IOException ex)
+        {
+            var unreadable = new ExternalScenarioContract { ManifestPath = fullPath };
+            unreadable.NotVerifiedReasons.Add($"External scenario manifest could not be read: {ex.Message}");
+            return unreadable;
+        }
+    }
+
+    public static ExternalScenarioContract FromJson(string root, JsonElement document, string manifestPath)
+    {
+        if (!document.TryGetProperty("scenarios", out JsonElement scenarios) || scenarios.ValueKind != JsonValueKind.Array)
+        {
+            return Missing(manifestPath);
+        }
+
+        var result = new ExternalScenarioContract
+        {
+            ManifestPath = manifestPath,
+            ManifestSha256 = V6G2EvidenceIdentity.ComputeFileSha256(manifestPath)
+        };
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var sampleHashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (JsonElement item in scenarios.EnumerateArray())
+        {
+            string name = GetString(item, "name");
+            string kind = GetString(item, "kind");
+            string path = ResolvePath(root, GetString(item, "path"));
+            string expectedSha = FirstNonEmpty(
+                GetString(item, "expectedSha256"),
+                GetString(item, "sha256")).Trim().ToUpperInvariant();
+            long expectedBytes = FirstPositive(GetLong(item, "expectedBytes"), GetLong(item, "bytes"));
+            string expectedOutcome = GetString(item, "expectedOutcome");
+            string expectedErrorCode = GetString(item, "expectedErrorCode");
+            string expectedTerminalState = GetString(item, "expectedTerminalState");
+            if (item.TryGetProperty("expected", out JsonElement expected) && expected.ValueKind == JsonValueKind.Object)
+            {
+                expectedOutcome = FirstNonEmpty(expectedOutcome, GetString(expected, "outcome"));
+                expectedErrorCode = FirstNonEmpty(expectedErrorCode, GetString(expected, "errorCode"));
+                expectedTerminalState = FirstNonEmpty(expectedTerminalState, GetString(expected, "terminalState"));
+            }
+
+            var sample = new ExternalScenarioSample
+            {
+                Name = name,
+                Kind = kind,
+                Path = path,
+                ExpectedSha256 = expectedSha,
+                ExpectedBytes = expectedBytes,
+                ExpectedOutcome = expectedOutcome,
+                ExpectedErrorCode = expectedErrorCode,
+                ExpectedTerminalState = expectedTerminalState
+            };
+            result.ValidateSample(sample, names);
+            if (sample.Status == "PASS" && sampleHashes.TryGetValue(sample.ActualSha256, out string? duplicateName))
+            {
+                result.BlockingReasons.Add(
+                    $"Scenario samples '{duplicateName}' and '{sample.Name}' resolve to the same SHA-256; one image cannot cover multiple scenario cases.");
+                sample.Status = "BLOCKED";
+            }
+            else if (sample.Status == "PASS")
+            {
+                sampleHashes[sample.ActualSha256] = sample.Name;
+            }
+            result.Samples.Add(sample);
+        }
+
+        if (result.Samples.Count == 0)
+        {
+            result.NotVerifiedReasons.Add("External scenario manifest contains no samples.");
+        }
+        else
+        {
+            foreach (string requiredKind in new[]
+                     {
+                         "has-target", "no-target", "multi-target", "short-frame", "wrong-size", "inference-exception"
+                     })
+            {
+                if (!result.Samples.Any(sample =>
+                        string.Equals(sample.Kind, requiredKind, StringComparison.OrdinalIgnoreCase) &&
+                        sample.Status == "PASS"))
+                {
+                    result.NotVerifiedReasons.Add($"External scenario manifest has no valid '{requiredKind}' sample.");
+                }
+            }
+        }
+
+        if (result.BlockingReasons.Count > 0)
+        {
+            result.Status = "BLOCKED";
+        }
+        else if (result.NotVerifiedReasons.Count == 0 && result.Samples.Count > 0)
+        {
+            result.Status = "PASS";
+        }
+
+        return result;
+    }
+
+    public object ToEvidence()
+    {
+        return new
+        {
+            schemaVersion = SchemaVersion,
+            status = Status,
+            manifestPath = ManifestPath,
+            manifestSha256 = ManifestSha256,
+            samples = Samples,
+            blockingReasons = BlockingReasons.ToArray(),
+            notVerifiedReasons = NotVerifiedReasons.ToArray()
+        };
+    }
+
+    private void ValidateSample(ExternalScenarioSample sample, HashSet<string> names)
+    {
+        string[] kinds = { "has-target", "no-target", "multi-target", "short-frame", "wrong-size", "inference-exception" };
+        if (string.IsNullOrWhiteSpace(sample.Name) || !names.Add(sample.Name))
+        {
+            BlockingReasons.Add("Scenario names must be non-empty and unique.");
+            sample.Status = "BLOCKED";
+            return;
+        }
+        if (!kinds.Contains(sample.Kind, StringComparer.OrdinalIgnoreCase))
+        {
+            BlockingReasons.Add($"Unsupported scenario kind: {sample.Kind}");
+            sample.Status = "BLOCKED";
+            return;
+        }
+        if (sample.ExpectedOutcome is not ("OK" or "NG"))
+        {
+            BlockingReasons.Add($"Scenario {sample.Name} must declare expectedOutcome OK or NG.");
+            sample.Status = "BLOCKED";
+            return;
+        }
+        if (!string.Equals(sample.ExpectedTerminalState, "Successful", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(sample.ExpectedTerminalState, "ExplicitFailure", StringComparison.OrdinalIgnoreCase))
+        {
+            BlockingReasons.Add($"Scenario {sample.Name} must declare expectedTerminalState Successful or ExplicitFailure.");
+            sample.Status = "BLOCKED";
+            return;
+        }
+        if ((sample.Kind is "short-frame" or "wrong-size" or "inference-exception") && string.IsNullOrWhiteSpace(sample.ExpectedErrorCode))
+        {
+            BlockingReasons.Add($"Scenario {sample.Name} must declare expectedErrorCode.");
+            sample.Status = "BLOCKED";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(sample.Path) || sample.ExpectedBytes <= 0 || sample.ExpectedSha256.Length != 64)
+        {
+            NotVerifiedReasons.Add($"Scenario {sample.Name} must bind a path, SHA-256, and positive byte size.");
+            return;
+        }
+        if (!File.Exists(sample.Path))
+        {
+            NotVerifiedReasons.Add($"Scenario {sample.Name} sample is unavailable.");
+            return;
+        }
+
+        FileInfo file = new FileInfo(sample.Path);
+        sample.ActualBytes = file.Length;
+        sample.ActualSha256 = V6G2EvidenceIdentity.ComputeFileSha256(sample.Path);
+        if (sample.ActualBytes != sample.ExpectedBytes || !string.Equals(sample.ActualSha256, sample.ExpectedSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            BlockingReasons.Add($"Scenario {sample.Name} sample identity does not match its declared contract.");
+            sample.Status = "BLOCKED";
+            return;
+        }
+
+        sample.Status = "PASS";
+    }
+
+    private static string ResolvePath(string root, string value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : Path.GetFullPath(Path.IsPathRooted(value) ? value : Path.Combine(root, value));
+    }
+
+    private static string GetString(JsonElement value, string name)
+    {
+        return value.TryGetProperty(name, out JsonElement property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString() ?? string.Empty
+            : string.Empty;
+    }
+
+    private static long GetLong(JsonElement value, string name)
+    {
+        return value.TryGetProperty(name, out JsonElement property) && property.TryGetInt64(out long result) ? result : 0;
+    }
+
+    private static string FirstNonEmpty(params string[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+
+    private static long FirstPositive(params long[] values) => values.FirstOrDefault(value => value > 0);
+}
+
+public sealed class ExternalScenarioSample
+{
+    public string Name { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string Status { get; set; } = "NOT_VERIFIED";
+    public string Path { get; init; } = string.Empty;
+    public string ExpectedSha256 { get; init; } = string.Empty;
+    public string ActualSha256 { get; set; } = string.Empty;
+    public long ExpectedBytes { get; init; }
+    public long ActualBytes { get; set; }
+    public string ExpectedOutcome { get; init; } = string.Empty;
+    public string ExpectedErrorCode { get; init; } = string.Empty;
+    public string ExpectedTerminalState { get; init; } = string.Empty;
 }

@@ -9,6 +9,7 @@
 
 $ErrorActionPreference = "Stop"
 $rootPath = [System.IO.Path]::GetFullPath($Root)
+. (Join-Path $rootPath "tools\v6_g2_identity.ps1")
 $releaseEvidenceFile = if ([string]::IsNullOrWhiteSpace($ReleaseEvidencePath)) {
     Join-Path $rootPath "artifacts\v6-g2\publish\release-lab-evidence.json"
 }
@@ -41,6 +42,11 @@ function Add-NotVerifiedReason([string]$Reason) {
 function Get-String([object]$Object, [string]$Name) {
     if ($null -eq $Object -or $null -eq $Object.PSObject.Properties[$Name]) { return "" }
     return [string]$Object.PSObject.Properties[$Name].Value
+}
+
+function Get-Property([object]$Object, [string]$Name) {
+    if ($null -eq $Object -or $null -eq $Object.PSObject.Properties[$Name]) { return $null }
+    return $Object.PSObject.Properties[$Name].Value
 }
 
 function Get-SourceHash([string]$Path) {
@@ -236,7 +242,31 @@ function Invoke-MigrationLab {
     $dllPath = Join-Path $rootPath "tools\ClearFrost.MigrationProbe\bin\x64\Debug\net8.0-windows10.0.17763.0\ClearFrost.MigrationProbe.dll"
     $reportPath = Join-Path $migrationRoot "migration-evidence.json"
     if ($buildCode -eq 0 -and (Test-Path -LiteralPath $dllPath -PathType Leaf)) {
-        $output = @(& $DotnetPath $dllPath "--root" $migrationRoot "--output" $reportPath 2>&1)
+        $migrationArguments = [System.Collections.Generic.List[string]]::new()
+        [void]$migrationArguments.Add("--root")
+        [void]$migrationArguments.Add($migrationRoot)
+        [void]$migrationArguments.Add("--output")
+        [void]$migrationArguments.Add($reportPath)
+        $inputReportForIdentity = if ($null -eq $releaseReport) { $null } else { Get-Property $releaseReport "inputValidation" }
+        $detectForIdentity = if ($null -eq $inputReportForIdentity) { $null } else {
+            @($inputReportForIdentity.models | Where-Object { (Get-String $_ "lane") -eq "Detect" }) | Select-Object -First 1
+        }
+        $inputManifestForIdentity = if ($null -eq $inputReportForIdentity) { "" } else { Get-String $inputReportForIdentity "manifestPath" }
+        $detectModelForIdentity = Get-String $detectForIdentity "path"
+        $validationImageForIdentity = Get-String $detectForIdentity.validationImage "path"
+        if (-not [string]::IsNullOrWhiteSpace($inputManifestForIdentity)) {
+            [void]$migrationArguments.Add("--input-manifest")
+            [void]$migrationArguments.Add($inputManifestForIdentity)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($detectModelForIdentity)) {
+            [void]$migrationArguments.Add("--detect-model")
+            [void]$migrationArguments.Add($detectModelForIdentity)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($validationImageForIdentity)) {
+            [void]$migrationArguments.Add("--validation-image")
+            [void]$migrationArguments.Add($validationImageForIdentity)
+        }
+        $output = @(& $DotnetPath $dllPath @migrationArguments 2>&1)
         $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
         $logPath = Join-Path $migrationRoot "migration-probe.log"
         [System.IO.File]::WriteAllLines($logPath, @($output | ForEach-Object { [string]$_ }), [System.Text.UTF8Encoding]::new($false))
@@ -245,7 +275,7 @@ function Invoke-MigrationLab {
             return [ordered]@{ status = "BLOCKED"; exitCode = $exitCode; reportPath = $reportPath; log = $logPath }
         }
         $report = Get-Content -LiteralPath $reportPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        return [ordered]@{ status = Get-String $report "Status"; exitCode = $exitCode; reportPath = $reportPath; log = $logPath; scenarios = $report.Scenarios; rollback = $report.Rollback }
+        return [ordered]@{ status = Get-String $report "Status"; exitCode = $exitCode; reportPath = $reportPath; log = $logPath; identity = $report.Identity; scenarios = $report.Scenarios; rollback = $report.Rollback }
     }
     return [ordered]@{ status = "BLOCKED"; exitCode = $buildCode; reportPath = $reportPath; reason = "Migration probe executable was unavailable." }
 }
@@ -274,10 +304,19 @@ else {
 
 $startupStatus = if ($startupRecords.Count -eq 0) { "NOT_VERIFIED" } elseif (@($startupRecords | Where-Object { (Get-String $_ "status") -ne "PASS" }).Count -eq 0) { "PASS" } else { "BLOCKED" }
 $labStatus = if ($blockingReasons.Count -gt 0) { "BLOCKED" } elseif ($notVerifiedReasons.Count -gt 0) { "NOT_VERIFIED" } else { "PASS" }
+$inputReportForIdentity = if ($null -eq $releaseReport) { $null } else { Get-Property $releaseReport "inputValidation" }
+$detectForIdentity = if ($null -eq $inputReportForIdentity) { $null } else { @($inputReportForIdentity.models | Where-Object { (Get-String $_ "lane") -eq "Detect" }) | Select-Object -First 1 }
+$inputManifestForIdentity = if ($null -eq $inputReportForIdentity) { "" } else { Get-String $inputReportForIdentity "manifestPath" }
+$identity = New-V6G2EvidenceIdentity -Root $rootPath `
+    -InputManifestPath $inputManifestForIdentity `
+    -DetectModelPath (Get-String $detectForIdentity "path") `
+    -ValidationImagePath (Get-String $detectForIdentity.validationImage "path") `
+    -Provider "NOT_VERIFIED"
 $report = [ordered]@{
     schemaVersion = "v6-g2-isolated-lab-1.0"
     generatedAtUtc = [DateTime]::UtcNow.ToString("o")
     root = $rootPath
+    identity = $identity
     releaseEvidencePath = $releaseEvidenceFile
     migration = $migration
     startup = [ordered]@{ status = $startupStatus; repetitions = $Repetitions; runs = @($startupRecords) }

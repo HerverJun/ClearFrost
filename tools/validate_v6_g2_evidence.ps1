@@ -2,6 +2,7 @@
     [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
     [string]$InputReportPath = "",
     [string]$ModelMatrixPath = "",
+    [string]$MigrationEvidencePath = "",
     [string]$ReleaseEvidencePath = "",
     [string]$IsolationEvidencePath = "",
     [string]$SoakEvidencePath = "",
@@ -62,6 +63,82 @@ function Is-Sha256([string]$Value) {
 
 function Is-Sha1([string]$Value) {
     return $Value -match '^[0-9A-Fa-f]{40}$'
+}
+
+function Test-Identity([object]$Report, [string]$Name) {
+    if ($null -eq $Report) {
+        return $null
+    }
+
+    $identity = Get-PropertyValue $Report "identity"
+    if ($null -eq $identity) {
+        Add-Error "$Name evidence must contain the unified identity object."
+        return $null
+    }
+
+    if (-not (Is-Sha1 (Get-String $identity "commitSha"))) {
+        Add-Error "$Name identity commitSha must be a complete 40-character SHA-1."
+    }
+    if ([string]::IsNullOrWhiteSpace((Get-String $identity "productVersion"))) {
+        Add-Error "$Name identity productVersion is required."
+    }
+    if (-not (Is-Sha256 (Get-String $identity "machineIdentityDigest"))) {
+        Add-Error "$Name identity machineIdentityDigest must be a SHA-256 digest."
+    }
+    if ([string]::IsNullOrWhiteSpace((Get-String $identity "provider"))) {
+        Add-Error "$Name identity provider is required, including NOT_VERIFIED."
+    }
+    foreach ($field in @("inputManifestSha256", "detectModelSha256", "validationImageSha256", "dllSha256")) {
+        $value = Get-String $identity $field
+        if (-not [string]::IsNullOrWhiteSpace($value) -and -not (Is-Sha256 $value)) {
+            Add-Error "$Name identity $field must be empty or a complete SHA-256."
+        }
+    }
+    try {
+        $started = [DateTimeOffset]::Parse((Get-String $identity "runStartedAtUtc"), [Globalization.CultureInfo]::InvariantCulture)
+        $finished = [DateTimeOffset]::Parse((Get-String $identity "runFinishedAtUtc"), [Globalization.CultureInfo]::InvariantCulture)
+        if ($finished -lt $started) {
+            Add-Error "$Name identity runFinishedAtUtc precedes runStartedAtUtc."
+        }
+    }
+    catch {
+        Add-Error "$Name identity runStartedAtUtc and runFinishedAtUtc must be ISO-8601 timestamps."
+    }
+    $status = Get-String $Report "status"
+    if ($status -eq "PASS") {
+        foreach ($field in @("inputManifestSha256", "detectModelSha256", "validationImageSha256", "dllSha256")) {
+            if (-not (Is-Sha256 (Get-String $identity $field))) {
+                Add-Error "$Name PASS identity requires $field."
+            }
+        }
+    }
+    return $identity
+}
+
+function Test-IdentitySet([object[]]$Reports) {
+    $identities = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in $Reports) {
+        $identity = Test-Identity $entry.Report $entry.Name
+        if ($null -ne $identity) {
+            [void]$identities.Add([pscustomobject]@{ name = $entry.Name; identity = $identity })
+        }
+    }
+    if ($identities.Count -le 1) {
+        return
+    }
+
+    $reference = $identities[0].identity
+    foreach ($entry in $identities | Select-Object -Skip 1) {
+        foreach ($field in @(
+                "commitSha", "productVersion", "inputManifestSha256", "detectModelSha256",
+                "validationImageSha256", "dllSha256", "provider", "machineIdentityDigest")) {
+            $expected = Get-String $reference $field
+            $actual = Get-String $entry.identity $field
+            if (-not [string]::Equals($expected, $actual, [StringComparison]::OrdinalIgnoreCase)) {
+                Add-Error "Unified evidence identity conflict: $($entry.Name) $field does not match $($identities[0].name)."
+            }
+        }
+    }
 }
 
 function Read-Report([string]$Name, [string]$Path, [string]$SchemaVersion) {
@@ -285,30 +362,168 @@ function Test-Soak([object]$Report) {
             Add-Error "soak PASS requires PASS finalConsistency."
         }
         $queues = Get-PropertyValue $Report "queues"
-        if ([long](Get-PropertyValue $queues "imagePending") -ne 0 -or [long](Get-PropertyValue $queues "recordPending") -ne 0) {
-            Add-Error "soak PASS requires drained image and record queues."
+        if ([long](Get-PropertyValue $queues "imagePending") -ne 0 -or
+            [long](Get-PropertyValue $queues "recordPending") -ne 0 -or
+            [long](Get-PropertyValue $queues "imageInFlight") -ne 0 -or
+            [long](Get-PropertyValue $queues "recordInFlight") -ne 0) {
+            Add-Error "soak PASS requires drained image and record queues with no in-flight work."
         }
     }
     if ((Get-String $Report "promotionEligibility") -eq "PASS" -and
         @((Get-Array $Report "notVerifiedReasons") | Where-Object { $_ -match "camera|PLC|FAT|SAT" }).Count -gt 0) {
         Add-Error "soak promotion PASS cannot coexist with real camera/PLC/FAT/SAT NOT_VERIFIED evidence."
     }
+
+    $consistency = Get-PropertyValue $Report "finalConsistency"
+    foreach ($field in @("MissingRecords", "MissingImages", "MissingTraceRecords")) {
+        if ([long](Get-PropertyValue $consistency $field) -gt 0) {
+            Add-Error "soak $field must block the evidence decision."
+        }
+    }
+    if ((Get-String $consistency "QueueStatus") -eq "TIMEOUT") {
+        Add-Error "soak queue drain TIMEOUT must be BLOCKED."
+    }
+    if ((Get-String $Report "status") -eq "PASS") {
+        if ((Get-String $Report "evidenceType") -ne "production-component harness") {
+            Add-Error "soak PASS must identify the production-component harness boundary."
+        }
+        if ((Get-String $Report "scenarioCoverageStatus") -ne "PASS") {
+            Add-Error "soak PASS requires a PASS external scenario manifest contract."
+        }
+        $scenarioContract = Get-PropertyValue $Report "scenarioContract"
+        $scenarioKinds = @((Get-Array $scenarioContract "samples") | ForEach-Object { Get-String $_ "kind" })
+        foreach ($kind in @("has-target", "no-target", "multi-target", "short-frame", "wrong-size", "inference-exception")) {
+            if (@($scenarioKinds | Where-Object { $_ -eq $kind }).Count -lt 1) {
+                Add-Error "soak PASS scenario manifest must contain at least one '$kind' sample."
+            }
+        }
+        $scenarioExecution = Get-PropertyValue $Report "scenarioExecution"
+        if ((Get-String $scenarioExecution "status") -ne "PASS" -or
+            [int](Get-PropertyValue $scenarioExecution "executedSamples") -ne [int](Get-PropertyValue $scenarioExecution "expectedSamples") -or
+            @((Get-Array $scenarioExecution "samples") | Where-Object { (Get-String $_ "status") -ne "PASS" }).Count -gt 0) {
+            Add-Error "soak PASS requires every declared scenario sample to execute and match its contract."
+        }
+        if ((Get-String $consistency "status") -ne "PASS" -or
+            (Get-String $consistency "QueueStatus") -ne "DRAINED" -or
+            [long](Get-PropertyValue $consistency "MissingRecords") -ne 0 -or
+            [long](Get-PropertyValue $consistency "MissingImages") -ne 0 -or
+            [long](Get-PropertyValue $consistency "MissingTraceRecords") -ne 0) {
+            Add-Error "soak PASS requires a drained, complete final consistency scan."
+        }
+        foreach ($name in @("fileRenameVerification", "sqliteOpenVerification", "profileResidualStatus", "childProcessStatus", "threadStatus", "taskStatus")) {
+            if ((Get-String $runtime $name) -ne "PASS") {
+                Add-Error "soak PASS requires runtime.$name=PASS."
+            }
+        }
+        if ([int](Get-PropertyValue $runtime "ResidualThreadCount") -ne 0 -or
+            [int](Get-PropertyValue $runtime "ResidualTaskCount") -ne 0) {
+            Add-Error "soak PASS requires zero residual threads and tasks."
+        }
+        $resources = Get-PropertyValue $Report "resources"
+        $trend = Get-PropertyValue $resources "trend"
+        $latency = Get-PropertyValue $resources "queueLatency"
+        if ([int](Get-PropertyValue $trend "sampleCount") -lt 3 -or (Get-String $trend "status") -ne "PASS") {
+            Add-Error "soak PASS requires a PASS resource trend based on at least three samples."
+        }
+        foreach ($queueName in @("image", "record", "cycle")) {
+            if ([int](Get-PropertyValue (Get-PropertyValue $latency $queueName) "sampleCount") -le 0) {
+                Add-Error "soak PASS requires queue percentile samples for $queueName."
+            }
+        }
+        $faults = Get-PropertyValue $Report "faults"
+        foreach ($fault in (Get-Array $faults "events")) {
+            if (-not [bool](Get-PropertyValue $fault "Planned") -or
+                -not [bool](Get-PropertyValue $fault "Injected") -or
+                -not [bool](Get-PropertyValue $fault "FaultCleared") -or
+                -not [bool](Get-PropertyValue $fault "NextHealthyCycleRecovered") -or
+                (Get-String $fault "RecoveryStatus") -ne "RECOVERED") {
+                Add-Error "soak PASS contains a fault without planned/injected/cleared/healthy-cycle recovery evidence."
+            }
+            if (-not [string]::Equals((Get-String $fault "ErrorCode"), (Get-String $fault "ExpectedErrorCode"), [StringComparison]::OrdinalIgnoreCase) -or
+                -not [string]::Equals((Get-String $fault "ActualTerminalState"), (Get-String $fault "ExpectedTerminalState"), [StringComparison]::OrdinalIgnoreCase)) {
+                Add-Error "soak PASS contains a fault with an unexpected error code or terminal state."
+            }
+        }
+    }
+}
+
+function Test-Migration([object]$Report) {
+    if ($null -eq $Report) { return }
+    Test-ReportStatus $Report "migration lab"
+
+    $scenarios = Get-Array $Report "scenarios"
+    $configLabScenarios = @($scenarios | Where-Object {
+        (Get-String $_ "Name") -like "config-import-lab-*"
+    })
+    if ($configLabScenarios.Count -eq 0) {
+        Add-Error "migration lab must contain config-import lab scenarios."
+    }
+    $requiredConfigLabNames = @(
+        "config-import-lab-valid-migration-idempotence",
+        "config-import-lab-missing-fields",
+        "config-import-lab-historical-path",
+        "config-import-lab-corrupt-config",
+        "config-import-lab-model-reference",
+        "config-import-lab-mid-migration-failure-recovery"
+    )
+    foreach ($requiredName in $requiredConfigLabNames) {
+        if (@($configLabScenarios | Where-Object { (Get-String $_ "Name") -eq $requiredName }).Count -ne 1) {
+            Add-Error "migration lab must contain exactly one '$requiredName' scenario."
+        }
+    }
+    foreach ($scenario in $configLabScenarios) {
+        if ((Get-String $scenario "Status") -ne "PASS") {
+            Add-Error "migration config-import lab scenario '$((Get-String $scenario "Name"))' must be PASS."
+        }
+    }
+
+    $rollback = Get-PropertyValue $Report "rollback"
+    if ((Get-String $rollback "Status") -ne "PASS") {
+        Add-Error "migration lab requires PASS snapshot rollback evidence."
+    }
+
+    $realUpgrade = @($scenarios | Where-Object {
+        (Get-String $_ "Name") -eq "real-v6-upgrade-startup"
+    })
+    if ($realUpgrade.Count -ne 1) {
+        Add-Error "migration lab must contain exactly one real-v6-upgrade-startup scenario."
+    }
+    elseif ((Get-String $Report "status") -eq "PASS" -and
+        (Get-String $realUpgrade[0] "Status") -ne "PASS") {
+        Add-Error "migration PASS requires a PASS real-v6-upgrade-startup scenario."
+    }
+    elseif ((Get-String $Report "status") -eq "NOT_VERIFIED" -and
+        (Get-String $realUpgrade[0] "Status") -notin @("PASS", "NOT_VERIFIED")) {
+        Add-Error "migration real-v6-upgrade-startup has an invalid status."
+    }
 }
 
 $inputPath = if ($InputReportPath) { $InputReportPath } else { Join-Path $rootPath "artifacts\v6-g2\models\external-inputs.json" }
 $modelPath = if ($ModelMatrixPath) { $ModelMatrixPath } else { Join-Path $rootPath "artifacts\v6-g2\models\model-matrix.json" }
+$migrationPath = if ($MigrationEvidencePath) { $MigrationEvidencePath } else { Join-Path $rootPath "artifacts\v6-g2\migration\migration-evidence.json" }
 $releasePath = if ($ReleaseEvidencePath) { $ReleaseEvidencePath } else { Join-Path $rootPath "artifacts\v6-g2\publish\release-lab-evidence.json" }
 $isolationPath = if ($IsolationEvidencePath) { $IsolationEvidencePath } else { Join-Path $rootPath "artifacts\v6-g2\publish\isolation-evidence.json" }
 $soakPath = if ($SoakEvidencePath) { $SoakEvidencePath } else { Join-Path $rootPath "artifacts\v6-g2\soak\soak-evidence.json" }
 
 $inputReport = Read-Report "input" $inputPath "v6-g2-inputs-1.0"
 $model = Read-Report "modelMatrix" $modelPath "v6-g2-model-matrix-1.0"
+$migration = Read-Report "migration" $migrationPath "v6-g2-migration-lab-1.0"
 $release = Read-Report "release" $releasePath "v6-g2-release-lab-1.0"
 $isolation = Read-Report "isolation" $isolationPath "v6-g2-isolated-lab-1.0"
 $soak = Read-Report "soak" $soakPath "v6-g2-soak-1.0"
 
+Test-IdentitySet @(
+    [pscustomobject]@{ Name = "input"; Report = $inputReport },
+    [pscustomobject]@{ Name = "modelMatrix"; Report = $model },
+    [pscustomobject]@{ Name = "migration"; Report = $migration },
+    [pscustomobject]@{ Name = "release"; Report = $release },
+    [pscustomobject]@{ Name = "isolation"; Report = $isolation },
+    [pscustomobject]@{ Name = "soak"; Report = $soak }
+)
+
 Test-InputReport $inputReport
 Test-ModelMatrix $model
+Test-Migration $migration
 Test-Release $release
 Test-Isolation $isolation
 Test-Soak $soak

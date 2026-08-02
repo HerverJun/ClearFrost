@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ClearFrost\ClearFrost.csproj" />
     <ProjectReference Include="..\tools\ClearFrost.SimStress\ClearFrost.SimStress.csproj" />
+    <ProjectReference Include="..\tools\ClearFrost.V6SoakHost\ClearFrost.V6SoakHost.csproj" />
   </ItemGroup>
 
   <!-- 测试项目不使用 WebView2 WPF 组件，移除以避免 WindowsBase 版本冲突 -->

@@ -8,6 +8,7 @@
 
 $ErrorActionPreference = "Stop"
 $rootPath = [System.IO.Path]::GetFullPath($Root)
+. (Join-Path $PSScriptRoot "v6_g2_identity.ps1")
 $resolvedManifestPath = $ManifestPath
 if ([string]::IsNullOrWhiteSpace($resolvedManifestPath)) {
     $resolvedManifestPath = [string]$env:CLEARFROST_V6_INPUT_MANIFEST
@@ -489,11 +490,17 @@ if ($RequireDependencies -and @($dependencyRecords | Where-Object { $_.status -n
 }
 
 $overallStatus = if ($blockingReasons.Count -gt 0) { "BLOCKED" } elseif ($notVerifiedReasons.Count -gt 0 -or $manifestStatus -ne "PASS") { "NOT_VERIFIED" } else { "PASS" }
+$identity = New-V6G2EvidenceIdentity -Root $rootPath `
+    -InputManifestPath $resolvedManifestPath `
+    -DetectModelPath (Get-String $detect "path") `
+    -ValidationImagePath (Get-String $detect.validationImage "path") `
+    -Provider "NOT_VERIFIED"
 $report = [ordered]@{
     schemaVersion = "v6-g2-inputs-1.0"
     generatedAtUtc = [DateTime]::UtcNow.ToString("o")
     root = $rootPath
     manifestPath = if ([string]::IsNullOrWhiteSpace($resolvedManifestPath)) { "" } else { [System.IO.Path]::GetFullPath($resolvedManifestPath) }
+    identity = $identity
     manifestStatus = $manifestStatus
     models = @($modelRecords)
     dependencies = @($dependencyRecords)

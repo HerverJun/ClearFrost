@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
+using System.Management;
 using ClearFrost;
 using ClearFrost.Core.Inspection;
 using ClearFrost.Hardware;
@@ -17,13 +18,20 @@ internal sealed class SoakEvidence
     public string StartedAt { get; init; } = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
     public string FinishedAt { get; set; } = string.Empty;
     public string CommitSha { get; init; } = string.Empty;
+    public string EvidenceType { get; init; } = "production-component harness";
     public SoakOptions Options { get; init; } = new SoakOptions();
+    public V6G2EvidenceIdentity Identity { get; set; } = new V6G2EvidenceIdentity();
     public object? InputContract { get; set; }
     public object? Model { get; set; }
     public object? ValidationImage { get; set; }
+    public object? ScenarioContract { get; set; }
+    public string ScenarioCoverageStatus { get; set; } = "NOT_VERIFIED";
+    public ScenarioExecutionEvidence ScenarioExecution { get; set; } = new ScenarioExecutionEvidence();
     public YoloModelDescriptor? ModelDescriptor { get; set; }
     public DetectionRuntimeStatus? Provider { get; set; }
     public RuntimeEvidence Runtime { get; set; } = new RuntimeEvidence();
+    public CapabilityBoundaryEvidence CapabilityBoundary { get; set; } = CapabilityBoundaryEvidence.Create();
+    public ResourceEvidence Resources { get; set; } = new ResourceEvidence();
     public StartupDiagnosticReport? Startup { get; set; }
     public CycleEvidenceSummary Cycles { get; set; } = new CycleEvidenceSummary();
     public FaultEvidence Faults { get; set; } = new FaultEvidence();
@@ -41,13 +49,33 @@ internal sealed class SoakEvidence
             CommitSha = commitSha,
             Options = options
         };
+        evidence.Identity = V6G2EvidenceIdentity.Create(
+            options.Root,
+            options.ManifestPath,
+            options.ModelPath,
+            options.ImagePath,
+            null,
+            "NOT_VERIFIED",
+            DateTimeOffset.Parse(evidence.StartedAt, CultureInfo.InvariantCulture));
         evidence.NotVerifiedReasons.Add("Real camera, PLC, and FAT/SAT were not exercised by this boundary-limited soak host.");
+        evidence.NotVerifiedReasons.Add("This is a production-component harness; AppRuntime trigger listening, model admission, coordinator, busy/debounce, and production worker startup paths were not executed.");
         return evidence;
     }
 
     public void Complete()
     {
         FinishedAt = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        DateTimeOffset started = DateTimeOffset.Parse(StartedAt, CultureInfo.InvariantCulture);
+        string provider = Environment.GetEnvironmentVariable("CLEARFROST_V6_G2_PROVIDER") ?? "NOT_VERIFIED";
+        Identity = V6G2EvidenceIdentity.Create(
+            Options.Root,
+            Options.ManifestPath,
+            Options.ModelPath,
+            Options.ImagePath,
+            null,
+            provider,
+            started,
+            DateTimeOffset.Parse(FinishedAt, CultureInfo.InvariantCulture));
     }
 }
 
@@ -57,6 +85,9 @@ internal sealed class RuntimeEvidence
     public string AppDataRoot { get; init; } = string.Empty;
     public string StorageRoot { get; init; } = string.Empty;
     public string ProfileRoot { get; init; } = string.Empty;
+    public string DatabasePath { get; init; } = string.Empty;
+    public string ConfigPath { get; init; } = string.Empty;
+    public int ProcessId { get; init; }
     public bool IsolatedAppData { get; set; }
     public bool IsolatedStorage { get; set; }
     public bool SourceTreeReferenced { get; set; }
@@ -66,6 +97,18 @@ internal sealed class RuntimeEvidence
     public bool CancellationShutdownCompleted { get; set; }
     public bool FileLocksReleased { get; set; }
     public int ProcessCountAfterShutdown { get; set; }
+    public int ChildProcessCountAfterShutdown { get; set; }
+    public int BaselineThreadCount { get; set; }
+    public int ResidualThreadCount { get; set; }
+    public int ResidualTaskCount { get; set; }
+    public string QueueDrainStatus { get; set; } = "NOT_RUN";
+    public long QueueDrainElapsedMs { get; set; }
+    public string FileRenameVerification { get; set; } = "NOT_RUN";
+    public string SqliteOpenVerification { get; set; } = "NOT_RUN";
+    public string ProfileResidualStatus { get; set; } = "NOT_RUN";
+    public string ChildProcessStatus { get; set; } = "NOT_RUN";
+    public string ThreadStatus { get; set; } = "NOT_RUN";
+    public string TaskStatus { get; set; } = "NOT_RUN";
 }
 
 internal sealed class CycleEvidenceSummary
@@ -81,6 +124,9 @@ internal sealed class CycleEvidenceSummary
     public long DuplicateInspectionIdCount { get; set; }
     public long MissingTraceCount { get; set; }
     public long MissingRecordCount { get; set; }
+    public double ThroughputCyclesPerSecond { get; set; }
+    public ResourceSample? FirstResourceSample { get; set; }
+    public ResourceSample? LastResourceSample { get; set; }
     public List<CycleEvidence> Samples { get; } = new List<CycleEvidence>();
 }
 
@@ -101,6 +147,7 @@ internal sealed class CycleEvidence
     public bool ExplicitFailure { get; init; }
     public bool RecoveryVerified { get; set; }
     public string RecoveryStatus { get; set; } = "NOT_APPLICABLE";
+    public string ExpectedTerminalState { get; init; } = string.Empty;
     public string ErrorCode { get; init; } = string.Empty;
     public string ErrorMessage { get; init; } = string.Empty;
     public string TraceStatus { get; init; } = string.Empty;
@@ -109,6 +156,8 @@ internal sealed class CycleEvidence
     public int ResultCount { get; init; }
     public long ImageQueuePending { get; init; }
     public long RecordQueuePending { get; init; }
+    public long ImageQueueLatencyMs { get; init; }
+    public long RecordQueueLatencyMs { get; init; }
 }
 
 internal sealed class FaultEvidence
@@ -123,9 +172,19 @@ internal sealed class FaultEventEvidence
     public string InspectionId { get; init; } = string.Empty;
     public string Fault { get; init; } = string.Empty;
     public string ErrorCode { get; set; } = string.Empty;
+    public string ExpectedErrorCode { get; set; } = string.Empty;
+    public string ExpectedTerminalState { get; set; } = string.Empty;
+    public string ExpectedTerminalErrorCode { get; set; } = string.Empty;
+    public string ActualTerminalErrorCode { get; set; } = string.Empty;
+    public string ActualTerminalState { get; set; } = string.Empty;
     public bool Planned { get; set; }
     public bool Injected { get; set; }
     public DateTimeOffset? InjectedAt { get; set; }
+    public bool FaultCleared { get; set; }
+    public DateTimeOffset? FaultClearedAt { get; set; }
+    public bool NextHealthyCycleRecovered { get; set; }
+    public string NextHealthyInspectionId { get; set; } = string.Empty;
+    public long RecoveryDurationMs { get; set; }
     public bool Recovered { get; set; }
     public string RecoveryStatus { get; set; } = "NOT_RUN";
     public string Details { get; set; } = string.Empty;
@@ -137,14 +196,17 @@ internal sealed class QueueEvidence
     public int ImageCapacity { get; init; }
     public long ImagePending { get; init; }
     public long ImagePendingBytes { get; init; }
+    public long ImageInFlight { get; init; }
     public long ImageSaved { get; init; }
     public long ImageDropped { get; init; }
     public long ImageFailed { get; init; }
     public int RecordCapacity { get; init; }
     public long RecordPending { get; init; }
+    public long RecordInFlight { get; init; }
     public long RecordSaved { get; init; }
     public long RecordDropped { get; init; }
     public long RecordFailed { get; init; }
+    public SoakQueueWaitResult? Drain { get; set; }
 
     public static QueueEvidence From(ImageSaveQueue imageQueue, DetectionRecordQueue recordQueue)
     {
@@ -153,11 +215,13 @@ internal sealed class QueueEvidence
             ImageCapacity = imageQueue.Capacity,
             ImagePending = imageQueue.PendingCount,
             ImagePendingBytes = imageQueue.PendingBytes,
+            ImageInFlight = imageQueue.InFlightCount,
             ImageSaved = imageQueue.SavedCount,
             ImageDropped = imageQueue.DroppedCount,
             ImageFailed = imageQueue.FailedCount,
             RecordCapacity = recordQueue.Capacity,
             RecordPending = recordQueue.PendingCount,
+            RecordInFlight = recordQueue.InFlightCount,
             RecordSaved = recordQueue.SavedCount,
             RecordDropped = recordQueue.DroppedCount,
             RecordFailed = recordQueue.FailedCount
@@ -168,13 +232,121 @@ internal sealed class QueueEvidence
 internal sealed class ConsistencyEvidence
 {
     public string Status { get; set; } = "NOT_VERIFIED";
+    public string ScanStartedAtUtc { get; set; } = string.Empty;
+    public string ScanFinishedAtUtc { get; set; } = string.Empty;
+    public string QueueStatus { get; set; } = "NOT_RUN";
     public int RecordsRead { get; set; }
     public int ExpectedInspectionIds { get; set; }
     public int MissingRecords { get; set; }
     public int DuplicateInspectionIds { get; set; }
     public int MissingImages { get; set; }
+    public int MissingTraceRecords { get; set; }
     public int InvalidTraceRecords { get; set; }
+    public List<string> MissingInspectionIds { get; } = new List<string>();
     public List<string> Findings { get; } = new List<string>();
+}
+
+internal sealed class ScenarioExecutionEvidence
+{
+    public string Status { get; set; } = "NOT_VERIFIED";
+    public int ExpectedSamples { get; set; }
+    public int ExecutedSamples { get; set; }
+    public List<ScenarioExecutionResult> Samples { get; } = new List<ScenarioExecutionResult>();
+    public List<string> Findings { get; } = new List<string>();
+}
+
+internal sealed class ScenarioExecutionResult
+{
+    public string Name { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string InspectionId { get; init; } = string.Empty;
+    public string ExpectedOutcome { get; init; } = string.Empty;
+    public string ActualOutcome { get; init; } = string.Empty;
+    public string ExpectedErrorCode { get; init; } = string.Empty;
+    public string ActualErrorCode { get; init; } = string.Empty;
+    public string ExpectedTerminalState { get; init; } = string.Empty;
+    public string ActualTerminalState { get; init; } = string.Empty;
+    public string Status { get; init; } = "BLOCKED";
+    public string Finding { get; init; } = string.Empty;
+}
+
+internal sealed class CapabilityBoundaryEvidence
+{
+    public string HarnessType { get; init; } = "production-component harness";
+    public bool AppRuntimeTriggerListenerExecuted { get; init; }
+    public bool ModelAdmissionExecuted { get; init; }
+    public bool CoordinatorExecuted { get; init; }
+    public bool WorkerPathExecuted { get; init; }
+    public bool BusyDebounceExecuted { get; init; }
+    public List<string> BypassedPaths { get; init; } = new List<string>();
+
+    public static CapabilityBoundaryEvidence Create()
+    {
+        return new CapabilityBoundaryEvidence
+        {
+            BypassedPaths = new List<string>
+            {
+                "AppRuntime trigger listener",
+                "production model approval/admission",
+                "trigger source coordinator",
+                "busy/debounce policy",
+                "production worker startup path"
+            }
+        };
+    }
+}
+
+internal sealed class ResourceEvidence
+{
+    public List<ResourceSample> Samples { get; } = new List<ResourceSample>();
+    public ResourceTrendEvidence Trend { get; set; } = new ResourceTrendEvidence();
+    public QueueLatencyEvidence QueueLatency { get; set; } = new QueueLatencyEvidence();
+    public double ThroughputCyclesPerSecond { get; set; }
+    public long MaxFaultRecoveryMs { get; set; }
+}
+
+internal sealed class ResourceSample
+{
+    public string AtUtc { get; init; } = string.Empty;
+    public int Cycle { get; init; }
+    public long WorkingSetBytes { get; init; }
+    public long PrivateBytes { get; init; }
+    public long GcHeapBytes { get; init; }
+    public int ThreadCount { get; init; }
+    public int HandleCount { get; init; }
+    public long ImageQueuePending { get; init; }
+    public long RecordQueuePending { get; init; }
+    public long ImageQueueLatencyMs { get; init; }
+    public long RecordQueueLatencyMs { get; init; }
+    public long CycleMs { get; init; }
+    public long FaultRecoveryMs { get; init; }
+}
+
+internal sealed class ResourceTrendEvidence
+{
+    public string Status { get; set; } = "NOT_VERIFIED";
+    public string Method { get; set; } = "periodic-sample-linear-trend";
+    public int SampleCount { get; set; }
+    public double WorkingSetSlopeBytesPerSample { get; set; }
+    public double PrivateBytesSlopeBytesPerSample { get; set; }
+    public double GcHeapSlopeBytesPerSample { get; set; }
+    public string Finding { get; set; } = string.Empty;
+}
+
+internal sealed class QueueLatencyEvidence
+{
+    public QueuePercentileEvidence Image { get; set; } = new QueuePercentileEvidence();
+    public QueuePercentileEvidence Record { get; set; } = new QueuePercentileEvidence();
+    public QueuePercentileEvidence Cycle { get; set; } = new QueuePercentileEvidence();
+}
+
+internal sealed class QueuePercentileEvidence
+{
+    public int SampleCount { get; set; }
+    public double P50 { get; set; }
+    public double P95 { get; set; }
+    public double P99 { get; set; }
+    public double Maximum { get; set; }
 }
 
 internal enum SoakFaultKind
@@ -198,6 +370,7 @@ internal sealed class FaultPlan
     private readonly object _sync = new object();
     private readonly Dictionary<string, SoakFaultKind> _scenarios = new Dictionary<string, SoakFaultKind>(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _consumed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _cleared = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _persistent = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private readonly List<FaultEventEvidence> _events = new List<FaultEventEvidence>();
     private readonly int _seed;
@@ -222,11 +395,15 @@ internal sealed class FaultPlan
             _scenarios[inspectionId] = fault;
             if (fault != SoakFaultKind.None)
             {
+                (string expectedErrorCode, string expectedTerminalState, string expectedTerminalErrorCode) = GetExpectedOutcome(fault);
                 _events.Add(new FaultEventEvidence
                 {
                     InspectionId = inspectionId,
                     Fault = fault.ToString(),
-                    Planned = true
+                    Planned = true,
+                    ExpectedErrorCode = expectedErrorCode,
+                    ExpectedTerminalState = expectedTerminalState,
+                    ExpectedTerminalErrorCode = expectedTerminalErrorCode
                 });
             }
         }
@@ -267,12 +444,12 @@ internal sealed class FaultPlan
 
     public bool ConsumeCameraShortFrame(string inspectionId)
     {
-        return Consume(inspectionId, SoakFaultKind.CameraShortFrame, "camera-short-frame", "Camera.ShortFrame");
+        return ConsumeUntilCleared(inspectionId, SoakFaultKind.CameraShortFrame, "CaptureFrameFailed");
     }
 
     public bool ConsumeCameraCaptureFailure(string inspectionId)
     {
-        return Consume(inspectionId, SoakFaultKind.CameraCaptureFailure, "camera-capture-failure", "Camera.CaptureFailed");
+        return ConsumeUntilCleared(inspectionId, SoakFaultKind.CameraCaptureFailure, "CaptureFrameFailed");
     }
 
     public bool ConsumePlcWriteFailure(string inspectionId)
@@ -282,7 +459,7 @@ internal sealed class FaultPlan
             return false;
         }
 
-        return Consume(inspectionId, SoakFaultKind.PlcWriteFailure, "plc-write-failure", "PLC.WriteFailed");
+        return Consume(inspectionId, SoakFaultKind.PlcWriteFailure, "plc-write-failure", "HandshakeV1.WriteFailed");
     }
 
     public bool ShouldHoldResultAck(string inspectionId)
@@ -331,26 +508,66 @@ internal sealed class FaultPlan
                 {
                     InspectionId = inspectionId,
                     Fault = fault.ToString(),
-                    Planned = true
+                    Planned = true,
+                    ExpectedErrorCode = GetExpectedOutcome(fault).ExpectedErrorCode,
+                    ExpectedTerminalState = GetExpectedOutcome(fault).ExpectedTerminalState,
+                    ExpectedTerminalErrorCode = GetExpectedOutcome(fault).ExpectedTerminalErrorCode
                 });
             }
             MarkInjectedLocked(inspectionId, errorCode, details);
         }
     }
 
-    public void MarkRecovered(string inspectionId, string status, string details)
+    public void MarkFaultCleared(string inspectionId, string details)
     {
         lock (_sync)
         {
-            FaultEventEvidence? item = _events.LastOrDefault(entry => string.Equals(entry.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase));
+            FaultEventEvidence? item = FindEventLocked(inspectionId);
             if (item == null)
             {
                 return;
             }
 
-            item.Recovered = true;
-            item.RecoveryStatus = status;
+            _cleared.Add(inspectionId);
+            item.FaultCleared = true;
+            item.FaultClearedAt ??= DateTimeOffset.UtcNow;
             item.RecoveryDetails = details;
+        }
+    }
+
+    public void MarkTerminalOutcome(string inspectionId, string terminalErrorCode, string terminalState)
+    {
+        lock (_sync)
+        {
+            FaultEventEvidence? item = FindEventLocked(inspectionId);
+            if (item == null)
+            {
+                return;
+            }
+
+            item.ActualTerminalErrorCode = terminalErrorCode ?? string.Empty;
+            item.ActualTerminalState = terminalState ?? string.Empty;
+        }
+    }
+
+    public void MarkNextHealthyCycle(string inspectionId, string nextHealthyInspectionId, long recoveryDurationMs)
+    {
+        lock (_sync)
+        {
+            FaultEventEvidence? item = FindEventLocked(inspectionId);
+            if (item == null)
+            {
+                return;
+            }
+
+            item.NextHealthyCycleRecovered = true;
+            item.NextHealthyInspectionId = nextHealthyInspectionId;
+            item.RecoveryDurationMs = Math.Max(0, recoveryDurationMs);
+            item.Recovered = item.Planned && item.Injected && item.FaultCleared &&
+                string.Equals(item.ErrorCode, item.ExpectedErrorCode, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(item.ActualTerminalState, item.ExpectedTerminalState, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(item.ActualTerminalErrorCode, item.ExpectedTerminalErrorCode, StringComparison.OrdinalIgnoreCase);
+            item.RecoveryStatus = item.Recovered ? "RECOVERED" : "BLOCKED";
         }
     }
 
@@ -376,6 +593,23 @@ internal sealed class FaultPlan
         }
     }
 
+    private bool ConsumeUntilCleared(string inspectionId, SoakFaultKind expectedFault, string errorCode)
+    {
+        lock (_sync)
+        {
+            if (GetScenarioLocked(inspectionId) != expectedFault || _cleared.Contains(inspectionId))
+            {
+                return false;
+            }
+
+            MarkInjectedLocked(
+                inspectionId,
+                errorCode,
+                $"Injected {expectedFault} until the cycle reached its terminal path.");
+            return true;
+        }
+    }
+
     private void MarkInjectedLocked(string inspectionId, string errorCode, string details)
     {
         FaultEventEvidence? item = _events.LastOrDefault(entry => string.Equals(entry.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase));
@@ -385,7 +619,10 @@ internal sealed class FaultPlan
             {
                 InspectionId = inspectionId,
                 Fault = GetScenarioLocked(inspectionId).ToString(),
-                Planned = true
+                Planned = true,
+                ExpectedErrorCode = GetExpectedOutcome(GetScenarioLocked(inspectionId)).ExpectedErrorCode,
+                ExpectedTerminalState = GetExpectedOutcome(GetScenarioLocked(inspectionId)).ExpectedTerminalState,
+                ExpectedTerminalErrorCode = GetExpectedOutcome(GetScenarioLocked(inspectionId)).ExpectedTerminalErrorCode
             };
             _events.Add(item);
         }
@@ -432,6 +669,30 @@ internal sealed class FaultPlan
         };
     }
 
+    private FaultEventEvidence? FindEventLocked(string inspectionId)
+    {
+        return _events.LastOrDefault(entry => string.Equals(entry.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static (string ExpectedErrorCode, string ExpectedTerminalState, string ExpectedTerminalErrorCode) GetExpectedOutcome(SoakFaultKind fault)
+    {
+        return fault switch
+        {
+            SoakFaultKind.CameraShortFrame => ("CaptureFrameFailed", "ExplicitFailure", "CaptureFrameFailed"),
+            SoakFaultKind.CameraCaptureFailure => ("CaptureFrameFailed", "ExplicitFailure", "CaptureFrameFailed"),
+            SoakFaultKind.PlcDisconnect => ("PlcNotConnected", "ExplicitFailure", "PlcNotConnected"),
+            SoakFaultKind.PlcWriteFailure => ("HandshakeV1.WriteFailed", "ExplicitFailure", "HandshakeV1.WriteFailed"),
+            SoakFaultKind.ResultAckTimeout => ("HandshakeV1.AckTimeout", "ExplicitFailure", "HandshakeV1.AckTimeout"),
+            SoakFaultKind.DatabaseLock => ("SQLite.BusyWindow", "Successful", string.Empty),
+            SoakFaultKind.ImageTargetUnavailable => ("ImageTarget.Unavailable", "Successful", string.Empty),
+            SoakFaultKind.ImageQueueBackpressure => ("ImageQueue.Backpressure", "Successful", string.Empty),
+            SoakFaultKind.RecordQueueBackpressure => ("RecordQueue.Backpressure", "Successful", string.Empty),
+            SoakFaultKind.ModelUnavailable => ("DetectionServiceError", "ExplicitFailure", "DetectionServiceError"),
+            SoakFaultKind.Cancellation => ("OperationCanceled", "ExplicitFailure", "OperationCanceled"),
+            _ => (string.Empty, string.Empty, string.Empty)
+        };
+    }
+
     private static FaultEventEvidence CloneEvent(FaultEventEvidence source)
     {
         return new FaultEventEvidence
@@ -439,9 +700,19 @@ internal sealed class FaultPlan
             InspectionId = source.InspectionId,
             Fault = source.Fault,
             ErrorCode = source.ErrorCode,
+            ExpectedErrorCode = source.ExpectedErrorCode,
+            ExpectedTerminalState = source.ExpectedTerminalState,
+            ExpectedTerminalErrorCode = source.ExpectedTerminalErrorCode,
+            ActualTerminalErrorCode = source.ActualTerminalErrorCode,
+            ActualTerminalState = source.ActualTerminalState,
             Planned = source.Planned,
             Injected = source.Injected,
             InjectedAt = source.InjectedAt,
+            FaultCleared = source.FaultCleared,
+            FaultClearedAt = source.FaultClearedAt,
+            NextHealthyCycleRecovered = source.NextHealthyCycleRecovered,
+            NextHealthyInspectionId = source.NextHealthyInspectionId,
+            RecoveryDurationMs = source.RecoveryDurationMs,
             Recovered = source.Recovered,
             RecoveryStatus = source.RecoveryStatus,
             Details = source.Details,
@@ -452,7 +723,7 @@ internal sealed class FaultPlan
 
 internal sealed class SoakCameraService : ICameraService, ICameraCaptureDiagnostics
 {
-    private readonly string _imagePath;
+    private string _imagePath;
     private readonly FaultPlan _faultPlan;
     private readonly object _sync = new object();
     private Mat? _sourceFrame;
@@ -484,6 +755,21 @@ internal sealed class SoakCameraService : ICameraService, ICameraCaptureDiagnost
         _inspectionId = inspectionId ?? string.Empty;
         LastError = null;
         LastCaptureFailureKind = CameraCaptureFailureKind.None;
+    }
+
+    public void SetSourceImage(string imagePath)
+    {
+        if (string.IsNullOrWhiteSpace(imagePath))
+        {
+            throw new ArgumentException("An external scenario image path is required.", nameof(imagePath));
+        }
+
+        lock (_sync)
+        {
+            _imagePath = Path.GetFullPath(imagePath);
+            _sourceFrame?.Dispose();
+            _sourceFrame = null;
+        }
     }
 
     public bool Open(string serialNumber, string manufacturer)
@@ -807,7 +1093,7 @@ internal sealed class FaultInjectingSqliteDatabaseService : IDatabaseService
         if (_faultPlan.TryBeginDatabaseLock(record.InspectionId))
         {
             await HoldExclusiveLockAsync().ConfigureAwait(false);
-            _faultPlan.MarkRecovered(record.InspectionId, "RECOVERED", "SQLite exclusive lock window ended before the record write.");
+            _faultPlan.MarkFaultCleared(record.InspectionId, "SQLite exclusive lock window ended before the record write.");
         }
 
         if (record.InspectionId.Contains("SOAK-RECORD-QUEUE-PRESSURE", StringComparison.OrdinalIgnoreCase))
@@ -874,6 +1160,8 @@ internal sealed class ProductionGraphRunner
     private readonly FaultPlan _faultPlan;
     private readonly HashSet<string> _expectedInspectionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private readonly List<CycleEvidence> _allCycleEvidence = new List<CycleEvidence>();
+    private readonly List<ResourceSample> _resourceSamples = new List<ResourceSample>();
+    private readonly DateTimeOffset _runStartedAtUtc = DateTimeOffset.UtcNow;
 
     public ProductionGraphRunner(
         SoakOptions options,
@@ -913,16 +1201,43 @@ internal sealed class ProductionGraphRunner
             return;
         }
 
+        await RunScenarioCoverageAsync().ConfigureAwait(false);
+
         DateTimeOffset? deadline = _options.DurationMinutes > 0
             ? DateTimeOffset.UtcNow.AddMinutes(_options.DurationMinutes)
             : null;
         int mainCycleLimit = _options.Cycles > 0 ? _options.Cycles : (deadline.HasValue ? int.MaxValue : 1);
         await RunPhaseAsync("main", mainCycleLimit, allowFaults: _options.EnableFaultInjection, deadline).ConfigureAwait(false);
-        await WaitForQueuesAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
-        await ValidateConsistencyAsync().ConfigureAwait(false);
+        SoakQueueWaitResult drain = await WaitForQueuesAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+        _evidence.Queues.Drain = drain;
+        _evidence.Runtime.QueueDrainStatus = drain.Status;
+        _evidence.Runtime.QueueDrainElapsedMs = drain.ElapsedMs;
+        if (!drain.Drained)
+        {
+            _evidence.BlockingReasons.Add(
+                $"Persistence queues did not drain before final consistency scan: Image={drain.ImagePending}, Record={drain.RecordPending}.");
+            _evidence.FinalConsistency = new ConsistencyEvidence
+            {
+                Status = "BLOCKED",
+                QueueStatus = drain.Status,
+                ScanStartedAtUtc = string.Empty,
+                ScanFinishedAtUtc = string.Empty
+            };
+        }
+        else
+        {
+            await ValidateConsistencyAsync(drain).ConfigureAwait(false);
+        }
 
         _evidence.Provider = _runtime.DetectionService.RuntimeStatus;
         _evidence.Queues = QueueEvidence.From(_runtime.ImageSaveQueue, _runtime.DetectionRecordQueue);
+        _evidence.Queues.Drain = drain;
+        _evidence.Faults.Events.Clear();
+        _evidence.Faults.Events.AddRange(_faultPlan.SnapshotEvents());
+        _evidence.Resources.Samples.Clear();
+        _evidence.Resources.Samples.AddRange(_resourceSamples);
+        BuildResourceEvidence();
+        ValidateFaultRecovery();
         _evidence.Faults.Events.Clear();
         _evidence.Faults.Events.AddRange(_faultPlan.SnapshotEvents());
 
@@ -931,12 +1246,16 @@ internal sealed class ProductionGraphRunner
             _evidence.Status = "BLOCKED";
             _evidence.BlockingReasons.AddRange(_evidence.FinalConsistency.Findings);
         }
-        else if (_evidence.BlockingReasons.Count == 0)
+        else if (_evidence.BlockingReasons.Count == 0 && _evidence.ScenarioCoverageStatus == "PASS")
         {
             _evidence.Status = "PASS";
         }
+        else if (_evidence.BlockingReasons.Count == 0)
+        {
+            _evidence.Status = "NOT_VERIFIED";
+        }
 
-        _evidence.PromotionEligibility = _evidence.Status == "PASS" ? "NOT_VERIFIED" : "BLOCKED";
+        _evidence.PromotionEligibility = "NOT_VERIFIED";
     }
 
     private async Task RunPhaseAsync(string phase, int limit, bool allowFaults, DateTimeOffset? deadline)
@@ -946,9 +1265,26 @@ internal sealed class ProductionGraphRunner
         {
             executed++;
             string inspectionId = $"SOAK-{phase.ToUpperInvariant()}-{executed:000000}";
-            CycleEvidence cycle = await RunCycleAsync(phase, executed, inspectionId, allowFaults).ConfigureAwait(false);
+            bool allowFaultsThisCycle = allowFaults && (deadline.HasValue || executed < limit);
+            CycleEvidence cycle = await RunCycleAsync(phase, executed, inspectionId, allowFaultsThisCycle).ConfigureAwait(false);
             _allCycleEvidence.Add(cycle);
             _expectedInspectionIds.Add(inspectionId);
+            RecordResourceSample(cycle);
+
+            if (cycle.Fault == SoakFaultKind.None.ToString() && cycle.CycleSucceeded)
+            {
+                FaultEventEvidence? pendingFault = _faultPlan.SnapshotEvents()
+                    .Where(item => item.Injected && item.FaultCleared && !item.NextHealthyCycleRecovered)
+                    .OrderBy(item => item.InjectedAt)
+                    .FirstOrDefault();
+                if (pendingFault != null)
+                {
+                    long recoveryMs = pendingFault.InjectedAt.HasValue
+                        ? Math.Max(0, (long)(DateTimeOffset.UtcNow - pendingFault.InjectedAt.Value).TotalMilliseconds)
+                        : 0;
+                    _faultPlan.MarkNextHealthyCycle(pendingFault.InspectionId, inspectionId, recoveryMs);
+                }
+            }
 
             if (string.Equals(phase, "preflight", StringComparison.OrdinalIgnoreCase))
             {
@@ -994,7 +1330,92 @@ internal sealed class ProductionGraphRunner
         }
     }
 
-    private async Task<CycleEvidence> RunCycleAsync(string phase, int sequence, string inspectionId, bool allowFaults)
+    private async Task RunScenarioCoverageAsync()
+    {
+        ScenarioExecutionEvidence execution = new ScenarioExecutionEvidence
+        {
+            ExpectedSamples = _input.ScenarioContract.Samples.Count
+        };
+        _evidence.ScenarioExecution = execution;
+
+        if (_input.ScenarioContract.Status != "PASS")
+        {
+            execution.Findings.Add("Scenario execution was not authorized because the external scenario manifest contract is not PASS.");
+            return;
+        }
+
+        int sequence = 0;
+        try
+        {
+            foreach (ExternalScenarioSample sample in _input.ScenarioContract.Samples)
+            {
+                sequence++;
+                string inspectionId = $"SOAK-SCENARIO-{sequence:000000}";
+                _camera.SetSourceImage(sample.Path);
+                CycleEvidence cycle = await RunCycleAsync(
+                    "scenario",
+                    sequence,
+                    inspectionId,
+                    allowFaults: false,
+                    allowExpectedFailure: true).ConfigureAwait(false);
+                _allCycleEvidence.Add(cycle);
+                _expectedInspectionIds.Add(inspectionId);
+                RecordResourceSample(cycle);
+                execution.ExecutedSamples++;
+
+                string actualOutcome = cycle.Qualified == true ? "OK" : "NG";
+                string actualTerminalState = cycle.CycleSucceeded ? "Successful" : "ExplicitFailure";
+                bool outcomeMatches = string.Equals(sample.ExpectedOutcome, actualOutcome, StringComparison.OrdinalIgnoreCase);
+                bool errorMatches = string.IsNullOrWhiteSpace(sample.ExpectedErrorCode) ||
+                    string.Equals(sample.ExpectedErrorCode, cycle.ErrorCode, StringComparison.OrdinalIgnoreCase);
+                bool terminalMatches = string.Equals(sample.ExpectedTerminalState, actualTerminalState, StringComparison.OrdinalIgnoreCase);
+                bool passed = outcomeMatches && errorMatches && terminalMatches;
+                string finding = passed
+                    ? "Observed outcome, error code, and terminal state match the external scenario contract."
+                    : $"Expected outcome={sample.ExpectedOutcome}, errorCode={sample.ExpectedErrorCode}, terminalState={sample.ExpectedTerminalState}; " +
+                      $"actual outcome={actualOutcome}, errorCode={cycle.ErrorCode}, terminalState={actualTerminalState}.";
+                execution.Samples.Add(new ScenarioExecutionResult
+                {
+                    Name = sample.Name,
+                    Kind = sample.Kind,
+                    InspectionId = inspectionId,
+                    ExpectedOutcome = sample.ExpectedOutcome,
+                    ActualOutcome = actualOutcome,
+                    ExpectedErrorCode = sample.ExpectedErrorCode,
+                    ActualErrorCode = cycle.ErrorCode,
+                    ExpectedTerminalState = sample.ExpectedTerminalState,
+                    ActualTerminalState = actualTerminalState,
+                    Status = passed ? "PASS" : "BLOCKED",
+                    Finding = finding
+                });
+                if (!passed)
+                {
+                    execution.Findings.Add($"Scenario '{sample.Name}' did not satisfy its execution contract: {finding}");
+                }
+            }
+
+            execution.Status = execution.ExecutedSamples == execution.ExpectedSamples &&
+                execution.Samples.All(sample => sample.Status == "PASS")
+                ? "PASS"
+                : "BLOCKED";
+            _evidence.ScenarioCoverageStatus = execution.Status;
+            if (execution.Status != "PASS")
+            {
+                _evidence.BlockingReasons.AddRange(execution.Findings);
+            }
+        }
+        finally
+        {
+            _camera.SetSourceImage(_input.Image.Path);
+        }
+    }
+
+    private async Task<CycleEvidence> RunCycleAsync(
+        string phase,
+        int sequence,
+        string inspectionId,
+        bool allowFaults,
+        bool allowExpectedFailure = false)
     {
         SoakFaultKind fault = _faultPlan.BeginCycle(inspectionId, sequence, allowFaults);
         _camera.BeginCycle(inspectionId);
@@ -1029,7 +1450,7 @@ internal sealed class ProductionGraphRunner
         if (fault == SoakFaultKind.PlcDisconnect)
         {
             _plc.Disconnect();
-            _faultPlan.RecordHarnessInjection(inspectionId, fault, "PLC.Disconnected", "PLC boundary disconnected after trigger acceptance.");
+            _faultPlan.RecordHarnessInjection(inspectionId, fault, "PlcNotConnected", "PLC boundary disconnected after trigger acceptance.");
         }
         if (fault is SoakFaultKind.PlcWriteFailure or SoakFaultKind.ResultAckTimeout)
         {
@@ -1041,7 +1462,7 @@ internal sealed class ProductionGraphRunner
         {
             _runtime.DetectionService.UnloadPrimaryModel();
             modelUnloaded = true;
-            _faultPlan.RecordHarnessInjection(inspectionId, fault, "Detection.ModelUnavailable", "Primary model was unloaded for one production cycle.");
+            _faultPlan.RecordHarnessInjection(inspectionId, fault, "DetectionServiceError", "Primary model was unloaded for one production cycle.");
         }
 
         InspectionPipelineResult? result = null;
@@ -1052,7 +1473,7 @@ internal sealed class ProductionGraphRunner
             {
                 using var cancellationSource = new CancellationTokenSource();
                 cancellationSource.Cancel();
-                _faultPlan.RecordHarnessInjection(inspectionId, fault, "Inspection.Cancelled", "The production graph received a pre-cancelled token.");
+                _faultPlan.RecordHarnessInjection(inspectionId, fault, "OperationCanceled", "The production graph received a pre-cancelled token.");
                 result = await _pipeline.ExecuteAsync(
                     new InspectionPipelineRequest("PLC", inspectionId, sequence, context),
                     cancellationSource.Token,
@@ -1083,6 +1504,13 @@ internal sealed class ProductionGraphRunner
         }
         result?.Dispose();
 
+        if ((fault is SoakFaultKind.CameraShortFrame or SoakFaultKind.CameraCaptureFailure) &&
+            _faultPlan.SnapshotEvents().Any(item =>
+                string.Equals(item.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase) && item.Injected))
+        {
+            _faultPlan.MarkFaultCleared(inspectionId, "The camera fault was consumed by the capture boundary and the cycle reached its terminal path.");
+        }
+
         if (modelUnloaded)
         {
             bool reloaded = await _runtime.DetectionService.LoadModelAsync(
@@ -1095,7 +1523,7 @@ internal sealed class ProductionGraphRunner
             }
             else
             {
-                _faultPlan.MarkRecovered(inspectionId, "RECOVERED", "Primary model was loaded again after the expected outage.");
+                _faultPlan.MarkFaultCleared(inspectionId, "Primary model was loaded again after the expected outage.");
             }
         }
 
@@ -1111,7 +1539,7 @@ internal sealed class ProductionGraphRunner
             }).ConfigureAwait(false);
             if (reconnected)
             {
-                _faultPlan.MarkRecovered(inspectionId, "RECOVERED", "PLC boundary reconnected after the explicit terminal failure.");
+                _faultPlan.MarkFaultCleared(inspectionId, "PLC boundary reconnected after the explicit terminal failure.");
             }
             else
             {
@@ -1122,63 +1550,53 @@ internal sealed class ProductionGraphRunner
         if (fault is SoakFaultKind.PlcWriteFailure or SoakFaultKind.ResultAckTimeout)
         {
             _faultPlan.DisarmRuntimeFault(inspectionId);
+            if (_faultPlan.SnapshotEvents().Any(item =>
+                    string.Equals(item.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase) && item.Injected))
+            {
+                _faultPlan.MarkFaultCleared(inspectionId, "The one-cycle PLC runtime fault was disarmed.");
+            }
         }
 
         if (fault == SoakFaultKind.ImageTargetUnavailable)
         {
-            await ExerciseImageTargetFaultAsync(inspectionId).ConfigureAwait(false);
+            if (await ExerciseImageTargetFaultAsync(inspectionId).ConfigureAwait(false))
+            {
+                _faultPlan.MarkFaultCleared(inspectionId, "The failed image target was observed and a recovery image was persisted.");
+            }
         }
         else if (fault == SoakFaultKind.ImageQueueBackpressure)
         {
-            await ExerciseImageQueuePressureAsync(inspectionId).ConfigureAwait(false);
+            _faultPlan.RecordHarnessInjection(
+                inspectionId,
+                fault,
+                "ImageQueue.Backpressure",
+                "The bounded image queue was filled beyond capacity by the deterministic harness.");
+            if (await ExerciseImageQueuePressureAsync(inspectionId).ConfigureAwait(false))
+            {
+                _faultPlan.MarkFaultCleared(inspectionId, "Image queue pressure was observed and the queue drained.");
+            }
         }
         else if (fault == SoakFaultKind.RecordQueueBackpressure)
         {
-            await ExerciseRecordQueuePressureAsync(inspectionId).ConfigureAwait(false);
+            _faultPlan.RecordHarnessInjection(
+                inspectionId,
+                fault,
+                "RecordQueue.Backpressure",
+                "The bounded record queue was filled beyond capacity by the deterministic harness.");
+            if (await ExerciseRecordQueuePressureAsync(inspectionId).ConfigureAwait(false))
+            {
+                _faultPlan.MarkFaultCleared(inspectionId, "Record queue pressure was observed and the queue drained.");
+            }
         }
 
         bool explicitFailure = cancelled ||
             !context.CycleSucceeded ||
             (context.TerminalHandshakeAttempted && !context.TerminalHandshakeSucceeded);
-        bool recovered = fault == SoakFaultKind.None || context.CycleSucceeded || cancelled || explicitFailure;
+        bool injected = fault == SoakFaultKind.None || _faultPlan.SnapshotEvents().Any(item =>
+            string.Equals(item.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase) && item.Injected);
         string recoveryStatus = fault == SoakFaultKind.None
             ? "NOT_APPLICABLE"
-            : explicitFailure
-                ? "EXPLICIT_FAILURE"
-                : "RECOVERED";
-
-        if (fault == SoakFaultKind.Cancellation)
-        {
-            recoveryStatus = "EXPLICIT_CANCELLATION";
-        }
-        if (fault == SoakFaultKind.ModelUnavailable && modelUnloaded && _runtime.DetectionService.IsModelLoaded)
-        {
-            recovered = true;
-            recoveryStatus = "RECOVERED";
-        }
-        if (fault == SoakFaultKind.PlcDisconnect && _plc.IsConnected)
-        {
-            recovered = true;
-            recoveryStatus = "RECOVERED";
-        }
-        if (fault is SoakFaultKind.ImageTargetUnavailable or SoakFaultKind.ImageQueueBackpressure or SoakFaultKind.RecordQueueBackpressure)
-        {
-            recovered = true;
-            recoveryStatus = "PRESSURE_DRAINED";
-        }
-
-        if (fault != SoakFaultKind.None)
-        {
-            string details = !string.IsNullOrWhiteSpace(context.ErrorMessage)
-                ? context.ErrorMessage!
-                : context.TerminalHandshakeMessage;
-            _faultPlan.MarkRecovered(
-                inspectionId,
-                recoveryStatus,
-                string.IsNullOrWhiteSpace(details)
-                    ? "Expected fault completed with an explicit terminal state."
-                    : details);
-        }
+            : injected ? "AWAITING_NEXT_HEALTHY_CYCLE" : "NOT_INJECTED";
 
         string errorCode = !string.IsNullOrWhiteSpace(context.ErrorCode)
             ? context.ErrorCode!
@@ -1186,6 +1604,8 @@ internal sealed class ProductionGraphRunner
         string errorMessage = !string.IsNullOrWhiteSpace(context.ErrorMessage)
             ? context.ErrorMessage!
             : context.TerminalHandshakeMessage;
+        string terminalState = context.CycleSucceeded ? "Successful" : "ExplicitFailure";
+        _faultPlan.MarkTerminalOutcome(inspectionId, errorCode, terminalState);
         var cycleEvidence = new CycleEvidence
         {
             Phase = phase,
@@ -1201,8 +1621,12 @@ internal sealed class ProductionGraphRunner
             TerminalHandshakeSucceeded = context.TerminalHandshakeSucceeded,
             Cancelled = cancelled,
             ExplicitFailure = explicitFailure,
-            RecoveryVerified = recovered,
+            RecoveryVerified = false,
             RecoveryStatus = recoveryStatus,
+            ExpectedTerminalState = _faultPlan.SnapshotEvents()
+                .FirstOrDefault(item => string.Equals(item.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase))?.ExpectedTerminalState ?? string.Empty,
+            ImageQueueLatencyMs = context.SaveImageMs,
+            RecordQueueLatencyMs = context.SaveRecordMs,
             ErrorCode = errorCode,
             ErrorMessage = errorMessage,
             TraceStatus = context.TraceStatus.ToString(),
@@ -1213,25 +1637,20 @@ internal sealed class ProductionGraphRunner
             RecordQueuePending = _runtime.DetectionRecordQueue.PendingCount
         };
 
-        if (fault == SoakFaultKind.None && !cycleEvidence.CycleSucceeded)
+        if (fault == SoakFaultKind.None && !cycleEvidence.CycleSucceeded && !allowExpectedFailure)
         {
             _evidence.BlockingReasons.Add($"A normal cycle did not reach a successful terminal state: {inspectionId} ({errorCode}).");
         }
-        if (fault != SoakFaultKind.None && !cycleEvidence.RecoveryVerified)
-        {
-            _evidence.BlockingReasons.Add($"Injected fault was neither recovered nor explicitly terminated: {inspectionId} ({fault}).");
-        }
-
         return cycleEvidence;
     }
 
-    private async Task ExerciseImageTargetFaultAsync(string inspectionId)
+    private async Task<bool> ExerciseImageTargetFaultAsync(string inspectionId)
     {
         using Mat image = Cv2.ImRead(_input.Image.Path, ImreadModes.Color);
         if (image.Empty())
         {
             _evidence.BlockingReasons.Add("The external validation image could not be decoded for image target fault recovery.");
-            return;
+            return false;
         }
 
         long failedBefore = _runtime.ImageSaveQueue.FailedCount;
@@ -1239,28 +1658,40 @@ internal sealed class ProductionGraphRunner
         string failedPath = Path.Combine(directory, $"{inspectionId}-image-save-failure.jpg");
         string recoveryPath = Path.Combine(directory, $"{inspectionId}-image-recovered.jpg");
         _runtime.ImageSaveQueue.Enqueue(image, failedPath);
-        await WaitForQueuesAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        SoakQueueWaitResult failedDrain = await WaitForQueuesAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        if (!failedDrain.Drained)
+        {
+            _evidence.BlockingReasons.Add($"Image target fault queue did not drain for {inspectionId}.");
+            return false;
+        }
         if (_runtime.ImageSaveQueue.FailedCount <= failedBefore)
         {
             _evidence.BlockingReasons.Add($"Injected image target failure was not observed for {inspectionId}.");
-            return;
+            return false;
         }
 
         _runtime.ImageSaveQueue.Enqueue(image, recoveryPath);
-        await WaitForQueuesAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        SoakQueueWaitResult recoveryDrain = await WaitForQueuesAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        if (!recoveryDrain.Drained)
+        {
+            _evidence.BlockingReasons.Add($"Image target recovery queue did not drain for {inspectionId}.");
+            return false;
+        }
         if (!File.Exists(recoveryPath))
         {
             _evidence.BlockingReasons.Add($"Image target recovery did not produce a file for {inspectionId}.");
+            return false;
         }
+        return true;
     }
 
-    private async Task ExerciseImageQueuePressureAsync(string inspectionId)
+    private async Task<bool> ExerciseImageQueuePressureAsync(string inspectionId)
     {
         using Mat image = Cv2.ImRead(_input.Image.Path, ImreadModes.Color);
         if (image.Empty())
         {
             _evidence.BlockingReasons.Add("The external validation image could not be decoded for image queue pressure.");
-            return;
+            return false;
         }
 
         long droppedBefore = _runtime.ImageSaveQueue.DroppedCount;
@@ -1274,14 +1705,21 @@ internal sealed class ProductionGraphRunner
                 purpose: ImageSavePurpose.General);
         }
 
-        await WaitForQueuesAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+        SoakQueueWaitResult drain = await WaitForQueuesAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+        if (!drain.Drained)
+        {
+            _evidence.BlockingReasons.Add($"Image queue pressure did not drain for {inspectionId}.");
+            return false;
+        }
         if (_runtime.ImageSaveQueue.DroppedCount <= droppedBefore)
         {
             _evidence.BlockingReasons.Add($"Image queue pressure did not produce an observable bounded-queue drop for {inspectionId}.");
+            return false;
         }
+        return true;
     }
 
-    private async Task ExerciseRecordQueuePressureAsync(string inspectionId)
+    private async Task<bool> ExerciseRecordQueuePressureAsync(string inspectionId)
     {
         long droppedBefore = _runtime.DetectionRecordQueue.DroppedCount;
         int payloadCount = Math.Max(64, _runtime.DetectionRecordQueue.Capacity * 3);
@@ -1303,95 +1741,287 @@ internal sealed class ProductionGraphRunner
             });
         }
 
-        await WaitForQueuesAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+        SoakQueueWaitResult drain = await WaitForQueuesAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+        if (!drain.Drained)
+        {
+            _evidence.BlockingReasons.Add($"Record queue pressure did not drain for {inspectionId}.");
+            return false;
+        }
         if (_runtime.DetectionRecordQueue.DroppedCount <= droppedBefore)
         {
             _evidence.BlockingReasons.Add($"Record queue pressure did not produce an observable bounded-queue drop for {inspectionId}.");
+            return false;
         }
+        return true;
     }
 
-    private async Task ValidateConsistencyAsync()
+    private async Task ValidateConsistencyAsync(SoakQueueWaitResult drain)
     {
-        var consistency = new ConsistencyEvidence();
+        DateTimeOffset scanStarted = DateTimeOffset.UtcNow;
+        var records = new List<SoakConsistencyRecord>();
         try
         {
-            List<DetectionRecord> records = await _database.GetRecordsAsync(limit: 1000).ConfigureAwait(false);
-            consistency.RecordsRead = records.Count;
-            consistency.ExpectedInspectionIds = _expectedInspectionIds.Count;
+            Dictionary<string, CycleEvidence> expectedCycles = _allCycleEvidence
+                .GroupBy(cycle => cycle.InspectionId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
-            var duplicateGroups = records
-                .Where(record => !string.IsNullOrWhiteSpace(record.InspectionId))
-                .GroupBy(record => record.InspectionId, StringComparer.OrdinalIgnoreCase)
-                .Where(group => group.Count() > 1)
-                .ToArray();
-            consistency.DuplicateInspectionIds = duplicateGroups.Sum(group => group.Count() - 1);
-
-            HashSet<string> fetchedIds = records
-                .Select(record => record.InspectionId)
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (CycleEvidence cycle in _allCycleEvidence)
+            foreach (string inspectionId in _expectedInspectionIds)
             {
-                if (!fetchedIds.Contains(cycle.InspectionId) && !cycle.Cancelled)
+                List<DetectionRecord> inspectionRecords = await _database
+                    .GetDetectionRecordsByInspectionIdAsync(inspectionId)
+                    .ConfigureAwait(false);
+                bool expectedSuccess = expectedCycles.TryGetValue(inspectionId, out CycleEvidence? cycle) && cycle.CycleSucceeded;
+                foreach (DetectionRecord record in inspectionRecords)
                 {
-                    consistency.MissingRecords++;
-                    if (consistency.Findings.Count < 20)
+                    bool tracePresent = record.TraceStatus is TraceStatus.Queued or TraceStatus.Full &&
+                        (!string.IsNullOrWhiteSpace(record.TraceImagePath) && File.Exists(record.TraceImagePath));
+                    records.Add(new SoakConsistencyRecord
                     {
-                        consistency.Findings.Add($"Missing DetectionRecord for {cycle.InspectionId}.");
-                    }
+                        InspectionId = record.InspectionId,
+                        CycleSucceeded = expectedSuccess,
+                        ImagePresent = !string.IsNullOrWhiteSpace(record.ImagePath) && File.Exists(record.ImagePath),
+                        TracePresent = tracePresent
+                    });
                 }
             }
 
-            foreach (DetectionRecord record in records)
+            DateTimeOffset scanFinished = DateTimeOffset.UtcNow;
+            SoakConsistencyResult result = SoakConsistencyEvaluator.Evaluate(
+                _expectedInspectionIds,
+                records,
+                drain.Drained,
+                scanStarted,
+                scanFinished,
+                drain.Status);
+            var consistency = new ConsistencyEvidence
             {
-                if (record.CycleSucceeded && (record.TraceStatus == TraceStatus.Queued || record.TraceStatus == TraceStatus.Full))
-                {
-                    if (string.IsNullOrWhiteSpace(record.ImagePath) || !File.Exists(record.ImagePath))
-                    {
-                        consistency.MissingImages++;
-                        if (consistency.Findings.Count < 20)
-                        {
-                            consistency.Findings.Add($"Successful record {record.InspectionId} has no persisted original image.");
-                        }
-                    }
-                }
-            }
-
-            if (_runtime.ImageSaveQueue.PendingCount < 0 || _runtime.DetectionRecordQueue.PendingCount < 0)
-            {
-                consistency.InvalidTraceRecords++;
-                consistency.Findings.Add("A queue reported a negative pending count.");
-            }
-
-            consistency.Status = consistency.DuplicateInspectionIds > 0 ||
-                consistency.MissingImages > 0 ||
-                consistency.InvalidTraceRecords > 0
-                ? "BLOCKED"
-                : "PASS";
+                Status = result.Status,
+                ScanStartedAtUtc = result.ScanStartedAtUtc.ToString("O"),
+                ScanFinishedAtUtc = result.ScanFinishedAtUtc.ToString("O"),
+                QueueStatus = result.QueueStatus,
+                RecordsRead = result.RecordsRead,
+                ExpectedInspectionIds = result.ExpectedInspectionIds,
+                MissingRecords = result.MissingRecords,
+                DuplicateInspectionIds = result.DuplicateInspectionIds,
+                MissingImages = result.MissingImages,
+                MissingTraceRecords = result.MissingTraceRecords
+            };
+            consistency.MissingInspectionIds.AddRange(result.MissingInspectionIds);
+            consistency.Findings.AddRange(result.Findings);
+            _evidence.FinalConsistency = consistency;
         }
         catch (Exception ex)
         {
-            consistency.Status = "BLOCKED";
-            consistency.Findings.Add($"Final consistency scan failed: {ex.Message}");
+            _evidence.FinalConsistency = new ConsistencyEvidence
+            {
+                Status = "BLOCKED",
+                ScanStartedAtUtc = scanStarted.ToString("O"),
+                ScanFinishedAtUtc = DateTimeOffset.UtcNow.ToString("O"),
+                QueueStatus = drain.Status
+            };
+            _evidence.FinalConsistency.Findings.Add($"Final consistency scan failed: {ex.Message}");
         }
 
-        _evidence.Cycles.DuplicateInspectionIdCount = consistency.DuplicateInspectionIds;
-        _evidence.Cycles.MissingRecordCount = consistency.MissingRecords;
-        _evidence.Cycles.MissingTraceCount = consistency.MissingImages;
-        _evidence.FinalConsistency = consistency;
+        _evidence.Cycles.DuplicateInspectionIdCount = _evidence.FinalConsistency.DuplicateInspectionIds;
+        _evidence.Cycles.MissingRecordCount = _evidence.FinalConsistency.MissingRecords;
+        _evidence.Cycles.MissingTraceCount = _evidence.FinalConsistency.MissingTraceRecords;
     }
 
-    private async Task WaitForQueuesAsync(TimeSpan timeout)
+    private Task<SoakQueueWaitResult> WaitForQueuesAsync(TimeSpan timeout)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        while (stopwatch.Elapsed < timeout)
-        {
-            if (_runtime.ImageSaveQueue.PendingCount == 0 && _runtime.DetectionRecordQueue.PendingCount == 0)
+        return SoakQueueWaiter.WaitAsync(
+            () => new SoakQueueSnapshot
             {
-                return;
-            }
-            await Task.Delay(25).ConfigureAwait(false);
+                ImagePending = _runtime.ImageSaveQueue.PendingCount,
+                RecordPending = _runtime.DetectionRecordQueue.PendingCount,
+                ImageInFlight = _runtime.ImageSaveQueue.InFlightCount,
+                RecordInFlight = _runtime.DetectionRecordQueue.InFlightCount
+            },
+            timeout);
+    }
+
+    private void RecordResourceSample(CycleEvidence cycle)
+    {
+        using Process process = Process.GetCurrentProcess();
+        int threadCount = ExternalFileIdentity.GetCurrentThreadCount();
+        int handleCount = ExternalFileIdentity.GetCurrentHandleCount();
+        if (threadCount < 0)
+        {
+            _evidence.BlockingReasons.Add("Unable to read the process thread count for a resource sample.");
         }
+        if (handleCount < 0)
+        {
+            _evidence.BlockingReasons.Add("Unable to read the process handle count for a resource sample.");
+        }
+
+        _resourceSamples.Add(new ResourceSample
+        {
+            AtUtc = DateTimeOffset.UtcNow.ToString("O"),
+            Cycle = _resourceSamples.Count + 1,
+            WorkingSetBytes = process.WorkingSet64,
+            PrivateBytes = process.PrivateMemorySize64,
+            GcHeapBytes = GC.GetTotalMemory(forceFullCollection: false),
+            ThreadCount = threadCount,
+            HandleCount = handleCount,
+            ImageQueuePending = cycle.ImageQueuePending,
+            RecordQueuePending = cycle.RecordQueuePending,
+            ImageQueueLatencyMs = cycle.ImageQueueLatencyMs,
+            RecordQueueLatencyMs = cycle.RecordQueueLatencyMs,
+            CycleMs = cycle.TotalMs,
+            FaultRecoveryMs = 0
+        });
+    }
+
+    private void BuildResourceEvidence()
+    {
+        ResourceSample[] samples = _resourceSamples.ToArray();
+        _evidence.Resources.ThroughputCyclesPerSecond = GetThroughput(samples);
+        _evidence.Cycles.ThroughputCyclesPerSecond = _evidence.Resources.ThroughputCyclesPerSecond;
+        if (samples.Length > 0)
+        {
+            _evidence.Cycles.FirstResourceSample = samples[0];
+            _evidence.Cycles.LastResourceSample = samples[^1];
+        }
+
+        _evidence.Resources.QueueLatency = new QueueLatencyEvidence
+        {
+            Image = CalculatePercentiles(samples.Select(sample => (double)sample.ImageQueueLatencyMs)),
+            Record = CalculatePercentiles(samples.Select(sample => (double)sample.RecordQueueLatencyMs)),
+            Cycle = CalculatePercentiles(samples.Select(sample => (double)sample.CycleMs))
+        };
+
+        if (samples.Length < 3)
+        {
+            _evidence.Resources.Trend = new ResourceTrendEvidence
+            {
+                Status = "NOT_VERIFIED",
+                SampleCount = samples.Length,
+                Finding = "At least three periodic samples are required for a resource trend decision."
+            };
+            _evidence.NotVerifiedReasons.Add("Resource trend is NOT_VERIFIED because fewer than three periodic samples were collected.");
+            return;
+        }
+
+        double workingSetSlope = CalculateSlope(samples.Select(sample => (double)sample.WorkingSetBytes).ToArray());
+        double privateBytesSlope = CalculateSlope(samples.Select(sample => (double)sample.PrivateBytes).ToArray());
+        double gcHeapSlope = CalculateSlope(samples.Select(sample => (double)sample.GcHeapBytes).ToArray());
+        bool unbounded = HasUnboundedTrend(samples.Select(sample => (double)sample.WorkingSetBytes).ToArray(), workingSetSlope) ||
+            HasUnboundedTrend(samples.Select(sample => (double)sample.PrivateBytes).ToArray(), privateBytesSlope) ||
+            HasUnboundedTrend(samples.Select(sample => (double)sample.GcHeapBytes).ToArray(), gcHeapSlope);
+        _evidence.Resources.Trend = new ResourceTrendEvidence
+        {
+            Status = unbounded ? "BLOCKED" : "PASS",
+            SampleCount = samples.Length,
+            WorkingSetSlopeBytesPerSample = workingSetSlope,
+            PrivateBytesSlopeBytesPerSample = privateBytesSlope,
+            GcHeapSlopeBytesPerSample = gcHeapSlope,
+            Finding = unbounded
+                ? "Periodic resource samples show a sustained upward trend beyond the bounded-growth threshold."
+                : "Periodic resource samples do not show a sustained upward trend beyond the bounded-growth threshold."
+        };
+        if (unbounded)
+        {
+            _evidence.BlockingReasons.Add(_evidence.Resources.Trend.Finding);
+        }
+    }
+
+    private void ValidateFaultRecovery()
+    {
+        foreach (FaultEventEvidence item in _faultPlan.SnapshotEvents())
+        {
+            bool injectionMatches = item.Planned && item.Injected &&
+                string.Equals(item.ErrorCode, item.ExpectedErrorCode, StringComparison.OrdinalIgnoreCase);
+            bool terminalMatches = string.Equals(item.ActualTerminalState, item.ExpectedTerminalState, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(item.ActualTerminalErrorCode, item.ExpectedTerminalErrorCode, StringComparison.OrdinalIgnoreCase);
+            bool recovered = injectionMatches && terminalMatches && item.FaultCleared && item.NextHealthyCycleRecovered;
+            if (!injectionMatches)
+            {
+                _evidence.BlockingReasons.Add($"Planned fault {item.Fault} at {item.InspectionId} was not injected with the expected error code.");
+            }
+            if (!terminalMatches)
+            {
+                _evidence.BlockingReasons.Add($"Planned fault {item.Fault} at {item.InspectionId} did not reach its expected terminal outcome.");
+            }
+            if (!item.FaultCleared)
+            {
+                _evidence.BlockingReasons.Add($"Planned fault {item.Fault} at {item.InspectionId} was not cleared.");
+            }
+            if (!item.NextHealthyCycleRecovered)
+            {
+                _evidence.BlockingReasons.Add($"Planned fault {item.Fault} at {item.InspectionId} has no successful subsequent healthy cycle.");
+            }
+            if (!recovered || item.RecoveryStatus != "RECOVERED")
+            {
+                _evidence.BlockingReasons.Add($"Planned fault {item.Fault} at {item.InspectionId} did not satisfy the complete recovery contract.");
+            }
+            if (recovered)
+            {
+                _evidence.Resources.MaxFaultRecoveryMs = Math.Max(_evidence.Resources.MaxFaultRecoveryMs, item.RecoveryDurationMs);
+            }
+        }
+    }
+
+    private double GetThroughput(ResourceSample[] samples)
+    {
+        if (samples.Length == 0)
+        {
+            return 0;
+        }
+
+        double elapsedSeconds = Math.Max(0.001, (DateTimeOffset.UtcNow - _runStartedAtUtc).TotalSeconds);
+        return _allCycleEvidence.Count(cycle => cycle.CycleSucceeded) / elapsedSeconds;
+    }
+
+    private static QueuePercentileEvidence CalculatePercentiles(IEnumerable<double> values)
+    {
+        double[] sorted = values.OrderBy(value => value).ToArray();
+        if (sorted.Length == 0)
+        {
+            return new QueuePercentileEvidence();
+        }
+
+        return new QueuePercentileEvidence
+        {
+            SampleCount = sorted.Length,
+            P50 = Percentile(sorted, 0.50),
+            P95 = Percentile(sorted, 0.95),
+            P99 = Percentile(sorted, 0.99),
+            Maximum = sorted[^1]
+        };
+    }
+
+    private static double Percentile(double[] sorted, double percentile)
+    {
+        int index = Math.Clamp((int)Math.Ceiling(sorted.Length * percentile) - 1, 0, sorted.Length - 1);
+        return sorted[index];
+    }
+
+    private static double CalculateSlope(double[] values)
+    {
+        if (values.Length < 2)
+        {
+            return 0;
+        }
+
+        double meanX = (values.Length - 1) / 2d;
+        double meanY = values.Average();
+        double numerator = 0;
+        double denominator = 0;
+        for (int index = 0; index < values.Length; index++)
+        {
+            double deltaX = index - meanX;
+            numerator += deltaX * (values[index] - meanY);
+            denominator += deltaX * deltaX;
+        }
+        return denominator == 0 ? 0 : numerator / denominator;
+    }
+
+    private static bool HasUnboundedTrend(double[] values, double slope)
+    {
+        int segmentLength = Math.Max(1, values.Length / 3);
+        double head = values.Take(segmentLength).Average();
+        double tail = values.Skip(values.Length - segmentLength).Average();
+        return slope > Math.Max(1024d * 1024d, head * 0.02d) && tail > head * 1.25d;
     }
 
     private Task RecordProgressAsync(InspectionPipelineProgress progress)

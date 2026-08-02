@@ -9,6 +9,7 @@
 
 $ErrorActionPreference = "Stop"
 $rootPath = [System.IO.Path]::GetFullPath($Root)
+. (Join-Path $rootPath "tools\v6_g2_identity.ps1")
 $evidenceRoot = if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     Join-Path $rootPath "artifacts\v6-g2\models"
 }
@@ -367,10 +368,18 @@ catch {
     $commitSha = ""
 }
 $status = if ($blockingReasons.Count -gt 0) { "BLOCKED" } elseif ($notVerifiedReasons.Count -gt 0) { "NOT_VERIFIED" } else { "PASS" }
+$detectInput = if ($null -eq $inputReport) { $null } else { @($inputReport.models | Where-Object { (Get-String $_ "lane") -eq "Detect" }) | Select-Object -First 1 }
+$inputManifestForIdentity = if ($null -eq $inputReport) { "" } else { Get-String $inputReport "manifestPath" }
+$identity = New-V6G2EvidenceIdentity -Root $rootPath `
+    -InputManifestPath $inputManifestForIdentity `
+    -DetectModelPath (Get-String $detectInput "path") `
+    -ValidationImagePath (Get-String $detectInput.validationImage "path") `
+    -Provider "NOT_VERIFIED"
 $report = [ordered]@{
     schemaVersion = "v6-g2-model-matrix-1.0"
     generatedAtUtc = [DateTime]::UtcNow.ToString("o")
     commitSha = $commitSha
+    identity = $identity
     root = $rootPath
     inputContract = $inputReport
     probeBuild = $probeBuild
