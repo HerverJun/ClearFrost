@@ -189,6 +189,7 @@ function Test-Entry([object]$Entry, [string]$Kind) {
         sourceType = Get-String $Entry "sourceType"
         distributionStatus = Get-String $Entry "distributionStatus"
         version = Get-String $Entry "version"
+        role = Get-String $Entry "role"
         architecture = Get-String $Entry "architecture"
         expectedSha256 = $expectedHash
         actualSha256 = ""
@@ -462,6 +463,8 @@ foreach ($dependencyName in Get-DefaultDependencies) {
             actualSha256 = ""
             expectedBytes = 0
             actualBytes = 0
+            version = ""
+            role = "release-or-hardware"
             reason = "No explicit external dependency input was supplied."
         }
         [void]$dependencyRecords.Add($record)
@@ -489,12 +492,28 @@ if ($RequireDependencies -and @($dependencyRecords | Where-Object { $_.status -n
     Add-BlockingReason "Required external dependencies are not all PASS."
 }
 
-$overallStatus = if ($blockingReasons.Count -gt 0) { "BLOCKED" } elseif ($notVerifiedReasons.Count -gt 0 -or $manifestStatus -ne "PASS") { "NOT_VERIFIED" } else { "PASS" }
+$requiredStatus = if ($detect.status -eq "BLOCKED") { "BLOCKED" } elseif ($detect.status -eq "PASS") { "PASS" } else { "NOT_VERIFIED" }
+$compatibilityModels = @($modelRecords | Where-Object { $_.lane -ne "Detect" })
+$compatibilityStatus = if (@($compatibilityModels | Where-Object { $_.status -eq "BLOCKED" }).Count -gt 0) {
+    "BLOCKED"
+} elseif ($compatibilityModels.Count -gt 0 -and @($compatibilityModels | Where-Object { $_.status -ne "PASS" }).Count -eq 0) {
+    "PASS"
+} else {
+    "NOT_VERIFIED"
+}
+$overallStatus = if ($requiredStatus -eq "BLOCKED" -or $blockingReasons.Count -gt 0) {
+    "BLOCKED"
+} elseif ($requiredStatus -ne "PASS" -or $compatibilityStatus -ne "PASS" -or $notVerifiedReasons.Count -gt 0 -or $manifestStatus -ne "PASS") {
+    "NOT_VERIFIED"
+} else {
+    "PASS"
+}
 $identity = New-V6G2EvidenceIdentity -Root $rootPath `
     -InputManifestPath $resolvedManifestPath `
     -DetectModelPath (Get-String $detect "path") `
     -ValidationImagePath (Get-String $detect.validationImage "path") `
-    -Provider "NOT_VERIFIED"
+    -Provider "NOT_APPLICABLE" `
+    -ExternalDependencies @($dependencyRecords)
 $report = [ordered]@{
     schemaVersion = "v6-g2-inputs-1.0"
     generatedAtUtc = [DateTime]::UtcNow.ToString("o")
@@ -504,6 +523,9 @@ $report = [ordered]@{
     manifestStatus = $manifestStatus
     models = @($modelRecords)
     dependencies = @($dependencyRecords)
+    requiredStatus = $requiredStatus
+    compatibilityStatus = $compatibilityStatus
+    overallStatus = $overallStatus
     status = $overallStatus
     blockingReasons = @($blockingReasons)
     notVerifiedReasons = @($notVerifiedReasons)

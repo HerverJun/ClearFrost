@@ -53,6 +53,9 @@ internal static class SoakHost
         {
             ExternalInputContract input = ExternalInputContract.Load(options);
             evidence.InputContract = input.ToEvidence();
+            evidence.RequiredStatus = input.Status;
+            evidence.CompatibilityStatus = "NOT_VERIFIED";
+            evidence.OverallStatus = input.Status;
             evidence.ScenarioContract = input.ScenarioContract.ToEvidence();
             evidence.ScenarioCoverageStatus = input.ScenarioContract.Status;
             if (input.ScenarioContract.Status != "PASS")
@@ -67,6 +70,8 @@ internal static class SoakHost
             if (input.Status != "PASS")
             {
                 evidence.Status = input.Status;
+                evidence.RequiredStatus = input.Status;
+                evidence.OverallStatus = input.Status;
                 evidence.PromotionEligibility = "BLOCKED";
                 evidence.BlockingReasons.AddRange(input.BlockingReasons);
                 evidence.NotVerifiedReasons.AddRange(input.NotVerifiedReasons);
@@ -231,6 +236,7 @@ internal static class SoakHost
             if (!modelLoaded)
             {
                 evidence.Status = "BLOCKED";
+                evidence.RequiredStatus = "BLOCKED";
                 evidence.BlockingReasons.Add("The real external Detect model could not be loaded by DetectionService.");
                 evidence.PromotionEligibility = "BLOCKED";
                 return;
@@ -239,6 +245,7 @@ internal static class SoakHost
             if (options.UseGpu && !runtime.DetectionService.RuntimeStatus.GpuActive)
             {
                 evidence.Status = "BLOCKED";
+                evidence.RequiredStatus = "BLOCKED";
                 evidence.BlockingReasons.Add(
                     $"Strict DML soak was requested but actual provider was {runtime.DetectionService.RuntimeStatus.ExecutionProvider}: " +
                     runtime.DetectionService.RuntimeStatus.GpuFailureReason);
@@ -262,6 +269,9 @@ internal static class SoakHost
                 () => "SOAK-BOUNDARY-CAMERA",
                 runtime.DecisionEvaluator,
                 message => evidence.RecentLogs.Add(message));
+
+            // The soak host only admits its normal path after DetectionService reports an actual runtime.
+            evidence.RequiredStatus = "PASS";
 
             var runner = new ProductionGraphRunner(
                 options,
@@ -985,7 +995,6 @@ internal sealed class ExternalFileIdentity
 
     internal static void VerifyShutdownResources(SoakEvidence evidence, AppRuntime runtime)
     {
-        Thread.Sleep(100);
         bool queuesDrained = runtime.ImageSaveQueue.PendingCount == 0 &&
             runtime.DetectionRecordQueue.PendingCount == 0 &&
             runtime.ImageSaveQueue.InFlightCount == 0 &&
@@ -1003,19 +1012,27 @@ internal sealed class ExternalFileIdentity
         evidence.Runtime.ProcessCountAfterShutdown = evidence.Runtime.ChildProcessCountAfterShutdown;
         evidence.Runtime.ChildProcessStatus = childProcessCount == 0 ? "PASS" : "BLOCKED";
 
-        int currentThreadCount = GetCurrentThreadCount();
-        if (evidence.Runtime.BaselineThreadCount < 0 || currentThreadCount < 0)
+        int firstThreadCount = GetCurrentThreadCount();
+        evidence.Runtime.ShutdownThreadCountFirst = firstThreadCount;
+        int stableThreadCount = WaitForStableThreadCount(TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(100), 3);
+        evidence.Runtime.ShutdownThreadCountStable = stableThreadCount;
+        if (evidence.Runtime.BaselineThreadCount < 0 || firstThreadCount < 0 || stableThreadCount < 0)
         {
             evidence.Runtime.ResidualThreadCount = -1;
             evidence.Runtime.ThreadStatus = "BLOCKED";
+            evidence.Runtime.ThreadStabilityStatus = "BLOCKED";
         }
         else
         {
-            evidence.Runtime.ResidualThreadCount = currentThreadCount - evidence.Runtime.BaselineThreadCount;
-            evidence.Runtime.ThreadStatus = currentThreadCount == evidence.Runtime.BaselineThreadCount ? "PASS" : "BLOCKED";
+            evidence.Runtime.ResidualThreadCount = stableThreadCount - evidence.Runtime.BaselineThreadCount;
+            evidence.Runtime.ThreadStabilityStatus = "PASS";
+            evidence.Runtime.ThreadStatus = evidence.Runtime.ResidualThreadCount <= evidence.Runtime.AllowedThreadPoolDelta
+                ? "PASS"
+                : "BLOCKED";
         }
         evidence.Runtime.ResidualTaskCount = (runtime.ImageSaveQueue.WorkerCompleted ? 0 : 1) +
             (runtime.DetectionRecordQueue.WorkerCompleted ? 0 : 1);
+        evidence.Runtime.OwnedWorkersExited = evidence.Runtime.ResidualTaskCount == 0;
         evidence.Runtime.TaskStatus = evidence.Runtime.ResidualTaskCount == 0 ? "PASS" : "BLOCKED";
 
         bool verified = queuesDrained && workersCompleted &&
@@ -1032,8 +1049,33 @@ internal sealed class ExternalFileIdentity
                 $"Shutdown resource verification failed: queues={evidence.Runtime.QueueDrainStatus}, " +
                 $"sqlite={evidence.Runtime.SqliteOpenVerification}, rename={evidence.Runtime.FileRenameVerification}, " +
                 $"profile={evidence.Runtime.ProfileResidualStatus}, childProcesses={evidence.Runtime.ChildProcessStatus}, " +
-                $"threads={evidence.Runtime.ThreadStatus}, tasks={evidence.Runtime.TaskStatus}.");
+                $"threads={evidence.Runtime.ThreadStatus}/{evidence.Runtime.ThreadStabilityStatus}, tasks={evidence.Runtime.TaskStatus}.");
         }
+    }
+
+    internal static int WaitForStableThreadCount(TimeSpan timeout, TimeSpan sampleInterval, int requiredEqualSamples)
+    {
+        int required = Math.Max(2, requiredEqualSamples);
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        int previous = GetCurrentThreadCount();
+        int equalSamples = previous < 0 ? 0 : 1;
+        while (stopwatch.Elapsed < timeout)
+        {
+            Thread.Sleep(sampleInterval);
+            int current = GetCurrentThreadCount();
+            if (current < 0)
+            {
+                return -1;
+            }
+            equalSamples = current == previous ? equalSamples + 1 : 1;
+            previous = current;
+            if (equalSamples >= required)
+            {
+                return current;
+            }
+        }
+
+        return -1;
     }
 
     internal static bool VerifySqliteOpen(string path)

@@ -425,7 +425,8 @@ $identity = New-V6G2EvidenceIdentity -Root $rootPath `
     -InputManifestPath $inputManifestForIdentity `
     -DetectModelPath (Get-String $detect "path") `
     -ValidationImagePath (Get-String $detect.validationImage "path") `
-    -Provider "NOT_VERIFIED"
+    -Provider "NOT_APPLICABLE" `
+    -ExternalDependencies $(if ($null -eq $inputReport) { @() } else { @($inputReport.dependencies) })
 $report = [ordered]@{
     schemaVersion = "v6-g2-release-lab-1.0"
     generatedAtUtc = [DateTime]::UtcNow.ToString("o")
@@ -436,6 +437,10 @@ $report = [ordered]@{
     runtimeIdentifier = "win-x64"
     inputValidation = $inputReport
     requiredInputStatus = $requiredInputStatus
+    requiredStatus = $requiredInputStatus
+    compatibilityStatus = if ($null -eq $inputReport) { "NOT_VERIFIED" } else { Get-String $inputReport "compatibilityStatus" }
+    overallStatus = $publishStatus
+    providerSemantics = "NOT_APPLICABLE: release lab packages binaries but does not execute model inference."
     requiredInputMissing = @($missingRequired)
     bundleSha256 = $bundleHash
     packages = @($packageRecords)

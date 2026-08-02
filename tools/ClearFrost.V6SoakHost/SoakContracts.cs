@@ -187,3 +187,95 @@ public sealed class FaultRecoveryContract
         string.Equals(ExpectedTerminalErrorCode, ActualTerminalErrorCode, StringComparison.OrdinalIgnoreCase) &&
         FaultCleared && NextHealthyCycleSucceeded;
 }
+
+/// <summary>
+/// Evaluates the observed result at the boundary that owns each laboratory scenario.
+/// It never manufactures detections: target cardinality comes from DetectionService output.
+/// </summary>
+public static class ScenarioExecutionEvaluator
+{
+    public static ScenarioExecutionEvaluation Evaluate(
+        string kind,
+        int resultCount,
+        string actualErrorCode,
+        string actualTerminalState,
+        string injectionBoundary)
+    {
+        string normalizedKind = kind?.Trim() ?? string.Empty;
+        bool cardinalityMatches = normalizedKind switch
+        {
+            "has-target" => resultCount >= 1,
+            "no-target" => resultCount == 0,
+            "multi-target" => resultCount >= 2,
+            _ => true
+        };
+        string expectedError = normalizedKind switch
+        {
+            "short-frame" => "CaptureFrameFailed",
+            "wrong-size" => "InputSizeMismatch",
+            "inference-exception" => "DetectionServiceError",
+            _ => string.Empty
+        };
+        string expectedBoundary = normalizedKind switch
+        {
+            "short-frame" => "camera",
+            "wrong-size" => "input-contract",
+            "inference-exception" => "inference",
+            _ => "inference-result"
+        };
+        string expectedTerminal = string.IsNullOrWhiteSpace(expectedError) ? "Successful" : "ExplicitFailure";
+        bool errorMatches = string.IsNullOrWhiteSpace(expectedError) ||
+            string.Equals(expectedError, actualErrorCode, StringComparison.OrdinalIgnoreCase);
+        bool terminalMatches = string.Equals(expectedTerminal, actualTerminalState, StringComparison.OrdinalIgnoreCase);
+        bool boundaryMatches = string.Equals(expectedBoundary, injectionBoundary, StringComparison.OrdinalIgnoreCase);
+        return new ScenarioExecutionEvaluation
+        {
+            Status = cardinalityMatches && errorMatches && terminalMatches && boundaryMatches ? "PASS" : "BLOCKED",
+            ExpectedErrorCode = expectedError,
+            ExpectedTerminalState = expectedTerminal,
+            ExpectedBoundary = expectedBoundary,
+            Finding = cardinalityMatches && errorMatches && terminalMatches && boundaryMatches
+                ? "Observed scenario behavior matches its execution contract."
+                : $"kind={normalizedKind}; results={resultCount}; error={actualErrorCode}; terminal={actualTerminalState}; boundary={injectionBoundary}."
+        };
+    }
+}
+
+public sealed class ScenarioExecutionEvaluation
+{
+    public string Status { get; init; } = "BLOCKED";
+    public string ExpectedErrorCode { get; init; } = string.Empty;
+    public string ExpectedTerminalState { get; init; } = string.Empty;
+    public string ExpectedBoundary { get; init; } = string.Empty;
+    public string Finding { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Keeps recovery scheduling one-to-one: a fault reserves exactly one following healthy cycle.
+/// </summary>
+public sealed class FaultRecoveryScheduler
+{
+    private readonly Queue<string> _pendingFaultIds = new Queue<string>();
+    private readonly HashSet<string> _recoveryCycles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    public bool CanInjectFault => _pendingFaultIds.Count == 0;
+    public int PendingRecoveryCount => _pendingFaultIds.Count;
+
+    public void RecordFault(string faultInspectionId)
+    {
+        if (string.IsNullOrWhiteSpace(faultInspectionId)) throw new ArgumentException("A fault inspection id is required.", nameof(faultInspectionId));
+        if (!CanInjectFault) throw new InvalidOperationException("A new fault cannot be scheduled before the preceding fault has a healthy recovery cycle.");
+        _pendingFaultIds.Enqueue(faultInspectionId);
+    }
+
+    public bool TryRecover(string healthyInspectionId, bool cycleSucceeded, out string faultInspectionId)
+    {
+        faultInspectionId = string.Empty;
+        if (!cycleSucceeded || _pendingFaultIds.Count == 0 || string.IsNullOrWhiteSpace(healthyInspectionId)) return false;
+        if (!_recoveryCycles.Add(healthyInspectionId)) throw new InvalidOperationException("A healthy cycle cannot recover more than one fault.");
+        faultInspectionId = _pendingFaultIds.Dequeue();
+        return true;
+    }
+
+    public bool IsComplete => _pendingFaultIds.Count == 0;
+}

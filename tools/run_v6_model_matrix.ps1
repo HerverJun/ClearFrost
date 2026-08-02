@@ -356,8 +356,8 @@ foreach ($lane in $lanes) {
 
 $negativeStatuses = @($laneReports | ForEach-Object { $_.negativeContracts.status } | Where-Object { $_ -ne "NOT_VERIFIED" })
 $negativeContractStatus = if ($negativeStatuses.Count -gt 0 -and @($negativeStatuses | Where-Object { $_ -ne "PASS" }).Count -eq 0) { "PASS" } else { "NOT_VERIFIED" }
-if ($null -ne $inputReport -and (Get-String $inputReport "status") -eq "BLOCKED") {
-    Add-BlockingReason "External input contract required by the model matrix is BLOCKED."
+if ($null -ne $inputReport -and (Get-String $inputReport "requiredStatus") -eq "BLOCKED") {
+    Add-BlockingReason "Detect external input contract required by the model matrix is BLOCKED."
 }
 
 $commitSha = ""
@@ -367,14 +367,39 @@ try {
 catch {
     $commitSha = ""
 }
-$status = if ($blockingReasons.Count -gt 0) { "BLOCKED" } elseif ($notVerifiedReasons.Count -gt 0) { "NOT_VERIFIED" } else { "PASS" }
 $detectInput = if ($null -eq $inputReport) { $null } else { @($inputReport.models | Where-Object { (Get-String $_ "lane") -eq "Detect" }) | Select-Object -First 1 }
+$detectLane = @($laneReports | Where-Object { (Get-String $_ "lane") -eq "Detect" }) | Select-Object -First 1
+$detectCpuStatus = if ($null -eq $detectLane) { "NOT_VERIFIED" } else { Get-String $detectLane.cpu "status" }
+$detectDmlStatus = if ($null -eq $detectLane) { "NOT_VERIFIED" } else { Get-String $detectLane.dml "status" }
+$detectInputStatus = if ($null -eq $detectLane) { "NOT_VERIFIED" } else { Get-String $detectLane "status" }
+$requiredStatus = if ($detectCpuStatus -eq "PASS" -and $detectDmlStatus -eq "PASS") {
+    "PASS"
+} elseif ($detectInputStatus -eq "BLOCKED" -or $detectCpuStatus -eq "BLOCKED" -or $detectDmlStatus -eq "BLOCKED") {
+    "BLOCKED"
+} else {
+    "NOT_VERIFIED"
+}
+$compatibilityLanes = @($laneReports | Where-Object { (Get-String $_ "lane") -ne "Detect" })
+$compatibilityStatus = if (@($compatibilityLanes | Where-Object {
+        (Get-String $_ "status") -eq "BLOCKED" -or (Get-String $_.cpu "status") -eq "BLOCKED" -or (Get-String $_.dml "status") -eq "BLOCKED"
+    }).Count -gt 0) {
+    "BLOCKED"
+} elseif ($compatibilityLanes.Count -gt 0 -and @($compatibilityLanes | Where-Object {
+        (Get-String $_.cpu "status") -ne "PASS" -or (Get-String $_.dml "status") -ne "PASS"
+    }).Count -eq 0) {
+    "PASS"
+} else {
+    "NOT_VERIFIED"
+}
+$status = if ($requiredStatus -eq "BLOCKED" -or $blockingReasons.Count -gt 0) { "BLOCKED" } elseif ($requiredStatus -ne "PASS" -or $compatibilityStatus -ne "PASS" -or $notVerifiedReasons.Count -gt 0) { "NOT_VERIFIED" } else { "PASS" }
 $inputManifestForIdentity = if ($null -eq $inputReport) { "" } else { Get-String $inputReport "manifestPath" }
+$matrixProvider = if ($requiredStatus -eq "PASS") { "CPUExecutionProvider;DmlExecutionProvider" } else { "NOT_VERIFIED" }
 $identity = New-V6G2EvidenceIdentity -Root $rootPath `
     -InputManifestPath $inputManifestForIdentity `
     -DetectModelPath (Get-String $detectInput "path") `
     -ValidationImagePath (Get-String $detectInput.validationImage "path") `
-    -Provider "NOT_VERIFIED"
+    -Provider $matrixProvider `
+    -ExternalDependencies $(if ($null -eq $inputReport) { @() } else { @($inputReport.dependencies) })
 $report = [ordered]@{
     schemaVersion = "v6-g2-model-matrix-1.0"
     generatedAtUtc = [DateTime]::UtcNow.ToString("o")
@@ -385,6 +410,9 @@ $report = [ordered]@{
     probeBuild = $probeBuild
     lanes = @($laneReports)
     negativeContract = [ordered]@{ status = $negativeContractStatus; reason = "Negative real-model and provider contracts are recorded per available lane." }
+    requiredStatus = $requiredStatus
+    compatibilityStatus = $compatibilityStatus
+    overallStatus = $status
     status = $status
     blockingReasons = @($blockingReasons | Select-Object -Unique)
     notVerifiedReasons = @($notVerifiedReasons | Select-Object -Unique)

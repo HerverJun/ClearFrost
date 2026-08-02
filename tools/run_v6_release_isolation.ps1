@@ -311,7 +311,8 @@ $identity = New-V6G2EvidenceIdentity -Root $rootPath `
     -InputManifestPath $inputManifestForIdentity `
     -DetectModelPath (Get-String $detectForIdentity "path") `
     -ValidationImagePath (Get-String $detectForIdentity.validationImage "path") `
-    -Provider "NOT_VERIFIED"
+    -Provider "NOT_APPLICABLE" `
+    -ExternalDependencies $(if ($null -eq $inputReportForIdentity) { @() } else { @($inputReportForIdentity.dependencies) })
 $report = [ordered]@{
     schemaVersion = "v6-g2-isolated-lab-1.0"
     generatedAtUtc = [DateTime]::UtcNow.ToString("o")
@@ -320,6 +321,10 @@ $report = [ordered]@{
     releaseEvidencePath = $releaseEvidenceFile
     migration = $migration
     startup = [ordered]@{ status = $startupStatus; repetitions = $Repetitions; runs = @($startupRecords) }
+    requiredStatus = if ($null -eq $inputReportForIdentity) { "NOT_VERIFIED" } else { Get-String $inputReportForIdentity "requiredStatus" }
+    compatibilityStatus = if ($null -eq $inputReportForIdentity) { "NOT_VERIFIED" } else { Get-String $inputReportForIdentity "compatibilityStatus" }
+    overallStatus = $labStatus
+    providerSemantics = "NOT_APPLICABLE: isolated startup verifies packaging and startup only; it does not run inference."
     status = $labStatus
     promotionEligibility = "BLOCKED"
     blockingReasons = @($blockingReasons | Select-Object -Unique)

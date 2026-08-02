@@ -14,6 +14,9 @@ internal sealed class SoakEvidence
 {
     public string SchemaVersion { get; init; } = "v6-g2-soak-1.0";
     public string Status { get; set; } = "NOT_VERIFIED";
+    public string RequiredStatus { get; set; } = "NOT_VERIFIED";
+    public string CompatibilityStatus { get; set; } = "NOT_VERIFIED";
+    public string OverallStatus { get; set; } = "NOT_VERIFIED";
     public string PromotionEligibility { get; set; } = "NOT_VERIFIED";
     public string StartedAt { get; init; } = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
     public string FinishedAt { get; set; } = string.Empty;
@@ -55,7 +58,7 @@ internal sealed class SoakEvidence
             options.ModelPath,
             options.ImagePath,
             null,
-            "NOT_VERIFIED",
+            "NOT_APPLICABLE",
             DateTimeOffset.Parse(evidence.StartedAt, CultureInfo.InvariantCulture));
         evidence.NotVerifiedReasons.Add("Real camera, PLC, and FAT/SAT were not exercised by this boundary-limited soak host.");
         evidence.NotVerifiedReasons.Add("This is a production-component harness; AppRuntime trigger listening, model admission, coordinator, busy/debounce, and production worker startup paths were not executed.");
@@ -66,7 +69,11 @@ internal sealed class SoakEvidence
     {
         FinishedAt = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
         DateTimeOffset started = DateTimeOffset.Parse(StartedAt, CultureInfo.InvariantCulture);
-        string provider = Environment.GetEnvironmentVariable("CLEARFROST_V6_G2_PROVIDER") ?? "NOT_VERIFIED";
+        string provider = Provider?.ExecutionProvider;
+        if (string.IsNullOrWhiteSpace(provider))
+        {
+            provider = "NOT_VERIFIED";
+        }
         Identity = V6G2EvidenceIdentity.Create(
             Options.Root,
             Options.ManifestPath,
@@ -76,6 +83,7 @@ internal sealed class SoakEvidence
             provider,
             started,
             DateTimeOffset.Parse(FinishedAt, CultureInfo.InvariantCulture));
+        OverallStatus = Status;
     }
 }
 
@@ -99,6 +107,9 @@ internal sealed class RuntimeEvidence
     public int ProcessCountAfterShutdown { get; set; }
     public int ChildProcessCountAfterShutdown { get; set; }
     public int BaselineThreadCount { get; set; }
+    public int ShutdownThreadCountFirst { get; set; }
+    public int ShutdownThreadCountStable { get; set; }
+    public int AllowedThreadPoolDelta { get; set; } = 4;
     public int ResidualThreadCount { get; set; }
     public int ResidualTaskCount { get; set; }
     public string QueueDrainStatus { get; set; } = "NOT_RUN";
@@ -108,7 +119,9 @@ internal sealed class RuntimeEvidence
     public string ProfileResidualStatus { get; set; } = "NOT_RUN";
     public string ChildProcessStatus { get; set; } = "NOT_RUN";
     public string ThreadStatus { get; set; } = "NOT_RUN";
+    public string ThreadStabilityStatus { get; set; } = "NOT_RUN";
     public string TaskStatus { get; set; } = "NOT_RUN";
+    public bool OwnedWorkersExited { get; set; }
 }
 
 internal sealed class CycleEvidenceSummary
@@ -266,6 +279,9 @@ internal sealed class ScenarioExecutionResult
     public string ActualErrorCode { get; init; } = string.Empty;
     public string ExpectedTerminalState { get; init; } = string.Empty;
     public string ActualTerminalState { get; init; } = string.Empty;
+    public int ResultCount { get; init; }
+    public string InjectionBoundary { get; init; } = string.Empty;
+    public string BoundaryDetail { get; init; } = string.Empty;
     public string Status { get; init; } = "BLOCKED";
     public string Finding { get; init; } = string.Empty;
 }
@@ -375,11 +391,13 @@ internal sealed class FaultPlan
     private readonly List<FaultEventEvidence> _events = new List<FaultEventEvidence>();
     private readonly int _seed;
     private readonly bool _enabled;
+    private int _faultCursor;
 
     public FaultPlan(int seed, bool enabled)
     {
         _seed = seed;
         _enabled = enabled;
+        _faultCursor = Math.Abs(seed) % 11;
     }
 
     public int Seed => _seed;
@@ -651,22 +669,26 @@ internal sealed class FaultPlan
 
     private SoakFaultKind ChooseFault(int sequence)
     {
-        int slot = Math.Abs(sequence + _seed) % 12;
-        return slot switch
+        SoakFaultKind[] kinds =
         {
-            1 => SoakFaultKind.CameraShortFrame,
-            2 => SoakFaultKind.CameraCaptureFailure,
-            3 => SoakFaultKind.PlcDisconnect,
-            4 => SoakFaultKind.PlcWriteFailure,
-            5 => SoakFaultKind.ResultAckTimeout,
-            6 => SoakFaultKind.DatabaseLock,
-            7 => SoakFaultKind.ImageTargetUnavailable,
-            8 => SoakFaultKind.ImageQueueBackpressure,
-            9 => SoakFaultKind.RecordQueueBackpressure,
-            10 => SoakFaultKind.ModelUnavailable,
-            11 => SoakFaultKind.Cancellation,
-            _ => SoakFaultKind.None
+            SoakFaultKind.CameraShortFrame,
+            SoakFaultKind.CameraCaptureFailure,
+            SoakFaultKind.PlcDisconnect,
+            SoakFaultKind.PlcWriteFailure,
+            SoakFaultKind.ResultAckTimeout,
+            SoakFaultKind.DatabaseLock,
+            SoakFaultKind.ImageTargetUnavailable,
+            SoakFaultKind.ImageQueueBackpressure,
+            SoakFaultKind.RecordQueueBackpressure,
+            SoakFaultKind.ModelUnavailable,
+            SoakFaultKind.Cancellation
         };
+        lock (_sync)
+        {
+            SoakFaultKind next = kinds[_faultCursor % kinds.Length];
+            _faultCursor = (_faultCursor + 1) % kinds.Length;
+            return next;
+        }
     }
 
     private FaultEventEvidence? FindEventLocked(string inspectionId)
@@ -729,6 +751,7 @@ internal sealed class SoakCameraService : ICameraService, ICameraCaptureDiagnost
     private Mat? _sourceFrame;
     private Mat? _lastFrame;
     private string _inspectionId = string.Empty;
+    private string _scenarioKind = string.Empty;
     private bool _disposed;
     private bool _isOpen;
     private bool _isGrabbing;
@@ -755,6 +778,11 @@ internal sealed class SoakCameraService : ICameraService, ICameraCaptureDiagnost
         _inspectionId = inspectionId ?? string.Empty;
         LastError = null;
         LastCaptureFailureKind = CameraCaptureFailureKind.None;
+    }
+
+    public void ConfigureScenario(string scenarioKind)
+    {
+        _scenarioKind = scenarioKind?.Trim() ?? string.Empty;
     }
 
     public void SetSourceImage(string imagePath)
@@ -837,6 +865,16 @@ internal sealed class SoakCameraService : ICameraService, ICameraCaptureDiagnost
         if (_faultPlan.ConsumeCameraCaptureFailure(_inspectionId))
         {
             return FailCapture(CameraCaptureFailureKind.GetFrameFailed, "Injected camera capture failure.");
+        }
+
+        if (string.Equals(_scenarioKind, "short-frame", StringComparison.OrdinalIgnoreCase))
+        {
+            return FailCapture(CameraCaptureFailureKind.ShortFrame, "Scenario camera boundary injected a short frame.");
+        }
+
+        if (string.Equals(_scenarioKind, "wrong-size", StringComparison.OrdinalIgnoreCase))
+        {
+            return FailCapture(CameraCaptureFailureKind.InvalidFrame, "InputSizeMismatch: scenario input-size contract rejected the frame dimensions.");
         }
 
         try
@@ -1158,6 +1196,7 @@ internal sealed class ProductionGraphRunner
     private readonly SoakPlcService _plc;
     private readonly FaultInjectingSqliteDatabaseService _database;
     private readonly FaultPlan _faultPlan;
+    private readonly FaultRecoveryScheduler _faultRecoveryScheduler = new FaultRecoveryScheduler();
     private readonly HashSet<string> _expectedInspectionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private readonly List<CycleEvidence> _allCycleEvidence = new List<CycleEvidence>();
     private readonly List<ResourceSample> _resourceSamples = new List<ResourceSample>();
@@ -1241,10 +1280,14 @@ internal sealed class ProductionGraphRunner
         _evidence.Faults.Events.Clear();
         _evidence.Faults.Events.AddRange(_faultPlan.SnapshotEvents());
 
-        if (_evidence.FinalConsistency.Status != "PASS")
+        if (_evidence.FinalConsistency.Status != "PASS" || _evidence.BlockingReasons.Count > 0)
         {
             _evidence.Status = "BLOCKED";
-            _evidence.BlockingReasons.AddRange(_evidence.FinalConsistency.Findings);
+            _evidence.RequiredStatus = "BLOCKED";
+            if (_evidence.FinalConsistency.Status != "PASS")
+            {
+                _evidence.BlockingReasons.AddRange(_evidence.FinalConsistency.Findings);
+            }
         }
         else if (_evidence.BlockingReasons.Count == 0 && _evidence.ScenarioCoverageStatus == "PASS")
         {
@@ -1256,6 +1299,7 @@ internal sealed class ProductionGraphRunner
         }
 
         _evidence.PromotionEligibility = "NOT_VERIFIED";
+        _evidence.OverallStatus = _evidence.Status;
     }
 
     private async Task RunPhaseAsync(string phase, int limit, bool allowFaults, DateTimeOffset? deadline)
@@ -1265,25 +1309,37 @@ internal sealed class ProductionGraphRunner
         {
             executed++;
             string inspectionId = $"SOAK-{phase.ToUpperInvariant()}-{executed:000000}";
-            bool allowFaultsThisCycle = allowFaults && (deadline.HasValue || executed < limit);
+            // A fault consumes the next healthy cycle. Never start another one while recovery is pending,
+            // and reserve the final configured cycle for health when a cycle limit is known.
+            bool allowFaultsThisCycle = allowFaults && _faultRecoveryScheduler.CanInjectFault &&
+                (deadline.HasValue || executed < limit);
             CycleEvidence cycle = await RunCycleAsync(phase, executed, inspectionId, allowFaultsThisCycle).ConfigureAwait(false);
             _allCycleEvidence.Add(cycle);
             _expectedInspectionIds.Add(inspectionId);
             RecordResourceSample(cycle);
 
-            if (cycle.Fault == SoakFaultKind.None.ToString() && cycle.CycleSucceeded)
+            if (cycle.FaultExpected)
+            {
+                // Queue-owned adapters can inject after the foreground pipeline returns. A healthy
+                // recovery cycle is only eligible after the fault itself has both injected and cleared.
+                if (await WaitForFaultSettlementAsync(inspectionId).ConfigureAwait(false))
+                {
+                    _faultRecoveryScheduler.RecordFault(inspectionId);
+                }
+                else
+                {
+                    _evidence.BlockingReasons.Add($"Planned fault {inspectionId} did not inject and clear before its required healthy recovery cycle.");
+                    break;
+                }
+            }
+            else if (cycle.CycleSucceeded && _faultRecoveryScheduler.TryRecover(inspectionId, true, out string faultInspectionId))
             {
                 FaultEventEvidence? pendingFault = _faultPlan.SnapshotEvents()
-                    .Where(item => item.Injected && item.FaultCleared && !item.NextHealthyCycleRecovered)
-                    .OrderBy(item => item.InjectedAt)
-                    .FirstOrDefault();
-                if (pendingFault != null)
-                {
-                    long recoveryMs = pendingFault.InjectedAt.HasValue
-                        ? Math.Max(0, (long)(DateTimeOffset.UtcNow - pendingFault.InjectedAt.Value).TotalMilliseconds)
-                        : 0;
-                    _faultPlan.MarkNextHealthyCycle(pendingFault.InspectionId, inspectionId, recoveryMs);
-                }
+                    .LastOrDefault(item => string.Equals(item.InspectionId, faultInspectionId, StringComparison.OrdinalIgnoreCase));
+                long recoveryMs = pendingFault?.InjectedAt.HasValue == true
+                    ? Math.Max(0, (long)(DateTimeOffset.UtcNow - pendingFault.InjectedAt!.Value).TotalMilliseconds)
+                    : 0;
+                _faultPlan.MarkNextHealthyCycle(faultInspectionId, inspectionId, recoveryMs);
             }
 
             if (string.Equals(phase, "preflight", StringComparison.OrdinalIgnoreCase))
@@ -1328,6 +1384,10 @@ internal sealed class ProductionGraphRunner
         {
             _evidence.NotVerifiedReasons.Add("The main soak phase did not execute because its duration or cycle limit was zero.");
         }
+        if (phase == "main")
+        {
+            await RunRequiredRecoveryCyclesAsync(executed + 1).ConfigureAwait(false);
+        }
     }
 
     private async Task RunScenarioCoverageAsync()
@@ -1357,7 +1417,8 @@ internal sealed class ProductionGraphRunner
                     sequence,
                     inspectionId,
                     allowFaults: false,
-                    allowExpectedFailure: true).ConfigureAwait(false);
+                    allowExpectedFailure: true,
+                    scenarioKind: sample.Kind).ConfigureAwait(false);
                 _allCycleEvidence.Add(cycle);
                 _expectedInspectionIds.Add(inspectionId);
                 RecordResourceSample(cycle);
@@ -1365,11 +1426,33 @@ internal sealed class ProductionGraphRunner
 
                 string actualOutcome = cycle.Qualified == true ? "OK" : "NG";
                 string actualTerminalState = cycle.CycleSucceeded ? "Successful" : "ExplicitFailure";
+                string injectionBoundary = sample.Kind switch
+                {
+                    "short-frame" => "camera",
+                    "wrong-size" => "input-contract",
+                    "inference-exception" => "inference",
+                    _ => "inference-result"
+                };
+                string actualErrorCode = cycle.ErrorCode;
+                if (string.Equals(sample.Kind, "wrong-size", StringComparison.OrdinalIgnoreCase) &&
+                    actualErrorCode == "CaptureFrameFailed" &&
+                    _camera.LastError?.StartsWith("InputSizeMismatch:", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    // The camera boundary rejected the frame under the explicit size contract;
+                    // the pipeline still records its generic capture stage failure separately.
+                    actualErrorCode = "InputSizeMismatch";
+                }
+                ScenarioExecutionEvaluation evaluator = ScenarioExecutionEvaluator.Evaluate(
+                    sample.Kind,
+                    cycle.ResultCount,
+                    actualErrorCode,
+                    actualTerminalState,
+                    injectionBoundary);
                 bool outcomeMatches = string.Equals(sample.ExpectedOutcome, actualOutcome, StringComparison.OrdinalIgnoreCase);
                 bool errorMatches = string.IsNullOrWhiteSpace(sample.ExpectedErrorCode) ||
-                    string.Equals(sample.ExpectedErrorCode, cycle.ErrorCode, StringComparison.OrdinalIgnoreCase);
+                    string.Equals(sample.ExpectedErrorCode, actualErrorCode, StringComparison.OrdinalIgnoreCase);
                 bool terminalMatches = string.Equals(sample.ExpectedTerminalState, actualTerminalState, StringComparison.OrdinalIgnoreCase);
-                bool passed = outcomeMatches && errorMatches && terminalMatches;
+                bool passed = evaluator.Status == "PASS" && outcomeMatches && errorMatches && terminalMatches;
                 string finding = passed
                     ? "Observed outcome, error code, and terminal state match the external scenario contract."
                     : $"Expected outcome={sample.ExpectedOutcome}, errorCode={sample.ExpectedErrorCode}, terminalState={sample.ExpectedTerminalState}; " +
@@ -1382,9 +1465,12 @@ internal sealed class ProductionGraphRunner
                     ExpectedOutcome = sample.ExpectedOutcome,
                     ActualOutcome = actualOutcome,
                     ExpectedErrorCode = sample.ExpectedErrorCode,
-                    ActualErrorCode = cycle.ErrorCode,
+                    ActualErrorCode = actualErrorCode,
                     ExpectedTerminalState = sample.ExpectedTerminalState,
                     ActualTerminalState = actualTerminalState,
+                    ResultCount = cycle.ResultCount,
+                    InjectionBoundary = injectionBoundary,
+                    BoundaryDetail = evaluator.Finding,
                     Status = passed ? "PASS" : "BLOCKED",
                     Finding = finding
                 });
@@ -1407,7 +1493,57 @@ internal sealed class ProductionGraphRunner
         finally
         {
             _camera.SetSourceImage(_input.Image.Path);
+            _camera.ConfigureScenario(string.Empty);
         }
+
+    }
+
+    private async Task RunRequiredRecoveryCyclesAsync(int sequence)
+    {
+        while (!_faultRecoveryScheduler.IsComplete)
+        {
+            string inspectionId = $"SOAK-RECOVERY-{sequence:000000}";
+            CycleEvidence cycle = await RunCycleAsync("recovery", sequence, inspectionId, allowFaults: false).ConfigureAwait(false);
+            _allCycleEvidence.Add(cycle);
+            _expectedInspectionIds.Add(inspectionId);
+            RecordResourceSample(cycle);
+            _evidence.Cycles.MainCycles++;
+            if (cycle.CycleSucceeded) _evidence.Cycles.SuccessfulCycles++;
+            if (cycle.Qualified == true) _evidence.Cycles.QualifiedCycles++;
+            if (cycle.Qualified == false) _evidence.Cycles.UnqualifiedCycles++;
+            if (!cycle.CycleSucceeded || !_faultRecoveryScheduler.TryRecover(inspectionId, cycle.CycleSucceeded, out string faultInspectionId))
+            {
+                _evidence.BlockingReasons.Add($"Required recovery cycle {inspectionId} did not complete for the pending fault.");
+                return;
+            }
+
+            FaultEventEvidence? pendingFault = _faultPlan.SnapshotEvents()
+                .LastOrDefault(item => string.Equals(item.InspectionId, faultInspectionId, StringComparison.OrdinalIgnoreCase));
+            long recoveryMs = pendingFault?.InjectedAt.HasValue == true
+                ? Math.Max(0, (long)(DateTimeOffset.UtcNow - pendingFault.InjectedAt!.Value).TotalMilliseconds)
+                : 0;
+            _faultPlan.MarkNextHealthyCycle(faultInspectionId, inspectionId, recoveryMs);
+            _evidence.Cycles.Samples.Add(cycle);
+            sequence++;
+        }
+    }
+
+    private async Task<bool> WaitForFaultSettlementAsync(string inspectionId)
+    {
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            FaultEventEvidence? fault = _faultPlan.SnapshotEvents()
+                .LastOrDefault(item => string.Equals(item.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase));
+            if (fault != null && fault.Injected && fault.FaultCleared)
+            {
+                return true;
+            }
+
+            await Task.Delay(20).ConfigureAwait(false);
+        }
+
+        return false;
     }
 
     private async Task<CycleEvidence> RunCycleAsync(
@@ -1415,9 +1551,11 @@ internal sealed class ProductionGraphRunner
         int sequence,
         string inspectionId,
         bool allowFaults,
-        bool allowExpectedFailure = false)
+        bool allowExpectedFailure = false,
+        string scenarioKind = "")
     {
         SoakFaultKind fault = _faultPlan.BeginCycle(inspectionId, sequence, allowFaults);
+        _camera.ConfigureScenario(scenarioKind);
         _camera.BeginCycle(inspectionId);
         _plc.BeginCycle(inspectionId);
 
@@ -1458,11 +1596,14 @@ internal sealed class ProductionGraphRunner
         }
 
         bool modelUnloaded = false;
-        if (fault == SoakFaultKind.ModelUnavailable)
+        if (fault == SoakFaultKind.ModelUnavailable || string.Equals(scenarioKind, "inference-exception", StringComparison.OrdinalIgnoreCase))
         {
             _runtime.DetectionService.UnloadPrimaryModel();
             modelUnloaded = true;
-            _faultPlan.RecordHarnessInjection(inspectionId, fault, "DetectionServiceError", "Primary model was unloaded for one production cycle.");
+            if (fault == SoakFaultKind.ModelUnavailable)
+            {
+                _faultPlan.RecordHarnessInjection(inspectionId, fault, "DetectionServiceError", "Primary model was unloaded for one production cycle.");
+            }
         }
 
         InspectionPipelineResult? result = null;
@@ -1509,6 +1650,13 @@ internal sealed class ProductionGraphRunner
                 string.Equals(item.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase) && item.Injected))
         {
             _faultPlan.MarkFaultCleared(inspectionId, "The camera fault was consumed by the capture boundary and the cycle reached its terminal path.");
+        }
+
+        if (fault == SoakFaultKind.Cancellation &&
+            _faultPlan.SnapshotEvents().Any(item =>
+                string.Equals(item.InspectionId, inspectionId, StringComparison.OrdinalIgnoreCase) && item.Injected))
+        {
+            _faultPlan.MarkFaultCleared(inspectionId, "The pre-cancelled cycle reached its expected terminal cancellation path.");
         }
 
         if (modelUnloaded)

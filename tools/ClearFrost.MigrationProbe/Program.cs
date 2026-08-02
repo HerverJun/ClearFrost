@@ -41,7 +41,7 @@ internal static class MigrationProbe
                 detectModelPath,
                 validationImagePath,
                 null,
-                "NOT_VERIFIED",
+                "NOT_APPLICABLE",
                 generatedAt)
         };
 

@@ -65,6 +65,21 @@ function Is-Sha1([string]$Value) {
     return $Value -match '^[0-9A-Fa-f]{40}$'
 }
 
+function Get-Sha256([string]$Value) {
+    if ($null -eq $Value) { $Value = "" }
+    $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Value)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { return ([System.BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-", "") } finally { $sha.Dispose() }
+}
+
+function Get-ExternalDependencyDigest([object[]]$Dependencies) {
+    $lines = @($Dependencies | Sort-Object { Get-String $_ "name" }, { Get-String $_ "version" } | ForEach-Object {
+        "{0}|{1}|{2}|{3}|{4}" -f (Get-String $_ "name"), (Get-String $_ "version"),
+        ([long](Get-PropertyValue $_ "bytes")), (Get-String $_ "sha256").ToUpperInvariant(), (Get-String $_ "role")
+    })
+    return Get-Sha256 ($lines -join "`n")
+}
+
 function Test-Identity([object]$Report, [string]$Name) {
     if ($null -eq $Report) {
         return $null
@@ -86,13 +101,38 @@ function Test-Identity([object]$Report, [string]$Name) {
         Add-Error "$Name identity machineIdentityDigest must be a SHA-256 digest."
     }
     if ([string]::IsNullOrWhiteSpace((Get-String $identity "provider"))) {
-        Add-Error "$Name identity provider is required, including NOT_VERIFIED."
+        Add-Error "$Name identity provider is required, including NOT_APPLICABLE."
     }
-    foreach ($field in @("inputManifestSha256", "detectModelSha256", "validationImageSha256", "dllSha256")) {
+    foreach ($field in @("inputManifestSha256", "detectModelSha256", "validationImageSha256", "productAssemblySha256")) {
         $value = Get-String $identity $field
         if (-not [string]::IsNullOrWhiteSpace($value) -and -not (Is-Sha256 $value)) {
             Add-Error "$Name identity $field must be empty or a complete SHA-256."
         }
+    }
+    foreach ($field in @("externalDependencySetDigest", "candidateDigest")) {
+        if (-not (Is-Sha256 (Get-String $identity $field))) {
+            Add-Error "$Name identity $field must be a complete SHA-256."
+        }
+    }
+    foreach ($field in @("evidenceSetId", "orchestratorRunId")) {
+        if ([string]::IsNullOrWhiteSpace((Get-String $identity $field))) {
+            Add-Error "$Name identity $field is required to prevent cross-run evidence assembly."
+        }
+    }
+    $dependencies = Get-Array $identity "externalDependencies"
+    foreach ($dependency in $dependencies) {
+        foreach ($field in @("name", "version", "role")) {
+            if ([string]::IsNullOrWhiteSpace((Get-String $dependency $field))) {
+                Add-Error "$Name identity external dependency requires $field."
+            }
+        }
+        if ([long](Get-PropertyValue $dependency "bytes") -lt 0 -or
+            (-not [string]::IsNullOrWhiteSpace((Get-String $dependency "sha256")) -and -not (Is-Sha256 (Get-String $dependency "sha256")))) {
+            Add-Error "$Name identity external dependency has invalid bytes or SHA-256."
+        }
+    }
+    if ((Get-ExternalDependencyDigest $dependencies) -ne (Get-String $identity "externalDependencySetDigest").ToUpperInvariant()) {
+        Add-Error "$Name identity externalDependencySetDigest does not match name-sorted externalDependencies."
     }
     try {
         $started = [DateTimeOffset]::Parse((Get-String $identity "runStartedAtUtc"), [Globalization.CultureInfo]::InvariantCulture)
@@ -106,7 +146,7 @@ function Test-Identity([object]$Report, [string]$Name) {
     }
     $status = Get-String $Report "status"
     if ($status -eq "PASS") {
-        foreach ($field in @("inputManifestSha256", "detectModelSha256", "validationImageSha256", "dllSha256")) {
+        foreach ($field in @("inputManifestSha256", "detectModelSha256", "validationImageSha256", "productAssemblySha256")) {
             if (-not (Is-Sha256 (Get-String $identity $field))) {
                 Add-Error "$Name PASS identity requires $field."
             }
@@ -128,10 +168,15 @@ function Test-IdentitySet([object[]]$Reports) {
     }
 
     $reference = $identities[0].identity
+    if ((Get-String $reference "orchestratorRunId") -eq "local-unbound" -and
+        @($Reports | Where-Object { (Get-String $_.Report "requiredStatus") -eq "PASS" -or (Get-String $_.Report "status") -eq "PASS" }).Count -gt 0) {
+        Add-Error "Positive G2 evidence requires an explicit orchestratorRunId/evidenceSetId; local-unbound reports cannot be assembled across runs."
+    }
     foreach ($entry in $identities | Select-Object -Skip 1) {
         foreach ($field in @(
                 "commitSha", "productVersion", "inputManifestSha256", "detectModelSha256",
-                "validationImageSha256", "dllSha256", "provider", "machineIdentityDigest")) {
+                "validationImageSha256", "productAssemblySha256", "externalDependencySetDigest",
+                "candidateDigest", "evidenceSetId", "orchestratorRunId", "workflowRunId", "machineIdentityDigest")) {
             $expected = Get-String $reference $field
             $actual = Get-String $entry.identity $field
             if (-not [string]::Equals($expected, $actual, [StringComparison]::OrdinalIgnoreCase)) {
@@ -189,6 +234,11 @@ function Test-ReportStatus([object]$Report, [string]$Name) {
 function Test-InputReport([object]$Report) {
     if ($null -eq $Report) { return }
     Test-ReportStatus $Report "input"
+    foreach ($field in @("requiredStatus", "compatibilityStatus", "overallStatus")) {
+        if (-not (Is-Status (Get-String $Report $field))) {
+            Add-Error "input evidence $field must be PASS, NOT_VERIFIED, or BLOCKED."
+        }
+    }
     $expectedLanes = @("Detect", "Classification", "Segmentation", "OBB", "Pose")
     $models = Get-Array $Report "models"
     $actualLanes = @($models | ForEach-Object { Get-String $_ "lane" })
@@ -218,6 +268,18 @@ function Test-InputReport([object]$Report) {
             Add-Error "Detect PASS requires a PASS validation image."
         }
     }
+    $detect = @($models | Where-Object { (Get-String $_ "lane") -eq "Detect" }) | Select-Object -First 1
+    if ((Get-String $detect "status") -eq "PASS" -and (Get-String $Report "requiredStatus") -ne "PASS") {
+        Add-Error "Detect PASS must produce input requiredStatus=PASS independently of optional lanes."
+    }
+    if ((Get-String $detect "status") -ne "PASS" -and (Get-String $Report "requiredStatus") -eq "PASS") {
+        Add-Error "Detect missing or failed input cannot produce requiredStatus=PASS."
+    }
+    $optional = @($models | Where-Object { (Get-String $_ "lane") -ne "Detect" })
+    if (@($optional | Where-Object { (Get-String $_ "status") -eq "BLOCKED" }).Count -gt 0 -and
+        (Get-String $Report "compatibilityStatus") -ne "BLOCKED") {
+        Add-Error "Optional model failure must remain visible as compatibilityStatus=BLOCKED."
+    }
 }
 
 function Test-Benchmark([object]$Benchmark, [string]$Lane, [string]$Provider) {
@@ -242,6 +304,11 @@ function Test-Benchmark([object]$Benchmark, [string]$Lane, [string]$Provider) {
 function Test-ModelMatrix([object]$Report) {
     if ($null -eq $Report) { return }
     Test-ReportStatus $Report "model matrix"
+    foreach ($field in @("requiredStatus", "compatibilityStatus", "overallStatus")) {
+        if (-not (Is-Status (Get-String $Report $field))) {
+            Add-Error "model matrix $field must be PASS, NOT_VERIFIED, or BLOCKED."
+        }
+    }
     $runParameters = Get-PropertyValue $Report "runParameters"
     if ((Get-String $Report "status") -eq "PASS" -and
         ([int](Get-PropertyValue $runParameters "warmupIterations") -lt 100 -or
@@ -250,6 +317,7 @@ function Test-ModelMatrix([object]$Report) {
     }
 
     $lanes = Get-Array $Report "lanes"
+    $detectRecord = $null
     foreach ($lane in @("Detect", "Classification", "Segmentation", "OBB", "Pose")) {
         $records = @($lanes | Where-Object { (Get-String $_ "lane") -eq $lane })
         if ($records.Count -ne 1) {
@@ -257,6 +325,7 @@ function Test-ModelMatrix([object]$Report) {
             continue
         }
         $record = $records[0]
+        if ($lane -eq "Detect") { $detectRecord = $record }
         $cpu = Get-PropertyValue $record "cpu"
         $dml = Get-PropertyValue $record "dml"
         if ((Get-String $cpu "status") -eq "PASS") {
@@ -281,6 +350,24 @@ function Test-ModelMatrix([object]$Report) {
             @((Get-Array $negative "cases") | Where-Object { (Get-String $_ "status") -ne "PASS" }).Count -gt 0) {
             Add-Error "$lane negative contract PASS contains a non-PASS case."
         }
+    }
+    if ($null -ne $detectRecord) {
+        $detectCpu = Get-PropertyValue $detectRecord "cpu"
+        $detectDml = Get-PropertyValue $detectRecord "dml"
+        $detectPass = (Get-String $detectCpu "status") -eq "PASS" -and (Get-String $detectDml "status") -eq "PASS"
+        if ($detectPass -and (Get-String $Report "requiredStatus") -ne "PASS") {
+            Add-Error "Detect CPU and DML PASS must produce model-matrix requiredStatus=PASS."
+        }
+        if (-not $detectPass -and (Get-String $Report "requiredStatus") -eq "PASS") {
+            Add-Error "Detect requiredStatus=PASS requires both actual CPU and DML PASS lanes."
+        }
+    }
+    $optionalRecords = @($lanes | Where-Object { (Get-String $_ "lane") -ne "Detect" })
+    if (@($optionalRecords | Where-Object {
+            (Get-String (Get-PropertyValue $_ "cpu") "status") -eq "BLOCKED" -or
+            (Get-String (Get-PropertyValue $_ "dml") "status") -eq "BLOCKED"
+        }).Count -gt 0 -and (Get-String $Report "compatibilityStatus") -ne "BLOCKED") {
+        Add-Error "Optional model lane failure must remain visible as compatibilityStatus=BLOCKED."
     }
 }
 
@@ -344,6 +431,11 @@ function Test-Isolation([object]$Report) {
 function Test-Soak([object]$Report) {
     if ($null -eq $Report) { return }
     Test-ReportStatus $Report "soak"
+    foreach ($field in @("requiredStatus", "compatibilityStatus", "overallStatus")) {
+        if (-not (Is-Status (Get-String $Report $field))) {
+            Add-Error "soak $field must be PASS, NOT_VERIFIED, or BLOCKED."
+        }
+    }
     $promotionEligibility = Get-String $Report "promotionEligibility"
     if (-not (Is-Status $promotionEligibility)) {
         Add-Error "soak promotionEligibility has invalid status '$promotionEligibility'."
@@ -403,6 +495,16 @@ function Test-Soak([object]$Report) {
             @((Get-Array $scenarioExecution "samples") | Where-Object { (Get-String $_ "status") -ne "PASS" }).Count -gt 0) {
             Add-Error "soak PASS requires every declared scenario sample to execute and match its contract."
         }
+        foreach ($sample in Get-Array $scenarioExecution "samples") {
+            $kind = Get-String $sample "kind"
+            $resultCount = [int](Get-PropertyValue $sample "resultCount")
+            if ($kind -eq "has-target" -and $resultCount -lt 1) { Add-Error "has-target must execute with resultCount >= 1." }
+            if ($kind -eq "no-target" -and $resultCount -ne 0) { Add-Error "no-target must execute with resultCount == 0." }
+            if ($kind -eq "multi-target" -and $resultCount -lt 2) { Add-Error "multi-target must execute with resultCount >= 2." }
+            if ($kind -eq "short-frame" -and (Get-String $sample "injectionBoundary") -ne "camera") { Add-Error "short-frame must be injected at the camera boundary." }
+            if ($kind -eq "wrong-size" -and (Get-String $sample "injectionBoundary") -ne "input-contract") { Add-Error "wrong-size must use the explicit input-size contract." }
+            if ($kind -eq "inference-exception" -and (Get-String $sample "injectionBoundary") -ne "inference") { Add-Error "inference-exception must be injected at the inference boundary." }
+        }
         if ((Get-String $consistency "status") -ne "PASS" -or
             (Get-String $consistency "QueueStatus") -ne "DRAINED" -or
             [long](Get-PropertyValue $consistency "MissingRecords") -ne 0 -or
@@ -415,9 +517,13 @@ function Test-Soak([object]$Report) {
                 Add-Error "soak PASS requires runtime.$name=PASS."
             }
         }
-        if ([int](Get-PropertyValue $runtime "ResidualThreadCount") -ne 0 -or
-            [int](Get-PropertyValue $runtime "ResidualTaskCount") -ne 0) {
-            Add-Error "soak PASS requires zero residual threads and tasks."
+        if ([int](Get-PropertyValue $runtime "ResidualTaskCount") -ne 0 -or
+            -not [bool](Get-PropertyValue $runtime "ownedWorkersExited")) {
+            Add-Error "soak PASS requires all ClearFrost-owned workers and tasks to exit."
+        }
+        if ((Get-String $runtime "threadStabilityStatus") -ne "PASS" -or
+            [int](Get-PropertyValue $runtime "ResidualThreadCount") -gt [int](Get-PropertyValue $runtime "allowedThreadPoolDelta")) {
+            Add-Error "soak PASS requires a stable post-shutdown thread window within the allowed ThreadPool delta."
         }
         $resources = Get-PropertyValue $Report "resources"
         $trend = Get-PropertyValue $resources "trend"
@@ -431,6 +537,7 @@ function Test-Soak([object]$Report) {
             }
         }
         $faults = Get-PropertyValue $Report "faults"
+        $recoveryCycleIds = @{}
         foreach ($fault in (Get-Array $faults "events")) {
             if (-not [bool](Get-PropertyValue $fault "Planned") -or
                 -not [bool](Get-PropertyValue $fault "Injected") -or
@@ -443,6 +550,48 @@ function Test-Soak([object]$Report) {
                 -not [string]::Equals((Get-String $fault "ActualTerminalState"), (Get-String $fault "ExpectedTerminalState"), [StringComparison]::OrdinalIgnoreCase)) {
                 Add-Error "soak PASS contains a fault with an unexpected error code or terminal state."
             }
+            $healthyId = Get-String $fault "NextHealthyInspectionId"
+            if ([string]::IsNullOrWhiteSpace($healthyId)) {
+                Add-Error "soak PASS fault recovery must bind a dedicated following healthy cycle."
+            }
+            elseif ($recoveryCycleIds.ContainsKey($healthyId)) {
+                Add-Error "soak PASS must not use one healthy cycle to recover multiple faults."
+            }
+            else {
+                $recoveryCycleIds[$healthyId] = $true
+            }
+        }
+    }
+}
+
+function Test-ProviderSemantics([object]$Input, [object]$Model, [object]$Migration, [object]$Release, [object]$Isolation, [object]$Soak) {
+    foreach ($entry in @(
+            [pscustomobject]@{ name = "input"; report = $Input },
+            [pscustomobject]@{ name = "migration"; report = $Migration },
+            [pscustomobject]@{ name = "release"; report = $Release },
+            [pscustomobject]@{ name = "isolation"; report = $Isolation })) {
+        $identity = Get-PropertyValue $entry.report "identity"
+        if ($null -ne $identity -and (Get-String $identity "provider") -ne "NOT_APPLICABLE") {
+            Add-Error "$($entry.name) does not execute inference and must state identity.provider=NOT_APPLICABLE."
+        }
+    }
+    if ($null -ne $Model) {
+        $required = Get-String $Model "requiredStatus"
+        $provider = Get-String (Get-PropertyValue $Model "identity") "provider"
+        if ($required -eq "PASS" -and $provider -ne "CPUExecutionProvider;DmlExecutionProvider") {
+            Add-Error "model matrix required PASS must derive identity.provider from actual CPU and DML probes."
+        }
+        if ($required -ne "PASS" -and $provider -ne "NOT_VERIFIED") {
+            Add-Error "model matrix without a verified Detect matrix must state identity.provider=NOT_VERIFIED."
+        }
+    }
+    if ($null -ne $Soak) {
+        $provider = Get-PropertyValue $Soak "provider"
+        $identityProvider = Get-String (Get-PropertyValue $Soak "identity") "provider"
+        $actual = if ($null -eq $provider) { "NOT_VERIFIED" } else { Get-String $provider "executionProvider" }
+        if ([string]::IsNullOrWhiteSpace($actual)) { $actual = "NOT_VERIFIED" }
+        if ($identityProvider -ne $actual) {
+            Add-Error "soak identity.provider must come from DetectionService.RuntimeStatus, not a fixed or environment value."
         }
     }
 }
@@ -527,6 +676,7 @@ Test-Migration $migration
 Test-Release $release
 Test-Isolation $isolation
 Test-Soak $soak
+Test-ProviderSemantics $inputReport $model $migration $release $isolation $soak
 
 $artifactStatuses = @($artifactReports.Values | ForEach-Object { [string]$_.status })
 foreach ($artifact in $artifactReports.GetEnumerator()) {

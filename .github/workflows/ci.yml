@@ -124,6 +124,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet restore .\tools\ClearFrost.MigrationProbe\ClearFrost.MigrationProbe.csproj -p:Platform=x64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet restore .\ClearFrost.Tests\ClearFrost.Tests.csproj -p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build ClearFrost.V6SoakHost
         shell: pwsh
@@ -133,11 +135,22 @@ jobs:
         shell: pwsh
         run: dotnet build .\tools\ClearFrost.MigrationProbe\ClearFrost.MigrationProbe.csproj -c Debug -p:Platform=x64 --no-restore
 
+      - name: Run full test suite
+        shell: pwsh
+        run: dotnet test .\ClearFrost.Tests\ClearFrost.Tests.csproj -c Debug -p:Platform=x64 --no-restore
+
+      - name: Run G2 behavior and positive evidence contracts
+        shell: pwsh
+        run: dotnet test .\ClearFrost.Tests\ClearFrost.Tests.csproj -c Debug -p:Platform=x64 --no-restore --no-build --filter "FullyQualifiedName~V6G2EvidenceContractTests"
+
       - name: Run G2 no-input evidence lane
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $root = $env:GITHUB_WORKSPACE
+          # All reports emitted by this job inherit one orchestrated evidence-set identity.
+          $env:CLEARFROST_V6_G2_ORCHESTRATOR_RUN_ID = "github:$($env:GITHUB_RUN_ID):$($env:GITHUB_RUN_ATTEMPT)"
+          $env:CLEARFROST_V6_G2_EVIDENCE_SET_ID = "v6-g2-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
           $g2Root = Join-Path $root "artifacts\v6-g2"
           $modelsRoot = Join-Path $g2Root "models"
           $publishRoot = Join-Path $g2Root "publish"
