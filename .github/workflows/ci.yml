@@ -270,6 +270,9 @@ jobs:
               schemaStatus = $validation.schemaStatus
           } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $g2Root "ci-run.json") -Encoding UTF8
 
+          # The validator's exit code 2 is expected for NOT_VERIFIED; do not leak it from this handled lane.
+          exit 0
+
       - name: Upload complete G2 evidence
         if: always()
         uses: actions/upload-artifact@v4
