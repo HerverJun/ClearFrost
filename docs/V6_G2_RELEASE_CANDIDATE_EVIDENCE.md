@@ -17,7 +17,7 @@
 
 本轮 Initial SHA 为 `3679eec319ad146fce41af724ec810c9cd681d69`，分支为 `V6_test`，并与 `github/V6_test` 一致。基线 `github/main` 为 `4d843a9f490e7680f2ac72f31993dcaac3b63bc6`；基线最新 Actions run 为 [30714980695](https://github.com/HerverJun/ClearFrost/actions/runs/30714980695)，head 为 Initial SHA，状态为 `completed / success`。本轮不修改 `main`、不创建 Tag/Release。
 
-此前 G1 相关提交的远端 runs 仍可由 Actions 历史复核；本轮最终提交 SHA、远端 run、G1 artifact 和 G2 artifact 在任务完成后的最终报告中记录。该工作流的 enforcement 同时检查 gate outcome、Evidence schema 和 G2 development validation。
+本轮最终提交 SHA 为 `ae10117aa46b60d248ce773ef6f7448c563be4d6`。远端 [Actions run 30736283644](https://github.com/HerverJun/ClearFrost/actions/runs/30736283644) 以该 SHA 执行并最终 `completed / success`；`v6-gate` job 为 [91465545002](https://github.com/HerverJun/ClearFrost/actions/runs/30736283644/job/91465545002)，`v6-g2-development` job 为 [91465544990](https://github.com/HerverJun/ClearFrost/actions/runs/30736283644/job/91465544990)。对应 artifact：[G1 v6-gate-evidence](https://github.com/HerverJun/ClearFrost/actions/runs/30736283644/artifacts/8829702929)、[G2 v6-g2-development](https://github.com/HerverJun/ClearFrost/actions/runs/30736283644/artifacts/8829686264)。G1 `evidence.json` 交叉确认 commit/head/remoteV6Test/GITHUB SHA 均一致、`mainSha` 为 `4d843a9f490e7680f2ac72f31993dcaac3b63bc6` 且工作树干净；G2 `ci-run.json` 为 `aggregateStatus=NOT_VERIFIED`、`schemaStatus=PASS`，统一 validator 为 `errors=[]`。此前 run [30736080207](https://github.com/HerverJun/ClearFrost/actions/runs/30736080207) 的 G2 job 按预期因未处理 validator 的合同退出码而失败，未被用作最终证据；修正后的 run 才是本轮最终结果。该工作流的 enforcement 同时检查 gate outcome、Evidence schema 和 G2 development validation。
 
 ## 外部输入合同
 
@@ -66,14 +66,14 @@ Soak host 支持外部 scenario manifest，样本必须绑定 SHA-256、字节�
 
 | 证据 | 入口 | 当前状态 |
 | --- | --- | --- |
-| G1 gate | `artifacts/v6-gate/evidence.json` | 远端 run success |
+| G1 gate | `artifacts/v6-gate/evidence.json` | [run 30736283644](https://github.com/HerverJun/ClearFrost/actions/runs/30736283644) success |
 | 外部输入 | `artifacts/v6-g2/models/external-inputs.json` | `NOT_VERIFIED` |
 | 模型矩阵 | `artifacts/v6-g2/models/model-matrix.json` | `NOT_VERIFIED` |
 | MigrationProbe | `artifacts/v6-g2/migration/migration-evidence.json` | config-import lab `PASS`, real upgrade `NOT_VERIFIED` |
 | 发布实验室 | `artifacts/v6-g2/publish/release-lab-evidence.json` | `NOT_VERIFIED` |
 | 隔离与迁移 | `artifacts/v6-g2/publish/isolation-evidence.json` | migration `PASS`, startup `NOT_VERIFIED` |
 | soak | `artifacts/v6-g2/soak/soak-evidence.json` | `NOT_VERIFIED` |
-| 统一 schema | `artifacts/v6-g2/evidence-schema.json` | schema `PASS`, aggregate `NOT_VERIFIED` |
+| 统一 schema | `artifacts/v6-g2/validation/evidence-validation.json` | schema `PASS`, aggregate `NOT_VERIFIED` |
 
 统一检查入口为 `tools/validate_v6_g2_evidence.ps1`。它只接受 `PASS`、`NOT_VERIFIED`、`BLOCKED` 三种状态，并把 input、model、migration、release、isolation、soak 六份报告纳入同一身份集合，交叉检查 Commit SHA、产品版本、manifest/model/image/DLL hash、Provider 和机器摘要。它还检查 schema、SHA/字节数、CPU/DML Provider、发布 exit code、config-import lab、隔离回滚、队列排空、最终一致性和禁止 release mutation 等约束。
 
